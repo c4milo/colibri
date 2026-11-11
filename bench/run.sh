@@ -99,6 +99,8 @@ readonly tls_suite=TLS_AES_256_GCM_SHA384
 source "$repository_root/bench/run_h3.sh"
 # shellcheck source-path=SCRIPTDIR source=run_profile.sh
 source "$repository_root/bench/run_profile.sh"
+# shellcheck source-path=SCRIPTDIR source=run_servers.sh
+source "$repository_root/bench/run_servers.sh"
 check_profile
 
 scratch="$(mktemp -d)"
@@ -255,57 +257,6 @@ fail() {  # fail <message> <server log>
   echo "run.sh: the sockets on port $port:" >&2
   { sudo -n ss -tuanp "sport = :$port" 2>/dev/null || ss -tuan "sport = :$port"; } >&2 || true
   exit 1
-}
-
-# Writes a competitor's configuration from bench/competitors/ into the scratch directory. @SSL@
-# goes first, because what it writes for h2o names @CHAIN@ and @KEY@ in turn. h2o's `user: root`
-# line stays only when root runs this script, as its configuration says why.
-render() {  # render <competitor> <ssl>
-  local drop_user_line=(-e "/^user: root\$/d")
-  if [ "$(id -u)" -eq 0 ]; then drop_user_line=(); fi
-  sed -e "s|@SSL@|$2|g" -e "s|@PORT@|$port|g" -e "s|@SCRATCH@|$scratch|g" \
-    -e "s|@CHAIN@|$identity.chain.pem|g" -e "s|@KEY@|$identity.key.pem|g" "${drop_user_line[@]}" \
-    "$repository_root/bench/competitors/$1.conf" >"$scratch/$1.conf"
-}
-
-# The command that serves <input> as <variant>, into the array `command`: colibri's server built
-# from the change or from the base, or a competitor configured for cleartext or for TLS.
-server_command() {  # server_command <variant> <input>
-  local tls=""
-  case "$2" in *-tls-*) tls=yes ;; esac
-  case "$1" in
-    nginx)
-      # The listen parameters. nginx 1.24 speaks no h11 on a cleartext port that has http2, and
-      # over TLS it chooses by ALPN.
-      local listen=http2
-      case "$2" in h11-*) listen="" ;; esac
-      if [ -n "$tls" ]; then listen="ssl http2"; fi
-      render nginx "$listen"
-      command=(nginx -p "$scratch" -e "$scratch/nginx.error.log" -c "$scratch/nginx.conf")
-      ;;
-    h2o)
-      if [ -n "$tls" ]; then
-        render h2o ", ssl: {certificate-file: @CHAIN@, key-file: @KEY@}"
-      else
-        render h2o ""
-      fi
-      command=(h2o -c "$scratch/h2o.conf")
-      ;;
-    hyper)
-      command=("$hyper_server" --port "$port")
-      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
-      ;;
-    httpz)
-      command=("$httpz_server" --port "$port")
-      ;;
-    *)
-      if [[ "$2" == h3-* ]]; then quic_server_command "$1" "$2"; return; fi
-      if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
-      command+=(--port "$port")
-      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
-      if [[ "$2" == *-routes-* ]]; then command+=(--routes github); fi
-      ;;
-  esac
 }
 
 start_server() {  # start_server <variant> <input> <log>
