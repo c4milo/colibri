@@ -51,8 +51,9 @@ pub const Records = struct {
     /// Events read.
     events: u64 = 0,
 
-    /// Reads each record of `octets`, which a log held, writing each name, string and number into
-    /// `storage`, which must hold the longest of them.
+    /// Reads each record of `octets`, which a log held. stdx's reader writes a name, a string or a
+    /// number into `storage` only where an escape changed its octets, and `storage` must hold the
+    /// longest of them.
     pub fn check(records: *Records, octets: []const u8, storage: []u8) Error!void {
         // stdx's scalar paths, as the simulator's writer takes: the items are the same for every
         // value (stdx's invariant 5).
