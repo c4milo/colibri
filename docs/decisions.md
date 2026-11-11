@@ -7049,6 +7049,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
            `cocuyo.Timestamp`, with the same two fields.
          - The rename breaks each caller, so it ships in v0.16.0. The separate fields of the
            client, such as `colibri.ClientConfig.unix_seconds`, are outside this amendment.
+     20. Amended by decision 159 on 2026-11-10, for amendment 18 (decision 159's ruling 7 of that
+         day). Each name of the error sets is on both kinds:
+         - `colibri.Server.InitError` joins the `Server` list. On `.hosted` it is
+           `identity.LoadError || server.StartError`, because a hosted server reads its identity.
+         - A hosted `Client.InitError` is `client.StartError`. Its `RunError` and `FetchError` are
+           `error{}`, because a hosted client has no `run` and no `fetch`.
+         - This replaces "apply to `.private` alone", "`server.StartError` or
+           `client.StartError` alone" and "`.hosted` has no `RunError`" in amendment 18.
 
      What the amended decisions now say:
      - Decisions 35 and 125: the comptime count of a server is `server.Engine(capacity)`, not
@@ -7638,10 +7646,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the `OperationId`" above.
      - The source part of `rotor-import` reads the import with pepegrillo's `imported_path`, not
        with `forbidden_references`. `const r = @import("rotor")` passes `forbidden_references`,
-       which reads chains such as `rotor.Loop`.
+       which reads chains such as `rotor.Loop`. This replaces "It uses pepegrillo's
+       `forbidden_references`" in the lint rule above.
      - The `io` exemption covers 11 exact paths: the five files of the adapter, its two test
        files, and four loopback tests of `.private` that open sockets. pepegrillo's `Scope`
-       names exact paths, so a new file of the adapter joins the list.
+       names exact paths, so a new file of the adapter joins the list. This replaces the
+       exemption of `src/colibri/rotor_host*.zig` alone in the lint rule above.
      - The adapter of `examples/colibri_shared_rotor.zig` is about 140 lines, not 120. The
        generic type scored 41 on cognitive complexity, so it became free functions.
      - The examples name the variable `hosted_client`, because `client` names the module that
@@ -7652,7 +7662,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        alone: 44g gave it a `client.Destination`, so it parses no host.
      - A hosted server names its h3 alternative in `engine.h3_alternative` itself, because its
        host knows the port and colibri does not (RFC 7838 §3).
-     - A hosted client's `RunError` and `FetchError` are `error{}`.
+     - A hosted client's `RunError` and `FetchError` are `error{}`. This replaces "`.hosted` has
+       no `RunError`" in the error sets above.
      - A `cancel` operation carries its target's id and gets no completion of its own.
      - `.private` keeps the error at `init` when the system refuses the UDP socket of the
        destination's family. The socket of the other family may fail with no error, and an
@@ -7662,6 +7673,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        text said the `Features` of the destination's family.
      - Rotor's decision 33, proposed, adds a call `wait_until` to Rotor's core. colibri does
        not use it.
+
+     The two reviews of these rulings, on 2026-11-10, found these. The code and the records now
+     agree with this decision:
+     - A failed TCP socket of a server ended its connection inside its `complete`, so a route's
+       `on_finished` ran there, against ruling 6. The engine's events now wait for the next
+       turn. Only a `complete` that gives a datagram runs a handler or a route.
+     - colibri halts with its message when the host's instant goes back: in `turn`, in
+       `complete`, in a hosted `cancel`, and from the `now` of `init` (rule 6). Only a hosted
+       `cancel` asserted it before.
+     - colibri's Rotor adapter submits Rotor's `Operation.shutdown` of the send side for
+       `shutdown_send` (ruling 9). It is in Rotor v0.10.0's core. It joins the Rotor calls that
+       the adapter uses, and the parts of answer 8 that Rotor's core must keep.
 
 160. **The h11 server reads the rest of a body that its response did not wait for, or closes in
      stages.** Ruled by the owner on 2026-11-09, for v0.16.0 (design §8 step 47). connectrpc's
@@ -7691,7 +7714,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           a program that drives h11 itself. The server passes its limit.
         - `server.Event.half_close`, the one new call that a program makes: it closes the write
           side of a socket. The `colibri` module and `src/testing`'s endpoints submit Rotor's
-          `shutdown` operation for it.
+          `shutdown` operation for it. Item 6 amends this for the `colibri` module.
 
         The new field breaks a program whose `switch` names every field of `server.Event` and
         has no `else`. The owner ruled on 2026-11-10 that this work ships in v0.16.0 for that
@@ -7711,6 +7734,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           Only the read finds where a chunked body ends.
 
         After each of the two, the half-close tells the client that the connection closes.
+     6. Amended by decision 159 on 2026-11-10, for item 4 (decision 159's ruling 9 of that day).
+        In the `colibri` module, the driver writes the host operation `shutdown_send` for
+        `half_close`. On `.hosted` the program's host shuts down the write side. On `.private`
+        colibri's Rotor adapter submits Rotor's `shutdown` of the send side. `src/testing`'s
+        endpoints submit Rotor's `shutdown` themselves, as item 4 says.
 
      Alternatives that lost:
      - Close at once, as before. The client can read a reset in place of the response.

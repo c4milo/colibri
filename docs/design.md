@@ -73,7 +73,7 @@ h2, h3, tls, rotor <- testing_udp
 h2, quic, tls    <- testing_quic
 core, qpack      <- testing_qif
 core, http, h11, h2, h3, quic, tls <- client, server
-core, http, server, client, tls, rotor <- colibri
+core, http, server, client, tls, rotor (lazy, decision 159) <- colibri
 testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and client compile from
 ```
 
@@ -95,7 +95,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `dnssec` | DNSSEC's signature checks and DS digests over chapulin's TCP object, the one `tls` links ([decision 142](decisions.md)) | `core` for its tests' lists, and chapulin's TCP object, built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
 | `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
 | `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
-| `colibri` | the one library module that does I/O: `colibri.Server` and `colibri.Client` bind the sockets and run `server` and `client` on Rotor's loop ([decisions 150 and 153](decisions.md)) | `core`, `http`, `server`, `client`, `tls`, and Rotor ([decision 150](decisions.md) ruling 6) | — |
+| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | `core`, `http`, `server`, `client`, `tls`, and Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
@@ -14667,6 +14667,11 @@ library.
       `complete` that gives a datagram (ruling 6).
     - "`.hosted`: `init` returns `server.StartError`": a hosted server returns
       `identity.LoadError || server.StartError`, and names it `InitError` (ruling 7).
+    - "`.hosted` has no `RunError`": a hosted client names `RunError` and `FetchError`, and each
+      is `error{}`.
+    - "The `io` rule narrows its exemption from `src/colibri/` to `src/colibri/rotor_host*.zig`":
+      the exemption covers 11 exact paths: the five files of the adapter, its two test files,
+      and four loopback tests of `.private`.
     - "`user_data` is the `OperationId`": the adapter puts its own tag in the high 32 bits.
     - "A hosted server, which 44d adds, does no half-close" (44c): ruling 9 replaces the bridge.
   - **The commits of the rulings**, on the replay of step 44 onto main, on macOS arm64 (kqueue)
@@ -14709,6 +14714,45 @@ library.
       the compile of each caller.
     - This commit, `docs`: decision 159's amendment, decision 150's item 14, decision 156's
       ninth amendment, this record, and docs/usage.md's rules of the host.
+    - Before each code commit, each of these returned 0: `zig fmt --check build.zig bench build
+      examples src tools`, `zig build lint`, `zig build test`, `zig build examples`,
+      `tools/doc_snippets.sh`, `tools/consumer_check.sh`, `zig build colibri-hosted-check`,
+      `zig build colibri-loop-check` and `zig build bench-memory`, whose table did not change.
+      `zig build lint-commits` returned 0 after each commit.
+    - Not run: the bench on the judge, which still owes `h2-many` and `h3-many` for 44c to 44h;
+      the checks of `tools/ci.sh` that need Linux or the judge; and the TLA+ models.
+  - **The reviews of the rulings**: two reviews of `0a57459a`, on main's `666d26db`, on
+    2026-11-10. Each finding was checked against the code. The commits, on macOS arm64 (kqueue)
+    with Zig 0.16.0:
+    - `293b5990` `fix(colibri)`: a failed TCP socket of a server drained the engine inside its
+      `complete`, so a route's `on_finished` ran there, against ruling 6. The engine's events
+      now wait for the next turn. Two tests cover a failed shutdown, which ends the connection in
+      the next turn, and the next connection of a socket, which takes no `half_closing` from the
+      last one.
+      - Mutations, against `zig build test-colibri`, each CAUGHT: the drain inside `complete`;
+        no drain owed; a failed shutdown not passed to the engine; a reused entry that keeps
+        `half_closing`.
+    - `c30da7af` `fix(colibri)`: colibri halts with its message when the host's instant goes
+      back: in `turn`, in `complete`, in a hosted `cancel`, and from the `now` of `init` (rule
+      6). `zig build colibri-loop-check` gains five halt cases.
+      - Mutations, against `zig build colibri-loop-check`, each CAUGHT: no halt; no check in the
+        server's `turn` or `complete`, in the client's `turn` or `complete`, or in a hosted
+        `cancel`; no `now` kept at a hosted client's `init`; a server's start that keeps
+        instant 0.
+    - `4c15a14a` `fix(colibri)`: the close of `examples/colibri_hosted.zig` ends a send that
+      waits for room on the link (rule 1).
+      - Mutation: the send not ended, NOT CAUGHT by `zig build example-colibri_hosted`. The
+        example's two GETs never hold a send when a socket closes, and an example has no test.
+        The driver's side, a close while a send is in flight, has its test in `socket.zig`.
+    - This commit, `docs`: decision 158's amendment 20, decision 159's amendment, decision 160's
+      item 6, the module graph of design §3, INV-2, the two sentences above, and the sketches
+      of a host in docs/usage.md, which now do `shutdown_send`.
+    - Not a gap: m11 of the first review, a half-close owed before the close_notify, is NOT
+      CAUGHT by `zig build test-colibri`, because the driver steps the engine whole before it
+      writes the shutdown. `zig build test-server` catches it in `engine_staged_close_test`.
+    - For the owner: `client.ConnectionPool.init` takes its destination by value, which is over
+      16 bytes. Ruling 8 names `set_destination` alone. Rotor's session does not know yet that
+      the adapter uses Rotor's `Operation.shutdown`.
     - Before each code commit, each of these returned 0: `zig fmt --check build.zig bench build
       examples src tools`, `zig build lint`, `zig build test`, `zig build examples`,
       `tools/doc_snippets.sh`, `tools/consumer_check.sh`, `zig build colibri-hosted-check`,

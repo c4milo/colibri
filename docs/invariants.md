@@ -58,8 +58,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Mechanism.** The module graph gives no module access to `std.posix`, `std.fs`, `std.net`,
   `std.Thread` or `std.time`. Every function that would block returns the I/O it needs instead.
 - **Check.** Lint rule (`tools/lint/io.zig`, an import denylist over `src/` excluding
-  `src/testing/`, which design §9 makes a place a socket may be opened, and `src/colibri/`, which
-  decision 150 makes the other). Step 0.
+  `src/testing/`, which design §9 makes a place a socket may be opened, and 11 exact paths of
+  `src/colibri/`). The 11 paths are the five files of colibri's Rotor adapter of `.private`,
+  which decision 150 makes the other place, and six tests of `.private` on loopback. The rest of
+  `src/colibri/` is the driver, which does no I/O (decision 159 as amended on 2026-11-10). Step 0.
 - **Violation.** A convenience helper that takes a socket "just for the test server" and is written
   in a library module instead of in `src/testing/`.
 - See [decisions 6](decisions.md#what-the-caller-supplies).

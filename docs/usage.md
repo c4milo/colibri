@@ -470,7 +470,7 @@ On `std.Io`, one task runs the turns, and each operation is a call that a future
 ```text
 loop:
     turned = object.turn(now_ns, &operations)
-    for each operation: start the std.Io call (accept, connect, read, write, close)
+    for each operation: start the std.Io call (accept, connect, read, write, shutdown, close)
                         and keep its future by the operation's id
     wait until a future completes, or until turned.wait.at_ns
     for each future that completed: object.complete(&completion, now_ns)
@@ -481,7 +481,7 @@ On libxev, each operation is an `xev.Completion` whose callback calls `complete`
 ```text
 on each tick:
     turned = object.turn(loop.now(), &operations)
-    for each operation: xev.TCP.accept / connect / read / write / close with a callback
+    for each operation: xev.TCP.accept / connect / read / write / shutdown / close with a callback
     the callback: object.complete(&completion, loop.now()), then mark "turn again"
     arm an xev.Timer for turned.wait.at_ns
 ```
