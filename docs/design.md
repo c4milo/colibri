@@ -5436,6 +5436,45 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         X25519MLKEM768 from oha's offer, and axum's rustls chooses X25519. So colibri's first
         flight carries an ML-KEM-768 ciphertext, 1,176 octets more, and oha takes longer to
         read it. The group is chapulin's choice, and colibri does not set it (non-negotiable 2).
+    - **The tail of a long load, 2026-11-10.** Over h2 at 40,000 req/s, the p99.9 rose with the
+      time of the load for colibri and axum alike: 2.2 ms to 3.1 ms at 5 s, and 12.6 ms to
+      16.8 ms at 40 s. The owner asked for the cause.
+      - Judge run [42932463587](https://github.com/c4milo/colibri/actions/runs/42932463587), on
+        `7445a53a`, a branch not on main, loaded each server over h2 at 40,000 req/s for 5 s and
+        for 40 s, in 3 rounds. oha wrote each request to its database, with `--db-url`, and
+        tcpdump captured each whole load. No capture dropped a packet. The run kept each request
+        slower than 2 ms, and the data segments of each direction in each millisecond.
+      - oha stops at each power of two of its count of requests. In the stop, no data segment
+        goes in either direction. The silence of oha's side, in ms, over each load that
+        reached the count:
+
+        | oha's count of requests | Instant at 40,000 req/s | oha silent |
+        | --- | --- | --- |
+        | 65,536 | 1.64 s | 2 to 4 |
+        | 131,072 | 3.28 s | 6 to 7 |
+        | 262,144 | 6.55 s | 12 to 16 |
+        | 524,288 | 13.11 s | 27 to 30 |
+        | 1,048,576 | 26.22 s | 54 to 58 |
+
+        Each server has the stops at the same counts, and a server cannot see oha's count. The
+        silence doubles each time the count doubles, as a copy of a store that doubles would.
+      - oha also plans no request in a stop. It plans the requests due in the stop after the
+        stop ends, so its latency correction misses most of each stop.
+      - After each stop, oha sends the requests it holds as fast as the answers come back. After
+        the stop at 1,048,576, the requests over 5 ms span 35 ms to 47 ms of planned starts
+        against colibri, with a worst of 21 ms to 25 ms. Against axum they span 50 ms to 73 ms,
+        with a worst of 26 ms to 32 ms.
+      - The p99 and the p99.9 in ms, ranges over both jobs:
+
+        | Load | colibri p99 | axum p99 | colibri p99.9 | axum p99.9 |
+        | --- | --- | --- | --- | --- |
+        | 5 s | 1.24 to 1.30 | 1.99 to 2.07 | 2.86 to 3.19 | 2.80 to 4.01 |
+        | 40 s | 1.33 to 1.42 | 2.07 to 2.17 | 13.54 to 16.59 | 17.43 to 22.85 |
+
+      - So the p99.9 of a load measures oha's stops. A 5 s load at 40,000 req/s holds the stops
+        at 65,536 and 131,072, and a longer load holds the longer stops too. The p99 does not
+        change: the requests over 5 ms are 0.33% to 0.46% of a 40 s load. The servers differ
+        only in how fast the requests that oha holds after a stop are answered.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
