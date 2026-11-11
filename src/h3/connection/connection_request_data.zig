@@ -195,8 +195,8 @@ fn unread(id: u64) u64 {
 }
 
 /// Whether the client owes the peer a MAX_STREAM_DATA on stream `id` (RFC 9000 §19.10).
-fn owes_stream_credit(id: u64) bool {
-    return client.transport.streams.lookup(.{ .value = id }).live.receive_flow.owes_credit();
+fn stream_credit_due(id: u64) bool {
+    return client.transport.streams.lookup(.{ .value = id }).live.receive_flow.credit_due();
 }
 
 /// Where the tests copy held content with `peek_data`. Test-only.
@@ -221,10 +221,10 @@ test "RFC 9000 §4.1: a held stream gives no credit before release_data, and owe
     // The stream reads nothing more while the caller holds its content.
     try testing.expectEqual(null, try next(client));
     try testing.expectEqual(held_content_len, unread(id));
-    try testing.expect(!owes_stream_credit(id));
+    try testing.expect(!stream_credit_due(id));
     client.h3.release_data(&client.transport, id, held.len);
     try testing.expectEqual(0, unread(id));
-    try testing.expect(owes_stream_credit(id));
+    try testing.expect(stream_credit_due(id));
     try testing.expectEqual(null, try next(client));
 }
 

@@ -319,7 +319,7 @@ pub const Connection = struct {
             // A `receive`, with no octets too, stages each flight of the handshake in the records,
             // and the pool reads its connection so before it asks for a `send`.
             .handshake, .closed => false,
-            .open => internal.owes_when_open(connection),
+            .open => internal.should_send_when_open(connection),
         };
     }
 

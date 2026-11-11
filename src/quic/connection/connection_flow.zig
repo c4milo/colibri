@@ -77,7 +77,7 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
 }
 
 /// Whether this endpoint owes its peer credit it has not sent: a MAX_DATA, MAX_STREAMS or
-/// MAX_STREAM_DATA frame whose new limit is worth one (`Receiver.owes_credit_below`), or one lost
+/// MAX_STREAM_DATA frame whose new limit is worth one (`Receiver.credit_due_below`), or one lost
 /// and owed again (§13.3). RFC 9002 §7 holds these back with every ack-eliciting frame while the
 /// congestion window is full, and a peer that needs the credit waits on this endpoint then
 /// (decision 110 as amended).
@@ -90,7 +90,7 @@ pub fn credit_owed(connection: *Connection) bool {
 pub fn count_credit_owed(connection: *const Connection) bool {
     const streams = &connection.streams;
     for (streams.peer_limit, streams.max_streams) |count, frame| {
-        if (count.owes_count_credit() or frame.owed) return true;
+        if (count.count_credit_due() or frame.owed) return true;
     }
     return false;
 }
@@ -101,7 +101,7 @@ pub fn count_credit_owed(connection: *const Connection) bool {
 /// (decision 130).
 pub fn data_credit_owed(connection: *Connection) bool {
     const credit_floor = connection_module.receive_credit_floor(connection);
-    if (connection.receive_flow.owes_credit_below(credit_floor) or connection.max_data.owed) return true;
+    if (connection.receive_flow.credit_due_below(credit_floor) or connection.max_data.owed) return true;
     const streams = &connection.streams;
     // Design §8 step 29d.10: only a marked slot may owe credit. The walk reads a copy, because it
     // clears the marks of streams that left "Recv".
@@ -115,7 +115,7 @@ pub fn data_credit_owed(connection: *Connection) bool {
             streams.may_owe_credit.unset(index);
             continue;
         }
-        if (stream.receive_flow.owes_credit() or stream.max_stream_data.owed) return true;
+        if (stream.receive_flow.credit_due() or stream.max_stream_data.owed) return true;
     }
     return false;
 }
@@ -372,7 +372,7 @@ fn stream_reserve(window: u64) u64 {
 }
 
 /// The connection's credit left to the peer below which one consumed octet is worth a MAX_DATA
-/// frame (decision 49 as amended, `flow.Receiver.owes_credit_below`): the part of the pool that
+/// frame (decision 49 as amended, `flow.Receiver.credit_due_below`): the part of the pool that
 /// a stream of the largest starting window leaves free at its cap. In a pool of two such windows
 /// or more, that is its reserve, so a held stream cannot keep the other streams from it. A
 /// stream that can fill the pool leaves none, and a connection with no pool caps no window, so

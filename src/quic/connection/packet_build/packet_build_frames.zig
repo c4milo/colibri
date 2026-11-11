@@ -99,7 +99,7 @@ pub fn write(
     // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
     // containing a CONNECTION_CLOSE frame", so once one is owed it is the only frame written.
     // Nothing else would be read: §10.2.2 puts the peer into the draining state on reading it.
-    if (connection_close.owes(connection)) {
+    if (connection_close.close_due(connection)) {
         const close_len = connection_close.write(connection, level, payload[0..budget]);
         // §13.2.1, Table 3's N marking: a CONNECTION_CLOSE elicits no acknowledgment, because
         // there is no longer a connection to acknowledge it on.

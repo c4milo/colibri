@@ -407,7 +407,7 @@ pub const Connection = struct {
 
     /// Whether colibri owes the peer a WINDOW_UPDATE it has not written (RFC 9113 §6.9).
     pub fn owes_window_update(connection: *const Connection) bool {
-        return connection.replies.owes_window_update() or connection.stream_credit_waiting;
+        return connection.replies.window_update_due() or connection.stream_credit_waiting;
     }
 
     /// Whether the peer broke the protocol and the connection is closing (RFC 9113 §5.4.1), or

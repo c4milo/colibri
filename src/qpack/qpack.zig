@@ -30,7 +30,7 @@ pub const Encoder = files.encoder.Encoder;
 pub const Decoder = files.decoder.Decoder;
 
 pub const decoder_stream = struct {
-    pub const owes = files.decoder_stream.owes;
+    pub const owes = files.decoder_stream.instructions_due;
 };
 
 pub const instruction = struct {

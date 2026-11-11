@@ -260,7 +260,7 @@ test "RFC 9000 §8.2.1: a PATH_CHALLENGE goes out in an expanded datagram and is
     _ = try walk_back(&server, sent);
     try testing.expectEqualSlices(u8, &challenge_data, &server.path.response_owed.?);
     try testing.expect(client.path.on_response(challenge_data));
-    try testing.expect(!client.path.owes_mtu_validation());
+    try testing.expect(!client.path.mtu_validation_due());
 }
 
 test "RFC 9000 §8.2.2: a PATH_RESPONSE goes out in an expanded datagram" {
@@ -297,7 +297,7 @@ test "RFC 9000 §8.2.1: a datagram the anti-amplification limit bounds is not ex
     // §8.2.3: "the path is validated but not the path MTU. ... the endpoint MUST initiate another
     // path validation with an expanded datagram."
     try testing.expect(server.path.on_response(challenge_data));
-    try testing.expect(server.path.owes_mtu_validation());
+    try testing.expect(server.path.mtu_validation_due());
 }
 
 /// A round trip well under RFC 9002's kInitialRtt of 333 milliseconds, so the current Probe

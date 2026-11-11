@@ -79,7 +79,7 @@ pub const Replies = struct {
     }
 
     /// Whether a WINDOW_UPDATE is owed, on the connection or on a stream (RFC 9113 §6.9).
-    pub fn owes_window_update(replies: *const Replies) bool {
+    pub fn window_update_due(replies: *const Replies) bool {
         if (replies.connection_increment > 0) return true;
         for (replies.stream_replies[0..replies.stream_reply_count]) |reply| {
             if (reply.kind == .window_update) return true;
@@ -370,12 +370,12 @@ test "dropping a stream's owed WINDOW_UPDATE keeps its RST_STREAM and every othe
 
 test "RFC 9113 §6.9: a WINDOW_UPDATE is owed on the connection or on a stream, and a RST_STREAM is none" {
     test_replies.init();
-    try testing.expect(!test_replies.owes_window_update());
+    try testing.expect(!test_replies.window_update_due());
     test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .rst_stream, .value = constants.protocol.error_cancel });
-    try testing.expect(!test_replies.owes_window_update());
+    try testing.expect(!test_replies.window_update_due());
     test_replies.push_stream_reply(.{ .stream_id = 3, .kind = .window_update, .value = 1 });
-    try testing.expect(test_replies.owes_window_update());
+    try testing.expect(test_replies.window_update_due());
     test_replies.init();
     test_replies.add_connection_increment(1);
-    try testing.expect(test_replies.owes_window_update());
+    try testing.expect(test_replies.window_update_due());
 }

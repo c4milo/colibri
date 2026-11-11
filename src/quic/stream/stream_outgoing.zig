@@ -56,7 +56,7 @@ pub const Outgoing = struct {
 
     /// Whether the FIN is still to go out for the first time (RFC 9000 §3.1: the FIN is what
     /// enters "Data Sent").
-    pub fn owes_fin(outgoing: *const Outgoing) bool {
+    pub fn fin_due(outgoing: *const Outgoing) bool {
         return outgoing.finished and !outgoing.fin_framed;
     }
 
@@ -101,11 +101,11 @@ test "§3.1: a stream is all acknowledged once every octet and the FIN are" {
     var outgoing: Outgoing = .{};
     try outgoing.supply(test_len, true);
     try testing.expectEqual(test_len, outgoing.unframed_len());
-    try testing.expect(outgoing.owes_fin());
+    try testing.expect(outgoing.fin_due());
     outgoing.on_framed(test_half_len, false);
     outgoing.on_framed(test_half_len, true);
     try testing.expectEqual(0, outgoing.unframed_len());
-    try testing.expect(!outgoing.owes_fin());
+    try testing.expect(!outgoing.fin_due());
 
     // The second half and the FIN arrive first, which the count does not mind.
     outgoing.on_acknowledged(test_half_len, true);
@@ -129,7 +129,7 @@ test "§3.1: every octet acknowledged is not all, while the FIN is not" {
 test "§3.1: a stream the caller has not ended is never all acknowledged" {
     var outgoing: Outgoing = .{};
     try outgoing.supply(test_len, false);
-    try testing.expect(!outgoing.owes_fin());
+    try testing.expect(!outgoing.fin_due());
     outgoing.on_framed(test_len, false);
     outgoing.on_acknowledged(test_len, false);
     try testing.expect(!outgoing.is_all_acknowledged());

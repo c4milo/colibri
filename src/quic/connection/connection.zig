@@ -208,7 +208,7 @@ pub const Connection = struct {
     pub const owe_keep_alive = connection_idle.owe_keep_alive;
     pub const keep_alive_owed = connection_idle.keep_alive_owed;
     pub const owe_close = connection_close.owe;
-    pub const owes_close = connection_close.owes;
+    pub const owes_close = connection_close.close_due;
     // What a caller does with a stream: open it, supply its octets, read what arrived, and end it.
     pub const open_stream = stream_send.open;
     pub const OpenStreamError = stream_table.OpenError;

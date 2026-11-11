@@ -260,7 +260,7 @@ fn revert(connection: *Connection, fired: *Fired) void {
 
 /// Whether the previous path has a PATH_CHALLENGE waiting to go out, which `connection_send`
 /// sends in a datagram of its own.
-pub fn owes_previous_probe(connection: *const Connection) bool {
+pub fn previous_probe_due(connection: *const Connection) bool {
     const previous = connection.migration.previous orelse return false;
     return previous.challenge_owed != null;
 }

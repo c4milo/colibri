@@ -166,7 +166,7 @@ pub const Decoder = struct {
 
     /// Whether `write_decoder_stream` has anything to write (RFC 9204 §4.4).
     pub fn owes(decoder: *const Decoder) bool {
-        return decoder_stream.owes(decoder);
+        return decoder_stream.instructions_due(decoder);
     }
 
     /// A blocked stream whose section the dynamic table can now decode, the one blocked longest,

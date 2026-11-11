@@ -45,7 +45,7 @@ pub fn staged(connection: *const Connection) bool {
 
 /// Whether the engine reports `half_close` now: the connection closes in stages, and the response
 /// is out, over TLS with the `close_notify` (RFC 9846 §6.1).
-pub fn owes_half_close(connection: *const Connection) bool {
+pub fn should_half_close(connection: *const Connection) bool {
     if (connection.clock.half_close_since_ns != null or connection.output_len > 0) return false;
     if (!staged(connection) or !finished(connection)) return false;
     return connection.config.tls == null or connection.close_sent;
@@ -53,7 +53,7 @@ pub fn owes_half_close(connection: *const Connection) bool {
 
 /// The engine reported `half_close` at `now_ns`, from which `half_close_ns` runs (decision 160).
 pub fn half_close(connection: *Connection, now_ns: u64) void {
-    assert(owes_half_close(connection));
+    assert(should_half_close(connection));
     connection.clock.half_close_since_ns = now_ns;
 }
 

@@ -90,11 +90,11 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     try testing.expectEqual(1, received.event.?.request.id.number);
     // Decision 119: the answer alone does not make `send` owe an octet. The provider writes it in
     // front of the next record of data.
-    try testing.expect(!connection_owed.owes_octets(connection));
+    try testing.expect(!connection_owed.should_send(connection));
     // RFC 9846 §4.7.3: the answer is sent "prior to sending its next Application Data record".
     try connection.respond(received.event.?.request.id.number, .{ .status = ok, .end = true });
     try expect_answer_first(support.drain());
-    try testing.expect(!connection_owed.owes_octets(connection));
+    try testing.expect(!connection_owed.should_send(connection));
 }
 
 test "RFC 9846 §4.7.3: the connection reads a second KeyUpdate that asks while the answer is owed, and one answer serves both" {

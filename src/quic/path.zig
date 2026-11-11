@@ -276,7 +276,7 @@ pub const Path = struct {
 
     /// Whether a second validation is owed, with a datagram large enough to test the MTU
     /// (RFC 9000 §8.2.1, §8.2.3).
-    pub fn owes_mtu_validation(path: *const Path) bool {
+    pub fn mtu_validation_due(path: *const Path) bool {
         return path.validated and !path.mtu_validated;
     }
 };
@@ -337,7 +337,7 @@ test "§8: a validated path has no limit" {
     try testing.expect(test_path.on_response(challenge_a));
     try testing.expectEqual(State.validated, test_path.state());
     try testing.expect(!test_path.is_amplification_limited(std.math.maxInt(u32)));
-    try testing.expect(!test_path.owes_mtu_validation());
+    try testing.expect(!test_path.mtu_validation_due());
 }
 
 test "§8.2.3: only the data of the challenge that went out validates the path" {
@@ -360,16 +360,16 @@ test "§8.2.3: a challenge in a small datagram validates the address and not the
     try testing.expect(test_path.on_response(challenge_a));
     try testing.expectEqual(State.validated, test_path.state());
     // RFC 9000 §8.2.3: the endpoint MUST initiate another validation with an expanded datagram.
-    try testing.expect(test_path.owes_mtu_validation());
+    try testing.expect(test_path.mtu_validation_due());
     test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_b));
-    try testing.expect(!test_path.owes_mtu_validation());
+    try testing.expect(!test_path.mtu_validation_due());
 
     // A small datagram afterwards does not unsettle what the expanded one showed: §8.2.3 asks
     // for the path MTU to be verified once, not for every probe to verify it again.
     test_path.on_challenge_sent(challenge_a, small_len, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_a));
-    try testing.expect(!test_path.owes_mtu_validation());
+    try testing.expect(!test_path.mtu_validation_due());
 }
 
 test "§8.2.4: a challenge is abandoned on its timer, which is the only way it fails" {
@@ -397,7 +397,7 @@ test "§8.2.1, §8.2.3: a validated path is challenged again and stays validated
     test_path.init(.unvalidated);
     test_path.on_challenge_sent(challenge_a, small_len, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_a));
-    try testing.expect(test_path.owes_mtu_validation());
+    try testing.expect(test_path.mtu_validation_due());
     // RFC 9000 §8.2.1: validation may be used at any time, so the second probe goes out while
     // the path is validated — and §8's limit stays lifted while it is outstanding.
     test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
@@ -406,13 +406,13 @@ test "§8.2.1, §8.2.3: a validated path is challenged again and stays validated
     // A second probe that is abandoned does not unvalidate what the first showed.
     try testing.expect(test_path.on_instant(test_timeout_ns));
     try testing.expectEqual(State.validated, test_path.state());
-    try testing.expect(test_path.owes_mtu_validation());
+    try testing.expect(test_path.mtu_validation_due());
     // An unexpanded response after an expanded one does not take the MTU back either.
     test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_a));
     test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_b));
-    try testing.expect(!test_path.owes_mtu_validation());
+    try testing.expect(!test_path.mtu_validation_due());
 }
 
 test "§8.2.2: a challenge is answered by echoing its data" {

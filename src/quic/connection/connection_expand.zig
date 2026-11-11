@@ -11,7 +11,7 @@ const Connection = connection_module.Connection;
 
 /// RFC 9000 §14.1's expansion, put on the datagram's last packet by decision 54.
 pub fn expand_last(connection: *Connection, plans: []packet_build.Planned, planned_len: usize, ceiling: usize) void {
-    const owed = owes_expansion(connection, plans);
+    const owed = expansion_due(connection, plans);
     if (owed == .none) return;
     if (planned_len >= constants.protocol.datagram_len_min) return;
     // RFC 9000 §8.2.1 and §8.2.2 except a datagram §8's limit keeps below 1,200 octets, and one
@@ -42,7 +42,7 @@ const Expansion = enum { none, initial, path_frames };
 /// RFC 9000 §14.1: "A client MUST expand the payload of all UDP datagrams carrying Initial packets
 /// ... Similarly, a server MUST expand the payload of all UDP datagrams carrying ack-eliciting
 /// Initial packets." §14.1 is asked first, because it holds whatever else the datagram carries.
-fn owes_expansion(connection: *const Connection, plans: []const packet_build.Planned) Expansion {
+fn expansion_due(connection: *const Connection, plans: []const packet_build.Planned) Expansion {
     for (plans) |planned| {
         if (planned.level != .initial) continue;
         if (connection.role == .client) return .initial;

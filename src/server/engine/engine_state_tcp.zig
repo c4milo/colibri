@@ -159,12 +159,12 @@ fn send_first(state: *State, slot: u32) ?Event {
 fn transport_event(state: *State, slot: u32, connection: *Connection, now_ns: u64) ?Event {
     const handle = state.slots.handle_of(slot);
     if (state.transports[slot] != .open) return end(state, slot, connection);
-    if (!state.send_outstanding[slot] and connection_owed.owes_octets(connection)) {
+    if (!state.send_outstanding[slot] and connection_owed.should_send(connection)) {
         state.send_outstanding[slot] = true;
         return .{ .send = handle };
     }
     // RFC 9112 §9.6: the write side closes first, and the bound runs from the event.
-    if (connection_close.owes_half_close(connection)) {
+    if (connection_close.should_half_close(connection)) {
         connection_close.half_close(connection, now_ns);
         return .{ .half_close = handle };
     }

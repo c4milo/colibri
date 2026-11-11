@@ -85,7 +85,7 @@ test "RFC 9000 §10.2: a connection error receive finds owes the CONNECTION_CLOS
     try testing.expectEqual(.transport, owed.layer);
     try testing.expectEqual(datagram_module.connection_error_code(&server, error.AcknowledgedUnsentPacket), owed.error_code);
     // The server's next datagram carries it, and the server enters the closing state (§10.2.1).
-    try testing.expect(close_module.owes(&server));
+    try testing.expect(close_module.close_due(&server));
     _ = (try send_raw(&server)).?;
     try testing.expectEqual(.closing, server.termination.state);
 }

@@ -174,10 +174,10 @@ pub const Receiver = struct {
     }
 
     /// `credit_frame_limit`, with one more reason for a frame: the credit left to the peer is
-    /// below `credit_floor` (`owes_credit_below`). The new limit is the same, what was consumed
+    /// below `credit_floor` (`credit_due_below`). The new limit is the same, what was consumed
     /// plus the window, so it never passes what the receiver holds.
     pub fn credit_frame_limit_below(receiver: *Receiver, now_ns: u64, round_trip_ns: u64, credit_floor: u64) ?u64 {
-        if (!receiver.owes_credit_below(credit_floor)) return null;
+        if (!receiver.credit_due_below(credit_floor)) return null;
         receiver.tune(now_ns, round_trip_ns);
         return receiver.advance(now_ns);
     }
@@ -188,12 +188,12 @@ pub const Receiver = struct {
     /// keep the number of streams available to peers roughly consistent." A peer whose streams
     /// all wait for credit then waits one round trip, not for half the count (decision 130).
     pub fn count_frame_limit(receiver: *Receiver, now_ns: u64) ?u64 {
-        if (!receiver.owes_count_credit()) return null;
+        if (!receiver.count_credit_due()) return null;
         return receiver.advance(now_ns);
     }
 
     /// Whether a stream the peer opened closed since the limit last rose (decision 130).
-    pub fn owes_count_credit(receiver: *const Receiver) bool {
+    pub fn count_credit_due(receiver: *const Receiver) bool {
         return receiver.consumed + receiver.window > receiver.limit;
     }
 
@@ -206,15 +206,15 @@ pub const Receiver = struct {
     /// Whether new credit is worth a frame, which `credit_frame_limit` then gives: the peer has
     /// used `window / flow_credit_fraction` of its window. It changes nothing, so a caller may ask
     /// at any time whether credit waits to be sent.
-    pub fn owes_credit(receiver: *const Receiver) bool {
-        return receiver.owes_credit_below(0);
+    pub fn credit_due(receiver: *const Receiver) bool {
+        return receiver.credit_due_below(0);
     }
 
-    /// `owes_credit`, or the credit left to the peer is below `credit_floor` and the
+    /// `credit_due`, or the credit left to the peer is below `credit_floor` and the
     /// application consumed at least one octet since the limit last rose (decision 49 as
     /// amended). RFC 9000 §4.2 leaves the timing to the receiver, and a connection whose held
     /// stream keeps octets in the pool gives the other streams credit this way.
-    pub fn owes_credit_below(receiver: *const Receiver, credit_floor: u64) bool {
+    pub fn credit_due_below(receiver: *const Receiver, credit_floor: u64) bool {
         const gain = receiver.consumed + receiver.window - receiver.limit;
         // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
         // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
@@ -317,15 +317,15 @@ test "decision 49 as amended: credit left below the floor is worth a frame once 
     const credit_floor = half_window;
     // The peer leaves less than the floor of its credit, and the application read nothing.
     try receiver.use(test_window - credit_floor + 1, error.FlowControlExceeded);
-    try testing.expect(!receiver.owes_credit_below(credit_floor));
+    try testing.expect(!receiver.credit_due_below(credit_floor));
     try testing.expectEqual(null, receiver.credit_frame_limit_below(0, 0, credit_floor));
     // One octet read is far less than the fraction, and below the floor it is worth a frame.
     receiver.consume(1);
-    try testing.expect(!receiver.owes_credit());
+    try testing.expect(!receiver.credit_due());
     try testing.expectEqual(test_window + 1, receiver.credit_frame_limit_below(0, 0, credit_floor).?);
     // The credit left is at the floor now, so the next octet waits for the fraction.
     receiver.consume(1);
-    try testing.expect(!receiver.owes_credit_below(credit_floor));
+    try testing.expect(!receiver.credit_due_below(credit_floor));
 }
 
 test "§4.1, §4.2: credit follows what the application took, not what arrived" {
@@ -335,13 +335,13 @@ test "§4.1, §4.2: credit follows what the application took, not what arrived" 
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     // Reading less than the fraction is not yet worth a frame.
     receiver.consume(half_window - 1);
-    try testing.expect(!receiver.owes_credit());
+    try testing.expect(!receiver.credit_due());
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     receiver.consume(1);
-    try testing.expect(receiver.owes_credit());
+    try testing.expect(receiver.credit_due());
     try testing.expectEqual(test_window + half_window, receiver.credit_frame_limit(0, 0).?);
     // The limit moved, so the same read is not offered twice.
-    try testing.expect(!receiver.owes_credit());
+    try testing.expect(!receiver.credit_due());
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     try testing.expectEqual(half_window, receiver.available());
 }
@@ -350,16 +350,16 @@ test "§4.6, decision 130: a stream count owes credit as each stream closes" {
     const count = 32;
     var streams = Receiver.init(count, count);
     try streams.use(count, error.StreamLimitExceeded);
-    try testing.expect(!streams.owes_count_credit());
+    try testing.expect(!streams.count_credit_due());
     try testing.expectEqual(null, streams.count_frame_limit(0));
     streams.consume(1);
-    try testing.expect(streams.owes_count_credit());
+    try testing.expect(streams.count_credit_due());
     try testing.expectEqual(count + 1, streams.count_frame_limit(0).?);
-    try testing.expect(!streams.owes_count_credit());
+    try testing.expect(!streams.count_credit_due());
     try testing.expectEqual(null, streams.count_frame_limit(0));
     // Data of the same window still waits for half of it.
     streams.consume(1);
-    try testing.expect(!streams.owes_credit());
+    try testing.expect(!streams.credit_due());
 }
 
 test "§4.1: a limit that would not rise is never offered, whatever the window" {

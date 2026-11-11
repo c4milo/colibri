@@ -134,10 +134,10 @@ fn finished(last: *const State, streams: u32) bool {
         if (last.cli_req[index] != .ended or last.cli_resp[index] != .ended) return false;
     }
     if (last.out.len > 0 or last.to_client.len > 0 or last.to_server.len > 0) return false;
-    return last.settings_acked and owes_nothing(&last.colibri) and owes_nothing(&last.client);
+    return last.settings_acked and nothing_due(&last.colibri) and nothing_due(&last.client);
 }
 
-fn owes_nothing(side: *const state_module.Side) bool {
+fn nothing_due(side: *const state_module.Side) bool {
     return side.acks_owed == 0 and side.connection_owed == 0 and side.stream_owed.len == 0;
 }
 

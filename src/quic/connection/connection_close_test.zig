@@ -331,7 +331,7 @@ test "RFC 9000 §19.19: a reason phrase that will not fit gives way rather than 
 test "RFC 9000 §10.2.3: a connection owing no close writes none, at any level" {
     open_pair();
     install_application();
-    try testing.expect(!close_module.owes(&client));
+    try testing.expect(!close_module.close_due(&client));
     var buffer: [64]u8 = undefined;
     // Bounded by the levels, of which RFC 9001 §4.1.4 names three.
     for (0..core.levels_count) |index| {
@@ -341,7 +341,7 @@ test "RFC 9000 §10.2.3: a connection owing no close writes none, at any level" 
     }
     // And a level with no keys carries none even once one is owed (RFC 9001 §4.9).
     close_module.owe(&client, close_module.Close.transport(test_error_code, null));
-    try testing.expect(close_module.owes(&client));
+    try testing.expect(close_module.close_due(&client));
     client.keys.state[@intFromEnum(Level.application)][@intFromEnum(crypto.Direction.write)] = .discarded;
     try testing.expect(!close_module.carries(&client, .application));
 }

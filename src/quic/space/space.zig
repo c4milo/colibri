@@ -194,14 +194,14 @@ pub const Space = struct {
     /// maximum delay an endpoint communicated using the max_ack_delay transport parameter".
     /// `max_ack_delay_ns` is what this endpoint advertised (§18.2).
     pub fn owes_ack(space: *const Space, now_ns: u64, max_ack_delay_ns: u64) bool {
-        if (space.owes_ack_at_once()) return true;
+        if (space.ack_due_at_once()) return true;
         const deadline_ns = space.ack_deadline_ns(max_ack_delay_ns) orelse return false;
         return now_ns >= deadline_ns;
     }
 
     /// The half of §13.2.1 and §13.2.2 that needs no instant: a packet that must be acknowledged
     /// without waiting, or enough of them to have earned one.
-    fn owes_ack_at_once(space: *const Space) bool {
+    fn ack_due_at_once(space: *const Space) bool {
         const owed = space.ack_immediately or
             space.ack_eliciting_since_ack >= constants.policy.ack_eliciting_before_ack;
         // Nothing is owed before anything is received: both of those move only on a packet this
@@ -215,7 +215,7 @@ pub const Space = struct {
     /// pending or one is owed already. A space with an ACK owed now needs no timer: the caller
     /// writes it on its next pass.
     pub fn ack_deadline_ns(space: *const Space, max_ack_delay_ns: u64) ?u64 {
-        if (space.owes_ack_at_once()) return null;
+        if (space.ack_due_at_once()) return null;
         // §13.2.1: an Initial or Handshake packet is acknowledged immediately, which `receive`
         // records as `ack_immediately`, so only the application space ever reaches here.
         const since_ns = space.ack_eliciting_since_at_ns orelse return null;

@@ -147,7 +147,7 @@ pub fn on_send_failure(connection: *Connection, code: ?u64, packet_numbers_exhau
 
 /// Whether any packet this connection sends would carry a close (RFC 9000 §10.2.3). It writes
 /// nothing, so the send path can ask before it decides how to fill a datagram.
-pub fn owes(connection: *const Connection) bool {
+pub fn close_due(connection: *const Connection) bool {
     // Bounded by the levels, of which RFC 9001 §4.1.4 names three.
     for (0..core.levels_count) |index| {
         if (carries(connection, @enumFromInt(index))) return true;

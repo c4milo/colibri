@@ -275,7 +275,7 @@ fn owed_new(connection: *const Connection, stream: *const Stream) ?Range {
     const credit = @min(stream.send_flow.available(), connection.send_flow.available());
     const len = @min(outgoing.unframed_len(), credit);
     // RFC 9000 §4.5: the FIN goes with the stream's last octet, or alone after it.
-    const fin = outgoing.owes_fin() and len == outgoing.unframed_len();
+    const fin = outgoing.fin_due() and len == outgoing.unframed_len();
     if (len == 0 and !fin) return null;
     return .{ .stream_id = stream.id, .offset = outgoing.framed_end, .len = len, .fin = fin };
 }

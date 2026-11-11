@@ -159,7 +159,7 @@ pub fn send(
     // carry a packet in this datagram.
     keys_module.take_available(connection, suite);
     keys_module.take_lost(connection, suite);
-    if (migration.owes_previous_probe(connection)) {
+    if (migration.previous_probe_due(connection)) {
         if (try send_previous_probe(connection, suite, provider, stream_provider, scratch, output, now_ns)) |sent| return sent;
     }
     // A ceiling too small for a level's packet is `plan`'s to find (`error.NoSpaceLeft`): a
@@ -269,7 +269,7 @@ fn room_at(connection: *const Connection, level: Level, window_len: u64, room: u
     // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
     // containing a CONNECTION_CLOSE frame", so no recovery state bounds it, and §10.2.1's own
     // limit on how often it answers is the caller's to keep.
-    if (connection_close.owes(connection)) return .{ .len = room };
+    if (connection_close.close_due(connection)) return .{ .len = room };
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
     // `constants.limits.sent_packets_max`: a space whose table is full waits for an acknowledgment, and
     // RFC 9002 Appendix A.1 tracks every ack-eliciting packet, so none goes until one arrives.

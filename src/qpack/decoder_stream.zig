@@ -38,7 +38,7 @@ pub fn write(decoder: *Decoder, writer: *Writer) void {
 }
 
 /// Whether the decoder owes the encoder any instruction.
-pub fn owes(decoder: *const Decoder) bool {
+pub fn instructions_due(decoder: *const Decoder) bool {
     return decoder.owed_len > 0 or decoder.known_received < decoder.table.insert_count();
 }
 
@@ -94,12 +94,12 @@ fn expect_written(expected: []const u8) !void {
 test "§4.4.3: new entries are reported once, by one increment" {
     try start();
     try expect_written(&.{});
-    try testing.expect(!owes(&test_decoder));
+    try testing.expect(!instructions_due(&test_decoder));
     try insert(3);
-    try testing.expect(owes(&test_decoder));
+    try testing.expect(instructions_due(&test_decoder));
     // 0x03 is Insert Count Increment 3.
     try expect_written(&.{0x03});
-    try testing.expect(!owes(&test_decoder));
+    try testing.expect(!instructions_due(&test_decoder));
     try expect_written(&.{});
 }
 
@@ -153,6 +153,6 @@ test "an instruction that does not fit waits whole, and the increment waits behi
     write(&test_decoder, &one);
     try testing.expectEqualSlices(u8, &.{0x48}, one.written());
     try testing.expectEqual(0, test_decoder.owed_len);
-    try testing.expect(owes(&test_decoder));
+    try testing.expect(instructions_due(&test_decoder));
     try expect_written(&.{0x01});
 }

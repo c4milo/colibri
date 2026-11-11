@@ -122,7 +122,7 @@ test "RFC 9000 §8.2.3: a PATH_RESPONSE validates the path its challenge went ou
     // §8.2.3: an expanded datagram validates the path MTU along with the address, so no second
     // validation is owed.
     try testing.expect(test_connection.path.mtu_validated);
-    try testing.expect(!test_connection.path.owes_mtu_validation());
+    try testing.expect(!test_connection.path.mtu_validation_due());
 }
 
 test "RFC 9000 §8.2.3: a PATH_RESPONSE to a small datagram leaves the path MTU unvalidated" {
@@ -135,7 +135,7 @@ test "RFC 9000 §8.2.3: a PATH_RESPONSE to a small datagram leaves the path MTU 
     // validation with an expanded datagram to verify that the path supports the required MTU."
     try testing.expectEqual(.validated, test_connection.path.state());
     try testing.expect(!test_connection.path.mtu_validated);
-    try testing.expect(test_connection.path.owes_mtu_validation());
+    try testing.expect(test_connection.path.mtu_validation_due());
 }
 
 test "RFC 9000 §8.2.3: a PATH_RESPONSE carrying other octets validates nothing" {

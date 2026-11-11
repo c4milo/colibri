@@ -130,7 +130,7 @@ pub fn handshake_owed(connection: *const Connection) bool {
 /// owes, a request not written whole, and over TLS an alert or the `close_notify` (decision 125).
 /// After a record failed, the alert is all that goes out, and the pool closes the transport once
 /// it is out, before it asks again.
-pub fn owes_when_open(connection: *const Connection) bool {
+pub fn should_send_when_open(connection: *const Connection) bool {
     assert(connection.phase == .open);
     const over_tls = connection.config.tls != null;
     if (protocol_pending(connection)) return true;

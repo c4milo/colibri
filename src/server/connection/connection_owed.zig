@@ -16,7 +16,7 @@ const Number = event.Number;
 
 /// Whether `send` would write an octet now: what `send` writes, asked without writing it, in the
 /// order `send` writes it.
-pub fn owes_octets(connection: *Connection) bool {
+pub fn should_send(connection: *Connection) bool {
     // The TLS flight's records go out first, whatever else holds.
     if (connection.records_len > 0) return true;
     // Before a protocol serves the connection, and after it closed, `send` writes the flight alone.
