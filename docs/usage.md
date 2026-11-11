@@ -356,6 +356,12 @@ not complete in that time ends its attempt as a refused connect does, and null t
 off. colibri cancels the connect at its deadline itself, so the largest value holds a connect
 until the pool closes it.
 
+The client resumes TLS sessions ([decision 161](decisions.md)). It keeps the newest session
+ticket that a server gave a TCP connection, and the newest one that a QUIC connection took. The
+next connection of that transport offers its ticket once, and the client then drops it (RFC 9846
+Appendix C.4). A ticket past its lifetime, or seven days old, is not offered. `deinit` wipes the
+tickets. With `pool.tls.takes_tickets = false` the client keeps none.
+
 A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind.
 Its `init` takes `now`, and a hosted client's `cancel` takes `now_ns`.
 The next section shows how your program hosts one.

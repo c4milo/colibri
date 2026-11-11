@@ -7612,7 +7612,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         (decision 97), `random`, `destination`, `pool` and `now`. No value is right to assume
         for any of them. They are the exceptions to "Each field has a default except `random`"
         above. The ruling names `cpu`, `host`, `pool` and `unix_seconds`: no hosted
-        configuration has a field `host`, and ruling 1 puts `unix_seconds` into `now`.
+        configuration has a field `host`, and ruling 1 puts `unix_seconds` into `now`. Decision
+        161 adds `colibri.ServerConfig.unix_seconds` to the fields with no default, for the same
+        reason.
      4. `Client.deinit` after a `fetch` waits for each exchange of `request` to end. Only the
         pool's deadlines bound the wait, and colibri adds no limit. docs/usage.md says so.
      5. The `.private` loop is made at the first `run` or `fetch`, not at `init`. So `init` may
@@ -7754,8 +7756,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        9112 §9.6 starts with the half-close.
      - A bound in `server.Limits` or `server.Timeouts`. The owner ruled two named limits.
 
-161. **colibri's TCP servers issue session tickets, so a client resumes.** Ruled by the owner on
-     2026-11-10, for v0.16.0 (design §8 step 48). Step 13j's profiles found that wrk resumes almost
+161. **colibri's servers issue session tickets, and colibri.Client resumes with them.** Ruled by
+     the owner on 2026-11-10, and for the client on 2026-11-11, for v0.16.0 (design §8 step 48). Step 13j's profiles found that wrk resumes almost
      every session with hyper, and that colibri's TCP servers issue no ticket. So each connection
      to colibri runs a full handshake with its signature. RFC 9846 §2.2 describes resumption, and
      §4.7.1 the NewSessionTicket message.
@@ -7771,10 +7773,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         cookie key. It writes zero over its copy at `deinit`.
      3. The same key serves the server's TCP and QUIC connections. Decision 20 still refuses 0-RTT.
      4. The test-only TCP server takes `--seconds <unix-seconds>`. With it, the server draws a ticket
-        key from its entropy, as `quic-udp` does, and issues tickets. Without it, it issues none.
-        `bench/run.sh` passes `date +%s`.
+        key from its entropy, as `quic-udp` does, and issues tickets. It starts its engine at its
+        loop's first tick, because Rotor reads its clock at a tick (decision 63). Without the
+        option it issues none. `bench/run.sh` passes `date +%s`.
      5. chapulin chooses the lifetime and the count of the tickets. RFC 9846 §4.7.1 bounds the
         lifetime at 604,800 s, and colibri sets neither value.
+     6. `colibri.Client` keeps the newest ticket of each transport, TCP and QUIC, with the instant
+        it arrived. The next connection of that transport offers it once, and the client then
+        drops it, because RFC 9846 Appendix C.4 asks a client not to reuse a ticket. A ticket past
+        its ticket_lifetime, or older than `tls.constants.protocol.ticket_lifetime_max_s`, is not
+        offered, because the TLS stack would refuse it and fail the connection (RFC 9846 §4.7.1).
+        `deinit` wipes the tickets. `pool.tls.takes_tickets`, true by default, stays the switch,
+        so the client adds no public name.
 
      The alternatives refused:
      - `unix_seconds` as an optional field, with tickets only when the program passes it. A
@@ -7786,6 +7796,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        The bench would then measure a server that no client resumes.
      - A request to chapulin for X25519 in assembly on arm64. X25519 takes 28% of hyper's samples
        and 31% of colibri's, at equal cycles a connection.
+     - A client that keeps several tickets of each transport, so that connections opened at once
+       each resume. It needs a new named limit and the memory of several tickets. The owner chose
+       one ticket of each transport.
 
      This amends decision 159's list of the fields with no default: `ServerConfig.unix_seconds`
      has none, because no instant is right to assume.

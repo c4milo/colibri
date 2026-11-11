@@ -15464,8 +15464,9 @@ library.
   - **Checked on macOS 26.6.2 arm64 on 2026-11-10:** 20 runs of `tools/h11_server_interop.sh curl`
     passed, and 10 more passed with two busy processes on each of the 10 cores. With the test
     server's half-close made a full close, the script failed in 3 runs of 3.
-- **Step 48 — session tickets in colibri's TCP servers, ruled 2026-11-10.** [Decision
-  161](decisions.md), for v0.16.0. RFC 9846 §2.2 and §4.7.1.
+- **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
+  2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
+  C.4.
   - **Why.** Step 13j's profiles found that wrk resumes almost every session with hyper. A
     resumed handshake skips the certificate and its signature. colibri's TCP servers issue no
     ticket, so each connection to them runs a full handshake, and the P-256 signature takes 11% of
@@ -15488,36 +15489,59 @@ library.
       so each server resumes the tickets of the others.
     - `ticket_key` in the `.hosted` configuration, a literal with no public name (decision 156
       ruling 2), under the same rule. A `.hosted` server takes the Unix seconds in `now`.
-    - No name of a library module's root changes.
+    - `tls.constants.protocol.ticket_lifetime_max_s`, 604,800 s: RFC 9846 §4.7.1's bound on a
+      ticket's lifetime, which `colibri.Client` checks before it offers a ticket.
+    - `core.constants.nanoseconds_per_millisecond`, the unit RFC 9846 §4.3.11.1 counts a
+      ticket's age in.
+    - No name of a library module's root changes. `colibri.Client` keeps tickets with no new name:
+      `pool.tls.takes_tickets` stays its switch (decision 161 ruling 6).
   - **The test-only TCP server.** `http-server` takes `--seconds <unix-seconds>`. With it, the
     server draws a ticket key from its entropy at start, as `quic-udp` does, and issues tickets.
-    Without it, the server issues none, as before. `bench/run.sh` passes `date +%s` to each colibri
-    server whose usage names the option, so a base tree from before this step still runs.
+    Without it, the server issues none, as before. Rotor's instant is 0 until a loop's first
+    tick, so the worker ticks once with no wait and then starts its engine at that instant, as
+    `udp_run.zig` does (decision 63). An assertion refuses a Unix time with an instant of 0.
+    `bench/run.sh` passes `date +%s` to each colibri server whose usage names the option, so a
+    base tree from before this step still runs.
   - **What does not change.** chapulin chooses the lifetime and the count of the tickets, and RFC
     9846 §4.7.1 bounds the lifetime at 604,800 s. A resumed session still runs X25519, as hyper's
-    does. Decision 20 still refuses 0-RTT. `colibri.Client` still offers no ticket.
+    does. Decision 20 still refuses 0-RTT.
   - **The commits.**
-    1. `docs`: decision 161 and this entry.
-    2. `feat(colibri)!`: `ServerConfig.unix_seconds` and `ServerConfig.ticket_key`, with the
-       example, docs/usage.md and `tools/consumer/`.
+    1. `docs(bench)`: the h11 profiles of step 13j, which found that wrk resumes with hyper alone.
+    2. `docs`: decision 161 and this entry.
     3. `feat(server)`: the test-only TCP server's `--seconds` and its ticket key.
-    4. `test(server)`: the server interop scripts require Go's client to resume a second
-       connection over TLS.
-    5. `feat(bench)`: `bench/run.sh` passes `--seconds`.
+    4. `test(server)`: the server interop scripts require Go's client to resume over TLS.
+    5. `feat(bench)`: `bench/run.sh` passes `--seconds`. The commands that start each server
+       move to `bench/run_servers.sh`, because `bench/run.sh` reached 500 lines.
+    6. `feat(colibri)!`: `ServerConfig.unix_seconds` and `ServerConfig.ticket_key`, the `.hosted`
+       configuration's `ticket_key`, the example, README.md, docs/usage.md and `tools/consumer/`.
+    7. `feat(colibri)`: `colibri.Client` keeps the newest ticket of each transport and offers it
+       once (`client_tickets.zig`).
+    8. `docs`: this list, the checks and docs/usage.md's paragraph on the client's tickets.
   - **The checks.**
-    - A `colibri.Server` issues a ticket, and a second connection resumes with it, over h11, h2
-      and h3.
-    - A second `colibri.Server` with the same `ticket_key` resumes the first one's ticket.
-    - The key the server drew is zero after `deinit`, for each kind.
-    - A `.hosted` server issues a ticket from `now.unix_seconds`, and a second connection
-      resumes with it.
-    - Go's client resumes its second connection to the test-only server over TLS, in
-      `tools/h11_server_interop.sh --tls` and `tools/h2_server_interop.sh --tls`. Without
-      `--seconds`, the server issues no ticket.
-    - Each check is proved by mutation: the Unix time passed as 0, no key drawn, the program's key
-      not copied, the drawn key not wiped, and `--seconds` read but not passed to the engine.
-    - The judge runs `competitors` with `h11`, so h11-tls-one compares a resumed handshake with
-      hyper's.
+    - Go's client resumes its new connection to the test-only server over TLS, in
+      `tools/h11_server_interop.sh --tls` and `tools/h2_server_interop.sh --tls`. Against a server
+      started without `--seconds` it runs a full handshake. The client sends its last request
+      through a copy of its transport: after `CloseIdleConnections`, the transport could still
+      reuse a plan connection that was not idle yet, and the check then failed in 7 runs of 10.
+    - `--seconds` takes Unix seconds above 0, and only with `--tls`.
+    - `colibri.Server`: the TLS values hold the server's copy of the program's ticket key, or a
+      key drawn after the cookie key. `deinit` wipes the copy. `run` starts the engine at
+      `ServerConfig.unix_seconds`. A `.hosted` server takes its key and the Unix seconds of
+      `now`.
+    - `colibri.Client` against `colibri.Server` over TLS: the server closes each of three
+      connections after its response, and the second and the third resume with the ticket of the
+      one before. On a fake host with h3 alone, a QUIC connection ends at its idle timeout, and the
+      next one, in QUIC version 2, resumes. `deinit` leaves no ticket. With h3 and h2 both
+      allowed, the pool opened h2 after the QUIC connection ended, so the test allows h3 alone.
+    - The client offers a ticket once, keeps the newest, keeps each to its transport, and offers
+      none past its lifetime or seven days.
+    - Mutations, 23 of 23 CAUGHT. The client: no ticket kept, none offered over TCP or over QUIC,
+      a ticket offered twice, no lifetime check, no seven-day bound, the caller's copy not wiped,
+      every ticket taken as TCP's, and `deinit` not wiping. The test-only server: no key drawn,
+      the time not passed, the first tick removed, `--seconds 0` accepted, `--seconds` without
+      `--tls`, the value dropped, and tickets issued without `--seconds`. `colibri.Server`: the
+      program's key not copied, no key in the values, the key not wiped, `run` passing 0, the time
+      not kept at `init`, and the key not passed by either kind.
 
 ## 9. Test-only entry points
 
