@@ -144,8 +144,9 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
         // A server's sockets come from its listener, so it connects none.
         .connect => unreachable,
     }
-    // The peer closed first, or the socket failed: the engine ends the connection.
-    if (socket.failed) pump.peer_closed(run, index, now_ns);
+    // The peer closed first, or the socket failed: the engine ends the connection, and the next
+    // turn routes what it reports.
+    if (socket.failed) pump.peer_closed(run, index);
     state.pending.set(index);
 }
 

@@ -87,13 +87,15 @@ pub fn step(run: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) 
     return .{ .consumed = consumed, .written = written };
 }
 
-/// The socket of entry `index` closed before the engine asked: its peer closed it, or a read or
-/// a send failed. The engine ends the connection, and its slot frees.
-pub fn peer_closed(run: anytype, index: usize, now_ns: u64) void {
+/// The socket of entry `index` closed before the engine asked: its peer closed it, or a read, a
+/// send or a shutdown failed. The engine ends the connection, and its slot frees. The next turn
+/// reads the engine's events, so no route runs inside the `complete` of a TCP operation (decision
+/// 159 as amended on 2026-11-10, ruling 6). The engine changes nothing for a connection that
+/// ended, so each later completion of the socket may call again.
+pub fn peer_closed(run: anytype, index: usize) void {
     const state = run;
-    state.now_ns = now_ns;
     state.engine.transport_closed(state.entries[index].handle);
-    drain(run);
+    state.undrained = true;
 }
 
 const Read = struct { consumed: usize, moved: bool };
