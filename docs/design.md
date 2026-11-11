@@ -5475,6 +5475,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         at 65,536 and 131,072, and a longer load holds the longer stops too. The p99 does not
         change: the requests over 5 ms are 0.33% to 0.46% of a 40 s load. The servers differ
         only in how fast the requests that oha holds after a stop are answered.
+    - **A second tool, 2026-11-10.** The owner asked to check the stops with a tool other than
+      oha.
+      - Judge run [42936249908](https://github.com/c4milo/colibri/actions/runs/42936249908), on
+        `572ccd8b`, a branch not on main, loaded each server with h2load in place of oha, in
+        oha's shape: 8 connections of 4 streams, at 5,000 req/s each with `--rps`. It loaded
+        over h2 for 5 s and for 40 s, in 3 rounds. h2load wrote each request to its log, and
+        tcpdump captured each whole load on the same clock. No capture dropped a packet.
+      - h2load times a request from its send, not from an instant on a plan. Its `--rps` sends a
+        burst about every 10 ms, so a silence of 6 ms to 8 ms follows each burst. The p99 and the
+        p99.9 in ms, rounds 1 to 3 of both jobs:
+
+        | Load | colibri p99 | axum p99 | colibri p99.9 | axum p99.9 |
+        | --- | --- | --- | --- | --- |
+        | 5 s | 0.13 to 0.15 | 0.30 to 0.33 | 0.17 to 0.27 | 0.35 to 0.39 |
+        | 40 s | 0.13 to 0.14 | 0.31 to 0.34 | 0.17 to 0.21 | 0.35 to 0.38 |
+
+      - Under h2load the p99.9 does not rise with the time of the load. Near each power of two of
+        h2load's count, the longest silence is 6 ms to 8 ms, as anywhere else in the load. So
+        neither server stops at the counts where oha stops.
+      - h2load has a stop of its own: one silence of 11.7 ms to 24.0 ms at 31.4 s to 33.6 s, in
+        7 of the 12 loads of 40 s, against both servers. In the millisecond before it, the
+        server sent as many segments as the client. The server answers in about 0.03 ms, so it
+        most likely answered, and h2load read the answers when the silence ended.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the

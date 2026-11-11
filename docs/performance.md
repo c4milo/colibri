@@ -205,8 +205,9 @@ p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
   1.4 ms to 1.9 ms. So the p99 over h2-tls at 40,000 req/s does not compare the servers.
 - **The p99.9 measures oha's stops.** oha sends nothing for 2 ms to 4 ms at its 65,536th
   request, and the stop doubles each time its count doubles: 54 ms to 58 ms at 1,048,576
-  (design §8 step 13j). Each server has the same stops. So a p99.9 of 13f rises with the
-  requests of a load, and does not compare the servers.
+  (design §8 step 13j). Each server has the same stops, and under h2load neither server stops
+  at those counts. So a p99.9 of 13f rises with the requests of a load, and does not compare
+  the servers.
 - **h3 at 40,000 req/s.** colibri's p99 was 15.51 ms and 15.30 ms, and axum's 22.86 ms and
   18.61 ms. Neither stays under 10 ms.
 - **h3 at 80,000 offered.** colibri reached 54,651 and 57,855 req/s, and axum 50,752 and 54,597.
