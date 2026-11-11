@@ -47,7 +47,9 @@ fn MemoryOf(comptime buffer_bytes: u32, comptime coalesce: bool) type {
         loop: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
         /// Larger than the group by its alignment, because a static declared that aligned is not
         /// always placed that aligned on macOS, and rotor's guide aligns forward inside the block.
-        group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
+        /// So the field states no alignment of 64 KiB: the compiler would trust it, and an
+        /// optimized build computes offsets from an address that is not true.
+        group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.memory_alignment),
 
         const group_bytes = rotor.buffers.group_bytes(constants.udp_receive_buffers, buffer_bytes);
         const receive_buffer_bytes = buffer_bytes;
@@ -63,6 +65,13 @@ fn MemoryOf(comptime buffer_bytes: u32, comptime coalesce: bool) type {
 
 /// The buffer groups an endpoint reserves on its own loop.
 const endpoint_buffer_groups = 1;
+
+comptime {
+    // The tests place their memory in statics, which macOS aligns to 16 KiB at most. So the types
+    // ask for no more than the loop's alignment, and `group_memory` aligns the rest by hand.
+    assert(@alignOf(Memory) <= rotor.memory_alignment);
+    assert(@alignOf(CoalescedMemory) <= rotor.memory_alignment);
+}
 
 pub const Endpoint = struct {
     loop: rotor.Loop,

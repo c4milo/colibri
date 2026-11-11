@@ -21,14 +21,20 @@ pub const buffer_groups = 1;
 comptime {
     assert(buffer_groups <= rotor.constants.buffer_groups_max);
     assert(constants.limits.udp_batches <= std.math.maxInt(u8));
+    // A program may place a `Datagrams` in a static, which macOS aligns to 16 KiB at most. So the
+    // type asks for no more than the loop's alignment, and `group_memory` aligns the rest by hand.
+    assert(@alignOf(Datagrams) <= rotor.memory_alignment);
 }
 
 /// The options a UDP socket opens with: Linux coalesces what arrives.
 pub const socket_options: rotor.sync.DatagramOptions = .{ .coalesce = builtin.os.tag == .linux };
 
 pub const Datagrams = struct {
-    /// The receive buffers, and the group the loop knows them by.
-    group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
+    /// The receive buffers, and the group the loop knows them by. The field is larger than the
+    /// group by its alignment, and `group_memory` aligns forward inside it. The field states no
+    /// alignment of 64 KiB: macOS places a static at 16 KiB, so the compiler would trust an
+    /// address that is not true, and an optimized build computes offsets from it that are wrong.
+    group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.memory_alignment),
     buffer_group: rotor.BufferGroup,
     /// Where each send goes, which Rotor reads until the send's event, and which records are in
     /// use.
