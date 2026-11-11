@@ -5884,7 +5884,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     19,882 a connection became 20,277 and 20,296. Its total is within the noise. Step 48 did not
     cause it: main `53866d8f` took 20,298 and 20,293 before that step
     ([run 42967640462](https://github.com/c4milo/colibri/actions/runs/42967640462)). So the cost
-    came with step 44, 46 or 47, and no run has named the step yet.
+    came with step 44, 46 or 47.
+  - Callgrind split it on a laptop, with numbers that are never published. The test-only server of
+    `29c407a4` and of `2921c194` ran in an aarch64 Linux container, under wrk's 16 connections
+    with `Connection: close` for 20 s, and only that load was counted. A connection took 20,574
+    instructions on v0.15.0 and 21,120 on main, at the same calls of each function:
+    - About 320 are Rotor 0.10.0's, which step 44 pinned in place of 0.9.0. `Tables.submit`
+      costs 19 more a call, the finish list 54 more a call, and the tick is split in two.
+    - About 220 are colibri's, from step 47: `connection_close.owes_half_close`, 103 in 3 calls,
+      `connection_close.staged`, 36, and 60 more in `read_protocol` at the same 7 calls.
+    - The HTTP API session's bisect, by the same probe at six commits, gives the same two parts.
+      v0.15.2 costs nothing, so step 46 is clear. Step 47's three fixes, `0b6d8c32`, `ee382efa`
+      and `67d208e8`, add about 300 in roughly equal parts, and the pin of Rotor 0.10.0,
+      `205dce5e`, adds about 400.
+    - Docker refuses io_uring, so Rotor ran its epoll backend there. The judge runs io_uring,
+      which shares the tables part alone. The HTTP API session and Rotor's session have the
+      numbers.
+    - The owner ruled on 2026-11-11 to accept the cost with no trim. Step 47's part is the cost
+      that decision 160 chose. A single check of the half-close for each connection would save
+      about 70 instructions, under h11-one's noise of about 0.5%. Rotor's part stays with Rotor's
+      session.
   - The loop that the program hosts (step 44), the long streams (step 46) and the h3 path show
     no change.
 
