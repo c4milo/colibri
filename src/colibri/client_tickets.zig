@@ -27,6 +27,12 @@ pub const Held = struct {
     }
 };
 
+comptime {
+    // A check reads a cleared room's `Held` octet by octet. The padding of a struct is undefined,
+    // so `Held` must add none to its ticket, whose own padding `tls.Ticket.wipe` zeroes.
+    assert(@sizeOf(Held) == @sizeOf(tls.Ticket) + @sizeOf(u64));
+}
+
 /// The room of one transport's ticket: plain memory and a flag, not an optional. A null optional's
 /// payload is undefined, and Zig 0.16's x86_64 backend fills it with 0xaa in Debug, so only plain
 /// memory lets a check read that a wiped ticket is zero.
