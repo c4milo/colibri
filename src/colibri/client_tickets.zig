@@ -27,16 +27,32 @@ pub const Held = struct {
     }
 };
 
+/// The room of one transport's ticket: plain memory and a flag, not an optional. A null optional's
+/// payload is undefined, and Zig 0.16's x86_64 backend fills it with 0xaa in Debug, so only plain
+/// memory lets a check read that a wiped ticket is zero.
+const Room = struct {
+    held: Held = std.mem.zeroes(Held),
+    full: bool = false,
+
+    /// Writes zero over the ticket, and holds none.
+    fn clear(room: *Room) void {
+        room.held.ticket.wipe();
+        room.held.at_ns = 0;
+        room.full = false;
+    }
+};
+
 pub const Kept = struct {
-    tcp: ?Held = null,
-    quic: ?Held = null,
+    tcp: Room = .{},
+    quic: Room = .{},
 
     /// Keeps `ticket`, which arrived at `now_ns`, in place of the older ticket of its transport,
     /// and wipes both the older one and the caller's copy.
     pub fn keep(kept: *Kept, ticket: *tls.Ticket, now_ns: u64) void {
-        const room = kept.slot(transport_of(ticket));
-        if (room.*) |*older| older.ticket.wipe();
-        room.* = .{ .ticket = ticket.*, .at_ns = now_ns };
+        const room = kept.room_of(transport_of(ticket));
+        room.clear();
+        room.held = .{ .ticket = ticket.*, .at_ns = now_ns };
+        room.full = true;
         ticket.wipe();
     }
 
@@ -45,27 +61,32 @@ pub const Kept = struct {
     /// wiped, and none is offered, because the TLS stack refuses it and the connection would fail
     /// (RFC 9846 §4.7.1). The caller wipes the ticket once its connection has started.
     pub fn take(kept: *Kept, transport: Transport, now_ns: u64) ?Held {
-        const room = kept.slot(transport);
-        const held = room.* orelse return null;
-        room.*.?.ticket.wipe();
-        room.* = null;
+        const from = kept.room_of(transport);
+        if (!from.full) return null;
+        var held = from.held;
+        from.clear();
         if (!usable(&held, now_ns)) {
-            var stale = held;
-            stale.ticket.wipe();
+            held.ticket.wipe();
             return null;
         }
         return held;
     }
 
-    /// Wipes each ticket kept.
-    pub fn wipe(kept: *Kept) void {
-        inline for (.{ &kept.tcp, &kept.quic }) |room| {
-            if (room.*) |*held| held.ticket.wipe();
-            room.* = null;
-        }
+    /// Whether the client keeps a ticket of `transport`.
+    pub fn holds(kept: *const Kept, transport: Transport) bool {
+        return switch (transport) {
+            .tcp => kept.tcp.full,
+            .quic => kept.quic.full,
+        };
     }
 
-    fn slot(kept: *Kept, transport: Transport) *?Held {
+    /// Wipes each ticket kept.
+    pub fn wipe(kept: *Kept) void {
+        kept.tcp.clear();
+        kept.quic.clear();
+    }
+
+    fn room_of(kept: *Kept, transport: Transport) *Room {
         return switch (transport) {
             .tcp => &kept.tcp,
             .quic => &kept.quic,
@@ -153,9 +174,25 @@ test "decision 161: wipe zeroes each kept ticket and drops it" {
     var quic = test_ticket(.quic, 2, lifetime_test_s);
     kept.keep(&tcp, 0);
     kept.keep(&quic, 0);
-    const tcp_room = &kept.tcp.?.ticket;
+    try testing.expect(kept.holds(.tcp) and kept.holds(.quic));
+    try testing.expectEqual(1, kept.tcp.held.ticket.identity[0]);
     kept.wipe();
-    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(tcp_room), 0));
-    try testing.expectEqual(null, kept.tcp);
-    try testing.expectEqual(null, kept.quic);
+    // Each room is plain memory, so its octets are defined after the wipe, and they are zero.
+    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.tcp.held), 0));
+    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.quic.held), 0));
+    try testing.expect(!kept.holds(.tcp) and !kept.holds(.quic));
+}
+
+test "decision 161: a ticket that is taken or replaced leaves no octet of it in its room" {
+    var kept: Kept = .{};
+    var first = test_ticket(.tcp, 1, lifetime_test_s);
+    kept.keep(&first, 0);
+    var taken = kept.take(.tcp, 0).?;
+    taken.ticket.wipe();
+    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.tcp.held), 0));
+    // A ticket past its lifetime is wiped where it was kept, too.
+    var stale = test_ticket(.tcp, 2, 1);
+    kept.keep(&stale, 0);
+    try testing.expectEqual(null, kept.take(.tcp, 2 * ns_per_s));
+    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.tcp.held), 0));
 }

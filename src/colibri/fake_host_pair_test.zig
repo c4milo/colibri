@@ -400,7 +400,7 @@ test "decision 159: a hosted client and server run a GET and a POST over h3" {
 
 /// Whether the client's QUIC connection ended and the client kept the server's QUIC ticket.
 fn quic_over_with_ticket() bool {
-    return pair_client.pool.quic.stopped and pair_client.tickets.quic != null;
+    return pair_client.pool.quic.stopped and pair_client.tickets.holds(.quic);
 }
 
 test "decision 161: a later QUIC connection resumes with the ticket of the one before" {

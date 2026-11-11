@@ -120,9 +120,9 @@ test "decision 161: each later connection over TLS resumes with the ticket of th
     // resume.
     try testing.expectEqual(2, handler.resumed);
     // The third connection's ticket is still kept, and `deinit` wipes it.
-    try testing.expect(test_client.tickets.tcp != null);
+    try testing.expect(test_client.tickets.holds(.tcp));
     test_client.deinit();
-    try testing.expectEqual(null, test_client.tickets.tcp);
+    try testing.expect(!test_client.tickets.holds(.tcp));
 }
 
 /// A handler that shuts the client down as each exchange ends, and then makes a request.
