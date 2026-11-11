@@ -127,7 +127,7 @@ pub fn main() !void {
     defer link.deinit();
     try peer.init(&link);
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
-    try pool.init(&pool_memory, &client_config, known, null);
+    try pool.init(&pool_memory, &client_config, &known, null);
     call_id = try pool.request(&call, &response);
     try hand_next();
     for (0..turns_max) |_| {

@@ -140,5 +140,5 @@ fn shared_features(ipv4: ?host.Features, ipv6: ?host.Features) host.Features {
 /// client with no QUIC.
 fn start_pool(state: anytype, destination: client.Destination) client.StartError!void {
     const storage: ?client.ReceiveStorage = if (@TypeOf(state.receive_pool) == void) null else state.receive_pool.storage();
-    try state.pool.init(&state.pool_memory, &state.pool_config, destination, storage);
+    try state.pool.init(&state.pool_memory, &state.pool_config, &destination, storage);
 }

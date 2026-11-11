@@ -89,7 +89,7 @@ pub fn start_configured(server_protocols: []const []const u8, values: pool_modul
     // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
     @memset(std.mem.asBytes(&pool), unstarted_octet);
     const memory: []align(ConnectionPool.memory_alignment) u8 = if (given.tcp_connections == tcp_connections_two) &pool_memory_two else &pool_memory;
-    try pool.init(memory, &config, values, given_pool);
+    try pool.init(memory, &config, &values, given_pool);
     events_len = 0;
     blocked = false;
 }

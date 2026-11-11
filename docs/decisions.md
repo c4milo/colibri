@@ -7626,7 +7626,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         alone" in the error sets above. `Client` names its `InitError` on both kinds already.
      8. `colibri.Client.set_destination` and `client.ConnectionPool.set_destination` take
         `*const client.Destination`, because the argument is over 16 bytes (TigerStyle). The
-        change breaks each caller, in v0.16.0.
+        change breaks each caller, in v0.16.0. The owner ruled later the same day that
+        `client.ConnectionPool.init` takes its destination as `*const client.Destination` too.
      9. The host contract closes a write side, so a hosted server closes an h11 connection in
         stages too (decision 160).
         - `Operation.Kind` gains `shutdown_send: struct { socket: SocketId }`. The host shuts

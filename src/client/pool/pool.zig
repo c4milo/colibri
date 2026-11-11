@@ -301,7 +301,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// the handles count again too, so the program keeps no id and no handle from before. The
         /// pool copies `config`, so the program may change or free its own `Config` once `init`
         /// returns. The pools, the anchors and the providers `config` names stay the program's.
-        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, destination: Destination, receive_pool: ?ReceiveStorage) StartError!void {
+        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, destination: *const Destination, receive_pool: ?ReceiveStorage) StartError!void {
             return pool_calls.init(pool, memory, config, destination, receive_pool);
         }
 

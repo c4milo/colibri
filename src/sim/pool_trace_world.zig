@@ -122,7 +122,7 @@ pub const World = struct {
         // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.
         const bytes = ConnectionPool.memory_bytes(.{ .tcp_connections = world.client_config.tcp_connections, .requests = world.client_config.requests });
         const memory = world.pool_memory[0..bytes];
-        try world.pool.init(memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, null);
+        try world.pool.init(memory, &world.client_config, &.{ .addresses = &world.addresses, .port = http_port }, null);
         world.sockets = @splat(.{});
         world.ids = @splat(null);
         world.cancelled = @splat(false);

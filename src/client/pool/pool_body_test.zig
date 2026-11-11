@@ -43,7 +43,7 @@ fn start() !void {
 /// As `start`, with a connection that speaks `protocol`.
 fn start_speaking(protocol: pool_module.Protocol) !void {
     config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(protocol)) };
-    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
+    try pool.init(&pool_memory, &config, &.{ .addresses = &addresses, .port = http_port }, null);
     fresh_peer();
     events_len = 0;
 }

@@ -57,7 +57,7 @@ const closing_response = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length
 /// A pool of `two_slots` in cleartext, which speaks the versions `versions` allows.
 fn start(versions: protocols_module.Protocols) !void {
     config = .{ .authority = support.authority, .protocols = versions, .tcp_connections = two_slots.tcp_connections, .requests = two_slots.requests };
-    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
+    try pool.init(&pool_memory, &config, &.{ .addresses = &addresses, .port = http_port }, null);
     events_len = 0;
     starts = true;
 }
@@ -307,7 +307,7 @@ var three_memory: [ConnectionPool.memory_bytes(three_slots)]u8 align(ConnectionP
 
 test "decision 125: two connections to one address that both fail skip no other address" {
     config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false }, .tcp_connections = three_slots.tcp_connections, .requests = three_slots.requests };
-    try pool.init(&three_memory, &config, .{ .addresses = &three_addresses, .port = http_port }, null);
+    try pool.init(&three_memory, &config, &.{ .addresses = &three_addresses, .port = http_port }, null);
     events_len = 0;
     var exchanges = [_]Exchange{ get(&bodies[0], "/a"), get(&bodies[1], "/b"), get(&bodies[2], "/c") };
     for (&exchanges) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
@@ -332,7 +332,7 @@ test "decision 125: two connections to one address that both fail skip no other 
 
 test "decision 125 ruling 8: set_destination keeps the h3 alternative unless the values name one" {
     config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false }, .tcp_connections = two_slots.tcp_connections, .requests = two_slots.requests };
-    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port, .alternative = learned }, null);
+    try pool.init(&pool_memory, &config, &.{ .addresses = &addresses, .port = http_port, .alternative = learned }, null);
     pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     try testing.expectEqual(learned, pool.alternative().?);
     pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port, .alternative = named });

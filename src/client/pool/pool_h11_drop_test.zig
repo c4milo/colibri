@@ -66,7 +66,7 @@ fn Tests(comptime Pool: type) type {
                 .protocols = pool_support.versions_for(&pool, support.only(.h11)),
                 .timeouts = .{ .drop_ns = drop_ns },
             };
-            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
+            try pool.init(&pool_memory, &config, &.{ .addresses = &addresses, .port = http_port }, null);
             events_len = 0;
             var exchange = get(&bodies[0]);
             const id = try pool.request(&exchange.request, &exchange.response);

@@ -118,7 +118,7 @@ pub fn main() !void {
     try peer.init(&link);
     // The pool takes what the first DNS answer knows: the server's address and its port.
     const known: client.Destination = .{ .addresses = &first_addresses, .port = server_port };
-    try pool.init(&pool_memory, &client_config, known, null);
+    try pool.init(&pool_memory, &client_config, &known, null);
     try request(first_round);
     for (0..turns_max) |_| {
         try client_turn();
