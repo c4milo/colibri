@@ -277,7 +277,7 @@ fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
 /// Starts the server's session with one connection accepted in cleartext. Test-only.
 fn test_start_server() !void {
     test_server_now_ns = 0;
-    try test_server.init(&test_server_config, entropy.random(), test_server_now_ns);
+    try test_server.init(&test_server_config, entropy.random(), .{ .unix_seconds = 0, .monotonic_ns = test_server_now_ns });
     try testing.expect(test_server.accept(0, false, null, test_server_now_ns));
 }
 

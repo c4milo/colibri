@@ -109,9 +109,9 @@ pub fn Session(comptime connections_max: usize) type {
         routes: ?*server_routes.Pool,
 
         /// Prepares a session that holds no connection, under `config`, which the engine reads
-        /// while it runs. The server issues no ticket, so it judges none at a clock: chapulin's 0
-        /// for none.
-        pub fn init(session: *Self, config: *const server.Config, random: std.Random, now_ns: u64) server.StartError!void {
+        /// while it runs. `now.unix_seconds` dates the session tickets, or is 0 when the server
+        /// issues none (decision 161).
+        pub fn init(session: *Self, config: *const server.Config, random: std.Random, now: server.Timestamp) server.StartError!void {
             for (&session.entries) |*entry| {
                 entry.handle = no_connection;
                 entry.attached = false;
@@ -125,8 +125,8 @@ pub fn Session(comptime connections_max: usize) type {
             session.entry_of = @splat(null);
             session.pending = Pending.initEmpty();
             session.undrained = false;
-            session.now_ns = now_ns;
-            try session.engine.init(config, random, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+            session.now_ns = now.monotonic_ns;
+            try session.engine.init(config, random, now);
         }
 
         /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry

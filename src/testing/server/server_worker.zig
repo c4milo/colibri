@@ -130,12 +130,20 @@ pub fn start(index: usize) server.StartError!void {
         worker.config.codings = &server_mode.served_codings;
         worker.config.encoders = worker.encoders.encoders();
     }
-    // The loop starts on the worker's own thread, later, so no instant is read yet. The engine
-    // takes this one for its tickets' clock alone, and the server issues no ticket.
-    try worker.session.init(&worker.config, entropy.random(), 0);
+    // The loop starts on the worker's own thread, later, so no instant is read yet. This start
+    // checks the identity before a listener is bound, and issues no ticket.
+    try begin(worker, .{ .unix_seconds = 0, .monotonic_ns = 0 });
+}
+
+/// Starts the worker's engine at `now`, with the router's pool in the `--routes github` mode. The
+/// engine holds no connection yet.
+fn begin(worker: *Worker, now: server.Timestamp) server.StartError!void {
+    // A Unix time pairs with an instant a tick read: the monotonic clock is past 0 by then.
+    assert(now.unix_seconds == 0 or now.monotonic_ns > 0);
+    try worker.session.init(&worker.config, entropy.random(), now);
     if (server_mode.routes_mode) {
-        route_pools[index] = .{};
-        worker.session.routes = &route_pools[index];
+        route_pools[worker.index] = .{};
+        worker.session.routes = &route_pools[worker.index];
     }
 }
 
@@ -146,6 +154,13 @@ pub fn run(index: usize) !void {
     // Rotor's rule: the loop belongs to the thread that starts it.
     try worker.loop.init(&worker.loop_memory, &loop_options);
     defer worker.loop.deinit();
+    // The engine dates each ticket from the Unix seconds plus the loop's time since this instant,
+    // so the two start together here, before the first accept (decision 161). The loop reads its
+    // clock at a tick, and this first one waits for nothing (decision 63).
+    if (server_mode.unix_seconds) |seconds| {
+        _ = try worker.loop.tick(&worker.events, 0);
+        try begin(worker, .{ .unix_seconds = seconds, .monotonic_ns = worker.loop.now_ns() });
+    }
     defer rotor.sync.close_now(worker.listener);
     while (true) try turn(worker);
 }

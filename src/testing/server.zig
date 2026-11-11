@@ -5,7 +5,8 @@
 //! h2's preface and h11 otherwise (decision 117), or one alone with `--h11` or `--h2`. With `--tls
 //! <identity-prefix>` it serves TLS instead: the engine offers `h2` and `http/1.1` through ALPN,
 //! or one alone with `--h11` or `--h2`, and each connection speaks what its handshake selected
-//! (decision 88).
+//! (decision 88). With `--seconds <unix-seconds>` too, it issues session tickets, so a client
+//! resumes a later connection (decision 161).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop, its own listening
 //! socket on the same port, bound with SO_REUSEPORT, and its own engine, so the kernel hands
@@ -89,6 +90,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     server_mode.coded_mode = options.coded;
     server_mode.routes_mode = options.routes;
     if (options.h3_port) |port| server_mode.h3_alternative = .{ .port = port };
+    server_mode.unix_seconds = options.unix_seconds;
     if (options.identity_prefix) |prefix| try load_tls(prefix);
     try listen_and_serve(options.port);
 }
@@ -107,6 +109,8 @@ fn versions_of(alone: ?Protocol) server.Protocols {
 fn load_tls(prefix: []const u8) !void {
     server_identity.seed(&server_mode.identity_storage);
     server_mode.identity = try server_identity.load(prefix, &server_mode.identity_storage, &.{});
+    // The time the run gave turns the session tickets on (decision 161).
+    if (server_mode.unix_seconds != null) server_identity.issue_tickets(&server_mode.identity_storage, &server_mode.identity.?);
     // A log names what the sessions were told of the CPU, which decides the suites they hold.
     cpu.print("http-server");
 }

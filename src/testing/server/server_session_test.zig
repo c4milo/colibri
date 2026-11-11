@@ -47,7 +47,7 @@ fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
     test_config = .{ .protocols = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
-    try test_session.init(&test_config, entropy.random(), test_now_ns);
+    try test_session.init(&test_config, entropy.random(), .{ .unix_seconds = 0, .monotonic_ns = test_now_ns });
     try testing.expect(test_session.accept(0, false, echo, test_now_ns));
     return &test_session;
 }

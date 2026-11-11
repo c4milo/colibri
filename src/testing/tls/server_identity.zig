@@ -21,6 +21,8 @@ pub const Storage = struct {
     /// The P-256 key the Go tool wrote as raw octets.
     key: tls.Key,
     cookie_key: [tls.constants.protocol.server_key_len]u8,
+    /// The key the server seals its session tickets under, when the run gives it the time.
+    ticket_key: [tls.constants.protocol.server_key_len]u8,
     /// The end-entity first, then the root that signed it (RFC 9846 §4.4.2).
     chain: [chain_len][]const u8,
     /// The identities the server presents, which point into this storage.
@@ -74,6 +76,14 @@ pub const LoadError = error{
 /// deployment. Each session draws the rest from the source `entropy.zig` hands its `start`.
 pub fn seed(storage: *Storage) void {
     entropy.fill(&storage.cookie_key);
+}
+
+/// Draws the ticket key, and has `server` issue session tickets sealed under it (RFC 9846 §4.7.1).
+/// chapulin asks for one ticket key per deployment, and a ticket resumes only on a server that
+/// holds it, which here is this process (decision 161).
+pub fn issue_tickets(storage: *Storage, server: *tls.Server) void {
+    entropy.fill(&storage.ticket_key);
+    server.ticket_key = &storage.ticket_key;
 }
 
 /// Reads the four parts of the identity `tls_identity.go` minted, each raw DER or raw octets, as

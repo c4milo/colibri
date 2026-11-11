@@ -2,7 +2,7 @@
 //! scripts pass it. Split off the server for length.
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
-//!         [--tls <identity-prefix>] [--h3-port <port>]
+//!         [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>]
 //!
 //! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
 //! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--h2`, `--echo` and `--coded` take no
@@ -13,7 +13,9 @@
 //! server offers both. `--echo` answers every h11 request with what h11 read of it
 //! (`../h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
-//! final h11 response, and one ALTSVC frame per h2 connection.
+//! final h11 response, and one ALTSVC frame per h2 connection. `--seconds` gives a TLS server
+//! the Unix time it starts at: the server then draws a ticket key and issues session tickets
+//! (RFC 9846 §4.7.1, decision 161). Without it the server issues none.
 const std = @import("std");
 const constants = @import("../constants.zig");
 const alpn = @import("../alpn.zig");
@@ -37,6 +39,10 @@ const echo_option = "--echo";
 const h3_port_option = "--h3-port";
 const coded_option = "--coded";
 const routes_option = "--routes";
+const seconds_option = "--seconds";
+
+/// The base the Unix seconds are written in on the command line.
+const decimal: u8 = 10;
 /// The one route table `--routes` names.
 const github_routes = "github";
 
@@ -58,6 +64,9 @@ pub const Options = struct {
     /// Whether the server routes through `server.Router` the GitHub API's routes (`--routes
     /// github`, design §8 step 13f).
     routes: bool = false,
+    /// The Unix seconds the server starts at, which its session tickets carry, or null to issue
+    /// none (decision 161).
+    unix_seconds: ?u64 = null,
 };
 
 /// Reads the options from `arguments`, anything with a `next` that answers the next argument or
@@ -77,7 +86,9 @@ pub fn read(arguments: anytype) ?Options {
     // The router answers every request itself, so no other mode answers too, and it codes no
     // response until design §8 step 25.6.
     const routes_ok = !options.routes or (!options.echo and !options.coded);
-    return if (echo_ok and routes_ok) options else null;
+    // A ticket is a TLS message (RFC 9846 §4.7.1), so the time serves the TLS mode alone.
+    const seconds_ok = options.unix_seconds == null or options.identity_prefix != null;
+    return if (echo_ok and routes_ok and seconds_ok) options else null;
 }
 
 /// Whether `read_flag` took an argument as a flag, or left it for `read_setting`.
@@ -113,12 +124,25 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
     } else if (eql(u8, option, h3_port_option)) {
         options.h3_port = std.fmt.parseInt(u16, value, constants.port_radix) catch return null;
     } else if (eql(u8, option, routes_option)) {
-        if (!eql(u8, value, github_routes)) return null;
-        options.routes = true;
+        options.routes = parse_routes(value) orelse return null;
+    } else if (eql(u8, option, seconds_option)) {
+        options.unix_seconds = parse_seconds(value) orelse return null;
     } else return null;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>] [--routes github]\n";
+/// Whether `--routes` names the one route table there is, or null for any other name.
+fn parse_routes(value: []const u8) ?bool {
+    return if (std.mem.eql(u8, value, github_routes)) true else null;
+}
+
+/// The Unix seconds of `--seconds`, or null for a value that is not a count, or for 0, which
+/// chapulin reads as no clock and so as no ticket: the run omits the option instead.
+fn parse_seconds(value: []const u8) ?u64 {
+    const seconds = std.fmt.parseUnsigned(u64, value, decimal) catch return null;
+    return if (seconds == 0) null else seconds;
+}
+
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>] [--routes github]\n";
 
 const testing = std.testing;
 
@@ -157,6 +181,15 @@ test "the options read into what the server runs, and unreadable ones are refuse
     try testing.expectEqual(null, test_read(&.{ "--address", "::1" }));
     try testing.expectEqual(null, test_read(&.{"--port"}));
     try testing.expectEqual(null, test_read(&.{ "--other", "1" }));
+}
+
+test "decision 161: --seconds takes Unix seconds above 0, over TLS alone" {
+    try testing.expectEqual(1_790_000_000, test_read(&.{ "--tls", "id", "--seconds", "1790000000" }).?.unix_seconds.?);
+    try testing.expectEqual(null, test_read(&.{ "--tls", "id" }).?.unix_seconds);
+    try testing.expectEqual(null, test_read(&.{ "--seconds", "1790000000" }));
+    try testing.expectEqual(null, test_read(&.{ "--tls", "id", "--seconds", "0" }));
+    try testing.expectEqual(null, test_read(&.{ "--tls", "id", "--seconds", "soon" }));
+    try testing.expectEqual(null, test_read(&.{ "--tls", "id", "--seconds" }));
 }
 
 test "the echo is h11's, in cleartext" {

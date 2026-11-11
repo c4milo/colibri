@@ -16,6 +16,9 @@ pub var routes_mode: bool = false;
 /// Whether responses are coded (`--coded`), in gzip or deflate, gzip first.
 pub var coded_mode: bool = false;
 pub const served_codings = [_]server.Coding{ .gzip, .deflate };
+/// The Unix seconds the server starts at (`--seconds`), which its session tickets carry, or null
+/// for none (decision 161).
+pub var unix_seconds: ?u64 = null;
 /// The h3 endpoint each TLS connection advertises (`--h3-port`), or null.
 pub var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative)) = null;
 
