@@ -7753,3 +7753,44 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `close`. Without the half-close the client does not see the end of the response, and RFC
        9112 §9.6 starts with the half-close.
      - A bound in `server.Limits` or `server.Timeouts`. The owner ruled two named limits.
+
+161. **colibri's TCP servers issue session tickets, so a client resumes.** Ruled by the owner on
+     2026-11-10, for v0.16.0 (design §8 step 48). Step 13j's profiles found that wrk resumes almost
+     every session with hyper, and that colibri's TCP servers issue no ticket. So each connection
+     to colibri runs a full handshake with its signature. RFC 9846 §2.2 describes resumption, and
+     §4.7.1 the NewSessionTicket message.
+     1. `colibri.ServerConfig.unix_seconds` is a `u64` with no default, as
+        `ClientConfig.unix_seconds` (decision 150 ruling 9). It holds the seconds since 1970 when
+        `run` starts. The program reads its clock, and colibri reads none (non-negotiable 3). A
+        `.private` server passes it to `server.Engine.init` in place of 0. A `.hosted` server
+        already takes the Unix seconds in `now`, a `server.Timestamp` (decision 159).
+     2. `ticket_key` is a `?[tls.constants.protocol.server_key_len]u8`, null by default, in
+        `colibri.ServerConfig` and in the `.hosted` configuration. The owner ruled on 2026-11-10
+        that both kinds follow one rule. The server copies a key the program passes (decision
+        158). With null, it draws its own key at start from its random source, as it draws its
+        cookie key. It writes zero over its copy at `deinit`.
+     3. The same key serves the server's TCP and QUIC connections. Decision 20 still refuses 0-RTT.
+     4. The test-only TCP server takes `--seconds <unix-seconds>`. With it, the server draws a ticket
+        key from its entropy, as `quic-udp` does, and issues tickets. Without it, it issues none.
+        `bench/run.sh` passes `date +%s`.
+     5. chapulin chooses the lifetime and the count of the tickets. RFC 9846 §4.7.1 bounds the
+        lifetime at 604,800 s, and colibri sets neither value.
+
+     The alternatives refused:
+     - `unix_seconds` as an optional field, with tickets only when the program passes it. A
+       server would then resume no session unless its program asks.
+     - A key that each server always draws. Two servers then cannot resume each other's tickets.
+     - A pointer to the program's key. A type keeps no pointer to the caller's options after `init`
+       returns (decision 158).
+     - Resumption turned off in hyper, nginx and h2o, so that the bench compares full handshakes.
+       The bench would then measure a server that no client resumes.
+     - A request to chapulin for X25519 in assembly on arm64. X25519 takes 28% of hyper's samples
+       and 31% of colibri's, at equal cycles a connection.
+
+     This amends decision 159's list of the fields with no default: `ServerConfig.unix_seconds`
+     has none, because no instant is right to assume.
+
+     Cost: each program that builds a `colibri.ServerConfig` adds `unix_seconds`. v0.16.0 already
+     breaks programs, so they change once. A key change ends every live ticket until chapulin
+     opens tickets under the previous key too
+     ([chapulin#220](https://github.com/c4milo/chapulin/issues/220)).
