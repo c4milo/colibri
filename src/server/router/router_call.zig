@@ -173,7 +173,7 @@ pub fn is_struct(comptime handler: anytype) bool {
 
 /// The state a struct route keeps in its request's entry, or `void` for a route with none.
 /// Comptime-only.
-pub fn StateOf(comptime handler: anytype) type {
+pub fn State(comptime handler: anytype) type {
     if (comptime is_struct(handler) and @hasDecl(handler, "State")) return handler.State;
     return void;
 }
@@ -188,7 +188,7 @@ pub fn has(comptime handler: anytype, comptime name: []const u8) bool {
 pub fn call_on_request(
     comptime handler: anytype,
     context: anytype,
-    state: *StateOf(handler),
+    state: *State(handler),
     request: *const event.Request,
     parameters: *const PathParameters,
     query: *QueryMemory,
@@ -203,12 +203,12 @@ pub fn call_on_request(
 }
 
 /// Calls a struct route's `on_body` with the reader over the bytes that arrived.
-pub fn call_body(comptime handler: anytype, context: anytype, state: *StateOf(handler), reader: *std.Io.Reader, response: *ResponseWriter) Outcome {
+pub fn call_body(comptime handler: anytype, context: anytype, state: *State(handler), reader: *std.Io.Reader, response: *ResponseWriter) Outcome {
     return outcome_of(handler.on_body(context, state, reader, response));
 }
 
 /// Calls a struct route's `on_writable`.
-pub fn call_writable(comptime handler: anytype, context: anytype, state: *StateOf(handler), response: *ResponseWriter) Outcome {
+pub fn call_writable(comptime handler: anytype, context: anytype, state: *State(handler), response: *ResponseWriter) Outcome {
     return outcome_of(handler.on_writable(context, state, response));
 }
 

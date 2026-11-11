@@ -26,7 +26,7 @@ comptime {
 pub const alpn = @import("alpn.zig");
 pub const h11_echo = @import("h11/h11_echo.zig");
 pub const server_session = @import("server/server_session.zig");
-pub const Session = server_session.Session;
+pub const Session = server_session.WorkerSession;
 pub const server = @import("server.zig");
 pub const server_options = @import("server/server_options.zig");
 

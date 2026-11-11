@@ -12,7 +12,7 @@ const ResponseWriter = @import("../response_writer/response_writer.zig").Respons
 const router_call = @import("router_call.zig");
 
 /// The state a middleware keeps in a request's entry, or `void` for one with none. Comptime-only.
-pub fn StateOf(comptime Middleware: type) type {
+pub fn State(comptime Middleware: type) type {
     if (@hasDecl(Middleware, "State")) return Middleware.State;
     return void;
 }
@@ -20,7 +20,7 @@ pub fn StateOf(comptime Middleware: type) type {
 /// The pointer type a middleware's hooks take for its state: `*void` for one with none.
 /// Comptime-only.
 pub fn StatePointer(comptime Middleware: type) type {
-    return *StateOf(Middleware);
+    return *State(Middleware);
 }
 
 /// Whether a middleware wraps the request body's reader or the response body's writer.
@@ -46,7 +46,7 @@ pub fn layout_of(comptime table: anytype) Layout {
         const offsets = offsets_of(chain);
         layout.size = @max(layout.size, offsets[chain.len]);
         layout.chain_max = @max(layout.chain_max, chain.len);
-        for (0..chain.len) |place| layout.alignment = @max(layout.alignment, @alignOf(StateOf(chain[place])));
+        for (0..chain.len) |place| layout.alignment = @max(layout.alignment, @alignOf(State(chain[place])));
     }
     return layout;
 }
@@ -57,10 +57,10 @@ fn offsets_of(comptime chain: anytype) [chain.len + 1]usize {
     var offsets: [chain.len + 1]usize = undefined;
     var offset: usize = 0;
     for (0..chain.len) |index| {
-        const State = StateOf(chain[index]);
-        offset = std.mem.alignForward(usize, offset, @alignOf(State));
+        const MiddlewareState = State(chain[index]);
+        offset = std.mem.alignForward(usize, offset, @alignOf(MiddlewareState));
         offsets[index] = offset;
-        offset += @sizeOf(State);
+        offset += @sizeOf(MiddlewareState);
     }
     offsets[chain.len] = offset;
     return offsets;
@@ -84,7 +84,7 @@ pub fn state_at(comptime chain: anytype, comptime index: usize, states: [*]u8) S
 /// Gives each middleware of `chain` the state its fields' defaults hold.
 pub fn reset(comptime chain: anytype, states: [*]u8) void {
     inline for (0..chain.len) |index| {
-        if (comptime StateOf(chain[index]) != void) state_at(chain, index, states).* = .{};
+        if (comptime State(chain[index]) != void) state_at(chain, index, states).* = .{};
     }
 }
 

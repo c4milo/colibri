@@ -98,7 +98,7 @@ pub const Session = struct {
         assert(config.tcp_connections > 0 and config.tcp_connections <= slots_max);
         session.requests_count = 0;
         session.addresses = .{address};
-        try session.pool.init(memory, config, .{ .addresses = &session.addresses, .port = port }, null);
+        try session.pool.init(memory, config, &.{ .addresses = &session.addresses, .port = port }, null);
         session.slots = config.tcp_connections;
         session.random = random;
         session.now_seconds = now_seconds;
@@ -244,7 +244,7 @@ const entropy = @import("../entropy.zig");
 const client_options = @import("client_options.zig");
 
 /// The server's session, which holds the one connection the client opens. Test-only.
-const ServerSession = server_session.SessionOf(1);
+const ServerSession = server_session.Session(1);
 
 /// The two sessions the tests run, their bodies, and the octets each has written that the other
 /// has not read. Placed outside any stack frame. Test-only.

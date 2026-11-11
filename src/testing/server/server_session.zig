@@ -80,11 +80,11 @@ const no_connection: server.ConnectionHandle = .{ .slot = 0, .generation = 0 };
 const events_per_step_max: usize = 1024;
 
 /// The session of a worker of the server.
-pub const Session = SessionOf(constants.connections_per_worker_max);
+pub const WorkerSession = Session(constants.connections_per_worker_max);
 
 /// A session that holds `connections_max` sockets' connections, in an engine of as many slots.
 /// What its functions do is below the type, in functions that take a session of any size.
-pub fn SessionOf(comptime connections_max: usize) type {
+pub fn Session(comptime connections_max: usize) type {
     return struct {
         const Self = @This();
         pub const Engine = server.Engine(.{ .tcp_connections = connections_max, .quic_connections = 0 });

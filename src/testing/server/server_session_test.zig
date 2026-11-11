@@ -16,7 +16,7 @@ const entropy = @import("../entropy.zig");
 const testing = std.testing;
 /// A session of two entries over an engine of two slots, so a slot is taken again after one
 /// other connection. Test-only.
-const Session = session_module.SessionOf(test_connections);
+const Session = session_module.Session(test_connections);
 const test_connections: usize = 2;
 /// The TCP version a fresh session speaks. Test-only.
 const Protocol = enum { h11, h2 };

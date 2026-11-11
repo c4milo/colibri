@@ -16,7 +16,7 @@
 //! Exit status: 0 when nothing was found, 1 when any finding was reported or a file failed to read,
 //! 2 on a usage error.
 //!
-//! Ten rules are pepegrillo's, configured in the file named after each. `module-graph`,
+//! Twelve rules are pepegrillo's, configured in the file named after each. `module-graph`,
 //! `rfc-citation`, `peer-index`, `root-exports` and `rotor-import` are colibri's own, written
 //! against pepegrillo's readers.
 //!
@@ -45,6 +45,8 @@ const rules = .{
     @import("global_state.zig"),
     @import("root_exports.zig"),
     @import("rotor_import.zig"),
+    @import("type_function_suffix.zig"),
+    @import("kept_options_pointer.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -75,6 +77,8 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "global-state",
         "root-exports",
         "rotor-import",
+        "type-function-suffix",
+        "kept-options-pointer",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {

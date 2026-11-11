@@ -34,6 +34,8 @@ const canary_rules = [_][]const u8{
     "global-state",
     "root-exports",
     "rotor-import",
+    "type-function-suffix",
+    "kept-options-pointer",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -57,6 +59,15 @@ const canary_source =
     \\pub fn parse(reader: *Reader, buffer: []u8) !void {
     \\    _ = buffer[0..try reader.take_int_big(u16)];
     \\}
+    \\pub fn BlockOf(comptime count: usize) type {
+    \\    return [count]u8;
+    \\}
+    \\pub const Held = struct {
+    \\    options: *const Options,
+    \\    pub fn init(held: *Held, options: *const Options) void {
+    \\        held.* = .{ .options = options };
+    \\    }
+    \\};
     \\
 ++ "//\n" ** file_length_max_lines;
 

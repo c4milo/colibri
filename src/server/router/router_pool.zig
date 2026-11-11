@@ -154,7 +154,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             const state = state_of(P, handler, entry);
-            if (comptime router_call.StateOf(handler) != void) state.* = .{};
+            if (comptime router_call.State(handler) != void) state.* = .{};
             if (!run_chain(P, @intFromEnum(tag), entry, context, engine, request)) return;
             const outcome = router_call.call_on_request(handler, context, state, request, &pool.parameters, &pool.query, &entry.response);
             if (!after(P, entry, context, engine, request, outcome)) return;
@@ -309,7 +309,7 @@ fn refuse_body(comptime P: type, entry: *P.Entry, context: *P.Context, engine: a
     finish(P, entry, context, engine);
 }
 
-fn state_of(comptime P: type, comptime handler: anytype, entry: *P.Entry) *router_call.StateOf(handler) {
+fn state_of(comptime P: type, comptime handler: anytype, entry: *P.Entry) *router_call.State(handler) {
     return @ptrCast(&entry.state);
 }
 
@@ -361,7 +361,7 @@ fn state_layout_of(comptime routes: anytype) struct { size: usize, alignment: us
     var size: usize = 0;
     var alignment: usize = 1;
     for (0..routes.len) |index| {
-        const State = router_call.StateOf(routes[index][router_call.handler_part]);
+        const State = router_call.State(routes[index][router_call.handler_part]);
         size = @max(size, @sizeOf(State));
         alignment = @max(alignment, @alignOf(State));
     }

@@ -65,7 +65,7 @@ pub const Worker = struct {
     /// decoders.
     config: server.Config,
     /// The engine and what each socket's connection owes. It stays where `start` found it.
-    session: server_session.Session,
+    session: server_session.WorkerSession,
 };
 
 /// The workers, in static storage: each is large, and there is one per core at most.

@@ -97,7 +97,7 @@ pub fn refusal_of(comptime Context: type, comptime entry: anytype) ?Reason {
     }
     if (@typeInfo(handler) != .@"struct") return .handler_type;
     if (!@hasDecl(handler, "on_request")) return .on_request_missing;
-    const State = router_call.StateOf(handler);
+    const State = router_call.State(handler);
     if (state_refusal(State)) |reason| return reason;
     if (function_refusal(Context, State, @TypeOf(handler.on_request), entry[1])) |reason| return reason;
     return calls_refusal(Context, State, handler);
@@ -135,7 +135,7 @@ fn hooks_refusal(comptime Context: type, comptime Middleware: type) ?Reason {
     const requested = @hasDecl(Middleware, "on_request");
     const finished = @hasDecl(Middleware, "on_finished");
     if (!requested and !finished and !router_wrap.wraps(Middleware)) return .middleware_hooks;
-    if (state_refusal(router_wrap.StateOf(Middleware)) != null) return .middleware_state_defaults;
+    if (state_refusal(router_wrap.State(Middleware)) != null) return .middleware_state_defaults;
     if (wrap_refusal(Context, Middleware)) |reason| return reason;
     if (requested) {
         if (!fits(@TypeOf(Middleware.on_request), &.{ *Context, *const event.Request, *ResponseWriter }, middleware.Next, true)) return .middleware_on_request;
