@@ -3,11 +3,13 @@
 // run against colibri's test-only server. Nothing here is colibri's code, which is the point: the
 // run says whether Go's client and colibri's server read RFC 9113 and RFC 9112 the same way.
 //
-//	go run tools/h2_interop/go_client.go [-h11] [-coded] <address:port> [<identity-prefix>]
+//	go run tools/h2_interop/go_client.go [-h11] [-coded] [-resume] <address:port> [<identity-prefix>]
 //
 // With a prefix it speaks TLS, trusts the root in <identity-prefix>.chain.pem, which
 // tools/h2_interop/tls_identity.go wrote, and asks for the name the leaf carries. With -h11 over
-// TLS it offers ALPN "http/1.1" alone.
+// TLS it offers ALPN "http/1.1" alone. With -resume over TLS it keeps the session tickets it
+// receives. After the plan it sends one more GET on a new connection, and prints whether that
+// connection resumed a session (RFC 9846 §2.2).
 //
 // It sends every request of its plan at once: GETs, and a POST whose content is past the
 // 65,535-octet window an h2 stream starts with (RFC 9113 §6.9.2), so in h2 it finishes only if
@@ -56,11 +58,18 @@ var h11 = flag.Bool("h11", false, "speak HTTP/1.1 alone (RFC 9112) instead of h2
 // decodes: colibri's server in its --coded mode (decision 101).
 var coded = flag.Bool("coded", false, "require every response coded in gzip, which the transport decodes")
 
+// Whether the run keeps session tickets and reports if a new connection resumed one: colibri's
+// server with --seconds (decision 161).
+var resume = flag.Bool("resume", false, "over TLS, report whether a new connection after the plan resumed a session")
+
 func main() {
 	flag.Parse()
 	arguments := flag.Args()
 	if len(arguments) != 1 && len(arguments) != 2 {
 		log.Fatal("usage: go_client [-h11] [-coded] <address:port> [<identity-prefix>]")
+	}
+	if *resume && len(arguments) != 2 {
+		log.Fatal("-resume needs TLS: an identity prefix")
 	}
 	client, base := newClient(arguments)
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
@@ -97,6 +106,39 @@ func main() {
 	if failed > 0 {
 		os.Exit(1)
 	}
+	if *resume {
+		resumed, err := resumedAfterPlan(ctx, client, base)
+		if err != nil {
+			fmt.Println("go_client:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("go_client: resumed=%t\n", resumed)
+	}
+}
+
+// Sends one GET through a copy of the plan's transport, and reports whether its connection resumed
+// a session with a ticket the plan's connections received. The copy shares the session cache and
+// holds no connection, so the GET dials a new one: a plan connection that is not idle yet is
+// one CloseIdleConnections leaves open, and the transport could reuse it.
+func resumedAfterPlan(ctx context.Context, client *http.Client, base string) (bool, error) {
+	fresh := client.Transport.(*http.Transport).Clone()
+	defer fresh.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/resumed", nil)
+	if err != nil {
+		return false, err
+	}
+	response, err := (&http.Client{Transport: fresh}).Do(request)
+	if err != nil {
+		return false, fmt.Errorf("GET %s/resumed: %w", base, err)
+	}
+	defer response.Body.Close()
+	if _, err := io.ReadAll(response.Body); err != nil {
+		return false, err
+	}
+	if response.TLS == nil {
+		return false, fmt.Errorf("GET %s/resumed: no TLS state", base)
+	}
+	return response.TLS.DidResume, nil
 }
 
 // Builds the client for the mode the command line asked for, and the base of every URI.
@@ -126,6 +168,10 @@ func newClient(arguments []string) (*http.Client, string) {
 		log.Fatal("no certificate in the chain file")
 	}
 	transport.TLSClientConfig = &tls.Config{RootCAs: roots, ServerName: hostname, MinVersion: tls.VersionTLS13}
+	if *resume {
+		// One ticket is enough: the run resumes one connection.
+		transport.TLSClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(1)
+	}
 	// The URI names the certificate's host, and the dial goes to the address the run gave.
 	dialer := &net.Dialer{}
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {

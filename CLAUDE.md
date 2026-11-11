@@ -406,8 +406,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
   it needs `go` and `docker`. With `--tls` each also runs a handshake colibri refuses, the client
   pinning another root and a Go client offering TLS 1.2 alone to the server, and requires Go to
-  read colibri's alert. Both endpoints take `--h11`: in cleartext it makes them speak h11,
-  and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`. The
+  read colibri's alert. Over TLS the server takes `--seconds <unix-seconds>` and then issues
+  session tickets: each server script requires a new connection of Go's client to resume, and
+  one to a server without `--seconds` to run a full handshake (decision 161). Both endpoints
+  take `--h11`: in cleartext it makes them speak h11, and over TLS it makes them offer
+  `http/1.1` alone instead of `h2` and then `http/1.1`. The
   server takes `--h2` for h2 alone the same way. With neither, the server in cleartext names no
   version and speaks h2 when a connection's first octets are h2's preface and h11 otherwise
   (decision 117), as the h11 and h2 server scripts run it. The

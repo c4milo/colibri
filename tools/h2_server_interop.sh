@@ -10,7 +10,10 @@
 # serves the identity tools/h2_interop/tls_identity.go mints. curl and Go check its chain against
 # the root and refuse one that fails; nghttp prints a warning and goes on. With --tls a Go client
 # that offers TLS 1.2 alone must read the alert the server refuses it with, and one that sends a
-# record that does not authenticate after the handshake must read bad_record_mac.
+# record that does not authenticate after the handshake must read bad_record_mac. Over TLS the
+# server gets the Unix time with --seconds, so it issues session tickets, and a new connection Go
+# opens after its plan must resume its session. Without --seconds it must run a full handshake
+# (decision 161).
 #
 # Usage: tools/h2_server_interop.sh [--tls] [curl] [nghttp] [go]
 #        (no peer runs all three)
@@ -89,7 +92,8 @@ in_both_modes() {
   if [ -n "${tls}" ]; then
     mode=tls
     echo "h2_server_interop.sh: over TLS"
-    start_server --tls "${identity}" --h3-port "${h3_port}"
+    # Decision 161: with the Unix time the server issues session tickets.
+    start_server --tls "${identity}" --h3-port "${h3_port}" --seconds "$(date +%s)"
     "$1"
   fi
   stop_server
@@ -170,9 +174,34 @@ plan_go() {
   local arguments=()
   [ "${mode}" = cleartext ] || arguments=("${identity}")
   local report
-  report="$("${scratch}/go_client" "127.0.0.1:${port}" ${arguments[@]+"${arguments[@]}"} 2>&1)" ||
+  local flags=()
+  [ "${mode}" = cleartext ] || flags=(-resume)
+  report="$("${scratch}/go_client" ${flags[@]+"${flags[@]}"} "127.0.0.1:${port}" ${arguments[@]+"${arguments[@]}"} 2>&1)" ||
     { echo "${report}"; fail "go ${mode}: the client exited non-zero"; }
-  echo "h2_server_interop.sh: go ${mode}: ${report#go_client: }"
+  local counts
+  # Go logs a frame it does not handle, such as ALTSVC, on a line of its own.
+  counts="$(grep -m1 '^go_client: requests=' <<<"${report}")"
+  if [ "${mode}" = cleartext ]; then
+    echo "h2_server_interop.sh: go ${mode}: ${counts#go_client: }"
+    return
+  fi
+  # Decision 161: over TLS the server issues tickets, and a new connection resumes with one.
+  grep -qx 'go_client: resumed=true' <<<"${report}" ||
+    { echo "${report}"; fail "go tls: a new connection did not resume its session"; }
+  echo "h2_server_interop.sh: go ${mode}: ${counts#go_client: }, and a new connection resumed its session"
+}
+
+# Decision 161: a TLS server started without --seconds issues no ticket, so a new connection runs a
+# full handshake.
+without_seconds() {
+  start_server --tls "${identity}"
+  local report
+  report="$("${scratch}/go_client" -resume "127.0.0.1:${port}" "${identity}" 2>&1)" ||
+    { echo "${report}"; fail "go tls without --seconds: the client exited non-zero"; }
+  grep -qx 'go_client: resumed=false' <<<"${report}" ||
+    { echo "${report}"; fail "go tls without --seconds: a new connection resumed a session"; }
+  echo "h2_server_interop.sh: go tls without --seconds: no ticket, and a new connection ran a full handshake"
+  stop_server
 }
 
 # RFC 9846 §6.2: a handshake the server refuses ends with its alert, which the client reads. A
@@ -283,6 +312,7 @@ for peer in "${peers[@]}"; do
       echo "h2_server_interop.sh: $(go version)"
       (cd "${peer_directory}" && go build -o "${scratch}/go_client" go_client.go)
       in_both_modes plan_go
+      [ -z "${tls}" ] || without_seconds
       coded_round plan_go_coded
       ;;
     *) fail "unknown peer: ${peer}" ;;
