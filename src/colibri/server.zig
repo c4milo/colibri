@@ -32,9 +32,17 @@ pub const ServerConfig = struct {
     identity: ?Identity = null,
     /// The program's CPU and its thread's timing, which every TLS session runs on (decision 97).
     cpu: tls.Cpu,
+    /// The seconds since 1970 when `run` starts, which the program reads from its clock: the
+    /// server's session tickets carry it (decision 161). It has no default, because no instant is
+    /// right to assume.
+    unix_seconds: u64,
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).
     random: ?tls.Random = null,
+    /// The key the server seals its session tickets under, which it copies, or null to draw one
+    /// from `random` (decision 161). A program that runs several servers passes each the same
+    /// key, so each resumes the tickets of the others. The server wipes its copy at `deinit`.
+    ticket_key: ?[tls.constants.protocol.server_key_len]u8 = null,
     /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
     /// the server's host reads each datagram's ECN codepoint and sets the one the engine names
     /// (decision 68). Decision 158 ruling 16 names the field after the engine.
@@ -77,6 +85,8 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         pub const datagram: host.SocketId = server_loop.datagram_id(tcp_connections);
 
         random: tls.Random,
+        /// The Unix seconds the engine starts at, which its tickets carry (decision 161).
+        unix_seconds: u64,
         identity: identity_module.Storage,
         engine_config: server.Config,
         /// The engine, the program's router, and the server's entry for each socket's
@@ -138,8 +148,8 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             return Kinded.init(self, config, capacity.quic_connections > 0);
         }
 
-        /// Closes the listener and the UDP socket of `.private`, and wipes the private key and the
-        /// cookie key. The program calls it after `init` returns, and after `run` returns when it
+        /// Closes the listener and the UDP socket of `.private`, and wipes the private key, the
+        /// cookie key and the ticket key. The program calls it after `init` returns, and after `run` returns when it
         /// calls `run`. It does not close a socket that `run` closed: the system can give that
         /// number to another file of the program. A hosted server's host calls it once
         /// `stopped()` holds (decision 159, rule 2).
@@ -165,9 +175,10 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             defer self.host.close_open();
             const now_ns = try self.host.begin();
             defer self.host.end();
-            // colibri's own loop reads no Unix time, so its engine issues no ticket: 0 is
-            // chapulin's value for none.
-            try server_loop.start(self, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+            // The first tick read the clock, so this instant pairs with the Unix seconds the program
+            // read when the run started (decision 161).
+            assert(now_ns > 0);
+            try server_loop.start(self, .{ .unix_seconds = self.unix_seconds, .monotonic_ns = now_ns });
             try self.host.run(self, server_loop, self);
         }
 
@@ -202,10 +213,11 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
     };
 }
 
-/// Writes zero over a server's private key and its cookie key.
+/// Writes zero over a server's private key, its cookie key and its ticket key.
 pub fn wipe_keys(state: anytype) void {
     state.identity.key.wipe();
     std.crypto.secureZero(u8, &state.identity.cookie_key);
+    std.crypto.secureZero(u8, &state.identity.ticket_key);
 }
 
 const testing = std.testing;
@@ -221,6 +233,7 @@ test "decision 150: init reads a PEM identity into the engine's TLS values" {
     try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
+        .unix_seconds = testdata.now_seconds,
         .random = counter.random(),
     }, &fixture.router, &fixture.context);
     const values = test_server.engine_config.tls.?;
@@ -233,8 +246,44 @@ test "decision 150: init reads a PEM identity into the engine's TLS values" {
     test_server.deinit();
 }
 
+test "decision 161: the TLS values hold the server's copy of a ticket key, or one drawn after the cookie key" {
+    var counter: support.Counter = .{};
+    const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
+    try test_server.init(&.{ .identity = identity, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &fixture.router, &fixture.context);
+    // The counter gives the cookie key 0 to 31, and then the ticket key 32 to 63.
+    const key_len = tls.constants.protocol.server_key_len;
+    try testing.expectEqual(key_len, test_server.engine_config.tls.?.ticket_key.?[0]);
+    test_server.deinit();
+    const given: [key_len]u8 = @splat(0xa5);
+    try test_server.init(&.{ .identity = identity, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random(), .ticket_key = given }, &fixture.router, &fixture.context);
+    const values = test_server.engine_config.tls.?;
+    try testing.expect(values.ticket_key.? == &test_server.identity.ticket_key);
+    try testing.expectEqualSlices(u8, &given, values.ticket_key.?);
+    test_server.deinit();
+    // `deinit` wipes the server's copy, and the program's key is the program's to wipe.
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.ticket_key, 0));
+}
+
+test "decision 161: a hosted server takes its ticket key and its tickets' Unix seconds from its configuration" {
+    var counter: support.Counter = .{};
+    const given: [tls.constants.protocol.server_key_len]u8 = @splat(0x5a);
+    const hosted = &fixture.hosted_server;
+    try hosted.init(&.{
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .cpu = support.cpu(),
+        .random = counter.random(),
+        .now = .{ .unix_seconds = testdata.now_seconds, .monotonic_ns = 0 },
+        .ticket_key = given,
+        .sockets = .{ .listener = false },
+    }, &fixture.router, &fixture.context);
+    // The server never runs, so the test wipes the keys that `deinit` wipes once it stopped.
+    defer wipe_keys(hosted);
+    try testing.expectEqualSlices(u8, &given, hosted.engine_config.tls.?.ticket_key.?);
+    try testing.expectEqual(testdata.now_seconds, hosted.engine.state.connections.base_seconds);
+}
+
 test "decision 150 ruling 9: a server given no source draws from the system" {
-    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu() }, &fixture.router, &fixture.context);
+    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds }, &fixture.router, &fixture.context);
     const values = test_server.engine_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
@@ -243,7 +292,7 @@ test "decision 150 ruling 9: a server given no source draws from the system" {
 
 test "decision 150: no identity serves cleartext" {
     var counter: support.Counter = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context);
+    try test_server.init(&.{ .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &fixture.router, &fixture.context);
     try testing.expectEqual(null, test_server.engine_config.tls);
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
     try testing.expect(!test_server.udp.served);
@@ -260,14 +309,14 @@ test "decision 159 as amended: each kind of Server names the errors of its init"
 
 test "decision 150: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context));
+    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &fixture.router, &fixture.context));
 }
 
 test "decision 150: an init that fails after it reads the key wipes the key and the cookie key" {
     var counter: support.Counter = .{};
     const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     // The bind refuses the host after `load` has read the key and drawn the cookie key.
-    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context));
+    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &fixture.router, &fixture.context));
     try testing.expect(counter.next != 0);
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));

@@ -101,6 +101,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
+        .unix_seconds = testdata.now_seconds,
         .random = counter.random(),
     }, &router, &context);
     defer test_server.deinit();

@@ -110,6 +110,7 @@ try http_server.init(&.{
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
+    .unix_seconds = now_seconds,
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
@@ -118,8 +119,9 @@ defer http_server.shutdown();
 ```
 
 `run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
-did not close, and wipes the private key and the cookie key. This is the `.private` kind, on
-colibri's own loop. Every module but `colibri` stays sans-I/O.
+did not close, and wipes the private key, the cookie key and the ticket key. `unix_seconds` dates
+the session tickets the server issues, so a client resumes a later connection (decision 161). This
+is the `.private` kind, on colibri's own loop. Every module but `colibri` stays sans-I/O.
 
 ### A server and a client on your own loop
 

@@ -104,6 +104,7 @@ pub fn main() !void {
         .port = 0,
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
+        .unix_seconds = now_seconds,
     }, &router, &app);
     defer http_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});

@@ -12,6 +12,11 @@ const Server = server_module.Server(.{}, .private);
 
 pub var test_server: Server align(@alignOf(Server)) = undefined;
 
+const Hosted = server_module.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
+
+/// A hosted server with one TCP socket and no QUIC, which the test of decision 161 places.
+pub var hosted_server: Hosted align(@alignOf(Hosted)) = undefined;
+
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
 const internal_server_error: server.Status = .internal_server_error;
 /// The room of the router's one response, which holds a head and no body.

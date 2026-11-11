@@ -155,7 +155,7 @@ pub fn main() !void {
     // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
     // the socket.
-    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated } };
+    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated }, .unix_seconds = now_seconds };
     try bound_server.init(&config, &router, &router_context);
     defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;

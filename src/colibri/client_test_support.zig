@@ -175,7 +175,7 @@ pub var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
 /// when `identity` is set, and with a UDP socket for h3 when `udp` is set too. Its QUIC
 /// connections read and set ECN codepoints, as each `colibri.Server`'s do (decision 68).
 pub fn start_server(identity: bool, udp: bool) !void {
-    var config: server_module.ServerConfig = .{ .cpu = support.cpu() };
+    var config: server_module.ServerConfig = .{ .cpu = support.cpu(), .unix_seconds = testdata.now_seconds };
     if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     router = .{};
     udp_served = udp;

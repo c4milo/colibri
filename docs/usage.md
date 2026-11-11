@@ -177,6 +177,7 @@ try http_server.init(&.{
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
+    .unix_seconds = now_seconds,
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
@@ -190,10 +191,10 @@ fn serve() void {
 }
 ```
 
-`deinit` closes the sockets and wipes the private key and the cookie key. Call it after `init`
-returns, and after `run` returns when your program calls `run`. `run` closes the sockets when it
-returns, and `deinit` does not close them again, because the system can give a closed number to
-another file of your program.
+`deinit` closes the sockets and wipes the private key, the cookie key and the ticket key. Call it
+after `init` returns, and after `run` returns when your program calls `run`. `run` closes the
+sockets when it returns, and `deinit` does not close them again, because the system can give a
+closed number to another file of your program.
 
 `colibri.ServerConfig` holds these fields:
 
@@ -205,7 +206,13 @@ another file of your program.
   returns. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP socket.
   With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
+- `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
+  clock. It has no default. The server's session tickets carry it, so a client resumes a later
+  connection with one ([decision 161](decisions.md)).
 - `random`: the source each TLS session draws from. Null draws from the system's entropy.
+- `ticket_key`: the key the server seals its tickets under, which the server copies. Null draws
+  one from `random`. Pass one key to each server your program runs, so each resumes the tickets
+  of the others. `deinit` wipes the server's copy.
 - `engine`: the `server.Config` the engine starts from ([decision 158](decisions.md) ruling 16).
   `colibri` fills its `tls`, and sets its `ecn`, because the server's loop reads and sets each
   datagram's ECN codepoint ([decision 68](decisions.md)).
@@ -378,8 +385,10 @@ loop, beside a timer of its own, and binds loopback.
 2. Call `init` with the configuration, and the router or the handler. A hosted object takes your
    program's source of randomness and `now`, a `server.Timestamp`. `now` holds two readings of
    the instant of `init`: the Unix seconds and your loop's monotonic nanoseconds, which each
-   later call passes. These fields have no default, because no value is right to assume:
-   `random` and `now`, a server's `cpu`, and a client's `destination` and `pool`.
+   later call passes. The server's session tickets carry the Unix seconds, and its `ticket_key`
+   works as `ServerConfig.ticket_key` does ([decision 161](decisions.md)). These fields have no
+   default, because no value is right to assume: `random` and `now`, a server's `cpu`, and a
+   client's `destination` and `pool`.
 3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
    operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
    type.

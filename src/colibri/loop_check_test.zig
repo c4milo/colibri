@@ -284,7 +284,7 @@ const halts = struct {
     /// its own sends the request over loopback.
     pub fn halt_server_run_in_route() !void {
         route_call = .run;
-        try private_server.init(&.{ .cpu = cpu, .random = zero_source }, &reentrant_router, &context);
+        try private_server.init(&.{ .cpu = cpu, .unix_seconds = started.unix_seconds, .random = zero_source }, &reentrant_router, &context);
         const peer = try std.Thread.spawn(.{}, get_from, .{private_server.port()});
         peer.detach();
         try private_server.run();
