@@ -37,7 +37,7 @@ const content_handshake: u8 = 22;
 
 /// A TLS connection whose client offers `client_protocols` to a server selecting from
 /// `server_protocols`, trusting the root for `server_name`, with the handshake run until both
-/// sides stop. With `tickets` the server issues resumption tickets (RFC 9846 §4.6.1).
+/// sides stop. With `tickets` the server issues resumption tickets (RFC 9846 §4.7.1).
 fn start_tls(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
     try prepare_tls(server_protocols, client_protocols, server_name, tickets);
     try run_handshake();
@@ -189,7 +189,7 @@ test "RFC 7838 §4: an ALTSVC frame on stream 0 names h3 for its own origin, and
     try testing.expectEqual(null, try learned_from_altsvc(0, "https://example.org"));
 }
 
-test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket hands it over once" {
+test "RFC 9846 §4.7.1: a ticket the server issues is reported, and take_ticket hands it over once" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", true);
     support.client_send();
     try support.client_receive();
@@ -290,7 +290,7 @@ test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its r
     try testing.expect(support.find(.closed) != null);
 }
 
-test "RFC 9846 §4.1.2: the ClientHello goes out on the first send, before any receive" {
+test "RFC 9846 §4.2.2: the ClientHello goes out on the first send, before any receive" {
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = &support.protocols_both,

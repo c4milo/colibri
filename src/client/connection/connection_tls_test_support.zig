@@ -26,7 +26,7 @@ pub const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x0
 
 /// The configurations of a server that selects from `server_protocols` and a client that offers
 /// `client_protocols` and trusts the root for `server_name`. With `tickets` the server issues
-/// resumption tickets (RFC 9846 §4.6.1).
+/// resumption tickets (RFC 9846 §4.7.1).
 pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
     try prepare_server(server_protocols, tickets);
     var values = client_values(server_name);

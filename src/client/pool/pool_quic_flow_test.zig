@@ -117,7 +117,7 @@ test "RFC 9114 §4.1.1: an exchange a second draining connection refuses has mov
     try testing.expectEqual(.refused, second.response.result);
 }
 
-test "RFC 9846 §4.6.1: a QUIC ticket is reported for its transport, and take_ticket hands it over once" {
+test "RFC 9846 §4.7.1: a QUIC ticket is reported for its transport, and take_ticket hands it over once" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     try quic_support.prepare(&quic_support.alpn_h3, &quic_support.alpn_h3, true);
     var exchange = get(&bodies[0]);

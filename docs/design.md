@@ -4019,7 +4019,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `66dd187`: the UDP server draws its ticket key when it starts and takes its start time as
     `seconds=<unix-seconds>`, which Rotor's instant advances (decision 63). A client given
     `resumption` keeps the first connection's ticket and presents it once, on the second, with
-    the age RFC 9846 §4.2.11 defines. RFC 9001 §4.5 says a client "SHOULD NOT reuse tickets".
+    the age RFC 9846 §4.3.11.1 defines. RFC 9001 §4.5 says a client "SHOULD NOT reuse tickets".
   - chapulin fails a handshake whose ticket the server declines, so a second connection that
     fetches its file resumed. `tools/quic_udp.sh` now runs one such resumption between two
     colibri endpoints.

@@ -99,7 +99,7 @@ func accept(port, prefix string, config *tls.Config) (net.Conn, *tls.Conn) {
 		log.Fatal(err)
 	}
 	config.Certificates = []tls.Certificate{identity}
-	// No ticket follows the handshake (RFC 9846 §4.6.1), so the forged record is the first record
+	// No ticket follows the handshake (RFC 9846 §4.7.1), so the forged record is the first record
 	// the client opens.
 	config.SessionTicketsDisabled = true
 	listener, err := net.Listen("tcp", "127.0.0.1:"+port)

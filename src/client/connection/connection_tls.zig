@@ -6,7 +6,7 @@
 //! last (RFC 9846 §6.2). A record that fails ends it with the alert the provider owes, which
 //! `send` writes, and no data after it (RFC 9846 §6). A connection that is over sends its
 //! `close_notify` after its last record (RFC 9846 §6.1). A ticket the server issues after the
-//! handshake (RFC 9846 §4.6.1) is taken as the records that carried it open.
+//! handshake (RFC 9846 §4.7.1) is taken as the records that carried it open.
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");

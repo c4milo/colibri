@@ -23,7 +23,7 @@ pub const Storage = struct {
     cookie_key: [tls.constants.protocol.server_key_len]u8,
     /// The key the server seals its session tickets under, when the run gives it the time.
     ticket_key: [tls.constants.protocol.server_key_len]u8,
-    /// The end-entity first, then the root that signed it (RFC 9846 §4.4.2).
+    /// The end-entity first, then the root that signed it (RFC 9846 §4.5.1).
     chain: [chain_len][]const u8,
     /// The identities the server presents, which point into this storage.
     identities: [constants.tls_identities_max]tls.Identity,

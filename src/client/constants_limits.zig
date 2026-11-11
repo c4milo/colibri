@@ -44,7 +44,7 @@ const partial_unit_len_max: usize = @max(h11.constants.limits.head_len_max, fram
 pub const flight_len_max: usize = tls.record.Client.handshake_output_len_min + tls.record.alert_record_len;
 
 /// The flights a handshake writes at most before the caller sends: a ClientHello, a second one
-/// after a HelloRetryRequest (RFC 9846 §4.1.4), and the Finished flight or an alert.
+/// after a HelloRetryRequest (RFC 9846 §4.2.4), and the Finished flight or an alert.
 pub const flights_max: usize = 3;
 
 /// Octets a connection writes before `send` takes them: a request's field block cut into frames

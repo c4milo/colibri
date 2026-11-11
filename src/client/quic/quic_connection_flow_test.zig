@@ -147,7 +147,7 @@ test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its l
     try testing.expect(!connection.failed);
 }
 
-test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket hands it over once" {
+test "RFC 9846 §4.7.1: a ticket the server issues is reported, and take_ticket hands it over once" {
     try support.start(&support.alpn_h3, &support.alpn_h3, true);
     try support.pump(support.rounds_default);
     try testing.expect(support.find(.ticket) != null);
