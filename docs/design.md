@@ -15542,6 +15542,26 @@ library.
       `--tls`, the value dropped, and tickets issued without `--seconds`. `colibri.Server`: the
       program's key not copied, no key in the values, the key not wiped, `run` passing 0, the time
       not kept at `init`, and the key not passed by either kind.
+  - **The judge.** Run [42972694487](https://github.com/c4milo/colibri/actions/runs/42972694487), on
+    `32dd6257`, ran `competitors` with `h11`. On h11-tls-one wrk now resumes with colibri too,
+    as it does with hyper. For each connection, job 1 and then job 2:
+
+    | For each connection | colibri before | colibri | hyper |
+    | --- | --- | --- | --- |
+    | instructions | 940,303 and 940,369 | 790,233 and 791,028 | 809,891 and 810,107 |
+    | cycles | 535,615 and 528,049 | 450,235 and 454,882 | 542,217 and 541,129 |
+    | CPU time, µs | 173.0 and 170.9 | 143.3 and 145.4 | 167.4 and 167.3 |
+
+    "Before" is run [42967637728](https://github.com/c4milo/colibri/actions/runs/42967637728), on
+    `83d58c09`, where `bench/run.sh` passed no `--seconds`: `takes_seconds` piped the server's
+    usage into grep, and under pipefail the server's exit status 2 failed the pipe. colibri now
+    takes 0.976 of hyper's instructions on h11-tls-one in both jobs, where it took 1.161 and
+    1.163. h11-tls-many does not change, at 1.21 of hyper's, because its connections live for
+    the whole load.
+  - **Checked on macOS 26.6.2 arm64 (Apple M1 Pro) on 2026-11-11:** `tools/ci.sh` passed 31 of
+    31 sections on `b0ef2269`, with the TLA+ models skipped, as decision 67 as amended rules. An
+    earlier run found `src/colibri/loop_check_test.zig`, which only `colibri-loop-check` compiles,
+    with no `unix_seconds`.
 
 ## 9. Test-only entry points
 
