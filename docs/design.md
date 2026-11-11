@@ -15562,6 +15562,20 @@ library.
     31 sections on `b0ef2269`, with the TLA+ models skipped, as decision 67 as amended rules. An
     earlier run found `src/colibri/loop_check_test.zig`, which only `colibri-loop-check` compiles,
     with no `unix_seconds`.
+  - **A test that read undefined memory, 2026-11-11.** GitHub's `checks` job failed on `98278278`
+    in Debug on x86_64 Linux alone, with 4,056 of 4,057 tests passed
+    ([run 43031437569](https://github.com/c4milo/colibri/actions/runs/43031437569)). The test of
+    `Kept.wipe` read a ticket's octets after its optional became null. The payload of a null
+    optional is undefined: Zig 0.16's x86_64 backend fills it with 0xaa in Debug, and LLVM leaves
+    the zero octets. So the ticket was wiped on each backend, and only the test was wrong.
+    - Each kept ticket is now in plain memory with a flag, `Room`, in place of an optional. Its
+      octets stay defined after a wipe, and the tests read them. A new test checks that a ticket
+      which is taken, or which is past its lifetime, leaves no octet in its room.
+    - `tools/ci.sh` ran on arm64, which compiles Debug with LLVM, so it did not see the failure.
+      The Debug tests of `client_tickets.zig`, built for x86_64-linux, pass in an amd64 container.
+    - Mutations, 6 of 6 CAUGHT: the wipe not zeroing, a taken ticket left in its room with its
+      flag or without it, the caller's copy not wiped, the QUIC room not wiped, and `deinit` not
+      wiping.
 
 ## 9. Test-only entry points
 
