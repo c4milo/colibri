@@ -262,13 +262,17 @@ const Host = struct {
         self.complete(side, .{ .id = id, .result = .shut_down });
     }
 
-    /// Closes the socket of `side`: its receive ends first (decision 159, rule 1), and its peer
-    /// then reads the end of the octets.
+    /// Closes the socket of `side`: its receive, and a send that waits for room on the link, end
+    /// first (decision 159, rule 1). Its peer then reads the end of the octets.
     fn close(self: *Host, side: Side, id: colibri.OperationId) void {
         const socket = &self.sockets[@intFromEnum(side)];
         if (socket.receive) |receive| {
             socket.receive = null;
             self.complete(side, .{ .id = receive.id, .result = .canceled });
+        }
+        if (socket.send) |held| {
+            socket.send = null;
+            self.complete(side, .{ .id = held.id, .result = .canceled });
         }
         self.sockets[@intFromEnum(side.other())].ended = true;
         self.complete(side, .{ .id = id, .result = .closed });
