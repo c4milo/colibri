@@ -30,7 +30,13 @@ const forbidden_references = lint.rules.forbidden_references;
 
 /// A chain that starts with one of these at a dot boundary is a finding: the clock, the general
 /// pseudo-random generator, and the system entropy source.
-const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random", "std.crypto.random" };
+const forbidden_prefixes = [_][]const u8{
+    "std.time",     "std.Random",       "std.crypto.random",
+    // Zig 0.16 reads the clock through `std.Io` too, also behind `const Io = std.Io;`
+    // (https://github.com/c4milo/colibri/pull/17).
+    "std.Io.Clock", "std.Io.Timestamp", "Io.Clock",
+    "Io.Timestamp",
+};
 
 /// The one file under `src/` outside `src/testing/` that may name `std.Random`: it names the type
 /// of the source a caller passes each TLS session, which colibri stores and never draws from
@@ -97,6 +103,7 @@ const failing_fixture: [:0]const u8 =
     \\    self.connection_id = std.crypto.random.int(u64);
     \\    var generator = std.Random.DefaultPrng.init(0);
     \\    self.jitter = generator.random().int(u8);
+    \\    self.sent_at = std.Io.Timestamp.now(self.io, .awake);
     \\    _ = packet;
     \\}
 ;
@@ -117,6 +124,7 @@ test "determinism flags the clock, the unit constants, the PRNG and the entropy 
         "reference to std.time.ns_per_ms: " ++ reason,
         "reference to std.crypto.random.int: " ++ reason,
         "reference to std.Random.DefaultPrng.init: " ++ reason,
+        "reference to std.Io.Timestamp.now: " ++ reason,
     });
     try testing.expectEqual(4, findings[0].line);
     try testing.expectEqual(7, findings[3].line);
