@@ -76,6 +76,35 @@ exe.root_module.addImport("platform", stdx.module("platform"));
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
+### Naming chapulin beside colibri
+
+colibri exports nothing of chapulin ([decision 162](decisions.md)). A program that calls chapulin
+itself, for example to check a JSON Web Signature, names chapulin in its own `build.zig.zon` at
+the commit colibri pins. Its build then asks for chapulin's object file with exactly the request
+colibri makes. Zig keys a dependency by its package and its options, so the two requests give
+one object file. A request that differs in one value fails the link with a duplicate symbol.
+
+colibri pins chapulin v0.6.0, commit `17fd1f0b`. Its request for the object file for TLS over TCP
+names these options, and no other key. A host target is arm64 with NEON or x86-64 with SSE2.
+
+| Option | On a host target | On another target |
+| --- | --- | --- |
+| `target` | the target your build gives colibri, unchanged | the same |
+| `RAND` | `.session` | `.session` |
+| `TRANSPORT` | `.@"tcp-nonblocking"` | `.@"tcp-nonblocking"` |
+| `ROLE` | `.both` | `.both` |
+| `TRUST` | `.webpki` | `.webpki` |
+| `EXPORTER` | `.on` | `.on` |
+| `SUITE` | `.aesgcm` | `.chacha` |
+| `TX_RECORD` | `"16384"` | `"16384"` |
+| `KEYLOG` | `.off` | `.off` |
+| `DNSSEC` | `.on` | `.off` |
+| `JWS` | `.on` | `.off` |
+| `SCRAM` | `.on` | `.off` |
+
+A release of colibri that changes the pin, an option or a key says so in its notes.
+`build/modules_chapulin.zig` holds the request, and the object file for QUIC beside it.
+
 ## What your program owns
 
 colibri makes no system call, holds no allocator, and reads no clock. The `colibri` module is the

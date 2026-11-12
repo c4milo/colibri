@@ -2,11 +2,11 @@
 //! them. Split from `modules.zig`, which builds the module graph over them.
 const std = @import("std");
 
-/// chapulin's `SUITE`, `KEYLOG` and `DNSSEC` values the library's objects choose between, spelled as
-/// its build spells them.
+/// chapulin's `SUITE`, `KEYLOG`, `DNSSEC`, `JWS` and `SCRAM` values the library's objects choose
+/// between, spelled as its build spells them.
 const Suite = enum { chacha, aesgcm };
 const Keylog = enum { on, off };
-const Dnssec = enum { on, off };
+const Setting = enum { on, off };
 
 /// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
 /// compiled from the pinned package with `RAND=session`, where each session draws from the source its
@@ -28,13 +28,16 @@ pub fn tcp_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylo
         .SUITE = suite_of(target),
         .TX_RECORD = "16384",
         .KEYLOG = keylog,
-        .DNSSEC = dnssec_of(target),
+        .DNSSEC = host_setting(target),
+        .JWS = host_setting(target),
+        .SCRAM = host_setting(target),
     });
 }
 
-/// chapulin's `DNSSEC` value: `on` in a host object, whose RSA check the DNSSEC calls share, and
-/// `off` in a device object, which chapulin refuses DNSSEC in (decision 142).
-fn dnssec_of(target: std.Build.ResolvedTarget) Dnssec {
+/// chapulin's `DNSSEC`, `JWS` and `SCRAM` values: `on` in a host object, and `off` in a device
+/// object, which chapulin refuses each of them in (decisions 142 and 162). A program that names
+/// chapulin itself passes the same values, so that it links one object (decision 162).
+fn host_setting(target: std.Build.ResolvedTarget) Setting {
     return if (host_object(target)) .on else .off;
 }
 

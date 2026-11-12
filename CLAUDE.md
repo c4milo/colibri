@@ -547,8 +547,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   numbers are never published.
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
-  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
-  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On x86-64 and arm64 each is
+  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, with `DNSSEC`,
+  `JWS` and `SCRAM` on for a host target and off for another (decisions 142 and 162), and the QUIC
+  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. colibri exports nothing of
+  chapulin: a program that calls chapulin names it at colibri's pin, with colibri's request
+  (decision 162, docs/usage.md). On x86-64 and arm64 each is
   chapulin's host object, `SUITE=aesgcm` with no `AES`, `WIDEMUL` or `CHACHA` value: it holds every
   fast path beside the portable code, and each session picks from the `tls.Cpu` its caller passes,
   which has no default: the `platform.Cpu` the program's one probe returned, and the `tls.Timing`
