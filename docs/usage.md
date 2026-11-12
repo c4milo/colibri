@@ -228,7 +228,9 @@ closed number to another file of your program.
 `colibri.ServerConfig` holds these fields:
 
 - `host` and `port`: an IPv4 or IPv6 literal, and the port of TCP and UDP. The defaults are
-  127.0.0.1 and 0.
+  127.0.0.1 and 0. With 0 the system chooses a free TCP port. When another program holds UDP on
+  that number, `init` asks for another port, up to `colibri.constants.limits.bind_tries_max`
+  times.
 - `identity`: the certificate chain and the key, `.chain` and `.key`, as PEM text your program
   holds. Your program reads its own files ([decision 150](decisions.md) ruling 11). `init` reads
   the key's text in place and keeps no copy, so your program may wipe the text once `init`

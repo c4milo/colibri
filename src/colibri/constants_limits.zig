@@ -43,6 +43,9 @@ pub const udp_datagram_len_max: usize = 1500;
 /// Events one pass of a step reads at most, and passes one step makes. A step that reaches the
 /// bound leaves its entry pending, so the loop comes back to it with no wait.
 pub const events_per_step_max: usize = 1024;
+/// The binds a server on port 0 tries at most. The system chooses a free TCP port, and another
+/// program may hold UDP on that number, so the server asks for another port (decision 150).
+pub const bind_tries_max: u32 = 16;
 
 comptime {
     assert(udp_datagram_len_max <= udp_receive_buffer_len and udp_datagram_len_max <= udp_segmented_bytes_max);
@@ -50,6 +53,7 @@ comptime {
     assert(listen_backlog > 0 and events_per_step_max > 0 and stop_wait_ns_max > 0);
     assert(chain_der_len_max > 0 and chain_der_len_max < chain_pem_len_max);
     assert(chain_certificates_max > 0);
+    assert(bind_tries_max > 1);
 }
 
 test "decision 137: the limits of colibri" {
@@ -64,4 +68,5 @@ test "decision 137: the limits of colibri" {
     try std.testing.expectEqual(64, udp_segments_max);
     try std.testing.expectEqual(16, udp_batches);
     try std.testing.expectEqual(1500, udp_datagram_len_max);
+    try std.testing.expectEqual(16, bind_tries_max);
 }

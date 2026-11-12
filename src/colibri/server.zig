@@ -26,6 +26,8 @@ pub const ServerConfig = struct {
     /// The address bound: an IPv4 or IPv6 literal.
     host: []const u8 = "127.0.0.1",
     /// The port bound for TCP and UDP. 0 asks the operating system for one, which `port()` returns.
+    /// When another program holds UDP on the number it gives, `init` asks again, up to
+    /// `bind_tries_max` times (decision 150).
     port: u16 = 0,
     /// The server's certificate chain and key. Null serves h11 and h2 in cleartext, and no h3,
     /// which needs TLS (RFC 9001 §4).

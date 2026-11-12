@@ -10,6 +10,7 @@ const identity_module = @import("identity.zig");
 const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
 const server_udp = @import("server_udp.zig");
+const server_bind = @import("server_bind.zig");
 const host = @import("host.zig");
 const rotor_host = @import("rotor_host.zig");
 const entropy = @import("rotor_host_entropy.zig");
@@ -38,12 +39,10 @@ pub const private = struct {
         // A server that `init` does not return keeps no private key, cookie key or ticket key.
         errdefer server_module.wipe_keys(state);
         try load(state, config.identity, config.cpu, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
-        try state.host.listen(listener, config.host, config.port);
+        const h3 = server_udp.served(quic_slots, config.identity != null);
+        try server_bind.bind(&state.host, listener, @TypeOf(state.*).datagram, config.host, config.port, h3);
         errdefer state.host.close_open();
-        if (server_udp.served(quic_slots, config.identity != null)) {
-            try state.host.bind_datagram(@TypeOf(state.*).datagram, config.host, state.host.bound_port);
-            server_udp.opened(state, state.host.bound_port);
-        }
+        if (h3) server_udp.opened(state, state.host.bound_port);
     }
 
     /// Closes the listener and the UDP socket when `run` did not close them.

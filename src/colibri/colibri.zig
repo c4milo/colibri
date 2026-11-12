@@ -38,6 +38,7 @@ const files = struct {
     pub const rotor_host_submit = if (rotor_present) @import("rotor_host_submit.zig") else void;
     pub const rotor_host_udp = if (rotor_present) @import("rotor_host_udp.zig") else void;
     pub const server = @import("server.zig");
+    pub const server_bind = @import("server_bind.zig");
     pub const server_kinds = @import("server_kinds.zig");
     pub const server_loop = @import("server_loop.zig");
     pub const server_pump = @import("server_pump.zig");
