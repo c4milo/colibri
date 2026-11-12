@@ -31,11 +31,20 @@ const forbidden_references = lint.rules.forbidden_references;
 /// A chain that starts with one of these at a dot boundary is a finding: the clock, the general
 /// pseudo-random generator, and the system entropy source.
 const forbidden_prefixes = [_][]const u8{
-    "std.time",     "std.Random",       "std.crypto.random",
+    "std.time",         "std.Random",           "std.crypto.random",
     // Zig 0.16 reads the clock through `std.Io` too, also behind `const Io = std.Io;`
     // (https://github.com/c4milo/colibri/pull/17).
-    "std.Io.Clock", "std.Io.Timestamp", "Io.Clock",
-    "Io.Timestamp",
+    "std.Io.Clock",     "std.Io.Timestamp.now", "Io.Clock",
+    "Io.Timestamp.now",
+};
+
+/// A call whose callee ends with one of these is a finding: the `std.Io` timestamp and timeout
+/// methods that read the clock, and the secure entropy source
+/// (https://github.com/c4milo/colibri/pull/17). Zig's names are camelCase and colibri's are
+/// snake_case, so none collides.
+const forbidden_callee_names = [_][]const u8{
+    "fromNow",    "untilNow",    "durationFromNow",   "toClock",
+    "toDeadline", "toTimestamp", "toDurationFromNow", "randomSecure",
 };
 
 /// The one file under `src/` outside `src/testing/` that may name `std.Random`: it names the type
@@ -53,6 +62,10 @@ pub const config: forbidden_references.Config = .{
         .exclude_paths = &.{values_path},
     },
     .prefixes = &forbidden_prefixes,
+    .callee_names = &forbidden_callee_names,
+    // `io.random(&buffer)` fills a buffer from the host's generator. The receiver's name tells it
+    // from a seeded generator's `random()`, which the rule cannot tell by type.
+    .method_calls = .{ .methods_on_named_receivers = &.{"random"}, .receiver_words = &.{"io"} },
     .reason = "time is a caller-supplied parameter and randomness is the caller's" ++
         " (invariants 4 and 5)",
 };
@@ -128,6 +141,56 @@ test "determinism flags the clock, the unit constants, the PRNG and the entropy 
     });
     try testing.expectEqual(4, findings[0].line);
     try testing.expectEqual(7, findings[3].line);
+}
+
+test "determinism flags the std.Io clock, its timestamp reads and the host generator" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/quic/recovery.zig",
+        \\const a = std.Io.Clock.awake.now(io);
+        \\const b = Io.Clock.real;
+        \\const c = std.Io.Timestamp.now(io, .real);
+        \\const d = Io.Timestamp.now(io, .awake);
+        \\const e = started.untilNow(io);
+        \\const f = deadline.durationFromNow(io);
+        \\const g = Timestamp.fromNow(io, duration);
+        \\const h = started.toClock(io, .real);
+        \\const i = timeout.toDeadline(io);
+        \\const j = timeout.toTimestamp(io);
+        \\const k = timeout.toDurationFromNow(io);
+        \\fn seed(self: *Connection, bytes: []u8) !void {
+        \\    try io.randomSecure(bytes);
+        \\    self.io.random(bytes);
+        \\}
+    );
+    try harness.expect_messages(findings, &.{
+        "reference to std.Io.Clock.awake.now: " ++ reason,
+        "reference to Io.Clock.real: " ++ reason,
+        "reference to std.Io.Timestamp.now: " ++ reason,
+        "reference to Io.Timestamp.now: " ++ reason,
+        "reference to started.untilNow: " ++ reason,
+        "reference to deadline.durationFromNow: " ++ reason,
+        "reference to Timestamp.fromNow: " ++ reason,
+        "reference to started.toClock: " ++ reason,
+        "reference to timeout.toDeadline: " ++ reason,
+        "reference to timeout.toTimestamp: " ++ reason,
+        "reference to timeout.toDurationFromNow: " ++ reason,
+        "reference to io.randomSecure: " ++ reason,
+        "reference to random: " ++ reason,
+    });
+}
+
+test "determinism does not flag the simulator clock, a seeded generator, or std.Io values" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/sim/pipe.zig",
+        \\const Clock = @import("clock.zig").Clock;
+        \\const now_ns = pipe.clock.now();
+        \\const byte = generator.random().int(u8);
+        \\const elapsed = std.Io.Timestamp.durationTo(started, finished);
+        \\const later = std.Io.Timestamp.addDuration(started, window);
+    );
+    try harness.expect_messages(findings, &.{});
 }
 
 test "determinism does not flag a name that merely resembles one on the list" {
