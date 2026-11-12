@@ -104,6 +104,11 @@ pub const routes_requests_max: u32 = 1024;
 /// its answer, `server_routes.answer_body`.
 pub const routes_response_bytes: usize = 128;
 
+/// Octets of each request's body memory in the `--routes` mode, which a POST route reads whole
+/// (design §8 step 50b). The judge's larger body is this long, so it arrives in more receives than
+/// its header.
+pub const routes_body_bytes: usize = 8192;
+
 /// Most steps one session takes between two reads from the socket. A step that neither consumes
 /// nor writes ends the loop, so this only bounds it: one step answers at most one request, and a
 /// read holds at most one frame.

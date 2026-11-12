@@ -471,7 +471,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   server's instructions, cycles and system calls per request and per connection with `perf stat`,
   run as root through `sudo -n`, in cleartext and over TLS (design §8 step 13a). Its input
   `h2-routes-many` runs the server with `--routes github`, so the judge counts the router's cost
-  over the GitHub API's GET routes (design §8 step 13h). With `--base` it
+  over the GitHub API's GET routes (design §8 step 13h). Its inputs `h2-routes-post-many` and
+  `h2-routes-post-late-many` send a POST with a body to a route of that route table, whose route
+  reads the whole body (design §8 step 50b). With `--base` it
   builds a second tree, measures the two in turns, and fails when an input loses past the noise.
   `.github/workflows/bench.yml` runs it on the `ubuntu-24.04-arm` runner, the judge, in two jobs
   when a person starts it (decision 33 as amended). `--competitors` measures nginx, h2o, hyper and

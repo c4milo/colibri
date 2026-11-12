@@ -8,6 +8,8 @@
 # memory, set up by bench/competitors/, in turns with colibri's server, and the report gives
 # colibri's ratio to each without failing the run (design §8 step 13c). hyper, in Rust, and
 # http.zig, in Zig, answer too (design §8 step 13g); BENCH_COMPETITORS names a part of the list.
+# Two inputs send a POST to a route of that table, whose route reads the whole body: one with a
+# body that arrives with its header, and one with a body that arrives later (design §8 step 50b).
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
@@ -64,6 +66,13 @@ readonly load_cores=2,3
 readonly many_requests=20000
 readonly many_clients=16
 readonly many_streams=10
+# The bodies of the two POST inputs (design §8 step 50b), in octets. The small one arrives in the
+# receive of its header. The late one is the test server's `routes_body_bytes`: with many streams
+# at once it passes h2's first window of 65,535 octets (RFC 9113 §6.9.2), so it arrives later.
+readonly post_small_len=128
+readonly post_late_len=8192
+# The POST route the two inputs name: a route of the GitHub API's with no parameter.
+readonly post_path=/user/repos
 # One request on each connection: h2load runs this many times, with this many connections each,
 # within the 32 connections one worker holds at once.
 readonly one_runs=40
@@ -76,7 +85,7 @@ readonly warm_requests=2000
 # h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
 readonly ready_seconds=1
-inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-routes-post-many h2-routes-post-late-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
@@ -126,6 +135,7 @@ url() {  # url <variant> <input>
   case "$2" in
     h3-*) echo "https://127.0.0.1:${at}/${h3_file}" ;;
     *-tls-*) echo "https://127.0.0.1:${at}/" ;;
+    *-routes-post-*) echo "http://127.0.0.1:${at}${post_path}" ;;
     # A route of the GitHub API's, since `/` names none of them.
     *-routes-*) echo "http://127.0.0.1:${at}$(head -1 "$scratch/paths.txt")" ;;
     *) echo "http://127.0.0.1:${at}/" ;;
@@ -137,6 +147,11 @@ url() {  # url <variant> <input>
 offer_of() {  # offer_of <input>
   offer=()
   case "$1" in *-tls-*) offer+=(--tls13-ciphers="$tls_suite") ;; esac
+  # With -d, h2load sends a POST with the file as its body.
+  case "$1" in
+    *-routes-post-late-*) offer+=(-d "$scratch/post_late.bin") ;;
+    *-routes-post-*) offer+=(-d "$scratch/post_small.bin") ;;
+  esac
 }
 
 # Whether <variant> serves <input>. A build of colibri serves every input. http.zig has no TLS and
@@ -191,6 +206,9 @@ h3_target=https://127.0.0.1:\$2/${h3_file}
 case "\$1" in
   h3-many | h3-bbr-many) ${h3_shell[*]} "\$h3 -n ${many_requests} -c ${many_clients} -m ${many_streams} \$h3_target" ;;
   h3-one | h3-bbr-one) ${h3_shell[*]} "for run in \\\$(seq 1 ${one_h3_runs}); do \$h3 -n ${one_h3_clients} -c ${one_h3_clients} \$h3_target; done" ;;
+  # A POST route of the GitHub API's, whose route reads its whole body (design §8 step 50b).
+  *-routes-post-late-many) h2load -d ${scratch}/post_late.bin -n ${many_requests} -c ${many_clients} -m ${many_streams} "\${target%/}${post_path}" ;;
+  *-routes-post-many) h2load -d ${scratch}/post_small.bin -n ${many_requests} -c ${many_clients} -m ${many_streams} "\${target%/}${post_path}" ;;
   # The GitHub API's GET routes in turn, each parameter given a value (design §8 step 13h).
   *-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths.txt >${scratch}/urls.txt
     h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
@@ -421,6 +439,9 @@ prepare_h3
 # them.
 awk '$1 == "GET" { print $2 }' "$repository_root/bench/router/competitors/github_routes.txt" |
   sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
+# The bodies of the two POST inputs.
+head -c "$post_small_len" /dev/zero | tr '\0' 'x' >"$scratch/post_small.bin"
+head -c "$post_late_len" /dev/zero | tr '\0' 'x' >"$scratch/post_late.bin"
 machine >"$scratch/machine.txt"
 
 variants=(change)
