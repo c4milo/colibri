@@ -15720,7 +15720,9 @@ library.
        header's copy when the body is late. The option `whole_body` goes.
     6. 50f, `feat(server)!`: `server.RequestStream`, `server.ResponseStream`, `on_data` and
        `next`. `on_body` and `on_writable` go.
-    7. 50g, `docs`: every example, docs/usage.md and `tools/consumer/`, then the judge's record.
+    7. 50g, `feat(server)!`: `RouterOptions.body_bytes` and `response_bytes` lose their
+       defaults (decision 163 ruling 9).
+    8. 50h, `docs`: every example, docs/usage.md and `tools/consumer/`, then the judge's record.
   - **50b, met 2026-11-12.** The test server's `--routes github` route table gives each of its
     29 POST routes a struct route that reads its whole body. The judge gained
     `h2-routes-post-many`, a body of 128 octets, and `h2-routes-post-late-many`, a body of 8,192
@@ -15741,7 +15743,7 @@ library.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
-    commit of 50g before the tag, and reports what the API leaves out.
+    commit of 50h before the tag, and reports what the API leaves out.
 
 ## 9. Test-only entry points
 

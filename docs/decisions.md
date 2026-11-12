@@ -7914,6 +7914,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         keeps its name and gains `body`.
      8. No measured input may lose. Each sub-step is judged against main on the runner, and the
         judge gets a POST input before the sub-step that copies a header.
+     9. `server.RouterOptions.body_bytes` and `response_bytes` have no default, ruled on
+        2026-11-12 after connect-zig's report. A program names both, 0 included. With the defaults
+        of 0 and 256, a route that reads a whole body answered 413 to a body of 18 octets, and a
+        reply of 1,520 octets failed, and neither answer named the pool. No value is right to
+        assume for memory that a program sizes (decision 158 ruling 16). `requests` keeps its
+        default.
 
      The alternatives refused:
      - A slot that `server.ResponseWriter` gives, with no change of signature. The owner chose
@@ -7926,6 +7932,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `error.ReadFailed`, which is what `on_body` did.
      - The names `RequestHeader` for the engine's request header, and `header_sent` for
        `head_sent`. The owner refused each rename but the response's.
+     - Sizes that each route states, from which the router sizes its pool. Most routes would
+       write two more options.
+     - The defaults of `body_bytes` and `response_bytes`, with what each failure looks like in
+       docs/usage.md. A new program would still meet 413 or 500 first.
 
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
