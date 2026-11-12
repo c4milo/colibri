@@ -7899,8 +7899,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `on_request`. An empty reader there would read as an empty body.
      5. The engine lends a header until its next `receive`. So the router copies the header only
         when the body's end arrives in a later `receive` than the header. A request with no body,
-        and a body that arrives with its header, cost no copy. `RouterOptions.header_bytes` bounds
-        the copy, and a longer header gets 431 (RFC 6585 §5).
+        and a body that arrives with its header, cost no copy. An option of `server.RouterOptions`
+        bounds the copy. The owner rules its name and its default with sub-step 50e, from the
+        judge's numbers.
      6. A struct route is a stream. Its `on_request` runs at the header and takes the
         `server.Request`, so it never copies the header. `on_data` takes the stream of the
         request's body, a `server.RequestStream`, and no header: the body is the request's
@@ -7928,5 +7929,5 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
-     `@sizeOf(Values)` and by `header_bytes`. A request whose body arrives late pays one copy of
+     `@sizeOf(Values)` and by the bound of the header's copy. A request whose body arrives late pays one copy of
      its header.

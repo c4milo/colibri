@@ -15693,7 +15693,8 @@ library.
     - `server.RequestStream`, the stream of a request's body, with `next(stream) ?[]const u8`
       and `ended(stream) bool`. It holds no header.
     - `server.ResponseStream`, with the calls of `server.Response`.
-    - `server.RouterOptions.header_bytes`, with a default, which bounds the copy of a header.
+    - An option of `server.RouterOptions` that bounds the copy of a header. The owner rules its
+      name and its default with sub-step 50e.
     - The route table's optional `.Values`, and a route's options `.path` and `.query`: literals
       with no public name (decision 156 ruling 2). The option `whole_body` goes.
   - **The callbacks.**
@@ -15720,6 +15721,23 @@ library.
     6. 50f, `feat(server)!`: `server.RequestStream`, `server.ResponseStream`, `on_data` and
        `next`. `on_body` and `on_writable` go.
     7. 50g, `docs`: every example, docs/usage.md and `tools/consumer/`, then the judge's record.
+  - **50b, met 2026-11-12.** The test server's `--routes github` route table gives each of its
+    29 POST routes a struct route that reads its whole body. The judge gained
+    `h2-routes-post-many`, a body of 128 octets, and `h2-routes-post-late-many`, a body of 8,192
+    octets. [Run 43302515017](https://github.com/c4milo/colibri/actions/runs/43302515017)
+    compared `04065452` with main `03d56223` on the `ubuntu-24.04-arm` runner, at 5 rounds, in
+    two jobs.
+    - The five inputs that main has are within the noise in both jobs: h2-many 1.0002 and
+      0.9997, h2-one 0.9966 and 1.0002, h2-tls-many 1.0008 and 1.0008, h2-tls-one 1.0000 and
+      1.0006, and h2-routes-many 1.0010 and 1.0008. The last one is 15 instructions a request,
+      under the floor of 0.5%, from the test server's larger route table. No library file
+      changed.
+    - The two new inputs compare different work, so the run reports a failure that this
+      sub-step expects: on main a POST route answers at the header and reads no body.
+    - The numbers that the later sub-steps start from, in instructions a request: 20,200 and
+      20,150 on h2-routes-post-many, and 37,734 and 38,000 on h2-routes-post-late-many, with a
+      noise of up to 2.75% on the second.
+    - Mutation, 1 of 1 CAUGHT: the POST route without `whole_body`.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
