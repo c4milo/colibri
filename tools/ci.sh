@@ -57,7 +57,22 @@ section() {
   else
     echo "| ${title} | **failed** | $(minutes $((SECONDS - started))) |" >>"${scratch}/verdicts"
     failed_sections+=("${title}")
-    { echo; echo "### Failed: ${title}"; echo; echo '```text'; tail -40 "${log}"; echo '```'; } >>"${scratch}/failures"
+    {
+      echo
+      echo "### Failed: ${title}"
+      echo
+      # Zig names each failed test in an `error:` line, with its cause and stack after it. With
+      # --summary all, the step tree follows them, so the log's last lines lose the name.
+      if grep -qE "^error: '.*' failed:" "${log}"; then
+        echo '```text'
+        grep -E -A8 "^error: '.*' failed:" "${log}" | head -80
+        echo '```'
+        echo
+      fi
+      echo '```text'
+      tail -40 "${log}"
+      echo '```'
+    } >>"${scratch}/failures"
   fi
   cp "${log}" "${scratch}/last.log"
 }
