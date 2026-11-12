@@ -43,6 +43,12 @@ pub const ServerConfig = struct {
     /// from `random` (decision 161). A program that runs several servers passes each the same
     /// key, so each resumes the tickets of the others. The server wipes its copy at `deinit`.
     ticket_key: ?[tls.constants.protocol.server_key_len]u8 = null,
+    /// The key the server sealed its tickets under before `ticket_key`, which it copies, or null
+    /// to draw one that opens no ticket. A ticket that either key sealed resumes, so a program
+    /// that starts again with a new key keeps its clients' tickets (decision 161 as amended). It
+    /// differs from `ticket_key`, or the engine does not start: `run`, or a hosted `init`, returns
+    /// `error.IdentityRefused`.
+    ticket_key_previous: ?[tls.constants.protocol.server_key_len]u8 = null,
     /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
     /// the server's host reads each datagram's ECN codepoint and sets the one the engine names
     /// (decision 68). Decision 158 ruling 16 names the field after the engine.
@@ -149,7 +155,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         }
 
         /// Closes the listener and the UDP socket of `.private`, and wipes the private key, the
-        /// cookie key and the ticket key. The program calls it after `init` returns, and after `run` returns when it
+        /// cookie key and both ticket keys. The program calls it after `init` returns, and after `run` returns when it
         /// calls `run`. It does not close a socket that `run` closed: the system can give that
         /// number to another file of the program. A hosted server's host calls it once
         /// `stopped()` holds (decision 159, rule 2).
@@ -198,6 +204,18 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             server_loop.complete(self, completion, now_ns);
         }
 
+        /// Seals the server's next session tickets under `key`, which it copies. The current key
+        /// becomes the previous one, which still opens the tickets it sealed, and the key before
+        /// it is gone (decision 161 as amended, https://github.com/c4milo/chapulin/issues/220).
+        /// The same key again changes nothing. A server with no identity issues no ticket, and
+        /// the call does nothing. The program calls it on the server's thread, because each TLS
+        /// session reads the keys while it runs: on `.hosted` between two calls, and on
+        /// `.private` from a route or a middleware.
+        pub fn set_ticket_key(self: *Self, key: *const [tls.constants.protocol.server_key_len]u8) void {
+            if (self.engine_config.tls == null) return;
+            identity_module.change_ticket_key(&self.identity, key);
+        }
+
         /// Asks the server to stop: it takes no new connection, ends each one it holds, and
         /// `stopped()` then holds, and `run` returns. On `.private` any thread may call it. A
         /// hosted server's host calls `turn` after it.
@@ -213,11 +231,12 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
     };
 }
 
-/// Writes zero over a server's private key, its cookie key and its ticket key.
+/// Writes zero over a server's private key, its cookie key and its two ticket keys.
 pub fn wipe_keys(state: anytype) void {
     state.identity.key.wipe();
     std.crypto.secureZero(u8, &state.identity.cookie_key);
     std.crypto.secureZero(u8, &state.identity.ticket_key);
+    std.crypto.secureZero(u8, &state.identity.ticket_key_previous);
 }
 
 const testing = std.testing;
@@ -262,6 +281,45 @@ test "decision 161: the TLS values hold the server's copy of a ticket key, or on
     test_server.deinit();
     // `deinit` wipes the server's copy, and the program's key is the program's to wipe.
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.ticket_key, 0));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.ticket_key_previous, 0));
+}
+
+test "chapulin's issue 220: set_ticket_key writes the new key where each session reads it" {
+    var counter: support.Counter = .{};
+    const key_len = tls.constants.protocol.server_key_len;
+    const first: [key_len]u8 = @splat(0x11);
+    const before: [key_len]u8 = @splat(0x22);
+    const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
+    try test_server.init(&.{ .identity = identity, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random(), .ticket_key = first, .ticket_key_previous = before }, &fixture.router, &fixture.context);
+    const values = test_server.engine_config.tls.?;
+    try testing.expectEqualSlices(u8, &before, values.ticket_key_previous.?);
+    const next: [key_len]u8 = @splat(0x33);
+    test_server.set_ticket_key(&next);
+    // The pointers that the TLS values hold now read the new key and the key before it.
+    try testing.expectEqualSlices(u8, &next, values.ticket_key.?);
+    try testing.expectEqualSlices(u8, &first, values.ticket_key_previous.?);
+    test_server.deinit();
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.ticket_key_previous, 0));
+}
+
+test "chapulin's issue 220: two equal ticket keys stop the engine, and a cleartext server ignores a key" {
+    var counter: support.Counter = .{};
+    const given: [tls.constants.protocol.server_key_len]u8 = @splat(0x44);
+    const hosted = &fixture.hosted_server;
+    try testing.expectError(error.IdentityRefused, hosted.init(&.{
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .cpu = support.cpu(),
+        .random = counter.random(),
+        .now = .{ .unix_seconds = testdata.now_seconds, .monotonic_ns = 0 },
+        .ticket_key = given,
+        .ticket_key_previous = given,
+        .sockets = .{ .listener = false },
+    }, &fixture.router, &fixture.context));
+    try testing.expect(std.mem.allEqual(u8, &hosted.identity.ticket_key_previous, 0));
+    try test_server.init(&.{ .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &fixture.router, &fixture.context);
+    test_server.set_ticket_key(&given);
+    try testing.expectEqual(null, test_server.engine_config.tls);
+    test_server.deinit();
 }
 
 test "decision 161: a hosted server takes its ticket key and its tickets' Unix seconds from its configuration" {

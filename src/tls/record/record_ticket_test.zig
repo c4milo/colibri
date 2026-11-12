@@ -1,6 +1,6 @@
-//! The tests of `values.Client.takes_tickets` over TCP
-//! (https://github.com/c4milo/colibri/issues/104). They sit apart from `record_test.zig`, which
-//! is near the 500 lines a file may hold (CLAUDE.md).
+//! The tests of `values.Client.takes_tickets` (https://github.com/c4milo/colibri/issues/104) and of
+//! `values.Server.ticket_key_previous` (https://github.com/c4milo/chapulin/issues/220) over TCP.
+//! They sit apart from `record_test.zig`, which is near the 500 lines a file may hold (CLAUDE.md).
 const std = @import("std");
 const tls_provider = @import("tls_provider");
 const values = @import("../values.zig");
@@ -39,6 +39,29 @@ test "RFC 9846 §4.7.1: a client that takes no tickets keeps none, and a ticket 
     try support.handshake_both(.{ .ticket = &ticket, .age_ms = support.ms_per_second });
     try testing.expect(client.resumed() and server.resumed());
     try testing.expectEqual(null, client.take_ticket());
+    client.close();
+    server.close();
+}
+
+test "chapulin's issue 220: a ticket sealed under the previous key resumes, and an older one does not" {
+    // Two more ticket keys, each unlike the test support's cookie key and ticket key.
+    const next_key: [support.ticket_key.len]u8 = @splat(0x0a);
+    const last_key: [support.ticket_key.len]u8 = @splat(0x0b);
+    try support.configure(support.web_pki, .{ .tickets = true });
+    var ticket = (try ticket_after_handshake(null)).?;
+    defer ticket.wipe();
+    client.close();
+    server.close();
+    // The server changed its key once: the ticket opens under the previous key.
+    try support.configure(support.web_pki, .{ .tickets = true, .key = &next_key, .previous = &support.ticket_key });
+    try support.handshake_both(.{ .ticket = &ticket, .age_ms = support.ms_per_second });
+    try testing.expect(client.resumed() and server.resumed());
+    client.close();
+    server.close();
+    // The server changed its key twice: no key it holds opens the ticket, so the handshake is full.
+    try support.configure(support.web_pki, .{ .tickets = true, .key = &last_key, .previous = &next_key });
+    try support.handshake_both(.{ .ticket = &ticket, .age_ms = support.ms_per_second });
+    try testing.expect(!client.resumed() and !server.resumed());
     client.close();
     server.close();
 }

@@ -156,6 +156,10 @@ pub fn offering(suite: *const [1]u16) values.Client {
 /// What the tests vary on the server.
 pub const ServerChoice = struct {
     tickets: bool = false,
+    /// The key the server seals tickets under, when `tickets` is set.
+    key: *const [constants.protocol.server_key_len]u8 = &ticket_key,
+    /// The key the server held before `key` (https://github.com/c4milo/chapulin/issues/220).
+    previous: ?*const [constants.protocol.server_key_len]u8 = null,
     /// The suites the server selects from, in its order; empty for chapulin's.
     suites: []const u16 = &.{},
     /// The server's probe of its CPU.
@@ -167,7 +171,8 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
     try server_config.init(.{
         .identities = &identities,
         .cookie_key = &cookie_key,
-        .ticket_key = if (choice.tickets) &ticket_key else null,
+        .ticket_key = if (choice.tickets) choice.key else null,
+        .ticket_key_previous = if (choice.tickets) choice.previous else null,
         .alpn = &protocols,
         .cpu = choice.cpu,
         .cipher_suites = choice.suites,

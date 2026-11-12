@@ -242,9 +242,30 @@ closed number to another file of your program.
 - `ticket_key`: the key the server seals its tickets under, which the server copies. Null draws
   one from `random`. Pass one key to each server your program runs, so each resumes the tickets
   of the others. `deinit` wipes the server's copy.
+- `ticket_key_previous`: the key the server sealed its tickets under before `ticket_key`, which
+  the server copies. A ticket that either key sealed resumes. Null draws a key that opens no
+  ticket. Pass the old key here when your program starts again with a new `ticket_key`, so its
+  clients keep their tickets. The two keys must differ, or `run` returns
+  `error.IdentityRefused`.
 - `engine`: the `server.Config` the engine starts from ([decision 158](decisions.md) ruling 16).
   `colibri` fills its `tls`, and sets its `ecn`, because the server's loop reads and sets each
   datagram's ECN codepoint ([decision 68](decisions.md)).
+
+A server that runs for weeks changes its ticket key with `set_ticket_key`. The server copies the
+new key and seals the next tickets under it. The current key becomes the previous one, which
+still opens the tickets it sealed, and the key before it is gone. So a client keeps its ticket
+across one change, and runs a full handshake after a second one. Call it on the server's thread,
+because each TLS session reads the keys while it runs: on `.hosted` between two calls, and on
+`.private` from a route or a middleware. A program with several servers gives each one the new
+key in one pass. Until it does, a server with the old key cannot open a newer ticket, and that
+client runs a full handshake. This excerpt is from `examples/colibri_hosted.zig`:
+
+```zig
+    var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
+    generator.fill(&next_ticket_key);
+    hosted_server.set_ticket_key(&next_ticket_key);
+    std.crypto.secureZero(u8, &next_ticket_key);
+```
 
 A program that wants more cores starts more servers on one port: each one binds with
 SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,

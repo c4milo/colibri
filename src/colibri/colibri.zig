@@ -81,7 +81,7 @@ test "decision 115: the root exports the names design §8 steps 37, 42 and 44 li
     try testing.expect(client.Request == @import("client").Request);
     try testing.expect(server.Request == @import("server").Request);
     // The owner's ruling 7 of 2026-11-10 adds `InitError` (decision 159 as amended).
-    const server_names = &.{ "InitError", "operations_max", "sockets_max", "listener", "datagram", "init", "deinit", "port", "run", "turn", "complete", "shutdown", "stopped" };
+    const server_names = &.{ "InitError", "operations_max", "sockets_max", "listener", "datagram", "init", "deinit", "port", "run", "turn", "complete", "set_ticket_key", "shutdown", "stopped" };
     try public_names.expect(Server(.{}, .private), server_names);
     try public_names.expect(Server(.{}, .hosted), server_names);
     // Step 44f adds the second UDP socket, 44g `set_destination`, and 44h `fetch`, `cancel` and

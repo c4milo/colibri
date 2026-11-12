@@ -14,7 +14,9 @@
 //!    source of randomness. Here it is one seed, so each run sends the same octets.
 //! 2. The program hands the client two GETs, and turns both objects until each exchange ended.
 //!    ALPN selects h2.
-//! 3. The program calls `shutdown` on the client and turns it until `stopped()`, then does the
+//! 3. The program changes the server's ticket key between two calls. The tickets that the server
+//!    already sent still resume, because the server keeps the key before it.
+//! 4. The program calls `shutdown` on the client and turns it until `stopped()`, then does the
 //!    same for the server, and calls each `deinit`.
 //!
 //! The rules of the host (decision 159): it calls `turn` and `complete` on one thread, never from
@@ -119,6 +121,12 @@ pub fn main() !void {
         if (response.result != .response or response.status != ok) return error.ResponseWrong;
         if (!std.mem.eql(u8, greeting, response.body_received())) return error.ResponseWrong;
     }
+    // A server that runs for weeks changes its ticket key between two calls (decision 161 as
+    // amended). The tickets sealed under the current key still resume until the next change.
+    var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
+    generator.fill(&next_ticket_key);
+    hosted_server.set_ticket_key(&next_ticket_key);
+    std.crypto.secureZero(u8, &next_ticket_key);
     hosted_client.shutdown();
     try run_until(client_stopped);
     hosted_client.deinit();

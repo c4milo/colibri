@@ -7808,6 +7808,40 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      opens tickets under the previous key too
      ([chapulin#220](https://github.com/c4milo/chapulin/issues/220)).
 
+     **Amended by the owner on 2026-11-11** for design §8 step 49
+     ([chapulin#220](https://github.com/c4milo/chapulin/issues/220)). chapulin v0.6.0 opens a ticket
+     under the key before the current one, so a server changes its key and keeps its clients'
+     tickets.
+     1. `colibri.ServerConfig.ticket_key_previous` and the field of the same name in the `.hosted`
+        configuration are a `?[tls.constants.protocol.server_key_len]u8`, null by default. The
+        server copies a key the program passes. With null, it draws a key after the ticket key,
+        and that key opens no ticket.
+     2. `colibri.Server(...).set_ticket_key(self, key)` takes the new key as `*const` and returns
+        nothing. The current key becomes the previous one, and the key before it is gone. The same
+        key again changes nothing. A server with no identity issues no ticket, so the call does
+        nothing there. The program calls it on the server's thread: on `.hosted` between two
+        calls, and on `.private` from a route or a middleware.
+     3. `tls.Server.ticket_key_previous` is the pointer colibri passes to chapulin's
+        `ServerOptions.ticket_key_previous`.
+     4. colibri writes both keys in place, and never moves a pointer. Each session reads the keys
+        through the pointers it took at its start, at each open and each seal (chapulin's
+        `srv_cfg.h`). So the previous key is set from the start, and a session that started before
+        a change opens and seals under the new bytes.
+     5. `deinit` wipes the previous key too.
+
+     The alternatives refused:
+     - Both keys in the configuration alone, with no call. A server that runs for weeks then keeps
+       one key until the program starts it again.
+     - A null previous key until the first change. chapulin refuses a key of zero octets, so the
+       pointer must change at the first change, and a session that started before it keeps null.
+     - A call that swaps two pointers. A session that started before the swap keeps the old
+       pointers, and can seal under the key that the program retired.
+
+     Cost: a ticket that the current key does not open costs a second open. Each server holds one
+     more key of 32 octets. A server with the old key cannot open a ticket that a server with the
+     new key sealed, so a program that runs several servers gives each one the new key in one
+     pass.
+
 162. **colibri exports nothing of chapulin, and its object file for TLS over TCP holds JWS and
      SCRAM.** Ruled by the owner on 2026-11-11, for design §8 step 49. Stompy's proxy calls
      chapulin for its TLS and its login checks, and connect-zig checks JSON Web Signatures with

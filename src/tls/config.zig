@@ -118,6 +118,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
             config.values = .{
                 .cookie_key = server.cookie_key,
                 .ticket_key = server.ticket_key,
+                .ticket_key_previous = server.ticket_key_previous,
                 .alpn = try protocols(chapulin, server.alpn),
                 .require_server_name = server.require_server_name,
             };

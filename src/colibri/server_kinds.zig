@@ -37,7 +37,7 @@ pub const private = struct {
         state.unix_seconds = config.unix_seconds;
         // A server that `init` does not return keeps no private key, cookie key or ticket key.
         errdefer server_module.wipe_keys(state);
-        try load(state, config.identity, config.cpu, config.ticket_key);
+        try load(state, config.identity, config.cpu, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
         try state.host.listen(listener, config.host, config.port);
         errdefer state.host.close_open();
         if (server_udp.served(quic_slots, config.identity != null)) {
@@ -72,6 +72,9 @@ pub const hosted = struct {
         /// The key the server seals its session tickets under, which it copies, or null to draw
         /// one from `random` (decision 161). The server wipes its copy at `deinit`.
         ticket_key: ?[tls.constants.protocol.server_key_len]u8 = null,
+        /// The key the server sealed its tickets under before `ticket_key`, as
+        /// `ServerConfig.ticket_key_previous` is (decision 161 as amended).
+        ticket_key_previous: ?[tls.constants.protocol.server_key_len]u8 = null,
         /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its
         /// `ecn` from the UDP socket's `Features`. The host knows its port, so the program names
         /// the h3 alternative in `h3_alternative` itself (RFC 7838 §3).
@@ -103,7 +106,7 @@ pub const hosted = struct {
         state.datagram_segments = if (features) |held| held.segments else false;
         errdefer server_module.wipe_keys(state);
         state.unix_seconds = config.now.unix_seconds;
-        try load(state, config.identity, config.cpu, config.ticket_key);
+        try load(state, config.identity, config.cpu, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
         if (server_udp.served(quic_slots and features != null, config.identity != null)) state.udp.open(0, @TypeOf(state.*).datagram);
         try server_loop.start(state, config.now);
     }
@@ -115,9 +118,9 @@ pub const hosted = struct {
     }
 };
 
-/// Reads `identity`, when the program gave one, into the engine's TLS values, with the ticket key.
-fn load(state: anytype, identity: ?Identity, cpu: tls.Cpu, ticket_key: ?[tls.constants.protocol.server_key_len]u8) identity_module.LoadError!void {
+/// Reads `identity`, when the program gave one, into the engine's TLS values, with the ticket keys.
+fn load(state: anytype, identity: ?Identity, cpu: tls.Cpu, keys: identity_module.TicketKeys) identity_module.LoadError!void {
     assert(state.engine_config.tls == null);
     const held = identity orelse return;
-    state.engine_config.tls = try identity_module.load(held, &state.identity, cpu, state.random, ticket_key);
+    state.engine_config.tls = try identity_module.load(held, &state.identity, cpu, state.random, keys);
 }

@@ -172,6 +172,11 @@ pub const Server = struct {
     cookie_key: *const [constants.protocol.server_key_len]u8,
     /// The key tickets are sealed under, or null to issue none.
     ticket_key: ?*const [constants.protocol.server_key_len]u8 = null,
+    /// The key tickets were sealed under before `ticket_key`, or null. chapulin seals new tickets
+    /// under `ticket_key` alone, and opens a ticket under `ticket_key` and then under this key
+    /// (https://github.com/c4milo/chapulin/issues/220). It reads both keys' bytes at each open and
+    /// each seal, so a program writes new bytes in place between two calls (decision 161).
+    ticket_key_previous: ?*const [constants.protocol.server_key_len]u8 = null,
     /// Protocols this server selects from, in its order (RFC 7301 §3.2). Empty for a server's
     /// endpoint, which names the protocols its versions allow (decision 119).
     alpn: []const []const u8 = &.{},
