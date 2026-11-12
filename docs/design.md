@@ -15675,6 +15675,56 @@ library.
       changes nothing; `deinit` keeps the previous key; a key change drops the current key
       instead of keeping it; `load` gives the TLS values no previous key.
 
+- **Step 50 — the router's handlers: a request's context, whole requests and streams, ruled
+  2026-11-11 and 2026-11-12.** [Decision 163](decisions.md), for v0.17.0, as connect-zig's
+  decisions 35 and 36.
+  - **Why.** A middleware had no place for what it learns about one request. The option
+    `whole_body` changed how the router calls `on_body`, and `on_body` waited with
+    `error.ReadFailed`. connect-zig built both a slot and a split of its own, and asked for the
+    slot in colibri.
+  - **The public names,** each listed in decision 115's form:
+    - `server.RequestContext`, with `id(ctx) server.RequestId`, `values(ctx, comptime T: type)
+      *T`, `path(ctx, comptime P: type) *const P` and `query(ctx, comptime Q: type) *const Q`.
+    - `server.Request` gains the field `body: *std.Io.Reader`. The engine's event carries an
+      empty reader there, and the router gives a function route the whole body.
+    - `server.Response`, the new name of `server.ResponseWriter`, with the same calls: `Error`,
+      `header`, `body`, `write_kept`, `end`, `trailers` and `head_sent`.
+    - `server.ResponseHeader`, the new name of the engine's `server.Response`.
+    - `server.RequestStream`, the stream of a request's body, with `next(stream) ?[]const u8`
+      and `ended(stream) bool`. It holds no header.
+    - `server.ResponseStream`, with the calls of `server.Response`.
+    - `server.RouterOptions.header_bytes`, with a default, which bounds the copy of a header.
+    - The route table's optional `.Values`, and a route's options `.path` and `.query`: literals
+      with no public name (decision 156 ruling 2). The option `whole_body` goes.
+  - **The callbacks.**
+    - A function route: `fn (context, ctx, request: *const server.Request, response:
+      *server.Response) !void`.
+    - A struct route: `on_request(context, ctx, state, request: *const server.Request, response:
+      *server.ResponseStream)`, `on_data(context, ctx, state, body: *server.RequestStream,
+      response: *server.ResponseStream)`, `next(context, ctx, state, response:
+      *server.ResponseStream)` and `on_finished(context, ctx, state, result: server.Result)`.
+    - A middleware: `on_request(context, ctx, request: *const server.Request, response:
+      *server.Response) !server.middleware.Next`, `on_finished(context, ctx, result)`, and
+      `wrap_body`, `wrap_response` and `finish_response` with `ctx` after the context.
+    - The route table's `error_handler(context, ctx, request, failure, response)`.
+  - **The sub-steps.** Each one lands alone, and the judge compares each with main on the runner
+    (decision 163 ruling 8). A sub-step that loses an input past the noise does not land.
+    1. 50a, `docs`: decision 163 and this entry.
+    2. 50b, `bench`: a POST input for the judge, with a body that arrives with its header and one
+       that arrives late, so each path of ruling 5 has a number.
+    3. 50c, `feat(server)!`: `server.RequestContext`, `.Values`, and the options `.path` and
+       `.query`, in every callback of today's routes.
+    4. 50d, `refactor(server)!`: the names `server.Response` and `server.ResponseHeader`.
+    5. 50e, `feat(server)!`: a function route gets the whole request, with `request.body` and the
+       header's copy when the body is late. The option `whole_body` goes.
+    6. 50f, `feat(server)!`: `server.RequestStream`, `server.ResponseStream`, `on_data` and
+       `next`. `on_body` and `on_writable` go.
+    7. 50g, `docs`: every example, docs/usage.md and `tools/consumer/`, then the judge's record.
+  - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
+    router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
+    `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
+    commit of 50g before the tag, and reports what the API leaves out.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

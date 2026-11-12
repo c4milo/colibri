@@ -7873,3 +7873,60 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: every program that links colibri on a host target holds the JWS and SCRAM code. A
      program that names chapulin copies colibri's request, and changes it when colibri does.
+
+163. **The router's handlers take the program's context, the request's context, a request and a
+     response, and a handler's form says what it gets.** Ruled by the owner on 2026-11-11 and
+     2026-11-12, for design §8 step 50 and v0.17.0, as connect-zig's decisions 35 and 36 split a
+     call. Two things led to it. A middleware had no place for what it learns about one request
+     but the program's context, which every request of a router shares. And the option
+     `whole_body` changed when the router calls `on_body`, and with what, so a plain POST route
+     needed a struct with an empty `on_request`.
+     1. Every callback takes `ctx: *server.RequestContext` after the program's context. It is a
+        view of the router's entry for the request, and each callback of one request gets the same
+        one. Its calls are `id()`, `values(T)`, `path(P)` and `query(Q)`.
+     2. The route table takes an optional `.Values = T`, a struct whose fields each have a
+        default. Each request starts with `.{}`, and `values(T)` gives it for the whole request.
+     3. A route's options take `.path = P` and `.query = Q`, in place of the function's path and
+        query parameters. The router checks P against the pattern at compile time, and reads Q
+        before the call, with 400 or 414 as before. `path(P)` and `query(Q)` answer during the
+        route's first call alone. Each call checks its type at run time, and a wrong type halts.
+     4. A function route gets the whole request in one call, when the request's body ended:
+        `fn (context, ctx, request: *const server.Request, response: *server.Response) !void`.
+        `request.body` is a `*std.Io.Reader` over the whole body, which never waits. A request
+        with no body gives an empty reader, and the call comes at the header, as before. The
+        option `whole_body` goes. Where a `server.Request` comes before its body, a read of
+        `request.body` fails: in the engine's event, in a middleware and in a struct route's
+        `on_request`. An empty reader there would read as an empty body.
+     5. The engine lends a header until its next `receive`. So the router copies the header only
+        when the body's end arrives in a later `receive` than the header. A request with no body,
+        and a body that arrives with its header, cost no copy. `RouterOptions.header_bytes` bounds
+        the copy, and a longer header gets 431 (RFC 6585 §5).
+     6. A struct route is a stream. Its `on_request` runs at the header and takes the
+        `server.Request`, so it never copies the header. `on_data` takes the stream of the
+        request's body, a `server.RequestStream`, and no header: the body is the request's
+        payload. The stream gives the body's pieces with `next() ?[]const u8`, because a reader
+        cannot say that no piece waits yet. `server.ResponseStream` writes each piece as
+        the route gives it, and the router calls `next` when it has room. The callbacks are
+        `on_request`, `on_data`, `next` and `on_finished`; `on_body` and `on_writable` go.
+     7. `server.ResponseWriter` takes the name `server.Response`, and the engine's header struct
+        of that name becomes `server.ResponseHeader`. No other name changes: `server.Request`
+        keeps its name and gains `body`.
+     8. No measured input may lose. Each sub-step is judged against main on the runner, and the
+        judge gets a POST input before the sub-step that copies a header.
+
+     The alternatives refused:
+     - A slot that `server.ResponseWriter` gives, with no change of signature. The owner chose
+       connect-zig's split.
+     - The name `Context` for the request's object. It is the program's type that `server.Router`
+       takes.
+     - Two calls for a whole body, at the header and at the body's end, which never copy a
+       header. The owner chose one call, with the copy when the body is late.
+     - A reader for a stream's body. `std.Io.Reader` reports a body that has no bytes yet as
+       `error.ReadFailed`, which is what `on_body` did.
+     - The names `RequestHeader` for the engine's request header, and `header_sent` for
+       `head_sent`. The owner refused each rename but the response's.
+
+     Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
+     do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
+     `@sizeOf(Values)` and by `header_bytes`. A request whose body arrives late pays one copy of
+     its header.
