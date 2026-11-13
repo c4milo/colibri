@@ -78,34 +78,39 @@ pub const ResponseBody = struct {
 /// A request's headers or trailers: its field section, less the pseudo-header fields h2 places
 /// first (RFC 9113 §8.3).
 pub const Headers = struct {
-    section: *const http.FieldSection,
+    /// The field section's lines, as slices of the engine's section or of a copy of its live
+    /// parts (decision 163 ruling 5).
+    lines: http.FieldSection.Slice,
     /// The index of the first regular field line.
     first: u32,
 
     /// The section's regular field lines, skipping the pseudo-header fields at its front.
     pub fn of(section: *const http.FieldSection) Headers {
+        const lines = section.slice();
         var first: u32 = 0;
         // RFC 9113 §8.3: every pseudo-header field comes before the regular field lines.
-        while (first < section.len() and is_pseudo(section.get(first).name)) first += 1;
-        assert(first <= section.len());
-        return .{ .section = section, .first = first };
+        while (first < lines.len() and is_pseudo(lines.get(first).name)) first += 1;
+        assert(first <= lines.len());
+        return .{ .lines = lines, .first = first };
     }
 
     /// The first regular field line named `name`, compared case-insensitively (RFC 9110 §5.1).
-    pub fn find(headers: Headers, name: []const u8) ?Header {
+    pub fn find(headers: *const Headers, name: []const u8) ?Header {
         assert(!is_pseudo(name));
-        return headers.section.find(name);
+        assert(headers.first <= headers.lines.len());
+        return headers.lines.find(name);
     }
 
     /// The regular field lines in arrival order.
-    pub fn iterator(headers: Headers) http.FieldSection.Iterator {
-        return .{ .section = headers.section, .index = headers.first };
+    pub fn iterator(headers: *const Headers) http.FieldSection.Iterator {
+        assert(headers.first <= headers.lines.len());
+        return .{ .slice = headers.lines, .index = headers.first };
     }
 
     /// How many regular field lines the section holds.
-    pub fn len(headers: Headers) u32 {
-        assert(headers.first <= headers.section.len());
-        return headers.section.len() - headers.first;
+    pub fn len(headers: *const Headers) u32 {
+        assert(headers.first <= headers.lines.len());
+        return headers.lines.len() - headers.first;
     }
 };
 

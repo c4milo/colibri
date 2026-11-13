@@ -106,10 +106,17 @@ test "decision 158: a status is one enum, and its calls are declarations of it" 
 
 test "decision 158: a field section is emptied by init alone" {
     // Decision 158 ruling 6 adds `AppendError` and `Iterator`, which `append` and `iterator`
-    // return.
+    // return. Step 50e adds `Slice` and `slice`, the section's live lines (decision 163).
     try core.public_names.expect(FieldSection, &.{
-        "AppendError", "Iterator", "init", "len", "append", "extend_last", "get", "iterator", "find",
+        "AppendError", "Slice", "Iterator", "init",     "len",  "append",
+        "extend_last", "slice", "get",      "iterator", "find",
     });
+}
+
+test "decision 163: a section's slice reads its lines as the section does" {
+    // Step 50e adds the four calls (decision 163 ruling 5). They read a section's lines, or a
+    // copy of them.
+    try core.public_names.expect(FieldSection.Slice, &.{ "len", "get", "find", "iterator" });
 }
 
 test "decision 158: a request's kind is a named value, not a bool" {

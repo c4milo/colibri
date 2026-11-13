@@ -27,7 +27,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
         .authority = "a",
         .path = "/",
         .query = null,
-        .headers = .{ .section = &test_section, .first = 0 },
+        .headers = .{ .lines = test_section.slice(), .first = 0 },
         .end = end,
     };
 }
@@ -51,7 +51,10 @@ test "RFC 9110 §10.1.1: no 100 for HTTP/1.0, for a request with no content, or 
 }
 
 test "RFC 9110 §10.1.1: the expectation is the Expect field's, and no other field's" {
-    const request = try request_with("200-ok", http_1_1, false);
+    var request = try request_with("200-ok", http_1_1, false);
     try test_section.append("x-note", "100-continue");
+    // The headers are slices of the section as it was, so the test takes them again.
+    request.headers = .{ .lines = test_section.slice(), .first = 0 };
+    try testing.expectEqualStrings("100-continue", request.headers.find("x-note").?.value);
     try testing.expect(!expects_continue(request));
 }

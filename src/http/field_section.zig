@@ -27,7 +27,7 @@ const field = @import("field.zig");
 const limits = core.constants;
 
 /// One field line as `get`, `find` and `Iterator.next` return it. The slices point into the
-/// section and stay valid until its next `append`, `clear` or `init`.
+/// section and stay valid until its next `append`, `extend_last` or `init`.
 pub const Field = field.Field;
 
 /// Where one line's octets are in `FieldSection.octets`: its name, then its value, at `offset`.
@@ -71,17 +71,67 @@ pub const FieldSection = struct {
         TooManyLines,
     };
 
-    /// Walks a section's lines in arrival order (RFC 9110 §5.3). Made by `FieldSection.iterator`.
+    /// The section's live lines as slices, cheap to copy, named after `std.MultiArrayList.Slice`.
+    /// It reads the section's storage, or a copy of the live parts (decision 163 ruling 5).
+    pub const Slice = struct {
+        /// Each line's name then its value.
+        octets: []const u8,
+        /// One record for each line, in arrival order. A copy may hold them at any address.
+        lines: []align(1) const Line,
+
+        /// Lines held.
+        pub fn len(self: *const Slice) u32 {
+            assert(self.lines.len <= limits.limits.field_count_max);
+            return @intCast(self.lines.len);
+        }
+
+        /// The line at `index`, which counts from 0. The index is asserted, never checked.
+        pub fn get(self: *const Slice, index: u32) Field {
+            assert(index < self.lines.len);
+            return self.field_at(self.lines[index]);
+        }
+
+        /// The first line, in arrival order, whose name equals `name` the way RFC 9110 §5.1
+        /// compares field names, case-insensitively; or null when no line does. It is the first
+        /// because RFC 9110 §5.3 makes the order of same-name lines significant.
+        pub fn find(self: *const Slice, name: []const u8) ?Field {
+            assert(self.lines.len <= limits.limits.field_count_max);
+            for (self.lines) |*line| {
+                // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case
+                // one octet to one octet, so names of two lengths never compare equal: the line
+                // is skipped without reading its octets.
+                if (line.name_len != name.len) continue;
+                const candidate = self.field_at(line.*);
+                if (field.names_equal(candidate.name, name)) return candidate;
+            }
+            return null;
+        }
+
+        /// Walks the lines in arrival order, from the first.
+        pub fn iterator(self: *const Slice) Iterator {
+            return .{ .slice = self.*, .index = 0 };
+        }
+
+        fn field_at(self: *const Slice, line: Line) Field {
+            const name_end = line.offset + line.name_len;
+            const value_end = name_end + line.value_len;
+            assert(line.offset <= name_end and name_end <= value_end);
+            assert(value_end <= self.octets.len);
+            return .{ .name = self.octets[line.offset..name_end], .value = self.octets[name_end..value_end] };
+        }
+    };
+
+    /// Walks lines in arrival order (RFC 9110 §5.3). Made by `iterator`, a section's or a slice's.
     pub const Iterator = struct {
-        section: *const FieldSection,
+        slice: Slice,
         /// The next line to return.
         index: u32,
 
         /// The next line, or null once every line has been returned; null again after that.
         pub fn next(self: *Iterator) ?Field {
-            assert(self.index <= self.section.count);
-            if (self.index == self.section.count) return null;
-            const line = self.section.get(self.index);
+            assert(self.index <= self.slice.len());
+            if (self.index == self.slice.len()) return null;
+            const line = self.slice.get(self.index);
             self.index += 1;
             return line;
         }
@@ -166,43 +216,28 @@ pub const FieldSection = struct {
         section.check_accounting();
     }
 
+    /// The section's live lines: `octets[0..octets_len]` and `lines[0..count]`. The slices point
+    /// into the section, and stay valid until its next `append`, `extend_last` or `init`.
+    pub fn slice(section: *const FieldSection) Slice {
+        assert(section.count <= limits.limits.field_count_max);
+        assert(section.octets_len <= section.octets.len);
+        return .{ .octets = section.octets[0..section.octets_len], .lines = section.lines[0..section.count] };
+    }
+
     /// The line at `index`: 0 for the first line that arrived and `len() - 1` for the last. The
     /// index is the caller's, so it is asserted, never checked.
     pub fn get(section: *const FieldSection, index: u32) Field {
-        assert(index < section.count);
-        return section.field_at(&section.lines[index]);
+        return section.slice().get(index);
     }
 
-    /// Walks the lines in arrival order, from the first.
+    /// Walks the lines the section holds now, in arrival order. It does not read a later `append`.
     pub fn iterator(section: *const FieldSection) Iterator {
-        return .{ .section = section, .index = 0 };
+        return section.slice().iterator();
     }
 
-    /// The first line, in arrival order, whose name equals `name` the way RFC 9110 §5.1 compares
-    /// field names, case-insensitively; or null when no line does. It is the first because
-    /// RFC 9110 §5.3 makes the order of same-name lines significant.
+    /// The first line named `name`, as `Slice.find` compares names (RFC 9110 §5.1), or null.
     pub fn find(section: *const FieldSection, name: []const u8) ?Field {
-        assert(section.count <= limits.limits.field_count_max);
-        for (section.lines[0..section.count]) |*line| {
-            // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one
-            // octet to one octet, so names of two lengths never compare equal: the line is skipped
-            // without reading its octets.
-            if (line.name_len != name.len) continue;
-            const candidate = section.field_at(line);
-            if (field.names_equal(candidate.name, name)) return candidate;
-        }
-        return null;
-    }
-
-    fn field_at(section: *const FieldSection, line: *const Line) Field {
-        const name_end = line.offset + line.name_len;
-        const value_end = name_end + line.value_len;
-        assert(line.offset <= name_end and name_end <= value_end);
-        assert(value_end <= section.octets_len);
-        return .{
-            .name = section.octets[line.offset..name_end],
-            .value = section.octets[name_end..value_end],
-        };
+        return section.slice().find(name);
     }
 
     /// The accounting the header states, after the change to the last line: the last line ends
@@ -370,13 +405,52 @@ test "clear empties the section, and it accepts lines again" {
     try expect_line(0, "c", "3");
 }
 
+/// The lines the slice test appends. Two of them share a name, in two cases.
+const slice_lines = [_]Field{ .{ .name = "Set-Cookie", .value = "a=1" }, .{ .name = "host", .value = "b" }, .{ .name = "set-cookie", .value = "c=3" } };
+
+/// Fails unless `len`, `get`, `iterator` and `find` of `live` read `want`: `slice_lines`, or none.
+fn expect_slice_reads(live: *const FieldSection.Slice, want: []const Field) !void {
+    try testing.expectEqual(want.len, live.len());
+    var walk = live.iterator();
+    for (want, 0..) |line, index| {
+        const walked = walk.next() orelse return error.TestUnexpectedResult;
+        for ([_]Field{ live.get(@intCast(index)), walked }) |read| {
+            try testing.expectEqualStrings(line.name, read.name);
+            try testing.expectEqualStrings(line.value, read.value);
+        }
+    }
+    try testing.expectEqual(null, walk.next());
+    try testing.expectEqual(null, live.find("absent"));
+    if (want.len == 0) return;
+    try testing.expectEqualStrings("a=1", (live.find("SET-COOKIE") orelse return error.TestUnexpectedResult).value);
+    try testing.expectEqualStrings("b", (live.find("Host") orelse return error.TestUnexpectedResult).value);
+}
+
+test "decision 163: a slice reads its section's lines, and a copy of them at an odd address does too" {
+    test_section.init();
+    try expect_slice_reads(&test_section.slice(), &.{});
+    for (slice_lines) |line| try test_section.append(line.name, line.value);
+    const live = test_section.slice();
+    try expect_slice_reads(&live, &slice_lines);
+    var copy: [128]u8 align(@alignOf(Line)) = undefined;
+    const records = copy[1..][0 .. live.lines.len * @sizeOf(Line)];
+    const octets = copy[1 + records.len ..][0..live.octets.len];
+    @memcpy(records, std.mem.sliceAsBytes(live.lines));
+    @memcpy(octets, live.octets);
+    const copied: FieldSection.Slice = .{ .octets = octets, .lines = std.mem.bytesAsSlice(Line, records) };
+    try testing.expect(@intFromPtr(copied.lines.ptr) % @alignOf(Line) == 1);
+    // The section holds nothing after the copy, so the copy alone holds the lines.
+    @memset(std.mem.asBytes(&test_section), 0);
+    try expect_slice_reads(&copied, &slice_lines);
+}
+
 // The tests below hold `find` to the scan it replaced, which read every line's name. It stays here
 // as the reference.
 
 /// The reference: `find` as it was.
 fn find_by_scan(section: *const FieldSection, name: []const u8) ?Field {
-    for (section.lines[0..section.count]) |*line| {
-        const candidate = section.field_at(line);
+    for (0..section.count) |index| {
+        const candidate = section.get(@intCast(index));
         if (field.names_equal(candidate.name, name)) return candidate;
     }
     return null;

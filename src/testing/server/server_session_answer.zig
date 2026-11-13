@@ -83,7 +83,7 @@ pub const Answers = struct {
             .method = request.method,
             .target = request.target,
             .version = .{ .major = request.version.major, .minor = request.version.minor },
-        }, request.headers.section);
+        }, &request.headers.lines);
         const method = http.method.standard(request.method);
         const read: Request = .{ .number = request.id.number, .head = method == .head, .connect = method == .connect };
         if (request.end) answers.owe(read) else answers.start_reading(read);

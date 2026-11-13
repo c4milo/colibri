@@ -99,7 +99,7 @@ pub fn record(lines: anytype, from: *const http.FieldSection, first: u32) core.W
     if (lines.buffer.len == 0) return;
     const start = lines.len;
     errdefer lines.len = start;
-    var each: http.FieldSection.Iterator = .{ .section = from, .index = first };
+    var each: http.FieldSection.Iterator = .{ .slice = from.slice(), .index = first };
     // Bounded: the section holds `len()` lines.
     for (0..from.len()) |_| {
         const line = each.next() orelse break;

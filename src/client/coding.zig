@@ -194,7 +194,7 @@ fn decodable(slot: *const Slot, status: u16, section: *const FieldSection, first
     // not decode alone.
     if (status == partial_content) return null;
     var named: ?Coding = null;
-    var lines: http.FieldSection.Iterator = .{ .section = section, .index = first };
+    var lines: http.FieldSection.Iterator = .{ .slice = section.slice(), .index = first };
     // Bounded by the section's lines.
     for (0..section.len()) |_| {
         const line = lines.next() orelse break;

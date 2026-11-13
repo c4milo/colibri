@@ -15705,8 +15705,12 @@ library.
     - `server.ResponseStream`, with the calls of `server.Response`.
     - `server.RouterOptions.header_bytes`, the octets of each entry's copy of a header. It has
       no default, and a header past it gets 431 (decision 163 ruling 5).
-    - `server.Headers` keeps its calls. What it holds changes, so that it reads the engine's
-      section or the router's copy through slices. Sub-step 50e names its fields.
+    - `server.Headers` keeps its calls. It holds `lines`, an `http.FieldSection.Slice`, and
+      `first`, so that it reads the engine's section or the router's copy (sub-step 50e).
+    - `http.FieldSection.Slice`, a section's live lines as two slices, with `len(slice) u32`,
+      `get(slice, index: u32) Field`, `find(slice, name: []const u8) ?Field` and
+      `iterator(slice) Iterator`; and `http.FieldSection.slice(section) Slice`. A
+      `server.Headers` reads the router's copy of a header through one.
     - The route table's optional `.Values`, and a route's options `.path` and `.query`: literals
       with no public name (decision 156 ruling 2). The option `whole_body` goes.
   - **The callbacks.**

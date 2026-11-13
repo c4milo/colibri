@@ -196,8 +196,8 @@ fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool)
 }
 
 /// Fails, printing both, when the event's first regular line is not where `Fields.of` finds it.
-fn expect_first_as_scanned(fields: event.Headers) !void {
-    const scanned = event.Headers.of(fields.section).first;
+fn expect_first_as_scanned(fields: *const event.Headers) !void {
+    const scanned = event.Headers.of(connection.session.h2.field_section()).first;
     if (fields.first == scanned) return;
     std.debug.print("first difference: the count gives {d}, the scan {d}\n", .{ fields.first, scanned });
     return error.TestUnexpectedResult;
@@ -209,7 +209,7 @@ test "RFC 9113 §8.3: a request's count of pseudo-header lines is where the scan
         for (0..regular.len + 1) |count| {
             try h2_support.start();
             const arrived = try receive_request(pseudo, regular[0..count], true);
-            try expect_first_as_scanned(arrived.request.headers);
+            try expect_first_as_scanned(&arrived.request.headers);
             try testing.expectEqual(count, arrived.request.headers.len());
         }
     }
@@ -220,7 +220,7 @@ test "RFC 9113 §8.1: a trailer section's lines are all regular, as the scan fin
     try h2_support.start();
     _ = try receive_request(pseudo_sets[0], &.{}, false);
     const arrived = try receive_request(&.{}, &trailer_lines, true);
-    try expect_first_as_scanned(arrived.trailers.headers);
+    try expect_first_as_scanned(&arrived.trailers.headers);
     try testing.expectEqual(trailer_lines.len, arrived.trailers.headers.len());
 }
 
@@ -228,6 +228,6 @@ test "RFC 9113 §8.1: an empty trailer section has no line, as the scan finds" {
     try h2_support.start();
     _ = try receive_request(pseudo_sets[0], &.{}, false);
     const arrived = try receive_request(&.{}, &.{}, true);
-    try expect_first_as_scanned(arrived.trailers.headers);
+    try expect_first_as_scanned(&arrived.trailers.headers);
     try testing.expectEqual(0, arrived.trailers.headers.len());
 }

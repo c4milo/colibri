@@ -88,14 +88,14 @@ fn request_fields(section: *const http.FieldSection, arrived: h2.Connection.Requ
     for (optional) |value| first += @intFromBool(value != null);
     assert(first <= section.len());
     assert(first == section.len() or !http.message_lines.is_pseudo_header(section.get(first).name));
-    return .{ .section = section, .first = first };
+    return .{ .lines = section.slice(), .first = first };
 }
 
 /// The field lines of a trailer section h2 read, which holds no pseudo-header field
 /// (RFC 9113 §8.1).
 fn trailer_fields(section: *const http.FieldSection) event.Headers {
     assert(section.len() == 0 or !http.message_lines.is_pseudo_header(section.get(0).name));
-    return .{ .section = section, .first = 0 };
+    return .{ .lines = section.slice(), .first = 0 };
 }
 
 /// Writes what h2 owes ahead of a frame of the caller's, as the client's TCP connection does. A

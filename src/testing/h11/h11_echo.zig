@@ -34,7 +34,7 @@ pub const Echo = struct {
     body_too_long: bool,
 
     /// Writes the request's head: every key but the content's, and the content's key.
-    pub fn begin(echo: *Echo, line: h11.message.RequestLine, section: *const h11.http.FieldSection) void {
+    pub fn begin(echo: *Echo, line: h11.message.RequestLine, lines: *const h11.http.FieldSection.Slice) void {
         echo.json_len = 0;
         echo.body_len = 0;
         echo.body_too_long = false;
@@ -49,8 +49,8 @@ pub const Echo = struct {
         echo.put("\",\"version\":\"");
         echo.put_base64(&version);
         echo.put("\",\"headers\":[");
-        for (0..section.len()) |index| {
-            const field = section.get(@intCast(index));
+        for (0..lines.len()) |index| {
+            const field = lines.get(@intCast(index));
             if (index > 0) echo.put(",");
             echo.put("[\"");
             echo.put_base64(field.name);
@@ -110,7 +110,7 @@ test "a request is echoed as the Garden's JSON, every value base64-encoded" {
     test_section.init();
     try test_section.append("Host", "a");
     try test_section.append("Transfer-Encoding", "chunked");
-    test_echo.begin(.{ .method = "POST", .target = "/p?q", .version = .{ .major = 1, .minor = 1 } }, &test_section);
+    test_echo.begin(.{ .method = "POST", .target = "/p?q", .version = .{ .major = 1, .minor = 1 } }, &test_section.slice());
     test_echo.add("he");
     test_echo.add("llo");
     test_echo.finish();
@@ -122,10 +122,10 @@ test "a request is echoed as the Garden's JSON, every value base64-encoded" {
 
 test "an HTTP/1.0 request with no field lines, and content past the limit" {
     test_section.init();
-    test_echo.begin(.{ .method = "GET", .target = "/", .version = .{ .major = 1, .minor = 0 } }, &test_section);
+    test_echo.begin(.{ .method = "GET", .target = "/", .version = .{ .major = 1, .minor = 0 } }, &test_section.slice());
     test_echo.finish();
     try testing.expectEqualStrings("{\"method\":\"R0VU\",\"uri\":\"Lw==\",\"version\":\"SFRUUC8xLjA=\",\"headers\":[],\"body\":\"\"}", test_echo.written());
-    test_echo.begin(.{ .method = "POST", .target = "/", .version = .{ .major = 1, .minor = 1 } }, &test_section);
+    test_echo.begin(.{ .method = "POST", .target = "/", .version = .{ .major = 1, .minor = 1 } }, &test_section.slice());
     test_echo.add(&(@as([constants.echo_body_len_max]u8, @splat('x'))));
     try testing.expect(!test_echo.body_too_long);
     test_echo.add("y");

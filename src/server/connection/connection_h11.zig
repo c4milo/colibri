@@ -68,7 +68,7 @@ fn report(connection: *Connection, h11_event: h11.Connection.Event) ConnectionEv
         .data, .tunnel => |octets| .{ .body = .{ .id = id, .bytes = octets, .end = false } },
         // RFC 9112 §7.1.2: a chunked body's trailer section ends it.
         .end => if (session.trailers.len() > 0)
-            .{ .trailers = .{ .id = id, .headers = .{ .section = &session.trailers, .first = 0 } } }
+            .{ .trailers = .{ .id = id, .headers = .{ .lines = session.trailers.slice(), .first = 0 } } }
         else
             .{ .body = .{ .id = id, .bytes = &.{}, .end = true } },
         // A server's h11 connection reads requests alone.
@@ -95,7 +95,7 @@ fn start_request(connection: *Connection, request: h11.Connection.Request) Conne
             .authority = target.authority,
             .path = parts.path,
             .query = parts.query,
-            .headers = .{ .section = &session.section, .first = 0 },
+            .headers = .{ .lines = session.section.slice(), .first = 0 },
             // h11 reads no body for a request that declared none.
             .end = session.phase == .waiting,
         },
