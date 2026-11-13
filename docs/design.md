@@ -15854,6 +15854,11 @@ library.
       none; the iterator starts late; the Expect check reads another field; the h11, h2 and h3
       request events, and the h2, h11 and h3 trailers events, read a `Slice` not written again;
       and the lint rule reads `src/server/event.zig`.
+    - **Runs.** `tools/ci.sh` on `38a8c66c`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed. In Debug for x86-64 Linux, in an amd64 container: `http` 98 of 98, `server`
+      652 of 652, `quic` 957 of 957 and `crypto` 12 of 12. The `client` tests stop at test 209
+      of 460 with a segmentation fault there, as main `4a813acd`'s own do, so the emulation and
+      not the change fails them. GitHub's `checks` job runs them on x86-64.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
@@ -15880,6 +15885,8 @@ library.
     `server.Headers`. The compiler finds each call that a dependent did not rename, and
     `tools/consumer_check.sh` builds both dependents.
   - **Mutations, 6 of 6 CAUGHT:** `pub const of = init;` beside each of the six constructors.
+  - **Runs.** The rename landed with sub-step 50e's part 1, so the runs of that part hold for it.
+    `tools/consumer_check.sh` built both dependents with the new names.
 
 ## 9. Test-only entry points
 
