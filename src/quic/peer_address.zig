@@ -14,11 +14,11 @@ pub const PeerAddress = struct {
     port: u16 = 0,
     /// The interface an IPv6 address is reached through, as the operating system numbers it in a
     /// socket address (`sin6_scope_id`), or 0 for none. A link-local address (fe80::/10) needs one
-    /// before a program can dial it. The program sets it after `of`; colibri only compares it.
+    /// before a program can dial it. The program sets it after `init`; colibri only compares it.
     scope_id: u32 = 0,
 
     /// The address `octets` and `port` name. The caller's octets must fit.
-    pub fn of(octets: []const u8, port: u16) PeerAddress {
+    pub fn init(octets: []const u8, port: u16) PeerAddress {
         assert(octets.len <= constants.limits.peer_address_len_max);
         var held: PeerAddress = .{ .len = @intCast(octets.len), .port = port };
         @memcpy(held.octets[0..octets.len], octets);
@@ -55,20 +55,20 @@ const loopback: [ipv4_len]u8 = @splat(host_octet);
 const other_host: [ipv4_len]u8 = @splat(other_octet);
 
 test "decision 72: two addresses are equal when their octets and their port are" {
-    const address = PeerAddress.of(&loopback, test_port);
-    try testing.expect(address.eql(&PeerAddress.of(&loopback, test_port)));
-    try testing.expect(!address.eql(&PeerAddress.of(&loopback, other_port)));
-    try testing.expect(!address.eql(&PeerAddress.of(&other_host, test_port)));
+    const address = PeerAddress.init(&loopback, test_port);
+    try testing.expect(address.eql(&PeerAddress.init(&loopback, test_port)));
+    try testing.expect(!address.eql(&PeerAddress.init(&loopback, other_port)));
+    try testing.expect(!address.eql(&PeerAddress.init(&other_host, test_port)));
     // An IPv6 address is not an IPv4 one with the same leading octets.
     var longer: [constants.limits.peer_address_len_max]u8 = @splat(0);
     @memcpy(longer[0..loopback.len], &loopback);
-    try testing.expect(!address.eql(&PeerAddress.of(&longer, test_port)));
+    try testing.expect(!address.eql(&PeerAddress.init(&longer, test_port)));
 }
 
 test "RFC 9000 §9.4: a change of port alone keeps the host" {
-    const address = PeerAddress.of(&loopback, test_port);
-    try testing.expect(address.same_host(&PeerAddress.of(&loopback, other_port)));
-    try testing.expect(!address.same_host(&PeerAddress.of(&other_host, test_port)));
+    const address = PeerAddress.init(&loopback, test_port);
+    try testing.expect(address.same_host(&PeerAddress.init(&loopback, other_port)));
+    try testing.expect(!address.same_host(&PeerAddress.init(&other_host, test_port)));
 }
 
 /// An IPv6 link-local address, fe80::1, which needs a scope id. Test-only.
@@ -88,7 +88,7 @@ const interface_one: u32 = 1;
 const interface_two: u32 = 2;
 
 test "RFC 9000 §9: the same link-local octets through two interfaces are two hosts" {
-    var through_one = PeerAddress.of(&link_local, test_port);
+    var through_one = PeerAddress.init(&link_local, test_port);
     through_one.scope_id = interface_one;
     var through_two = through_one;
     through_two.scope_id = interface_two;
@@ -99,4 +99,9 @@ test "RFC 9000 §9: the same link-local octets through two interfaces are two ho
     rebound.port = other_port;
     try testing.expect(through_one.same_host(&rebound));
     try testing.expect(through_one.eql(&through_one));
+}
+
+test "decision 115: the calls a program makes on a PeerAddress" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try @import("core").public_names.expect(PeerAddress, &.{ "init", "eql", "same_host" });
 }

@@ -101,8 +101,8 @@ test "RFC 9000 §3.1: a stream that sends no new octets has no credit" {
     try testing.expect(credit_of(id) != null);
     try stream_send.reset(&send_test.client, id, test_error_code);
     try testing.expectEqual(null, credit_of(id));
-    const peer_unidirectional = StreamId.of(.server, .unidirectional, 0);
+    const peer_unidirectional = StreamId.init(.server, .unidirectional, 0);
     _ = try send_test.client.streams.open_peer(peer_unidirectional);
     try testing.expectEqual(null, credit_of(peer_unidirectional));
-    try testing.expectEqual(null, credit_of(StreamId.of(.client, .bidirectional, 2)));
+    try testing.expectEqual(null, credit_of(StreamId.init(.client, .bidirectional, 2)));
 }

@@ -46,7 +46,7 @@ test "RFC 9000 §17.2.5.1: a server writes a Retry the client of §17.2.5.2 acce
     try testing.expectEqualSlices(u8, &fixture.s2, parsed.scid);
     // §8.1.2's token is the suite's, and the client repeats whatever it holds.
     // Decision 55: it carries both connection IDs §7.3 has the server send back.
-    try testing.expectEqual(fixture.suite_token_len(.of(&fixture.s1, &fixture.s2)), parsed.token.len);
+    try testing.expectEqual(fixture.suite_token_len(.init(&fixture.s1, &fixture.s2)), parsed.token.len);
 
     const outcome = retry.receive(&fixture.test_connection, fixture.checker.suite(), parsed, &fixture.pseudo);
     try testing.expectEqualSlices(u8, &fixture.s2, outcome.taken.destination);

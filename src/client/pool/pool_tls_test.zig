@@ -34,7 +34,7 @@ const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
-const addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&other_host, 0) };
+const addresses = [_]pool_module.Address{ pool_module.Address.init(&loopback, 0), pool_module.Address.init(&other_host, 0) };
 
 /// Passes the pool what the server sent, in calls until one takes nothing and reports nothing,
 /// with `.none` once no octet is left. Starts the connection an `open` event asks for, and keeps

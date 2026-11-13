@@ -139,7 +139,7 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
     const requests = &connection.requests;
     // Bounded by the slots: a client inside colibri's limit never has more open.
     for (0..constants.limits.request_streams_max) |_| {
-        const id = StreamId.of(.client, .bidirectional, requests.next_index);
+        const id = StreamId.init(.client, .bidirectional, requests.next_index);
         switch (transport.streams.lookup(id)) {
             .unopened => return,
             .closed => {},

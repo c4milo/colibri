@@ -7,8 +7,9 @@
 //!   call must return what the copy returns and send the same octets, at every count of lines up
 //!   to `field_count_max` and one past it.
 //! - A request's regular field lines were found by reading lines until one did not start with a
-//!   colon (`event.Headers.of`). They are counted from the request's pseudo-header fields now, and
-//!   the count must be where `Fields.of` finds the first regular line, for every set of them.
+//!   colon (`event.Headers.init`). They are counted from the request's pseudo-header fields now,
+//!   and the count must be where `event.Headers.init` finds the first regular line, for every set
+//!   of them.
 const std = @import("std");
 const h2 = @import("h2");
 const http = @import("http");
@@ -195,9 +196,10 @@ fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool)
     return (try support.receive_copy(writer.written())).event.?;
 }
 
-/// Fails, printing both, when the event's first regular line is not where `Fields.of` finds it.
+/// Fails, printing both, when the event's first regular line is not where `event.Headers.init`
+/// finds it.
 fn expect_first_as_scanned(fields: *const event.Headers) !void {
-    const scanned = event.Headers.of(connection.session.h2.field_section()).first;
+    const scanned = event.Headers.init(connection.session.h2.field_section()).first;
     if (fields.first == scanned) return;
     std.debug.print("first difference: the count gives {d}, the scan {d}\n", .{ fields.first, scanned });
     return error.TestUnexpectedResult;

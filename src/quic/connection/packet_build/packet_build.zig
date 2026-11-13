@@ -438,7 +438,7 @@ fn write_and_seal(
 /// addressed by the handshake's (§7.2). The ID is returned whole, because the handshake's is a
 /// value that no slice may outlive.
 fn short_destination(connection: *const Connection) ConnectionId {
-    if (connection.remote_ids.active()) |entry| return ConnectionId.of(entry.value());
+    if (connection.remote_ids.active()) |entry| return ConnectionId.init(entry.value());
     return connection.identity.destination();
 }
 

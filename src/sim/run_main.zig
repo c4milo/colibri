@@ -244,7 +244,7 @@ fn h3_trace_write(io: std.Io, directory: []const u8) !void {
             std.debug.print("h3-trace: seed 0x{x} failed: {t}\n", .{ seed, failure });
             return failure;
         };
-        const scope: h3_trace_state.Scope = .of(&h3_trace_storage.plan);
+        const scope: h3_trace_state.Scope = .init(&h3_trace_storage.plan);
         var name_storage: [constants.check_name_len_max]u8 = undefined;
         const name = h3_trace_tla.module_name(seed, &name_storage);
         var module = quic.core.Writer.init(&h3_trace_module);

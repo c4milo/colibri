@@ -140,8 +140,8 @@ test "RFC 9000 §7.2: a connection starts from a client's Initial alone, and §5
 test "RFC 9000 §8.1.4: a Retry token binds the client's address and its port" {
     var octets: [token_address_len_max]u8 = undefined;
     const port: u16 = 0x1f90;
-    const bound = token_address(PeerAddress.of(&.{ 192, 0, 2, 7 }, port), &octets);
+    const bound = token_address(PeerAddress.init(&.{ 192, 0, 2, 7 }, port), &octets);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 7, 0x1f, 0x90 }, bound);
     var other: [token_address_len_max]u8 = undefined;
-    try testing.expect(!std.mem.eql(u8, bound, token_address(PeerAddress.of(&.{ 192, 0, 2, 7 }, port + 1), &other)));
+    try testing.expect(!std.mem.eql(u8, bound, token_address(PeerAddress.init(&.{ 192, 0, 2, 7 }, port + 1), &other)));
 }

@@ -204,7 +204,7 @@ pub const Streams = struct {
         const index = streams.next_index[which];
         // RFC 9000 §2.1: a stream ID is 62 bits, so each type's indices end.
         if (index > constants.protocol.stream_index_max) return error.IdentifiersExhausted;
-        const id = StreamId.of(streams.role, directionality, index);
+        const id = StreamId.init(streams.role, directionality, index);
         const stream = streams.pool.open(id.value) catch return error.Full;
         streams.on_opened(stream);
         streams.next_index[which] = index + 1;
@@ -232,7 +232,7 @@ pub const Streams = struct {
         // creation order is the same at both endpoints. The limit above bounds this walk.
         var index = streams.lowest_unopened(id);
         for (0..constants.limits.streams_per_connection_max + 1) |_| {
-            const next = StreamId.of(id.initiator(), id.directionality(), index);
+            const next = StreamId.init(id.initiator(), id.directionality(), index);
             const stream = streams.pool.open(next.value) catch return error.Full;
             streams.on_opened(stream);
             if (index == id.index()) return stream;

@@ -45,7 +45,7 @@ const Keys = struct {
     key: [Aead.key_length]u8,
     iv: [Aead.nonce_length]u8,
 
-    fn of(secret: [secret_len]u8) Keys {
+    fn init(secret: [secret_len]u8) Keys {
         return .{
             .key = std.crypto.tls.hkdfExpandLabel(Hkdf, secret, "key", "", Aead.key_length),
             .iv = std.crypto.tls.hkdfExpandLabel(Hkdf, secret, "iv", "", Aead.nonce_length),
@@ -136,7 +136,7 @@ var output_storage: [support.wire_len]u8 = undefined;
 test "RFC 9846 §4.7.3: a KeyUpdate that asks is answered in front of the next record of data" {
     try connect();
     const receiver = support.server.provider();
-    const update = try seal(Keys.of(logged.client), 0, content_handshake, &key_update_requested, &sealed_storage);
+    const update = try seal(Keys.init(logged.client), 0, content_handshake, &key_update_requested, &sealed_storage);
     const opened = try receiver.decrypt_record(update, &support.scratch);
     try testing.expectEqual(update.len, opened.consumed);
     try testing.expectEqual(tls_provider.Content.without_data, opened.content);
@@ -152,17 +152,17 @@ test "RFC 9846 §4.7.3: a KeyUpdate that asks is answered in front of the next r
     const sealed = try receiver.encrypt_record("after", &output_storage);
     try testing.expectEqual(5, sealed.consumed);
     var inner: [content_len_max]u8 = undefined;
-    const answer = open(Keys.of(logged.server), 0, output_storage[0..answer_len], &inner).?;
+    const answer = open(Keys.init(logged.server), 0, output_storage[0..answer_len], &inner).?;
     try testing.expectEqual(content_handshake, answer.content_type);
     try testing.expectEqualSlices(u8, &key_update_not_requested, answer.content);
-    const after = open(Keys.of(next_secret(logged.server)), 0, output_storage[answer_len..sealed.written], &inner).?;
+    const after = open(Keys.init(next_secret(logged.server)), 0, output_storage[answer_len..sealed.written], &inner).?;
     try testing.expectEqualStrings("after", after.content);
     // The second seal writes no KeyUpdate.
     const again = try receiver.encrypt_record("again", &output_storage);
-    const second = open(Keys.of(next_secret(logged.server)), 1, output_storage[0..again.written], &inner).?;
+    const second = open(Keys.init(next_secret(logged.server)), 1, output_storage[0..again.written], &inner).?;
     try testing.expectEqualStrings("again", second.content);
     // What the server opens next is under the client's next secret.
-    const hello = try seal(Keys.of(next_secret(logged.client)), 0, content_application_data, "hello", &sealed_storage);
+    const hello = try seal(Keys.init(next_secret(logged.client)), 0, content_application_data, "hello", &sealed_storage);
     const read = try receiver.decrypt_record(hello, &support.scratch);
     try testing.expectEqualStrings("hello", support.scratch[0..read.plaintext_len]);
 }
@@ -172,7 +172,7 @@ test "RFC 9846 §4.7.3: two KeyUpdates in a row that ask get one answer" {
     const receiver = support.server.provider();
     var secret = logged.client;
     for (0..2) |_| {
-        const update = try seal(Keys.of(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
+        const update = try seal(Keys.init(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
         _ = try receiver.decrypt_record(update, &support.scratch);
         secret = next_secret(secret);
     }
@@ -180,23 +180,23 @@ test "RFC 9846 §4.7.3: two KeyUpdates in a row that ask get one answer" {
     const sealed = try receiver.encrypt_record("after", &output_storage);
     const answer_len = chapulin.tcp.key_update_record_len;
     var inner: [content_len_max]u8 = undefined;
-    const answer = open(Keys.of(logged.server), 0, output_storage[0..answer_len], &inner).?;
+    const answer = open(Keys.init(logged.server), 0, output_storage[0..answer_len], &inner).?;
     try testing.expectEqualSlices(u8, &key_update_not_requested, answer.content);
-    const after = open(Keys.of(next_secret(logged.server)), 0, output_storage[answer_len..sealed.written], &inner).?;
+    const after = open(Keys.init(next_secret(logged.server)), 0, output_storage[answer_len..sealed.written], &inner).?;
     try testing.expectEqualStrings("after", after.content);
 }
 
 test "RFC 9846 §4.7.3: the close_notify after a KeyUpdate that asks has no answer in front of it" {
     try connect();
     const receiver = support.server.provider();
-    const update = try seal(Keys.of(logged.client), 0, content_handshake, &key_update_requested, &sealed_storage);
+    const update = try seal(Keys.init(logged.client), 0, content_handshake, &key_update_requested, &sealed_storage);
     _ = try receiver.decrypt_record(update, &support.scratch);
     // The answer is owed only before application data. The alert is the one record written, under
     // the server's first keys.
     const written = try receiver.send_close_notify(&output_storage);
     try testing.expectEqual(chapulin.tcp.alert_record_len, written);
     var inner: [content_len_max]u8 = undefined;
-    const alert = open(Keys.of(logged.server), 0, output_storage[0..written], &inner).?;
+    const alert = open(Keys.init(logged.server), 0, output_storage[0..written], &inner).?;
     try testing.expectEqual(content_alert, alert.content_type);
     try testing.expectEqualSlices(u8, &close_notify, alert.content);
 }
@@ -204,7 +204,7 @@ test "RFC 9846 §4.7.3: the close_notify after a KeyUpdate that asks has no answ
 test "RFC 9846 §4.7.3: a KeyUpdate that asks for none is taken, and nothing is owed" {
     try connect();
     const receiver = support.server.provider();
-    const update = try seal(Keys.of(logged.client), 0, content_handshake, &key_update_not_requested, &sealed_storage);
+    const update = try seal(Keys.init(logged.client), 0, content_handshake, &key_update_not_requested, &sealed_storage);
     const opened = try receiver.decrypt_record(update, &support.scratch);
     try testing.expectEqual(update.len, opened.consumed);
     try testing.expectEqual(0, opened.plaintext_len);
@@ -215,7 +215,7 @@ test "a record that carries no data is taken whole, and the partial one after it
     try connect();
     const receiver = support.server.provider();
     // RFC 9846 §5.1: application data may be empty. The next record has arrived in part.
-    const empty = try seal(Keys.of(logged.client), 0, content_application_data, "", &sealed_storage);
+    const empty = try seal(Keys.init(logged.client), 0, content_application_data, "", &sealed_storage);
     const partial = [_]u8{ content_application_data, 0x03, 0x03 };
     @memcpy(sealed_storage[empty.len..][0..partial.len], &partial);
     const opened = try receiver.decrypt_record(sealed_storage[0 .. empty.len + partial.len], &support.scratch);
@@ -229,7 +229,7 @@ test "RFC 9846 §5.1: a KeyUpdate that does not end its record fails the connect
     try connect();
     const receiver = support.server.provider();
     const both = key_update_requested ++ key_update_requested;
-    const update = try seal(Keys.of(logged.client), 0, content_handshake, &both, &sealed_storage);
+    const update = try seal(Keys.init(logged.client), 0, content_handshake, &both, &sealed_storage);
     try testing.expectError(error.TlsFailed, receiver.decrypt_record(update, &support.scratch));
     // Only the alert is owed: the record failed before the first KeyUpdate took effect.
     const owed = try receiver.handshake_write(&output_storage, 0);
@@ -240,7 +240,7 @@ test "RFC 9846 §4.7.3: a KeyUpdate asking for neither answer fails with illegal
     try connect();
     const receiver = support.server.provider();
     const neither = [_]u8{ handshake_key_update, 0, 0, 1, 2 };
-    const update = try seal(Keys.of(logged.client), 0, content_handshake, &neither, &sealed_storage);
+    const update = try seal(Keys.init(logged.client), 0, content_handshake, &neither, &sealed_storage);
     try testing.expectError(error.TlsFailed, receiver.decrypt_record(update, &support.scratch));
     const report = receiver.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.illegal_parameter, report.description);
@@ -253,18 +253,18 @@ test "a run of KeyUpdates past chapulin's limit fails the read as KeyUpdates, an
     var secret = logged.client;
     // chapulin reads `CH_KEY_UPDATE_RUN_MAX` KeyUpdates in a row, each in its own record.
     for (0..c.CH_KEY_UPDATE_RUN_MAX) |_| {
-        const update = try seal(Keys.of(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
+        const update = try seal(Keys.init(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
         const opened = try receiver.decrypt_record(update, &support.scratch);
         try testing.expectEqual(tls_provider.Content.without_data, opened.content);
         secret = next_secret(secret);
     }
-    const past = try seal(Keys.of(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
+    const past = try seal(Keys.init(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
     try testing.expectError(error.KeyUpdates, receiver.decrypt_record(past, &support.scratch));
     // The alert alone is owed, under the server's first keys: no answer was sent.
     const owed_len = try receiver.handshake_write(&output_storage, 0);
     try testing.expectEqual(chapulin.tcp.alert_record_len, owed_len);
     var inner: [content_len_max]u8 = undefined;
-    const alert = open(Keys.of(logged.server), 0, output_storage[0..owed_len], &inner).?;
+    const alert = open(Keys.init(logged.server), 0, output_storage[0..owed_len], &inner).?;
     try testing.expectEqual(content_alert, alert.content_type);
     try testing.expectEqualSlices(u8, &unexpected_message, alert.content);
     const report = receiver.take_alert().?;

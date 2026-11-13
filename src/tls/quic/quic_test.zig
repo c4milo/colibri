@@ -401,7 +401,7 @@ const now_seconds: u64 = 1;
 test "decision 55: a Retry token gives both connection IDs back, and the Retry tag verifies" {
     const retry: quic.Retry = .{ .key = &token_key, .lifetime_seconds = token_lifetime_seconds };
     const suite = retry.suite();
-    const ids = crypto.suite.RetryConnectionIds.of(&support.destination_id, "retry-id");
+    const ids = crypto.suite.RetryConnectionIds.init(&support.destination_id, "retry-id");
     var token: [256]u8 = undefined;
     const now_ns = now_seconds * constants.nanoseconds_per_second;
     const len = try suite.vtable.retry_token_write(suite.context, .v1, "address", &ids, now_ns, &token);

@@ -310,7 +310,7 @@ test "the peer's parameters and the chosen protocol are logged once, when the pa
     try testing.expectEqual(0, count_of(&client_log, "\"initiator\":\"remote\""));
     try testing.expectEqual(0, count_of(&client_log, "quic:alpn_information"));
     var peer = Parameters.initial();
-    peer.initial_source_connection_id = .of(&peer_id);
+    peer.initial_source_connection_id = .init(&peer_id);
     connection_module.apply_peer_parameters(&client, peer);
     connection_qlog.log_changes(&client, provider_holder.provider(), later_ns);
     connection_qlog.log_changes(&client, provider_holder.provider(), later_ns);

@@ -233,7 +233,7 @@ pub fn answer(
     var token: [constants.limits.token_len_max]u8 = undefined;
     // Decision 55: the token carries the two connection IDs RFC 9000 §7.3 has the server send
     // back, because the server keeps nothing between this Retry and the client's next Initial.
-    const ids = crypto.suite.RetryConnectionIds.of(request.original_destination, request.server_source);
+    const ids = crypto.suite.RetryConnectionIds.init(request.original_destination, request.server_source);
     const token_len = suite.vtable.retry_token_write(
         suite.context,
         // RFC 9369 §4.1: the token binds the client's original version.

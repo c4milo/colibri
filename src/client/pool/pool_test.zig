@@ -30,8 +30,8 @@ const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
-const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
-const two_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&other_host, 0) };
+const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
+const two_addresses = [_]pool_module.Address{ pool_module.Address.init(&loopback, 0), pool_module.Address.init(&other_host, 0) };
 /// A link-local IPv6 address, fe80::1, reached through interface 3, which a program dials only
 /// with its scope id (https://github.com/c4milo/colibri/issues/107). Test-only.
 const link_local_octets: [ipv6_len]u8 = link_local_of();
@@ -47,7 +47,7 @@ fn link_local_of() [ipv6_len]u8 {
     return octets;
 }
 const link_local_interface: u32 = 3;
-const link_local = [_]pool_module.Address{scoped(pool_module.Address.of(&link_local_octets, 0), link_local_interface)};
+const link_local = [_]pool_module.Address{scoped(pool_module.Address.init(&link_local_octets, 0), link_local_interface)};
 
 fn scoped(address: pool_module.Address, scope_id: u32) pool_module.Address {
     var with_scope = address;

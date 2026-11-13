@@ -165,7 +165,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// - `.hosted` does no I/O. Its host opened the UDP sockets.
         /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
         pub fn init(self: *Self, config: *const Kinded.Config, handler: anytype) InitError!void {
-            self.handler = .of(handler);
+            self.handler = .init(handler);
             self.udp.close_all();
             self.ran = false;
             self.begun = false;

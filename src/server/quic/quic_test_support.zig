@@ -394,7 +394,7 @@ fn start_server(first: []const u8) !void {
 }
 
 pub fn client_address() quic.PeerAddress {
-    return quic.PeerAddress.of(&client_octets, client_port_now);
+    return quic.PeerAddress.init(&client_octets, client_port_now);
 }
 
 /// Has the server send every datagram it owes, and the client take each one.

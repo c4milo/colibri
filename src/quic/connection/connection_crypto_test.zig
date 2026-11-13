@@ -37,8 +37,8 @@ const test_identity: identity_module.Options = .{
 /// Connection ID, and the Destination Connection ID the client's first Initial carried.
 fn authentic_parameters() Parameters {
     var peer = Parameters.initial();
-    peer.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
-    peer.original_destination_connection_id = transport_parameters.ConnectionId.of(&original_id);
+    peer.initial_source_connection_id = transport_parameters.ConnectionId.init(&peer_id);
+    peer.original_destination_connection_id = transport_parameters.ConnectionId.init(&original_id);
     return peer;
 }
 /// Octets a test writes a CRYPTO frame into. Larger than any payload below.
@@ -213,7 +213,7 @@ test "RFC 9000 §7.3: parameters that do not match the headers close the connect
     test_connection.identity.on_peer_initial(&peer_id);
     var peer = authentic_parameters();
     // The server claims a Source Connection ID its packets never carried.
-    peer.initial_source_connection_id = transport_parameters.ConnectionId.of(&local_id);
+    peer.initial_source_connection_id = transport_parameters.ConnectionId.init(&local_id);
     var body: [test_output_len]u8 = undefined;
     var writer = core.Writer.init(&body);
     try transport_parameters.write(&writer, &peer, .server);
@@ -251,7 +251,7 @@ test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the conne
     fresh(.client);
     test_connection.identity.on_peer_initial(&peer_id);
     var server = authentic_parameters();
-    server.version_information = .of(version_2, &.{version_2});
+    server.version_information = .init(version_2, &.{version_2});
     try testing.expectError(error.VersionNegotiationFailed, take_written(&server, .server, &body));
     // The limits are untouched: the check runs before they are raised.
     try testing.expectEqual(0, test_connection.send_flow.available());
@@ -260,15 +260,15 @@ test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the conne
     fresh(.server);
     test_connection.identity.on_peer_initial(&peer_id);
     var client = Parameters.initial();
-    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
-    client.version_information = .of(version_2, &.{ version_2, constants.protocol.version_1 });
+    client.initial_source_connection_id = transport_parameters.ConnectionId.init(&peer_id);
+    client.version_information = .init(version_2, &.{ version_2, constants.protocol.version_1 });
     try testing.expectError(error.VersionNegotiationFailed, take_written(&client, .client, &body));
     // §4 closes with a version negotiation error, which §10.2 numbers 0x11.
     try testing.expectEqual(0x11, connection_crypto.connection_error_code(error.VersionNegotiationFailed));
     // The Chosen Version the connection runs is accepted.
     fresh(.client);
     test_connection.identity.on_peer_initial(&peer_id);
-    server.version_information = .of(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
+    server.version_information = .init(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
     try testing.expect(try take_written(&server, .server, &body));
     try testing.expectEqual(constants.protocol.version_1, test_connection.peer_parameters.?.version_information.?.chosen_version);
 }
@@ -280,7 +280,7 @@ test "RFC 9368 §4: a client holds the server to the Negotiated Version, a serve
     test_connection.identity.on_peer_initial(&peer_id);
     test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
     var server = authentic_parameters();
-    server.version_information = .of(version_2, &.{ constants.protocol.version_1, version_2 });
+    server.version_information = .init(version_2, &.{ constants.protocol.version_1, version_2 });
     try testing.expect(try take_written(&server, .server, &body));
     // A server that chose version 2 for a first flight of version 1 holds the client's Chosen
     // Version to version 1.
@@ -288,8 +288,8 @@ test "RFC 9368 §4: a client holds the server to the Negotiated Version, a serve
     test_connection.identity.on_peer_initial(&peer_id);
     test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
     var client = Parameters.initial();
-    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
-    client.version_information = .of(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 });
+    client.initial_source_connection_id = transport_parameters.ConnectionId.init(&peer_id);
+    client.version_information = .init(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 });
     try testing.expect(try take_written(&client, .client, &body));
 }
 

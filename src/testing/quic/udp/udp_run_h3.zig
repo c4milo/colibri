@@ -99,7 +99,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
     engine.init(&engine_config, entropy.random(), .{ .unix_seconds = asked.now_seconds, .monotonic_ns = started_ns }) catch |failure| fail("the engine did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www, &mapped);
     if (asked.routes) route_pool = .{};
-    batches = .of(asked.segments);
+    batches = .init(asked.segments);
 }
 
 /// How long the next tick may wait: until the engine's next deadline, and never longer than

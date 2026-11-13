@@ -75,7 +75,7 @@ pub const ResumeState = quic.ResumeState;
 pub const ResumeBounds = quic.ResumeBounds;
 /// A datagram `Engine.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.quic_connection.Sent;
-/// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
+/// An address and port as the program names a peer (decision 72): `Address.init(octets, port)`.
 pub const Address = quic.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).

@@ -86,7 +86,7 @@ const now_seconds = identity.now_seconds;
 
 /// The address the QUIC client's datagrams come from, which a program's UDP socket gives.
 const loopback = [_]u8{ 127, 0, 0, 1 };
-const client_address: server.Address = .of(&loopback, peers.client_port);
+const client_address: server.Address = .init(&loopback, peers.client_port);
 
 pub const Error = error{
     /// The connections had not all ended within `turns_max` turns.

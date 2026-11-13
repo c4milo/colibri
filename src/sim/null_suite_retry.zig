@@ -99,7 +99,7 @@ fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8,
     if (name != address_name(version, address)) return .invalid;
     // §8.1.4: and only for a short time.
     if (now_ns >= expires_ns) return .invalid;
-    return .{ .retry = crypto.suite.RetryConnectionIds.of(original_destination, retry_source) };
+    return .{ .retry = crypto.suite.RetryConnectionIds.init(original_destination, retry_source) };
 }
 
 fn read_connection_id(reader: *core.Reader) ![]const u8 {
@@ -139,7 +139,7 @@ test "§5.8: the Retry tag is a function of the pseudo-packet, and a suite may d
 test "RFC 9000 §8.1.4: a token checks for its address, within its lifetime, and gives its IDs back" {
     var suite_under_test: NullSuite = .{};
     const vtable = suite_under_test.suite().vtable;
-    const ids = crypto.suite.RetryConnectionIds.of("original", "retry");
+    const ids = crypto.suite.RetryConnectionIds.init("original", "retry");
     var token: [crypto.constants.protocol.connection_id_len_max * 2 + 16]u8 = undefined;
     const now_ns: u64 = 5_000;
     const len = try vtable.retry_token_write(&suite_under_test, .v1, "address", &ids, now_ns, &token);

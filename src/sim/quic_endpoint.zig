@@ -161,7 +161,7 @@ pub const Endpoint = struct {
             // Decision 111: a server switches a client that lists version 2 to it.
             .chooser = if (role == .server) quic.Connection.version_chooser(&endpoint.connection) else null,
         };
-        endpoint.suite = .{ .versions = .of(version) };
+        endpoint.suite = .{ .versions = .init(version) };
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
         endpoint.transfer_done = false;
@@ -339,7 +339,7 @@ pub fn network_ecn(ecn: quic.Ecn) sim.network.Ecn {
 
 /// The network's address as colibri names a peer's (decision 72): the host as one octet.
 pub fn peer_address(address: sim.network.Address) quic.PeerAddress {
-    return quic.PeerAddress.of(&.{address.host}, address.port);
+    return quic.PeerAddress.init(&.{address.host}, address.port);
 }
 
 /// The address colibri named for a datagram, as the network carries it.

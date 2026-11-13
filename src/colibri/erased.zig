@@ -18,7 +18,7 @@ pub fn Router(comptime Engine: type) type {
 
         /// Keeps `router`, a pointer to the program's `server.Router`, and `context`, a pointer to
         /// the context that the router's functions take.
-        pub fn of(router: anytype, context: anytype) Self {
+        pub fn init(router: anytype, context: anytype) Self {
             const RouterType = @typeInfo(@TypeOf(router)).pointer.child;
             const Context = @typeInfo(@TypeOf(context)).pointer.child;
             const Calls = struct {
@@ -51,7 +51,7 @@ pub fn Handler(comptime Client: type) type {
         pub const none: Self = .{ .handler = null, .finished_fn = null, .connected_fn = null };
 
         /// Keeps `handler`, a pointer to the program's struct, or null.
-        pub fn of(handler: anytype) Self {
+        pub fn init(handler: anytype) Self {
             if (@TypeOf(handler) == @TypeOf(null)) return none;
             const Program = @typeInfo(@TypeOf(handler)).pointer.child;
             if (!@hasDecl(Program, "on_finished")) {

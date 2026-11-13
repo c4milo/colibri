@@ -146,8 +146,8 @@ test "§7.3 Figure 8: a server keeps addressing C1 across its own Retry" {
 /// Source Connection ID, and the Destination Connection ID the client's first Initial carried.
 fn server_parameters() Parameters {
     var peer = Parameters.initial();
-    peer.initial_source_connection_id = ConnectionId.of(s3);
-    peer.original_destination_connection_id = ConnectionId.of(s1);
+    peer.initial_source_connection_id = ConnectionId.init(s3);
+    peer.original_destination_connection_id = ConnectionId.init(s1);
     return peer;
 }
 
@@ -168,7 +168,7 @@ test "RFC 9000 §7.3: a client holds the server's parameters to the headers it s
     // "a mismatch between values received from a peer in these transport parameters and the value
     // sent in the corresponding Destination or Source Connection ID fields of Initial packets."
     var wrong = authentic;
-    wrong.initial_source_connection_id = ConnectionId.of(s2);
+    wrong.initial_source_connection_id = ConnectionId.init(s2);
     try testing.expectError(
         identity_module.Error.ConnectionIdMismatch,
         identity_module.authenticate(&test_identity, &wrong, .client),
@@ -176,7 +176,7 @@ test "RFC 9000 §7.3: a client holds the server's parameters to the headers it s
     // "If a zero-length connection ID is selected, the corresponding transport parameter is
     // included with a zero-length value", so an empty one is a value and not a wildcard.
     var empty = authentic;
-    empty.initial_source_connection_id = ConnectionId.of("");
+    empty.initial_source_connection_id = ConnectionId.init("");
     try testing.expectError(
         identity_module.Error.ConnectionIdMismatch,
         identity_module.authenticate(&test_identity, &empty, .client),
@@ -197,7 +197,7 @@ test "RFC 9000 §7.3: a client requires the server to echo the connection ID it 
     );
     // S2 is the Retry's Source Connection ID, not the client's first Destination Connection ID.
     var wrong = authentic;
-    wrong.original_destination_connection_id = ConnectionId.of(s2);
+    wrong.original_destination_connection_id = ConnectionId.init(s2);
     try testing.expectError(
         identity_module.Error.ConnectionIdMismatch,
         identity_module.authenticate(&test_identity, &wrong, .client),
@@ -210,7 +210,7 @@ test "RFC 9000 §7.3: retry_source_connection_id is owed after a Retry and refus
     // "presence of the retry_source_connection_id transport parameter when no Retry packet was
     // received".
     var unasked = server_parameters();
-    unasked.retry_source_connection_id = ConnectionId.of(s2);
+    unasked.retry_source_connection_id = ConnectionId.init(s2);
     try testing.expectError(
         identity_module.Error.RetrySourceUnexpected,
         identity_module.authenticate(&test_identity, &unasked, .client),
@@ -226,7 +226,7 @@ test "RFC 9000 §7.3: retry_source_connection_id is owed after a Retry and refus
         identity_module.authenticate(&test_identity, &absent, .client),
     );
     var wrong = server_parameters();
-    wrong.retry_source_connection_id = ConnectionId.of(s1);
+    wrong.retry_source_connection_id = ConnectionId.init(s1);
     try testing.expectError(
         identity_module.Error.ConnectionIdMismatch,
         identity_module.authenticate(&test_identity, &wrong, .client),
@@ -237,12 +237,12 @@ test "RFC 9000 §7.3: retry_source_connection_id is owed after a Retry and refus
 test "RFC 9000 §7.3: a server checks the one parameter §18.2 lets a client send" {
     server();
     var peer = Parameters.initial();
-    peer.initial_source_connection_id = ConnectionId.of(c1);
+    peer.initial_source_connection_id = ConnectionId.init(c1);
     try identity_module.authenticate(&test_identity, &peer, .server);
 
     // A server never receives the other two: §18.2 makes them server-only and
     // `transport_parameters_read` refuses them from a client, so nothing here looks for them.
-    peer.initial_source_connection_id = ConnectionId.of(s1);
+    peer.initial_source_connection_id = ConnectionId.init(s1);
     try testing.expectError(
         identity_module.Error.ConnectionIdMismatch,
         identity_module.authenticate(&test_identity, &peer, .server),

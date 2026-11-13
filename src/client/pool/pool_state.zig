@@ -129,7 +129,7 @@ pub const Layout = struct {
     entries_offset: usize,
     len: usize,
 
-    pub fn of(counts: Counts) Layout {
+    pub fn init(counts: Counts) Layout {
         // Each part's size keeps the part after it aligned.
         comptime assert(@sizeOf(connection_module.Connection) % @alignOf(Link) == 0);
         comptime assert(@sizeOf(Link) % @alignOf(Entry) == 0);

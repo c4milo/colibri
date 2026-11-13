@@ -52,7 +52,7 @@ pub const datagrams_per_round_max: usize = 64;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-pub const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+pub const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 
 /// The receive pool of the pool's QUIC connections (decision 61). Test-only.
 var receive_pool: quic.ReceivePool(.{}) align(@alignOf(quic.ReceivePool(.{}))) = undefined;

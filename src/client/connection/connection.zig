@@ -168,7 +168,7 @@ pub const Connection = struct {
     /// is judged at, `resumption` offers a ticket an earlier connection took, and `start` says
     /// what this connection carries.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption, start: Start) StartError!void {
-        assert(coding.codings_valid(config.codings, .of(config)));
+        assert(coding.codings_valid(config.codings, .init(config)));
         assert(config.authority.len > 0);
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
         const cleartext = protocols_module.cleartext(config.protocols) orelse return error.NoVersion;

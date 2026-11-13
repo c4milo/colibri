@@ -77,7 +77,7 @@ pub fn information_of(role: Role, original: Version) transport_parameters.Versio
         .client => &client_versions,
         .server => &supported_versions,
     };
-    return .of(@intFromEnum(original), available);
+    return .init(@intFromEnum(original), available);
 }
 
 /// The version RFC 9368 §4 holds a peer's Chosen Version to: for a server, the version of the

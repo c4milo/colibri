@@ -217,14 +217,14 @@ test "RFC 9000 §2.1, §19.5: each ending is refused on a stream it cannot end" 
     open_pair();
     const client = &send_test.client;
     // RESET_STREAM ends a sending part: not a stream only the peer sends on, nor one not opened.
-    const peer_unidirectional = StreamId.of(.server, .unidirectional, 0);
+    const peer_unidirectional = StreamId.init(.server, .unidirectional, 0);
     _ = try client.streams.open_peer(peer_unidirectional);
     try testing.expectError(error.NotWritable, stream_send.reset(client, peer_unidirectional, reset_code));
-    try testing.expectError(error.NotWritable, stream_send.reset(client, StreamId.of(.client, .bidirectional, 3), reset_code));
+    try testing.expectError(error.NotWritable, stream_send.reset(client, StreamId.init(.client, .bidirectional, 3), reset_code));
     // STOP_SENDING ends a receiving part: not a stream only this endpoint sends on.
     const own_unidirectional = try stream_send.open(client, .unidirectional);
     try testing.expectError(error.NotReadable, stream_send.stop_sending(client, own_unidirectional, stop_code));
-    try testing.expectError(error.NotReadable, stream_send.stop_sending(client, StreamId.of(.server, .bidirectional, 0), stop_code));
+    try testing.expectError(error.NotReadable, stream_send.stop_sending(client, StreamId.init(.server, .bidirectional, 0), stop_code));
     // §19.5: nor a receiving part that left "Recv" and "Size Known".
     _ = client.streams.lookup(peer_unidirectional).live.receiving.on(.received_reset);
     try testing.expectError(error.NotReadable, stream_send.stop_sending(client, peer_unidirectional, stop_code));

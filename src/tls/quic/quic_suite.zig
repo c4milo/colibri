@@ -290,7 +290,7 @@ fn retry_token_check(context: *const anyopaque, named: suite_module.Version, add
     const retry: *const Retry = @ptrCast(@alignCast(context));
     const found = chapulin.quic.token_check(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
     return switch (found) {
-        .retry => |cids| .{ .retry = .of(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
+        .retry => |cids| .{ .retry = .init(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
         // RFC 9000 §8.1.3: not a Retry token, which leaves the client's address unvalidated.
         .not_retry => .not_retry,
         // RFC 9000 §8.1.2: a Retry token that fails, which the server closes on with

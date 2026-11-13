@@ -133,7 +133,7 @@ pub const Peers = struct {
     /// The pool configurations, and every peer away.
     pub fn init(peers: *Peers, seed: u64) void {
         const octets: [ipv4_len]u8 = @splat(endpoint_octet);
-        peers.addresses = .{client.Address.of(&octets, 0)};
+        peers.addresses = .{client.Address.init(&octets, 0)};
         // One TLS value serves both protocols: the pool names the ALPN ID `versions` allows.
         const trust: tls.Client = .{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },

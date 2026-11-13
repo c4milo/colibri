@@ -137,7 +137,7 @@ fn apply_connection_id(parameters: *Parameters, id: Id, body: []const u8) Error!
     // RFC 9000 §17.2: a connection ID in version 1 is at most 20 octets, so a longer one is a
     // value this parameter cannot carry.
     if (body.len > constants.protocol.connection_id_len_max) return Error.ParameterInvalid;
-    slot.* = ConnectionId.of(body);
+    slot.* = ConnectionId.init(body);
     return true;
 }
 
@@ -151,7 +151,7 @@ fn version_information_of(body: []const u8, sender: Role) Error!transport_parame
     // RFC 9368 §4: "If an endpoint receives a Chosen Version equal to zero, or any Available
     // Version equal to zero, it MUST treat it as a parsing failure."
     if (chosen == 0) return Error.ParameterInvalid;
-    var info = transport_parameters.VersionInformation.of(chosen, &.{});
+    var info = transport_parameters.VersionInformation.init(chosen, &.{});
     const lists_chosen = try read_available(&reader, &info);
     // RFC 9368 §4: "If a server receives Version Information where the Chosen Version is not
     // included in Available Versions, it MUST treat it as a parsing failure."

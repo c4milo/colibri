@@ -47,7 +47,7 @@ pub const StreamId = struct {
     }
 
     /// The `index`th stream of its type (RFC 9000 §2.1).
-    pub fn of(initiator_of: Initiator, directionality_of: Directionality, index_of: u64) StreamId {
+    pub fn init(initiator_of: Initiator, directionality_of: Directionality, index_of: u64) StreamId {
         assert(index_of <= constants.protocol.stream_index_max);
         const bits = @as(u64, @intFromEnum(initiator_of)) |
             (@as(u64, @intFromEnum(directionality_of)) << constants.protocol.stream_id_directionality_shift);
@@ -88,32 +88,32 @@ test "§2.1: the two low bits give the four types of Table 1" {
         try testing.expectEqual(case.directionality, id.directionality());
         try testing.expectEqual(0, id.index());
         // The same type built from its parts is the same identifier.
-        try testing.expectEqual(case.value, StreamId.of(case.initiator, case.directionality, 0).value);
+        try testing.expectEqual(case.value, StreamId.init(case.initiator, case.directionality, 0).value);
     }
 }
 
 test "§2.1: each type has its own space, rising by four" {
     for (0..4) |index| {
-        const id = StreamId.of(.server, .unidirectional, index);
+        const id = StreamId.init(.server, .unidirectional, index);
         try testing.expectEqual(0x03 + index * 4, id.value);
         try testing.expectEqual(index, id.index());
         try testing.expectEqual(Initiator.server, id.initiator());
         try testing.expectEqual(Directionality.unidirectional, id.directionality());
     }
     // The largest index a 62-bit identifier holds.
-    const largest = StreamId.of(.server, .unidirectional, constants.protocol.stream_index_max);
+    const largest = StreamId.init(.server, .unidirectional, constants.protocol.stream_index_max);
     try testing.expectEqual(constants.protocol.stream_id_max, largest.value);
     try testing.expectEqual(constants.protocol.stream_index_max, largest.index());
 }
 
 test "§3.1: a unidirectional stream carries data from its initiator alone" {
-    const client_uni = StreamId.of(.client, .unidirectional, 0);
+    const client_uni = StreamId.init(.client, .unidirectional, 0);
     try testing.expect(client_uni.is_sendable_by(.client));
     try testing.expect(!client_uni.is_sendable_by(.server));
     try testing.expect(client_uni.is_receivable_by(.server));
     try testing.expect(!client_uni.is_receivable_by(.client));
     // A bidirectional stream is sendable and receivable by both, whoever opened it.
-    const server_bidi = StreamId.of(.server, .bidirectional, 7);
+    const server_bidi = StreamId.init(.server, .bidirectional, 7);
     for ([_]Initiator{ .client, .server }) |role| {
         try testing.expect(server_bidi.is_sendable_by(role));
         try testing.expect(server_bidi.is_receivable_by(role));
@@ -121,4 +121,9 @@ test "§3.1: a unidirectional stream carries data from its initiator alone" {
     try testing.expect(server_bidi.is_initiated_by(.server));
     try testing.expect(!server_bidi.is_initiated_by(.client));
     try testing.expectEqual(Initiator.client, Initiator.server.peer());
+}
+
+test "decision 115: the calls a program makes on a StreamId" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try @import("core").public_names.expect(StreamId, &.{ "initiator", "directionality", "index", "init", "is_initiated_by", "is_sendable_by", "is_receivable_by" });
 }

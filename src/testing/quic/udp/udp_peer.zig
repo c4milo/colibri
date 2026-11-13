@@ -39,7 +39,7 @@ const PeerAddress = quic.PeerAddress;
 /// IPv6, the port, and an IPv6 address's scope id.
 pub fn peer_address(address: udp.Address) PeerAddress {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
-    var peer = PeerAddress.of(address.bytes[0..len], address.port);
+    var peer = PeerAddress.init(address.bytes[0..len], address.port);
     peer.scope_id = address.scope_id;
     return peer;
 }

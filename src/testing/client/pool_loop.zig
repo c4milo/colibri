@@ -71,7 +71,7 @@ pub fn run_pool(run: *const Run, shared: *const client.Config) !bool {
     pool_config = shared.*;
     pool_config.fallback_delay_ns = run.fallback_delay_ns;
     pool_config.protocols.prefer = run.prefer;
-    addresses[0] = Address.of(&run.address, 0);
+    addresses[0] = Address.init(&run.address, 0);
     now_seconds = run.now_seconds;
     try pool.init(&pool_memory, &pool_config, &.{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
     try request_plan(run.plans[0..run.plans_count]);
@@ -256,7 +256,7 @@ fn send_stream(now_ns: u64) void {
 /// id.
 fn peer_address(address: udp.Address) Address {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
-    var peer = Address.of(address.bytes[0..len], address.port);
+    var peer = Address.init(address.bytes[0..len], address.port);
     peer.scope_id = address.scope_id;
     return peer;
 }

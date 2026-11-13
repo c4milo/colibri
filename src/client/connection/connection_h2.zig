@@ -409,7 +409,7 @@ fn request_fields(
         indexing[count] = .without_indexing;
         count += 1;
     }
-    if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {
+    if (coding.offer(connection.config.codings, .init(connection.config), slot, offer)) |value| {
         lines[count] = .{ .name = "accept-encoding", .value = value };
         indexing[count] = .without_indexing;
         count += 1;

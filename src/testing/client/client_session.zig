@@ -259,7 +259,7 @@ var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
 var test_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
 /// The server's address, which no socket reads: the test passes the octets itself. Test-only.
 const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
-const test_address = client.Address.of(&test_octets, 0);
+const test_address = client.Address.init(&test_octets, 0);
 
 /// Most rounds a test exchanges octets for, which bounds its loop. Test-only.
 const test_rounds_max: u32 = 4096;

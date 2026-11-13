@@ -162,7 +162,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
     entry.body.held_len = 0;
     entry.body.delivered = false;
     entry.body.cursor = .{ .ended = request.end };
-    response_internal.init(&entry.response, response_internal.Sink.of(@TypeOf(engine.*), engine), request.id, &entry.memory);
+    response_internal.init(&entry.response, response_internal.Sink.init(@TypeOf(engine.*), engine), request.id, &entry.memory);
     entry.held = .{ .reader = &entry.body.cursor.reader };
     start_context(P, entry, request.id);
     switch (route) {
@@ -185,7 +185,7 @@ fn start_context(comptime P: type, entry: *P.Entry, id: event.RequestId) void {
     entry.request_context.request_id = id;
     if (comptime @hasField(@TypeOf(P.table), router_call.values_field)) {
         entry.values = .{};
-        entry.request_context.values_held = .of(@TypeOf(entry.values), &entry.values);
+        entry.request_context.values_held = .init(@TypeOf(entry.values), &entry.values);
     }
 }
 

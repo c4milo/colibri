@@ -135,7 +135,7 @@ pub const World = struct {
         try world.endpoint.init(&world.endpoint_config, source, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = world.now_ns });
         world.accepted = world.endpoint.accept(.{ .tls = over_tls }, world.now_ns) orelse return error.StartRefused;
         const octets: [limits.ipv4_len]u8 = @splat(limits.address_octet);
-        world.addresses = .{client.Address.of(&octets, 0)};
+        world.addresses = .{client.Address.init(&octets, 0)};
         const port = if (over_tls) limits.https_port else limits.http_port;
         // No receive pool, so the pool offers TCP alone.
         try world.pool.init(&world.pool_memory, &world.client_config, &.{ .addresses = &world.addresses, .port = port }, null);

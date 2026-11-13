@@ -64,12 +64,12 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
     // RFC 9114 §6.1: "Clients MUST treat receipt of a server-initiated bidirectional stream as a
     // connection error of type H3_STREAM_CREATION_ERROR". Streams open in order, so the first
     // tells.
-    if (connection.options.role == .client and transport.streams.lookup(StreamId.of(.server, .bidirectional, 0)) != .unopened) {
+    if (connection.options.role == .client and transport.streams.lookup(StreamId.init(.server, .bidirectional, 0)) != .unopened) {
         return connection.fail(transport, constants.protocol.error_stream_creation);
     }
     // Bounded by the slots: a peer inside colibri's limit never has more open.
     for (0..constants.limits.uni_streams_max) |_| {
-        const id = StreamId.of(initiator, .unidirectional, peer.next_index);
+        const id = StreamId.init(initiator, .unidirectional, peer.next_index);
         switch (transport.streams.lookup(id)) {
             .unopened => break,
             // §6.2: "A receiver MUST tolerate unidirectional streams being closed or reset prior

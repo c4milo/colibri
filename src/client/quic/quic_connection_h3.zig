@@ -143,7 +143,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
         count += 1;
     }
     var offer: [coding.offer_len_max]u8 = undefined;
-    if (coding.offer(connection.config.codings, .of(connection.config), slot, &offer)) |value| {
+    if (coding.offer(connection.config.codings, .init(connection.config), slot, &offer)) |value| {
         section.append("accept-encoding", value) catch return null;
         indexing[count] = .no_insert;
         count += 1;

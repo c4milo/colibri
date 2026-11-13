@@ -257,8 +257,8 @@ pub fn main() !void {
     server_adapter.descriptors[@intFromEnum(Server.listener)] = listener;
     server_port = (try rotor.sync.local_address(listener)).port;
     const port = server_port;
-    ipv4_addresses = .{.of(&ipv4_loopback, 0)};
-    ipv6_addresses = .{.of(&ipv6_loopback, 0)};
+    ipv4_addresses = .{.init(&ipv4_loopback, 0)};
+    ipv6_addresses = .{.init(&ipv6_loopback, 0)};
 
     const random = tls.Random.init(&generator, fill);
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };

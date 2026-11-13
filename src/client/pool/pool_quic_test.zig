@@ -276,7 +276,7 @@ const third_host: [ipv4_len]u8 = @splat(third_octet);
 /// pump. The `open` of the second attempt's QUIC is the third.
 const rounds_to_close: usize = 192;
 const second_attempt_open: usize = 2;
-const new_addresses = [_]pool_module.Address{ pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+const new_addresses = [_]pool_module.Address{ pool_module.Address.init(&second_host, 0), pool_module.Address.init(&third_host, 0) };
 
 /// Fails the first QUIC connection at the first address, calls `set_destination` with
 /// `new_addresses`, ends the attempt, and returns where the next exchange's QUIC goes. With

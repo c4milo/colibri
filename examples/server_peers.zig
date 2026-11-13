@@ -53,8 +53,8 @@ const origin = "localhost";
 const now_seconds = identity.now_seconds;
 
 const loopback = [_]u8{ 127, 0, 0, 1 };
-const server_addresses = [_]client.Address{.of(&loopback, 0)};
-const server_address: client.Address = .of(&loopback, server_port);
+const server_addresses = [_]client.Address{.init(&loopback, 0)};
+const server_address: client.Address = .init(&loopback, server_port);
 
 /// The octets the TCP peer writes before it sends them, at most.
 const output_len = 16384;

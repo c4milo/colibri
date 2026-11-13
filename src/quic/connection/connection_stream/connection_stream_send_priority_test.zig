@@ -76,10 +76,10 @@ test "RFC 9000 §2.3: streams of one priority take turns" {
 
 test "RFC 9000 §2.1: a priority is set only on a stream this endpoint may send on" {
     send_test.open_pair(.{});
-    const peer_unidirectional = StreamId.of(.server, .unidirectional, 0);
+    const peer_unidirectional = StreamId.init(.server, .unidirectional, 0);
     _ = try send_test.client.streams.open_peer(peer_unidirectional);
     try testing.expectError(error.NotWritable, stream_send.set_priority(&send_test.client, peer_unidirectional, urgent));
-    try testing.expectError(error.NotWritable, stream_send.set_priority(&send_test.client, StreamId.of(.client, .bidirectional, 0), urgent));
+    try testing.expectError(error.NotWritable, stream_send.set_priority(&send_test.client, StreamId.init(.client, .bidirectional, 0), urgent));
 }
 
 /// Octets the provider has for every stream, fewer than an urgent stream supplied. Test-only.

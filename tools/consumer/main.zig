@@ -99,7 +99,7 @@ const handshake_record: u8 = 22;
 /// The server's address, which a DNS lookup returns, and the port of an "http" origin (RFC 9110
 /// §4.2.1). The octets move in memory, so no socket connects to them.
 const loopback = [_]u8{ 127, 0, 0, 1 };
-const server_addresses = [_]client_module.Address{.of(&loopback, 0)};
+const server_addresses = [_]client_module.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
 
 pub fn main() !void {

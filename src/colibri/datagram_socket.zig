@@ -88,7 +88,7 @@ pub fn DatagramSockets(comptime count: u32) type {
             assert(sockets.served);
             sockets.first_slot = first_slot;
             stop_receivers(&sockets.receivers);
-            sockets.batches = .of(segments);
+            sockets.batches = .init(segments);
         }
 
         /// Whether a socket is open that sends to `to`: the server's one, or the client's socket
@@ -233,8 +233,8 @@ const test_loopback: [@sizeOf(u32)]u8 = @bitCast(std.mem.nativeToBig(u32, test_l
 const test_loopback_ipv6_word: u128 = 1;
 const test_loopback_ipv6: [@sizeOf(u128)]u8 = @bitCast(std.mem.nativeToBig(u128, test_loopback_ipv6_word));
 const test_port: u16 = 4433;
-const test_peer = PeerAddress.of(&test_loopback, test_port);
-const test_peer_ipv6 = PeerAddress.of(&test_loopback_ipv6, test_port);
+const test_peer = PeerAddress.init(&test_loopback, test_port);
+const test_peer_ipv6 = PeerAddress.init(&test_loopback_ipv6, test_port);
 const test_datagram_len = 1200;
 
 /// A client's two sockets, which the tests drive outside any stack frame. Test-only.

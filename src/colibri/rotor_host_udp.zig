@@ -149,7 +149,7 @@ fn outbound(to: server.Address, ecn: server.Ecn, segment_bytes: u16) rotor.datag
 /// A socket address as colibri names a peer's (decision 72).
 pub fn peer_address(address: rotor.Address) server.Address {
     const len: usize = if (address.family == .ipv4) rotor.Address.ipv4_bytes else address.bytes.len;
-    var peer = server.Address.of(address.bytes[0..len], address.port);
+    var peer = server.Address.init(address.bytes[0..len], address.port);
     peer.scope_id = address.scope_id;
     return peer;
 }

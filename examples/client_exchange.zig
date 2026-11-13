@@ -82,8 +82,8 @@ const origin = "localhost";
 /// (RFC 9110 §4.2.2). The links stand where the sockets would be, so no socket connects to them.
 const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_port = 443;
-const server_addresses = [_]client.Address{.of(&loopback, 0)};
-const server_address: client.Address = .of(&loopback, server_port);
+const server_addresses = [_]client.Address{.init(&loopback, 0)};
+const server_address: client.Address = .init(&loopback, server_port);
 
 /// Unix seconds. A program reads them from its clock; colibri reads no clock. The client judges
 /// the server's certificates at this instant, which the test identity is valid at.

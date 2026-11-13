@@ -231,11 +231,11 @@ pub fn call_on_request(
     // holds none before, so a route that names none writes nothing here (design §8 step 50c).
     if (comptime Path != void) {
         assert(ctx.path_held.pointer == null);
-        ctx.path_held = .of(Path, &path);
+        ctx.path_held = .init(Path, &path);
     }
     if (comptime Query != void) {
         assert(ctx.query_held.pointer == null);
-        ctx.query_held = .of(Query, &query_value);
+        ctx.query_held = .init(Query, &query_value);
     }
     defer {
         if (comptime Path != void) ctx.path_held = .{};

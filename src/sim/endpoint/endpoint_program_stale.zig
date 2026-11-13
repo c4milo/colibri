@@ -84,11 +84,11 @@ fn by_handle(program: *Program, connection: *const Connection, which: HandleCall
         .receive => dropped: {
             // The connection that holds the slot now, if one does, reads none of the octets: a
             // connection that failed on them would also consume them whole.
-            const before = Holder.of(program, handle.slot);
+            const before = Holder.init(program, handle.slot);
             const octets = program.probe[0..limits.stale_octets_len];
             const received = try program.receive(.{ .stream = .{ .connection = handle, .bytes = octets } }, now_ns);
             reported = received.event;
-            break :dropped received.consumed == octets.len and std.meta.eql(before, Holder.of(program, handle.slot));
+            break :dropped received.consumed == octets.len and std.meta.eql(before, Holder.init(program, handle.slot));
         },
     };
     if (!refused) return program.fail(error.StaleCallTaken, @tagName(which), handle, 0);
@@ -103,7 +103,7 @@ const Holder = struct {
     failed: bool,
     transport: @TypeOf(@as(program_module.Engine, undefined).transports[0]),
 
-    fn of(program: *const Program, slot: u32) Holder {
+    fn init(program: *const Program, slot: u32) Holder {
         const endpoint = program.endpoint;
         return .{ .live = endpoint.live[slot], .generation = endpoint.generations[slot], .failed = endpoint.failed[slot], .transport = endpoint.transports[slot] };
     }

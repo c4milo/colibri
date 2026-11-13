@@ -79,7 +79,7 @@ pub const ConnectionId = struct {
     octets: [constants.protocol.connection_id_len_max]u8,
     len: u8,
 
-    pub fn of(source: []const u8) ConnectionId {
+    pub fn init(source: []const u8) ConnectionId {
         assert(source.len <= constants.protocol.connection_id_len_max);
         var id: ConnectionId = .{ .octets = @splat(0), .len = @intCast(source.len) };
         @memcpy(id.octets[0..source.len], source);
@@ -107,7 +107,7 @@ pub const VersionInformation = struct {
     available: [constants.limits.version_information_versions_max]u32,
     available_len: u8,
 
-    pub fn of(chosen_version: u32, available: []const u32) VersionInformation {
+    pub fn init(chosen_version: u32, available: []const u32) VersionInformation {
         // RFC 9368 §4: a version of zero is a parsing failure, so no endpoint may send one.
         assert(chosen_version != 0 and std.mem.indexOfScalar(u32, available, 0) == null);
         assert(available.len <= constants.limits.version_information_versions_max);
@@ -330,4 +330,14 @@ fn write_octets(writer: *Writer, id: Id, octets: []const u8) core.Writer.Error!v
 test {
     _ = @import("transport_parameters_read.zig");
     _ = @import("transport_parameters_test.zig");
+}
+
+test "decision 115: the calls a program makes on a ConnectionId" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try core.public_names.expect(ConnectionId, &.{ "init", "slice", "equal" });
+}
+
+test "decision 115: the calls a program makes on a VersionInformation" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try core.public_names.expect(VersionInformation, &.{ "init", "available_slice", "lists" });
 }

@@ -68,7 +68,7 @@ pub const Peers = struct {
             peer.handle = null;
             peer.ended = false;
             const octets: [ipv4_len]u8 = @splat(address_octet);
-            peer.address = server.Address.of(&octets, limits.port_first + @as(u16, @intCast(index)));
+            peer.address = server.Address.init(&octets, limits.port_first + @as(u16, @intCast(index)));
             // QUIC peers draw after the TCP peers' salts.
             peer.random = Random.init(seed ^ limits.peer_salt ^ (limits.tcp_peers + index));
         }

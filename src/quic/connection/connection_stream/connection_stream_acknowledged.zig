@@ -172,11 +172,11 @@ test "decision 78: a reset stream, and one this endpoint does not send on, have 
     try lose(record);
     try testing.expectEqual(null, end_of(id));
     // A stream the peer opened for its own octets alone, and one not yet opened.
-    const peer_stream = StreamId.of(.server, .unidirectional, 0);
+    const peer_stream = StreamId.init(.server, .unidirectional, 0);
     _ = try send_test.client.streams.open_peer(peer_stream);
     try testing.expectEqual(.live, std.meta.activeTag(send_test.client.streams.lookup(peer_stream)));
     try testing.expectEqual(null, end_of(peer_stream));
-    try testing.expectEqual(null, end_of(StreamId.of(.client, .bidirectional, 3)));
+    try testing.expectEqual(null, end_of(StreamId.init(.client, .bidirectional, 3)));
 }
 
 test "RFC 9000 §3.1: every reset is acknowledged once no stream waits in Reset Sent" {

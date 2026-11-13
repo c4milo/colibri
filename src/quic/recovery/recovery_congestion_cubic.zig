@@ -136,7 +136,7 @@ fn grow_in_avoidance(congestion: *Congestion, cubic: *Cubic, sent_len: u64, now_
 
 /// Starts a congestion avoidance stage at `now_ns` (§4.1.2's t_epoch, cwnd_epoch and K).
 fn start_epoch(congestion: *Congestion, cubic: *Cubic, now_ns: u64) u64 {
-    cubic.curve = .of(cubic.w_max, congestion.window, congestion.max_datagram_len);
+    cubic.curve = .init(cubic.w_max, congestion.window, congestion.max_datagram_len);
     cubic.w_max = cubic.curve.w_max;
     cubic.estimate_len = congestion.window;
     cubic.growth_numerator = 0;

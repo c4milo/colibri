@@ -387,7 +387,7 @@ fn request_fields(
         count += 1;
     }
     count += trailer_fields(slot, lines[count..]);
-    if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {
+    if (coding.offer(connection.config.codings, .init(connection.config), slot, offer)) |value| {
         lines[count] = .{ .name = "Accept-Encoding", .value = value };
         count += 1;
     }

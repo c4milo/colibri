@@ -158,7 +158,7 @@ pub const World = struct {
     }
 
     fn values(world: *World) client.Destination {
-        world.addresses = .{client.Address.of(&server_host, 0)};
+        world.addresses = .{client.Address.init(&server_host, 0)};
         var held: client.Destination = .{ .addresses = &world.addresses, .port = https_port };
         // RFC 9460 §7.1.2: an HTTPS record that names h3 lets the pool open QUIC, and one that
         // names no h3 makes it wait for Alt-Svc.

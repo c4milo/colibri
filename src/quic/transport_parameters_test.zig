@@ -87,9 +87,9 @@ test "RFC 9000 §18.2: an extension that states nothing means every default, and
 
 test "every parameter colibri writes reads back as the value it wrote" {
     var sent = Parameters.initial();
-    sent.original_destination_connection_id = ConnectionId.of(&.{ 1, 2, 3, 4 });
-    sent.initial_source_connection_id = ConnectionId.of(&.{ 5, 6 });
-    sent.retry_source_connection_id = ConnectionId.of(&.{7});
+    sent.original_destination_connection_id = ConnectionId.init(&.{ 1, 2, 3, 4 });
+    sent.initial_source_connection_id = ConnectionId.init(&.{ 5, 6 });
+    sent.retry_source_connection_id = ConnectionId.init(&.{7});
     sent.stateless_reset_token = @splat(9);
     sent.max_idle_timeout_ms = 30_000;
     sent.max_udp_payload_size = 1500;
@@ -246,7 +246,7 @@ test "RFC 9368 §3: Version Information is written as §3 lays it out and reads 
     // Identifier 0x11 (§10.1), a length of 8, then the Chosen Version and one Available Version,
     // four octets each in network byte order.
     var sent = Parameters.initial();
-    sent.version_information = .of(constants.protocol.version_1, &.{version_2});
+    sent.version_information = .init(constants.protocol.version_1, &.{version_2});
     var writer = Writer.init(&test_buffer);
     try transport_parameters.write(&writer, &sent, .server);
     try testing.expectEqualSlices(u8, "\x11\x08\x00\x00\x00\x01\x6b\x33\x43\xcf", writer.written());
@@ -254,9 +254,9 @@ test "RFC 9368 §3: Version Information is written as §3 lays it out and reads 
     // and a server lists its Fully Deployed Versions, which need not include its Chosen Version
     // and may be none.
     const cases = [_]struct { sender: transport_parameters.Role, info: VersionInformation }{
-        .{ .sender = .client, .info = .of(version_2, &.{ reserved_version, version_2, constants.protocol.version_1 }) },
-        .{ .sender = .server, .info = .of(constants.protocol.version_1, &.{reserved_version}) },
-        .{ .sender = .server, .info = .of(constants.protocol.version_1, &.{}) },
+        .{ .sender = .client, .info = .init(version_2, &.{ reserved_version, version_2, constants.protocol.version_1 }) },
+        .{ .sender = .server, .info = .init(constants.protocol.version_1, &.{reserved_version}) },
+        .{ .sender = .server, .info = .init(constants.protocol.version_1, &.{}) },
     };
     for (cases) |case| {
         sent.version_information = case.info;

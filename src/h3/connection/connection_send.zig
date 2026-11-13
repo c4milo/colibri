@@ -74,7 +74,7 @@ pub fn write_request(connection: *Connection, transport: *QuicConnection, head: 
     if (streams.local_limit[which].is_blocked()) return error.StreamsExhausted;
     // The encoder records the section against its stream, so the ID comes before the stream
     // opens, and the stream opens only once its frame is written.
-    const id = StreamId.of(.client, .bidirectional, streams.next_index[which]);
+    const id = StreamId.init(.client, .bidirectional, streams.next_index[which]);
     const payload_len = try write_headers(connection, transport, id.value, section, head.indexing, output);
     // RFC 9000 §4.6: the limit was checked above, so only colibri's table can refuse the stream.
     const opened = quic.Connection.open_stream(transport, .bidirectional) catch return error.StreamsExhausted;

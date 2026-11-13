@@ -209,10 +209,10 @@ fn draw_integers(parameters: *Parameters, random: *Random) void {
 fn draw_connection_ids(parameters: *Parameters, random: *Random, material: []const u8, sender: Role) void {
     const ConnectionId = transport_parameters.ConnectionId;
     const cid_max = limits.protocol.connection_id_len_max;
-    if (chosen(random)) parameters.initial_source_connection_id = ConnectionId.of(draw_octets(random, material, 0, cid_max));
+    if (chosen(random)) parameters.initial_source_connection_id = ConnectionId.init(draw_octets(random, material, 0, cid_max));
     if (sender == .client) return;
-    if (chosen(random)) parameters.original_destination_connection_id = ConnectionId.of(draw_octets(random, material, 0, cid_max));
-    if (chosen(random)) parameters.retry_source_connection_id = ConnectionId.of(draw_octets(random, material, 0, cid_max));
+    if (chosen(random)) parameters.original_destination_connection_id = ConnectionId.init(draw_octets(random, material, 0, cid_max));
+    if (chosen(random)) parameters.retry_source_connection_id = ConnectionId.init(draw_octets(random, material, 0, cid_max));
     if (chosen(random)) {
         const token_len = transport_parameters.stateless_reset_token_len;
         parameters.stateless_reset_token = draw_octets(random, material, token_len, token_len)[0..token_len].*;

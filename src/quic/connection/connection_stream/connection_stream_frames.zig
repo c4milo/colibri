@@ -239,7 +239,7 @@ fn initialise_opened(connection: *Connection, id: StreamId, first_index: u64) vo
     assert(first_index <= id.index());
     // Bounded: §4.6's limit, which the table's capacity caps, bounds how many opened at once.
     for (first_index..id.index() + 1) |index| {
-        const opened = StreamId.of(id.initiator(), id.directionality(), index);
+        const opened = StreamId.init(id.initiator(), id.directionality(), index);
         const stream = switch (connection.streams.lookup(opened)) {
             .live => |held| held,
             .closed, .unopened => unreachable,

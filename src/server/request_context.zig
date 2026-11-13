@@ -18,7 +18,7 @@ pub const RequestContext = struct {
     /// program's code calls it to pass that code a context with no router (the owner's ruling of
     /// 2026-11-13). The router makes each request's context itself.
     pub fn init(request_id: event.RequestId, comptime T: type, request_values: *T) RequestContext {
-        return .{ .request_id = request_id, .values_held = .of(T, request_values) };
+        return .{ .request_id = request_id, .values_held = .init(T, request_values) };
     }
 
     /// The request this context belongs to.
@@ -53,8 +53,8 @@ pub const Held = struct {
     /// `@typeName` of the type `pointer` points to. Null with no pointer.
     name: ?[*:0]const u8 = null,
 
-    /// What `of` lends: `item`, which the router owns.
-    pub fn of(comptime T: type, item: *T) Held {
+    /// What `init` lends: `item`, which the router owns.
+    pub fn init(comptime T: type, item: *T) Held {
         return .{ .pointer = @ptrCast(item), .name = @typeName(T) };
     }
 };
@@ -71,7 +71,7 @@ comptime {
 fn held_as(comptime T: type, held: Held, comptime call: []const u8) *T {
     const pointer = held.pointer orelse
         std.debug.panic("server.RequestContext.{s}: this callback has no {s} (decision 163)", .{ call, @typeName(T) });
-    // `of` sets the pointer and the name together.
+    // `Held.init` sets the pointer and the name together.
     const name = held.name orelse unreachable;
     if (!names(T, name))
         std.debug.panic("server.RequestContext.{s}: {s} asked, {s} held (decision 163)", .{ call, @typeName(T), name });
@@ -118,7 +118,7 @@ test "decision 163: values, path and query give what the router lent, by type" {
     const Path = struct { name: []const u8 };
     var values: Values = .{};
     var path: Path = .{ .name = "ada" };
-    var ctx: RequestContext = .{ .request_id = @bitCast(@as(u128, 7)), .values_held = .of(Values, &values), .path_held = .of(Path, &path) };
+    var ctx: RequestContext = .{ .request_id = @bitCast(@as(u128, 7)), .values_held = .init(Values, &values), .path_held = .init(Path, &path) };
     ctx.values(Values).count += 1;
     try testing.expectEqual(1, values.count);
     try testing.expectEqualStrings("ada", ctx.path(Path).name);

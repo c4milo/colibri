@@ -284,7 +284,7 @@ fn to_pool() !void {
 const ipv4_len: usize = 4;
 const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
-const two_addresses = [_]pool_module.Address{ addresses[0], pool_module.Address.of(&other_host, 0) };
+const two_addresses = [_]pool_module.Address{ addresses[0], pool_module.Address.init(&other_host, 0) };
 
 test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries nothing, and its attempt goes on" {
     try start(&quic_support.alpn_h3, .{ .addresses = &two_addresses, .port = https_port }, true);

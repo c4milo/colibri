@@ -39,13 +39,13 @@ const http_port: u16 = 80;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 /// Two more hosts, which `set_destination` gives the pool, and two h3 alternatives. Test-only.
 const second_octet: u8 = 0x0a;
 const third_octet: u8 = 0x0b;
 const second_host: [ipv4_len]u8 = @splat(second_octet);
 const third_host: [ipv4_len]u8 = @splat(third_octet);
-const new_addresses = [_]pool_module.Address{ pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+const new_addresses = [_]pool_module.Address{ pool_module.Address.init(&second_host, 0), pool_module.Address.init(&third_host, 0) };
 const learned_port: u16 = 8443;
 const named_port: u16 = 9443;
 const learned: pool_module.Alternative = .{ .port = learned_port, .fresh_until_ns = support.now_ns + 1 };
@@ -302,7 +302,7 @@ test "decision 125 ruling 8: an open still owed when set_destination comes goes 
 
 /// Three hosts, a pool of three slots, and its memory. Test-only.
 const three_slots: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = slots_count + 1, .requests = requests_count };
-const three_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+const three_addresses = [_]pool_module.Address{ pool_module.Address.init(&loopback, 0), pool_module.Address.init(&second_host, 0), pool_module.Address.init(&third_host, 0) };
 var three_memory: [ConnectionPool.memory_bytes(three_slots)]u8 align(ConnectionPool.memory_alignment) = undefined;
 
 test "decision 125: two connections to one address that both fail skip no other address" {

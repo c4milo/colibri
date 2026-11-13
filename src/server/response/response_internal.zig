@@ -35,7 +35,7 @@ pub const Sink = struct {
     wait_release: *const fn (context: *anyopaque, id: event.RequestId) void,
 
     /// The sink of `engine`, an `*Engine(capacity)`.
-    pub fn of(comptime Engine: type, engine: *Engine) Sink {
+    pub fn init(comptime Engine: type, engine: *Engine) Sink {
         const calls = struct {
             fn respond(context: *anyopaque, id: event.RequestId, response: event.ResponseHeader) connection_errors.SendError!void {
                 return engine_of(Engine, context).respond(id, response);

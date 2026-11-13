@@ -208,7 +208,7 @@ fn read_token(reader: *core.Reader, address: []const u8, now_ns: u64) !crypto.su
     const original_destination = try reader.take(try reader.take_byte());
     const retry_source = try reader.take(try reader.take_byte());
     if (reader.remaining_len() != 0 or name != std.hash.Crc32.hash(address) or now_ns >= expires_ns) return .invalid;
-    return .{ .retry = crypto.suite.RetryConnectionIds.of(original_destination, retry_source) };
+    return .{ .retry = crypto.suite.RetryConnectionIds.init(original_destination, retry_source) };
 }
 
 /// Every member the Retry cases do not ask for is unreached: a call to one would mean a test

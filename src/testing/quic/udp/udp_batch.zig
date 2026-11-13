@@ -65,7 +65,7 @@ pub const Batches = struct {
 
     /// Empty batches, which take a second datagram when the kernel has UDP_SEGMENT and the server
     /// was not given `no-gso`.
-    pub fn of(segments: bool) Batches {
+    pub fn init(segments: bool) Batches {
         return .{ .segments = segmented and segments };
     }
 
@@ -105,8 +105,8 @@ const loopback_word: u32 = 0x7f00_0001;
 const loopback: [@sizeOf(u32)]u8 = @bitCast(std.mem.nativeToBig(u32, loopback_word));
 const port_a: u16 = 1;
 const port_b: u16 = 2;
-const peer_a = Peer.of(&loopback, port_a);
-const peer_b = Peer.of(&loopback, port_b);
+const peer_a = Peer.init(&loopback, port_a);
+const peer_b = Peer.init(&loopback, port_b);
 const full_len = 1200;
 const short_len = 100;
 const full: [full_len]u8 = @splat('f');
@@ -176,8 +176,8 @@ test "design §8 step 13f.6: a sending batch takes nothing, and is free once rel
 }
 
 test "design §8 step 13i: without segments, each datagram of one peer is a batch of its own" {
-    try testing.expectEqual(segmented, Batches.of(true).segments);
-    var batches = Batches.of(false);
+    try testing.expectEqual(segmented, Batches.init(true).segments);
+    var batches = Batches.init(false);
     batches.add(sent_of(&full, peer_a));
     batches.add(sent_of(&full, peer_a));
     try testing.expectEqual(2, open_count(&batches));

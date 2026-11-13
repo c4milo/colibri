@@ -203,7 +203,7 @@ pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connect
     const named = switch (connection.options.role) {
         // §5.2: "The server sends a client-initiated bidirectional stream ID", the first one it
         // has not taken, and refuses every later one.
-        .server => StreamId.of(.client, .bidirectional, connection.requests.next_index).value,
+        .server => StreamId.init(.client, .bidirectional, connection.requests.next_index).value,
         // §5.2: "the client sends a push ID". colibri allowed none (decision 17), so none is
         // processed.
         .client => 0,

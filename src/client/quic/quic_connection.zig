@@ -155,7 +155,7 @@ pub const QuicConnection = struct {
     pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         assert(config.authority.len > 0);
         assert(receive_pool.capacity > 0 and receive_pool.blocks.len > 0);
-        assert(coding.codings_valid(config.codings, .of(config)));
+        assert(coding.codings_valid(config.codings, .init(config)));
         connection.config = config;
         connection.start_values = start;
         connection.slots.init();

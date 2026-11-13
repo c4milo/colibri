@@ -49,7 +49,7 @@ const sends_per_debt_max = 4;
 const origin = "localhost";
 const server_port = 80;
 const server_host = [_]u8{ 192, 0, 2, 1 };
-const server_addresses = [_]client.Address{.of(&server_host, 0)};
+const server_addresses = [_]client.Address{.init(&server_host, 0)};
 
 /// The octets of the response body the program holds at a time: fewer than a message, so a
 /// message comes back in more than one piece.

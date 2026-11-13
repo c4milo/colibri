@@ -416,11 +416,11 @@ test "decision 57: a packet that carries CRYPTO carries no STREAM frame" {
 test "§2.1, §3.1: octets are supplied only on a stream this endpoint may still send on" {
     open_pair(.{});
     // A unidirectional stream the server opened carries data to the client alone.
-    const peer_unidirectional = StreamId.of(.server, .unidirectional, 0);
+    const peer_unidirectional = StreamId.init(.server, .unidirectional, 0);
     _ = try client.streams.open_peer(peer_unidirectional);
     try testing.expectError(stream_send.Error.NotWritable, stream_send.supply(&client, peer_unidirectional, 1, false));
     // One this endpoint has not opened yet.
-    const unopened = StreamId.of(.client, .bidirectional, 0);
+    const unopened = StreamId.init(.client, .bidirectional, 0);
     try testing.expectError(stream_send.Error.NotWritable, stream_send.supply(&client, unopened, 1, false));
     const id = try open_supplied(short_body_len, true);
     // Once ended, the final size is fixed (§4.5).

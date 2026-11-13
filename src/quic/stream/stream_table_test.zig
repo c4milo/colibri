@@ -19,7 +19,7 @@ const both_limits: [constants.protocol.stream_directionalities]u64 = @splat(test
 
 /// A stream the peer initiates, of `directionality` and index `index`. Test-only.
 fn peer_id(role: Initiator, directionality: Directionality, index: u64) StreamId {
-    return StreamId.of(role.peer(), directionality, index);
+    return StreamId.init(role.peer(), directionality, index);
 }
 
 test "§2.1: this endpoint's streams take the next index of their type" {
@@ -111,7 +111,7 @@ test "§3: a stream that both halves finished is closed, and reads as closed aft
     try testing.expect(test_streams.lookup(id) == .closed);
     try testing.expectEqual(0, test_streams.len());
     // An identifier the type never reached is unopened, not closed.
-    try testing.expect(test_streams.lookup(StreamId.of(.client, .unidirectional, 5)) == .unopened);
+    try testing.expect(test_streams.lookup(StreamId.init(.client, .unidirectional, 5)) == .unopened);
 }
 
 test "§4.6, §3.2: the advertised limit never exceeds what the table can hold" {

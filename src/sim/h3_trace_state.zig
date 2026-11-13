@@ -55,7 +55,7 @@ pub const Scope = struct {
     /// Whether the server's decoder allows a dynamic table (RFC 9204 §3.2.3).
     decoder_table: bool,
 
-    pub fn of(plan: *const h3_trace_plan.Plan) Scope {
+    pub fn init(plan: *const h3_trace_plan.Plan) Scope {
         const table = plan.server_decoder.max_table_capacity > 0;
         return .{
             .requests = plan.requests,

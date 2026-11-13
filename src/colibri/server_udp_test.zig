@@ -117,7 +117,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     const loopback = [_]u8{ 127, 0, 0, 1 };
     server_loop.complete(&test_server, &.{ .id = receive, .more = true, .result = .{ .datagram = .{
         .bytes = &datagram,
-        .from = server.Address.of(&loopback, 4433),
+        .from = server.Address.init(&loopback, 4433),
         .ecn = .ect_0,
     } } }, 1);
     // Decision 159: the host lends the bytes for `complete` alone, and may write over them next.

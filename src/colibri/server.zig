@@ -144,7 +144,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         /// - `.hosted` starts the engine, and does no I/O. Its host opened the sockets.
         /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
         pub fn init(self: *Self, config: *const Kinded.Config, router: anytype, context: anytype) Kinded.InitError!void {
-            self.router = .of(router, context);
+            self.router = .init(router, context);
             self.udp.close_all();
             // A run that fails before `start` holds no live socket, and `stopped()` is false
             // until a run ends.

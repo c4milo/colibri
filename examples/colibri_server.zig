@@ -82,7 +82,7 @@ var http_client: Client align(@alignOf(Client)) = undefined;
 /// The server's address, which a program gets from its resolver: 127.0.0.1, with port 0 as a
 /// destination names its addresses. colibri looks up no name (decision 100).
 const loopback = [_]u8{ 127, 0, 0, 1 };
-const server_addresses = [_]client.Address{.of(&loopback, 0)};
+const server_addresses = [_]client.Address{.init(&loopback, 0)};
 
 /// The origin the client names, and the root it trusts for it.
 const origin = "localhost";

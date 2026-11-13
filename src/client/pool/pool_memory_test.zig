@@ -33,7 +33,7 @@ const http_port: u16 = 80;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 
 test "decision 125: memory_bytes counts each TCP connection and each exchange, at comptime too" {
     // The function is pure, so a program sizes a static array with it.

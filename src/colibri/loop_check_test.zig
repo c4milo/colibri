@@ -209,7 +209,7 @@ const connect_ns: u64 = 100_000_000;
 /// 127.0.0.1 with port 0, as a destination names its addresses (RFC 791 §3.2), and the port of
 /// "https" (RFC 9110 §4.2.2).
 const loopback_word: u32 = 0x7f00_0001;
-const loopback_addresses = [_]client.Address{.of(&@as([@sizeOf(u32)]u8, @bitCast(std.mem.nativeToBig(u32, loopback_word))), 0)};
+const loopback_addresses = [_]client.Address{.init(&@as([@sizeOf(u32)]u8, @bitCast(std.mem.nativeToBig(u32, loopback_word))), 0)};
 const https_port: u16 = 443;
 
 /// A destination of 127.0.0.1 on `port`.

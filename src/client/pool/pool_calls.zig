@@ -42,7 +42,7 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     const counts: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
     // Decision 125 ruling 2: memory of another length than the counts need is a programmer
     // error.
-    const layout = pool_module.Layout.of(counts);
+    const layout = pool_module.Layout.init(counts);
     assert(memory.len == layout.len);
     // Decision 124: a pool with no QUIC takes no receive pool.
     assert(pool.capacity.quic or receive_pool == null);

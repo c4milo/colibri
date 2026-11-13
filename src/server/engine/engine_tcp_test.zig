@@ -158,7 +158,7 @@ test "decision 119: TCP slots owe no datagram, and an engine that serves no QUIC
     try testing.expectEqual(null, engine.send_datagram(&output, support.now_ns));
     // With no identity the QUIC slot serves nothing: a datagram is consumed, and starts nothing.
     var datagram: [@import("quic").constants.protocol.datagram_len_min]u8 = @splat(0xc0);
-    const from = @import("quic").PeerAddress.of(&.{ 127, 0, 0, 1 }, 50_000);
+    const from = @import("quic").PeerAddress.init(&.{ 127, 0, 0, 1 }, 50_000);
     const received = engine.receive(.{ .datagram = .{ .bytes = &datagram, .from = from } }, support.now_ns);
     try testing.expectEqual(datagram.len, received.consumed);
     try testing.expectEqual(null, engine.send_datagram(&output, support.now_ns));
@@ -303,7 +303,7 @@ fn answers_with_retry(id: *const [server_constants.policy.quic_id_len]u8) !bool 
     });
     const len = writer.written().len + quic.constants.protocol.datagram_len_min;
     @memset(initial[writer.written().len..len], 0);
-    const from = quic.PeerAddress.of(&loopback, client_port);
+    const from = quic.PeerAddress.init(&loopback, client_port);
     _ = engine.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns);
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const sent = engine.state.connections.replies.take(&output) orelse return false;

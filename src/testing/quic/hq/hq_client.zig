@@ -85,7 +85,7 @@ pub const Client = struct {
 
     /// Writes what has arrived of one answer to its file, and closes it at the stream's end.
     fn read_answer(client: *Client, connection: *Connection, index: usize) Error!void {
-        const id = StreamId.of(.client, .bidirectional, index);
+        const id = StreamId.init(.client, .bidirectional, index);
         for (0..reads_per_step_max) |_| {
             const read = try quic.Connection.read(connection, id, &client.buffer);
             if (!hq_file.write_all(client.files[index], client.buffer[0..read.len])) return error.DownloadRefused;

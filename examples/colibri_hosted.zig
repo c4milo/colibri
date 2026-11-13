@@ -77,7 +77,7 @@ fn fill(state: *std.Random.DefaultPrng, buffer: []u8) void {
 const origin = "localhost";
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
 const loopback = [_]u8{ 127, 0, 0, 1 };
-const server_addresses = [_]client.Address{.of(&loopback, 0)};
+const server_addresses = [_]client.Address{.init(&loopback, 0)};
 /// The port of an "https" origin (RFC 9110 §4.2.2).
 const https_port: u16 = 443;
 

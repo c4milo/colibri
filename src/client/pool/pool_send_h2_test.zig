@@ -37,7 +37,7 @@ const https_port: u16 = 443;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 
 /// Reports every event the pool owes, starts the connection an `open` asks for, and keeps the
 /// events. The peer sends nothing, so each call passes no octets.

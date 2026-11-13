@@ -228,7 +228,7 @@ pub var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 /// Sends a request of `lines` from the client with `content`, and ends the stream. Returns its ID.
 pub fn request(lines: []const Line, content: []const u8) !u64 {
     const section = try section_of(&test_section, lines);
-    const next_id = StreamId.of(.client, .bidirectional, client.transport.streams.next_index[0]).value;
+    const next_id = StreamId.init(.client, .bidirectional, client.transport.streams.next_index[0]).value;
     var writer = client.writer_for(next_id);
     const id = try client.h3.write_request(&client.transport, &.{ .section = section }, &writer, test_now_ns);
     try testing.expectEqual(next_id, id);

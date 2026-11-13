@@ -19,7 +19,7 @@ pub const Curve = struct {
     /// The curve of a stage that starts at `window`. A W_max at or below the window, which §4.8
     /// and §4.10 make the case after a timeout or a slow start that ended without a loss, gives
     /// K = 0 and W_max = the window.
-    pub fn of(w_max: u64, window: u64, datagram_len: u64) Curve {
+    pub fn init(w_max: u64, window: u64, datagram_len: u64) Curve {
         assert(datagram_len > 0);
         if (w_max <= window) return .{ .w_max = window, .k_us = 0, .datagram_len = datagram_len };
         // Figure 2: K = cbrt((W_max − cwnd_epoch) / C), in seconds and segments. In microseconds
@@ -106,7 +106,7 @@ test "decision 133: an integer cube root is exact on cubes and rounds down betwe
 test "RFC 9438 §4.2: the curve starts at the window, reaches W_max at K, and rises past it" {
     // Ten segments short of W_max: K = cbrt(10 / 0.4) = cbrt(25) seconds, about 2.924 seconds.
     const w_max = 30 * datagram;
-    const curve = Curve.of(w_max, 20 * datagram, datagram);
+    const curve = Curve.init(w_max, 20 * datagram, datagram);
     try testing.expectEqual(2_924_017, curve.k_us);
     // At t = 0 the curve is back at the window. K rounds down, so it lands an octet above it.
     try testing.expectEqual(20 * datagram + 1, curve.window_at(0));
@@ -116,18 +116,18 @@ test "RFC 9438 §4.2: the curve starts at the window, reaches W_max at K, and ri
 }
 
 test "RFC 9438 §4.8, §4.10: a W_max at or below the window gives K = 0 and W_max = the window" {
-    const curve = Curve.of(10 * datagram, 20 * datagram, datagram);
+    const curve = Curve.init(10 * datagram, 20 * datagram, datagram);
     try testing.expectEqual(0, curve.k_us);
     try testing.expectEqual(20 * datagram, curve.w_max);
 }
 
 test "RFC 9438 §4.2: the target holds between the window and 1.5 times it" {
     const window = 20 * datagram;
-    const curve = Curve.of(30 * datagram, window, datagram);
+    const curve = Curve.init(30 * datagram, window, datagram);
     // At the stage's start the target is the window, an octet above it for K's rounding.
     try testing.expectEqual(window + 1, curve.target(0, 0, window));
     // A W_max below the window starts the curve at it, and the target cannot fall below it.
-    try testing.expectEqual(window, Curve.of(0, window, datagram).target(0, 0, window));
+    try testing.expectEqual(window, Curve.init(0, window, datagram).target(0, 0, window));
     // Far past K the curve outruns slow start, and the target stops at 1.5 times the window.
     try testing.expectEqual(window / 2 * 3, curve.target(cubic.elapsed_us_max, 0, window));
 }
@@ -163,7 +163,7 @@ test "decision 77: the arithmetic gives what spec/lean/Colibri/Quic/Cubic.lean p
             try testing.expectEqual(try field(u64, &fields), cube_root(value));
             counts[0] += 1;
         } else if (std.mem.eql(u8, kind, "curve")) {
-            const curve = Curve.of(try field(u64, &fields), try field(u64, &fields), try field(u64, &fields));
+            const curve = Curve.init(try field(u64, &fields), try field(u64, &fields), try field(u64, &fields));
             try testing.expectEqual(try field(u64, &fields), curve.w_max);
             try testing.expectEqual(try field(u64, &fields), curve.k_us);
             counts[1] += 1;

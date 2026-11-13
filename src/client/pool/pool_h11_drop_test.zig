@@ -24,7 +24,7 @@ const http_port: u16 = 80;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 /// A drop limit no default has, so a test sees that `Config.timeouts` reaches the connection.
 const drop_ns: u64 = 7;
 

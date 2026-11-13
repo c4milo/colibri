@@ -152,7 +152,7 @@ const Run = struct {
         const client = run.endpoint(.client);
         const server = run.endpoint(.server);
         storage.tracker.observe(client, server);
-        const state = h3_trace_state.compute(&storage.tracker, .of(&storage.plan), client, server);
+        const state = h3_trace_state.compute(&storage.tracker, .init(&storage.plan), client, server);
         if (storage.states_len > 0 and std.meta.eql(storage.states[storage.states_len - 1], state)) return;
         if (storage.states_len == storage.states.len) return error.TraceFull;
         storage.states[storage.states_len] = state;

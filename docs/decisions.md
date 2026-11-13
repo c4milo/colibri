@@ -7135,6 +7135,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `quic.Close` as the path of the CONNECTION_CLOSE frame. The name does not say which close
        it is, and RFC 9000 §19.19 names the frame CONNECTION_CLOSE.
 
+     **Amended on 2026-11-13, at the owner's ruling (design §8 step 51).** The constructor
+     `of` no longer stays. std names the function that makes a value `init`, and a Zig
+     programmer looks for that name. So in v0.17.0 each function that colibri named `of` and
+     that returns its own type is named `init`, public and private, to keep one convention. A
+     type that holds nothing to release has no `deinit`, as std's `FixedBufferAllocator` has
+     none. A function named `of` that returns something else keeps its name: `reason.of`, a
+     phrase; two lookups; and the casts from `*anyopaque`. The owner chose this over two others:
+     - `of` kept, as the finding above ruled. A Zig programmer finds the name strange.
+     - `init` for `server.RequestContext` alone. colibri's constructors then use two names.
+
 159. **`colibri.Client` and `colibri.Server` take a host interface in colibri's own terms, and
      Rotor is one host.** Ruled by the owner on 2026-11-08 (design §8 step 44), for v0.16.0.
      The owner accepted this text on the same day, with the answers at its end. This decision

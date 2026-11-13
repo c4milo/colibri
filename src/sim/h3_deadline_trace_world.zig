@@ -330,7 +330,7 @@ pub const World = struct {
 
     fn deliver_to_server(world: *World) Error!void {
         const octets = world.to_server.pop(&world.datagram);
-        try world.server_step(.{ .datagram = .{ .bytes = octets, .from = .of(&client_octets, client_port) } });
+        try world.server_step(.{ .datagram = .{ .bytes = octets, .from = .init(&client_octets, client_port) } });
         if (world.served == null and world.endpoint.live[0]) world.served = &world.endpoint.quic[0];
     }
 

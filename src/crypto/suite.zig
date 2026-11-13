@@ -122,7 +122,7 @@ pub const RetryConnectionIds = struct {
     retry_source: [constants.protocol.connection_id_len_max]u8 = undefined,
     retry_source_len: u8 = 0,
 
-    pub fn of(original_destination: []const u8, retry_source: []const u8) RetryConnectionIds {
+    pub fn init(original_destination: []const u8, retry_source: []const u8) RetryConnectionIds {
         assert(original_destination.len <= constants.protocol.connection_id_len_max);
         assert(retry_source.len <= constants.protocol.connection_id_len_max);
         var ids: RetryConnectionIds = .{
@@ -378,10 +378,15 @@ test "the three levels are the ones RFC 9001 §4.1.4 names, less 0-RTT" {
 }
 
 test "decision 55: a Retry token's connection IDs keep their octets and their lengths" {
-    const ids = RetryConnectionIds.of("original", "retry");
+    const ids = RetryConnectionIds.init("original", "retry");
     try testing.expectEqualStrings("original", ids.original_destination_slice());
     try testing.expectEqualStrings("retry", ids.retry_source_slice());
-    const empty = RetryConnectionIds.of("", "");
+    const empty = RetryConnectionIds.init("", "");
     try testing.expectEqual(0, empty.original_destination_slice().len);
     try testing.expectEqual(0, empty.retry_source_slice().len);
+}
+
+test "decision 115: the calls a program makes on a RetryConnectionIds" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try core.public_names.expect(RetryConnectionIds, &.{ "init", "original_destination_slice", "retry_source_slice" });
 }

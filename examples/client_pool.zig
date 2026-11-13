@@ -59,8 +59,8 @@ const server_port = 80;
 /// `open` goes.
 const first_host = [_]u8{ 192, 0, 2, 1 };
 const second_host = [_]u8{ 192, 0, 2, 2 };
-const first_addresses = [_]client.Address{.of(&first_host, 0)};
-const second_addresses = [_]client.Address{.of(&second_host, 0)};
+const first_addresses = [_]client.Address{.init(&first_host, 0)};
+const second_addresses = [_]client.Address{.init(&second_host, 0)};
 
 /// Exchanges of the first round, and of the second.
 const first_round = 2;

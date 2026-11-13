@@ -300,30 +300,30 @@ test "RFC 9000 §6.1: colibri lists the two versions it speaks" {
 test "RFC 9368 §4: a server holds the client's Chosen Version to the version in use" {
     // A server phasing version 1 out lists version 2 alone (§3), so its list decides nothing: what
     // decides is the version the client's first flight carried.
-    const local: transport_parameters.VersionInformation = .of(constants.protocol.version_1, &.{version_2});
-    try version.check_information(.server, &local, .of(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1);
+    const local: transport_parameters.VersionInformation = .init(constants.protocol.version_1, &.{version_2});
+    try version.check_information(.server, &local, .init(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1);
     try testing.expectError(
         error.VersionNegotiation,
-        version.check_information(.server, &local, .of(version_2, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1),
+        version.check_information(.server, &local, .init(version_2, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1),
     );
     // "Servers MAY complete the handshake even if the Version Information is missing."
     try version.check_information(.server, &local, null, constants.protocol.version_1);
 }
 
 test "RFC 9368 §4: a client holds the server's Chosen Version to the Negotiated Version and its list" {
-    const local: transport_parameters.VersionInformation = .of(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
-    try version.check_information(.client, &local, .of(constants.protocol.version_1, &.{}), constants.protocol.version_1);
+    const local: transport_parameters.VersionInformation = .init(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
+    try version.check_information(.client, &local, .init(constants.protocol.version_1, &.{}), constants.protocol.version_1);
     // A server that switched the client to version 2, which the client listed, chose it.
-    try version.check_information(.client, &local, .of(version_2, &.{}), version_2);
+    try version.check_information(.client, &local, .init(version_2, &.{}), version_2);
     // A Chosen Version the client listed that is not the version its packets carried fails.
     try testing.expectError(
         error.VersionNegotiation,
-        version.check_information(.client, &local, .of(version_2, &.{constants.protocol.version_1}), constants.protocol.version_1),
+        version.check_information(.client, &local, .init(version_2, &.{constants.protocol.version_1}), constants.protocol.version_1),
     );
     // And so does one the client never listed, even when its packets carried it.
     try testing.expectError(
         error.VersionNegotiation,
-        version.check_information(.client, &local, .of(reserved_version, &.{}), reserved_version),
+        version.check_information(.client, &local, .init(reserved_version, &.{}), reserved_version),
     );
     // A client that did not react to a Version Negotiation packet may complete the handshake
     // without it.
@@ -364,8 +364,8 @@ fn own_parameters() ![]u8 {
 /// `listed` is null. Test-only.
 fn client_parameters(chosen: u32, listed: ?[]const u32) ![]const u8 {
     var client = transport_parameters.Parameters.initial();
-    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&client_source);
-    if (listed) |versions| client.version_information = .of(chosen, versions);
+    client.initial_source_connection_id = transport_parameters.ConnectionId.init(&client_source);
+    if (listed) |versions| client.version_information = .init(chosen, versions);
     var writer = core.Writer.init(&client_octets);
     try transport_parameters.write(&writer, &client, .client);
     return writer.written();

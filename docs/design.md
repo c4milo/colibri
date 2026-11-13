@@ -15826,6 +15826,28 @@ library.
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
     commit of 50h before the tag, and reports what the API leaves out.
 
+- **Step 51 — the constructors take std's name `init`, ruled 2026-11-13.**
+  [Decision 158](decisions.md) as amended on 2026-11-13.
+  - **Why.** colibri named a value's constructor `of`, and std names it `init`. The owner asked
+    whether `of` is how Zig names it, and ruled that v0.17.0, which breaks names already,
+    renames each one.
+  - **The rename.** Each function named `of` that returns its own type is `init`, public and
+    private. The names a program reaches change from `of` to `init`:
+    - `quic.PeerAddress.init`, which a program names as `client.Address.init` and
+      `server.Address.init`.
+    - `quic.StreamId.init`.
+    - `quic.transport_parameters.ConnectionId.init` and `VersionInformation.init`.
+    - `crypto.suite.RetryConnectionIds.init`.
+    - `server.Headers.init`.
+  - **What stays.** A function named `of` that returns another thing: `reason.of`, the lookups
+    `Requests.of` and `Tuples.of`, and the casts from `*anyopaque`. No type gains a `deinit`.
+  - **Checks.** No names test listed `of`, so an `of` added back beside `init` passed. Six types
+    gained a names test: `quic.PeerAddress`, `quic.StreamId`, `ConnectionId` and
+    `VersionInformation` of `quic.transport_parameters`, `crypto.suite.RetryConnectionIds` and
+    `server.Headers`. The compiler finds each call that a dependent did not rename, and
+    `tools/consumer_check.sh` builds both dependents.
+  - **Mutations, 6 of 6 CAUGHT:** `pub const of = init;` beside each of the six constructors.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

@@ -207,7 +207,7 @@ fn peer_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
         const len = try peer.send(&storage.datagram, now_ns) orelse break;
         moved = true;
         if (peer.muted) continue;
-        const from = server.Address.of(&peer_octets, peer_port);
+        const from = server.Address.init(&peer_octets, peer_port);
         storage.record.wire.update(storage.datagram[0..len]);
         const received = storage.endpoint.receive(.{ .datagram = .{ .bytes = storage.datagram[0..len], .from = from } }, now_ns);
         if (received.event) |reported| note(storage, reported, now_ms);

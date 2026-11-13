@@ -271,7 +271,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// a count left out. The function is pure, so a program calls it at comptime to size a
         /// static array, or at run time.
         pub fn memory_bytes(counts: Counts) usize {
-            return Layout.of(counts).len;
+            return Layout.init(counts).len;
         }
 
         /// The most `receive` calls in a row that report an event and take no byte, for a pool

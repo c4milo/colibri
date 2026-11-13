@@ -161,7 +161,7 @@ fn start_connection(connection: *Connection, index: usize, run: *const Run) void
     connection.sockets = sockets[index * slots ..][0..slots];
     for (connection.sockets, index * slots..) |*socket, socket_index| socket.init(@as(u64, socket_index) << kind_bits);
     const plans = run.plans[0..run.plans_count];
-    const address = client.Address.of(&run.address, 0);
+    const address = client.Address.init(&run.address, 0);
     connection.session.init(memory_of(index, &pool_config), &pool_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
         connection.failure = .refused_start;
         return;
@@ -382,7 +382,7 @@ fn test_connection() !*Connection {
     slots_per_pool = 1;
     connection.sockets = sockets[0..1];
     connection.sockets[0].init(0);
-    const address = client.Address.of(&test_octets, 0);
+    const address = client.Address.init(&test_octets, 0);
     try connection.session.init(memory_of(0, &pool_config), &pool_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
     var none: [0]u8 = .{};
     _ = connection.session.step(null, &none, &none);

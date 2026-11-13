@@ -18,7 +18,7 @@ pub const Versions = struct {
     negotiated: Version = .v1,
     switched: bool = false,
 
-    pub fn of(original: Version) Versions {
+    pub fn init(original: Version) Versions {
         return .{ .original = original, .negotiated = original };
     }
 
@@ -45,7 +45,7 @@ const testing = std.testing;
 
 test "RFC 9369 §4.1: a connection that has not switched admits its original version alone" {
     for ([_]Version{ .v1, .v2 }) |original| {
-        const versions: Versions = .of(original);
+        const versions: Versions = .init(original);
         const other: Version = if (original == .v1) .v2 else .v1;
         for ([_]Level{ .initial, .handshake, .application }) |level| {
             try testing.expect(versions.admits(level, original));
@@ -55,7 +55,7 @@ test "RFC 9369 §4.1: a connection that has not switched admits its original ver
 }
 
 test "RFC 9369 §4.1: a client switches once, and then the Initial level admits both versions" {
-    var versions: Versions = .of(.v1);
+    var versions: Versions = .init(.v1);
     try versions.switch_to(.client, false, .v2);
     try testing.expectEqual(Version.v2, versions.negotiated);
     try testing.expect(versions.admits(.initial, .v1) and versions.admits(.initial, .v2));
@@ -68,11 +68,11 @@ test "RFC 9369 §4.1: a client switches once, and then the Initial level admits 
 }
 
 test "RFC 9369 §4.1: a server, a client past the server's CRYPTO octets, and the same version are refused" {
-    var server: Versions = .of(.v1);
+    var server: Versions = .init(.v1);
     try testing.expectError(error.Refused, server.switch_to(.server, false, .v2));
-    var late: Versions = .of(.v1);
+    var late: Versions = .init(.v1);
     try testing.expectError(error.Refused, late.switch_to(.client, true, .v2));
-    var same: Versions = .of(.v2);
+    var same: Versions = .init(.v2);
     try testing.expectError(error.Refused, same.switch_to(.client, false, .v2));
     for ([_]Versions{ server, late, same }) |refused| {
         try testing.expect(!refused.switched);

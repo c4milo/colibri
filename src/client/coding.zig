@@ -37,7 +37,7 @@ pub const Pools = struct {
     br: ?coding_pool.BrotliDecoders = null,
 
     /// The pools of a client configuration, TCP's or QUIC's.
-    pub fn of(config: anytype) Pools {
+    pub fn init(config: anytype) Pools {
         return .{ .deflate = config.decoders, .zstd = config.zstd_decoders, .br = config.br_decoders };
     }
 

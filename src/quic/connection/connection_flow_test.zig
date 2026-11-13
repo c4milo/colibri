@@ -255,7 +255,7 @@ test "RFC 9000 §13.3: a lost limit frame is sent again at the current value, fo
 
 test "RFC 9000 §4.6, §19.11: a stream the peer opened gives its count back when it closes" {
     open_pair();
-    const id = StreamId.of(.client, .bidirectional, 0);
+    const id = StreamId.init(.client, .bidirectional, 0);
     const stream = try server.streams.open_peer(id);
     // Both halves end, and the stream closes.
     _ = stream.receiving.on(.received_reset);
@@ -338,7 +338,7 @@ test "RFC 9000 §2.1: only a stream this endpoint receives on can be consumed" {
     // A unidirectional stream the client opened carries data to the server alone.
     const outgoing = try stream_send.open(&client, .unidirectional);
     try testing.expectError(error.NotReadable, flow_frames.consume(&client, outgoing, 1));
-    const unopened = StreamId.of(.server, .bidirectional, 0);
+    const unopened = StreamId.init(.server, .bidirectional, 0);
     try testing.expectError(error.NotReadable, flow_frames.consume(&client, unopened, 1));
 }
 

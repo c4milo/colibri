@@ -94,7 +94,7 @@ test "quic-events §4.7: each new address takes the next number, and the first i
     var log: Log = undefined;
     try test_log(&log, &buffer);
     var tuples: Tuples = .{};
-    const first = PeerAddress.of(&host, test_port);
+    const first = PeerAddress.init(&host, test_port);
     try testing.expectEqual(0, tuples.of(&log, &first, 0));
     try testing.expectEqualStrings("\x1e{\"time\":0.000,\"name\":\"quic:tuple_assigned\",\"data\":{\"tuple_id\":\"\"," ++
         "\"tuple_remote\":{\"ip_v4\":\"7f000001\",\"port_v4\":443}}}\n", log.bytes());
@@ -103,7 +103,7 @@ test "quic-events §4.7: each new address takes the next number, and the first i
     try testing.expectEqual(0, tuples.of(&log, &first, 0));
     try testing.expectEqual(0, log.bytes().len);
     // RFC 9000 §9.3's NAT rebinding: the same host on another port is another tuple.
-    const rebound = PeerAddress.of(&host, test_port + 1);
+    const rebound = PeerAddress.init(&host, test_port + 1);
     try testing.expectEqual(1, tuples.of(&log, &rebound, 0));
     try testing.expect(std.mem.indexOf(u8, log.bytes(), "{\"tuple_id\":\"1\",\"tuple_remote\":{\"ip_v4\":\"7f000001\",\"port_v4\":444}}") != null);
 }
@@ -122,7 +122,7 @@ test "an address of neither length names its tuple and no half of it" {
     var log: Log = undefined;
     try test_log(&log, &buffer);
     var tuples: Tuples = .{};
-    _ = tuples.of(&log, &PeerAddress.of(&.{host_octet}, test_port), 0);
+    _ = tuples.of(&log, &PeerAddress.init(&.{host_octet}, test_port), 0);
     try testing.expect(std.mem.endsWith(u8, log.bytes(), "{\"tuple_id\":\"\"}}\n"));
 }
 
@@ -133,11 +133,11 @@ test "with every entry taken, the oldest address lets go of its number" {
     var tuples: Tuples = .{};
     // Bounded by the table, and one more.
     for (0..constants.limits.qlog_tuples_max + 1) |port_step| {
-        const address = PeerAddress.of(&host, test_port + @as(u16, @intCast(port_step)));
+        const address = PeerAddress.init(&host, test_port + @as(u16, @intCast(port_step)));
         try testing.expectEqual(port_step, tuples.of(&log, &address, 0));
     }
     // The first address was let go, so it comes back as a new tuple; the last is still held.
-    try testing.expectEqual(constants.limits.qlog_tuples_max + 1, tuples.of(&log, &PeerAddress.of(&host, test_port), 0));
+    try testing.expectEqual(constants.limits.qlog_tuples_max + 1, tuples.of(&log, &PeerAddress.init(&host, test_port), 0));
     const last_port = test_port + @as(u16, @intCast(constants.limits.qlog_tuples_max));
-    try testing.expectEqual(constants.limits.qlog_tuples_max, tuples.of(&log, &PeerAddress.of(&host, last_port), 0));
+    try testing.expectEqual(constants.limits.qlog_tuples_max, tuples.of(&log, &PeerAddress.init(&host, last_port), 0));
 }

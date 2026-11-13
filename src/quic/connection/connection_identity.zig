@@ -56,11 +56,11 @@ pub const Identity = struct {
     pub fn init(identity: *Identity, options: Options) void {
         // RFC 9000 §17.2: in version 1 a connection ID is at most 20 octets, which `ConnectionId`
         // asserts, and a long header carries its length so a zero-length one is admitted.
-        identity.local_initial_source = ConnectionId.of(options.local_initial_source);
-        identity.original_destination = ConnectionId.of(options.original_destination);
-        identity.retry_source = if (options.retry_source) |retry| ConnectionId.of(retry) else null;
+        identity.local_initial_source = ConnectionId.init(options.local_initial_source);
+        identity.original_destination = ConnectionId.init(options.original_destination);
+        identity.retry_source = if (options.retry_source) |retry| ConnectionId.init(retry) else null;
         identity.peer_initial_source = if (options.peer_initial_source) |peer|
-            ConnectionId.of(peer)
+            ConnectionId.init(peer)
         else
             null;
     }
@@ -86,7 +86,7 @@ pub const Identity = struct {
     pub fn on_peer_initial(identity: *Identity, scid: []const u8) void {
         // §7.3 authenticates the first one, so a later Initial carrying another is not taken.
         if (identity.peer_initial_source != null) return;
-        identity.peer_initial_source = ConnectionId.of(scid);
+        identity.peer_initial_source = ConnectionId.init(scid);
     }
 
     /// Takes a Retry's Source Connection ID (RFC 9000 §17.2.5.2, Figure 8's S2). From here on a
@@ -100,7 +100,7 @@ pub const Identity = struct {
         // RFC 9000 §17.2.5.2: a client discards a second Retry, and a server sends one at most,
         // so this is written once. The caller refuses the repeat; this is colibri's half.
         assert(identity.retry_source == null);
-        identity.retry_source = ConnectionId.of(scid);
+        identity.retry_source = ConnectionId.init(scid);
     }
 
     /// How long the connection IDs this endpoint issues are (RFC 9000 §5.1). A short header

@@ -105,7 +105,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.Connection.Request) ?even
             .authority = request.authority,
             .path = event.split_target(request.path).path,
             .query = event.split_target(request.path).query,
-            .headers = event.Headers.of(connection.h3.field_section()),
+            .headers = event.Headers.init(connection.h3.field_section()),
             // RFC 9114 §4.1: h3 reports the end of a request with content, or with a trailer
             // section, apart from its head, as a `body` event.
             .end = arrived.end,
@@ -132,7 +132,7 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.ConnectionEve
     const record = reading(connection, stream_id) orelse return null;
     // RFC 9110 §6.5: a trailer section ends the request.
     record.ended = true;
-    return .{ .trailers = .{ .id = event.id_of(stream_id), .headers = event.Headers.of(connection.h3.field_section()) } };
+    return .{ .trailers = .{ .id = event.id_of(stream_id), .headers = event.Headers.init(connection.h3.field_section()) } };
 }
 
 fn on_end(connection: *QuicConnection, stream_id: u64) ?event.ConnectionEvent {

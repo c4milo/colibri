@@ -54,7 +54,7 @@ const Written = struct {
     /// The octets at the start that are its preface (RFC 9113 §3.4), or 0 while it wrote none.
     preface_len: usize,
 
-    fn of(direction: *const Direction, output: []const u8, magic_len: usize) Written {
+    fn init(direction: *const Direction, output: []const u8, magic_len: usize) Written {
         // A send takes the whole output, so what a side wrote first is in one of the two.
         const handed = direction.handed_plaintext();
         const start = if (handed.len > 0) handed else output;
@@ -84,8 +84,8 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     const held = world.server_connection();
     const server_h2 = direction_module.h2_of(&held.session);
     note_streams(client_h2, server_h2, n, &state);
-    const from_client = Written.of(&world.to_server, world.client_pending(), h2.constants.protocol.client_preface_len);
-    const from_server = Written.of(&world.to_client, pending(held), 0);
+    const from_client = Written.init(&world.to_server, world.client_pending(), h2.constants.protocol.client_preface_len);
+    const from_server = Written.init(&world.to_client, pending(held), 0);
     try note_client_writes(from_client, &state);
     try note_server_writes(from_server, world.to_client.heads[0..world.to_client.heads_written], &state);
     @memcpy(state.request_read[0..n], world.request_read[0..n]);

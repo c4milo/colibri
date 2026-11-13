@@ -105,7 +105,7 @@ pub const Offered = struct { tcp: bool, quic: bool };
 /// transport it offers needs with `build_quic` and `build_tcp`, in that order.
 pub fn offer(config: *const Config, quic_held: bool, pool_given: bool) StartError!Offered {
     assert(config.authority.len > 0);
-    assert(coding.codings_valid(config.codings, .of(config)));
+    assert(coding.codings_valid(config.codings, .init(config)));
     // Decision 117: `versions` names the protocols, so the TLS value names none.
     if (config.tls) |values| assert(values.alpn.len == 0);
     // RFC 9114 §3.1: h3 runs over QUIC alone, so a pool that holds no QUIC connection cannot

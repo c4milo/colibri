@@ -56,7 +56,7 @@ pub const Result = files.event.Result;
 pub const Finished = files.event.Finished;
 /// A datagram `ConnectionPool.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.pool.Sent;
-/// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
+/// An address and port as the program names a peer (decision 72): `Address.init(octets, port)`.
 pub const Address = files.pool.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).

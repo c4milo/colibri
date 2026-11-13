@@ -82,7 +82,7 @@ test "RFC 9369 §4.1: once the version is settled, a packet in another version i
     // A server runs the version of the client's first flight: one that lists version 2 as well
     // (RFC 9368 §3) still drops a version 2 packet on a connection that started in version 1.
     fixture.open_server();
-    fixture.test_connection.local_parameters.version_information = .of(0x0000_0001, &.{ 0x0000_0001, 0x6b33_43cf });
+    fixture.test_connection.local_parameters.version_information = .init(0x0000_0001, &.{ 0x0000_0001, 0x6b33_43cf });
     writer = Writer.init(&fixture.datagram);
     try write_versioned(&writer, .v2, .initial, 0);
     fixture.start(writer.written().len);
@@ -100,7 +100,7 @@ test "RFC 9369 §4.1: a switch the suite refuses, or to a version the client did
     try testing.expectEqual(Version.v1, fixture.test_connection.versions.negotiated);
     // RFC 9368 §4: a client that listed version 1 alone never takes the server to another.
     fixture.open_connection();
-    fixture.test_connection.local_parameters.version_information = .of(0x0000_0001, &.{0x0000_0001});
+    fixture.test_connection.local_parameters.version_information = .init(0x0000_0001, &.{0x0000_0001});
     fixture.start(writer.written().len);
     try expect_dropped(try next());
     try testing.expectEqual(null, fixture.opener.switched);

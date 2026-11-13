@@ -76,7 +76,7 @@ pub const Server = struct {
     fn take_opened(server: *Server, connection: *Connection) void {
         // Bounded by the slots: the client cannot have more open than the server allows.
         for (0..server.requests.len) |_| {
-            const id = StreamId.of(.client, .bidirectional, server.next_index);
+            const id = StreamId.init(.client, .bidirectional, server.next_index);
             switch (connection.streams.lookup(id)) {
                 .unopened => return,
                 // Opened and already over, reset by the client before a step saw it.

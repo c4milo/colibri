@@ -85,7 +85,7 @@ pub const Headers = struct {
     first: u32,
 
     /// The section's regular field lines, skipping the pseudo-header fields at its front.
-    pub fn of(section: *const http.FieldSection) Headers {
+    pub fn init(section: *const http.FieldSection) Headers {
         const lines = section.slice();
         var first: u32 = 0;
         // RFC 9113 §8.3: every pseudo-header field comes before the regular field lines.
@@ -311,4 +311,9 @@ test "decision 119: a connection's ids name no connection, which the engine that
     // Ids compare whole: the same number on another connection is another request.
     const other: RequestId = .{ .connection = .{ .slot = 0, .generation = 1 }, .number = 7 };
     try std.testing.expect(id != other);
+}
+
+test "decision 115: the calls a program makes on a Headers" {
+    // Design §8 step 51 names the constructor `init`, so an `of` beside it fails here.
+    try @import("core").public_names.expect(Headers, &.{ "init", "find", "iterator", "len" });
 }

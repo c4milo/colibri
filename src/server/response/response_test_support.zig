@@ -98,7 +98,7 @@ pub const Fixture = struct {
     response: Response = undefined,
 
     pub fn start(fixture: *Fixture) *Response {
-        internal.init(&fixture.response, internal.Sink.of(Recorder, &fixture.recorder), @bitCast(@as(u128, 0)), &fixture.memory);
+        internal.init(&fixture.response, internal.Sink.init(Recorder, &fixture.recorder), @bitCast(@as(u128, 0)), &fixture.memory);
         return &fixture.response;
     }
 };
