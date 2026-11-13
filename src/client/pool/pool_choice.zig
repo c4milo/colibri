@@ -34,6 +34,9 @@ pub const View = struct {
     /// The QUIC slot's phase, and whether this attempt opened it.
     quic: Phase,
     quic_tried: bool,
+    /// The QUIC connection carries an exchange that has not ended. One that drains and carries
+    /// none only waits out its closing period (RFC 9000 §10.2).
+    quic_carries: bool,
     /// QUIC may carry the pool's exchanges: h3 is offered, and known or tried first.
     quic_allowed: bool,
     /// TCP may carry them: the client speaks h11 or h2 (RFC 9114 §3.1, decision 117).
@@ -113,7 +116,7 @@ fn after_tcp(view: *const View) bool {
 /// A TCP slot opens once an attempt, and only when TCP is allowed. Under `.tcp` it opens first,
 /// and not while QUIC's handshake runs. Under `.quic` it opens when QUIC is not allowed, when the
 /// fallback delay passed during QUIC's handshake, when this attempt's QUIC failed, or when a QUIC
-/// connection still ends. Under each, it opens when TCP carries the exchanges and they need
+/// connection still ends with exchanges in it. Under each, it opens when TCP carries the exchanges and they need
 /// another connection: an h11 one with no room (decision 125). RFC 9114 §3.1: a client that cannot establish QUIC "SHOULD
 /// attempt to use TCP-based versions", and a client that speaks h3 alone has none (the model's
 /// TcpWhenAllowed). Until TCP carries the exchanges, one TCP handshake runs at a time, so the pool
@@ -134,11 +137,18 @@ fn can_open_tcp(view: *const View) ?u32 {
 }
 
 /// Whether QUIC leaves TCP to carry the exchanges: QUIC is not allowed, the fallback delay passed
-/// during its handshake, this attempt's QUIC failed, or a QUIC connection still ends.
+/// during its handshake, this attempt's QUIC failed, or a QUIC connection still ends with
+/// exchanges in it.
 fn after_quic(view: *const View) bool {
     if (!view.quic_allowed) return true;
     if (view.quic == .handshake) return view.fallback;
-    return view.quic_tried or !view.quic.idle();
+    if (view.quic_tried) return true;
+    // Decision 117 as amended on 2026-11-13: a QUIC connection that drains and holds no exchange
+    // only waits out its closing period (RFC 9000 §10.2), about three PTOs. It did not fail, so
+    // the exchange waits for its slot, and QUIC opens again. One that drains after a GOAWAY with
+    // exchanges in it may last as long as they do, so TCP opens.
+    if (view.quic == .draining and !view.quic_carries) return false;
+    return !view.quic.idle();
 }
 
 const testing = std.testing;
@@ -149,6 +159,7 @@ fn fresh() View {
     return .{
         .quic = .none,
         .quic_tried = false,
+        .quic_carries = false,
         .quic_allowed = true,
         .tcp_allowed = true,
         .prefer = .quic,
@@ -190,16 +201,41 @@ test "RFC 9114 §3.1: TCP waits while QUIC's handshake runs, and opens once the 
     try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
 }
 
-test "RFC 9114 §3.1: TCP opens once this attempt's QUIC failed, or while a QUIC connection ends" {
+test "RFC 9114 §3.1: TCP opens once this attempt's QUIC failed, or while QUIC ends with exchanges" {
     var view = fresh();
     view.quic = .failed;
     view.quic_tried = true;
     try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
     view.quic = .closed;
     try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
-    // A QUIC connection still ending, draining after a GOAWAY, leaves TCP to carry the exchanges.
+    // A QUIC connection that drains after a GOAWAY with exchanges in it leaves TCP to carry the
+    // waiting ones. A QUIC connection of an earlier attempt that failed does too.
     view = fresh();
     view.quic = .draining;
+    view.quic_carries = true;
+    try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
+    view = fresh();
+    view.quic = .failed;
+    try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
+}
+
+test "decision 117 as amended: under .quic TCP waits for a QUIC connection that only closes" {
+    // RFC 9000 §10.2: the QUIC connection holds no exchange and waits out its closing period. It
+    // did not fail, so neither transport opens, and the exchange waits for its slot.
+    var view = fresh();
+    view.quic = .draining;
+    view.all_idle = false;
+    try testing.expectEqual(null, next_open(&view));
+    try testing.expect(!give_up(&view));
+    // The slot closed, and QUIC opens again in it.
+    view.quic = .closed;
+    view.all_idle = true;
+    try testing.expectEqual(Choice.quic, next_open(&view).?);
+    // This attempt's QUIC drained in the call that completed its handshake: TCP opens.
+    view = fresh();
+    view.quic = .draining;
+    view.quic_tried = true;
+    view.all_idle = false;
     try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
 }
 

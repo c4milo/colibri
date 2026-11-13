@@ -78,6 +78,13 @@ pub fn draining(pool: anytype, slot: u32) bool {
     return pool.tcp[slot].draining;
 }
 
+/// Whether the QUIC connection still carries an exchange: one queued, or sent and awaiting its
+/// response. A draining connection whose exchanges all ended closes at once, and then only waits
+/// out its closing period (RFC 9000 §10.2).
+pub fn quic_carries(pool: anytype) bool {
+    return !pool.quic.slots.idle();
+}
+
 /// Whether the open connection of `slot` takes another exchange now (decision 125). A QUIC
 /// connection and an h2 one take exchanges until their slots are full, which `request` says, and
 /// the pool never counts them full: so it opens no other connection beside them, and RFC 9113 §9.1

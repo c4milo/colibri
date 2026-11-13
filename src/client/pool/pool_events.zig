@@ -300,6 +300,7 @@ fn view_of(pool: anytype, now_ns: u64) choice.View {
     var view: choice.View = .{
         .quic = if (pool.capacity.quic) pool.phase(pool_handle.quic_slot(pool)) else .none,
         .quic_tried = pool.quic_link.tried,
+        .quic_carries = if (pool.capacity.quic) pool_connection.quic_carries(pool) else false,
         .quic_allowed = pool_links.quic_allowed(pool, now_ns),
         .tcp_allowed = pool.offered.tcp,
         .prefer = pool.config.protocols.prefer,

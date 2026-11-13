@@ -418,6 +418,26 @@ test "decision 161: a later QUIC connection resumes with the ticket of the one b
     try stop();
 }
 
+test "decision 117 as amended: under .quic a request waits out QUIC's close, and takes h3" {
+    // Each version is offered, and QUIC goes first.
+    try start(.{ .prefer = .quic });
+    _ = try handler.request("GET", "/greeting", "");
+    try pair.run_until(one_exchange_ended);
+    try testing.expectEqual(client.Protocol.h3, handler.connected.?);
+    // RFC 9114 §5.1: the client closes the idle connection, which then waits out its closing
+    // period (RFC 9000 §10.2). The next request comes in that period.
+    try pair.run_until(quic_over_with_ticket);
+    const tcp_slot: u32 = 0;
+    _ = try handler.request("GET", "/greeting", "");
+    try pair.run_until(each_exchange_ended);
+    // The connection only closed, so the request waited for its slot: no TCP connection opened,
+    // and the new QUIC connection resumed the first one's session.
+    try testing.expectEqual(client.Protocol.h3, handler.connected.?);
+    try testing.expectEqual(.none, pair_client.pool.phase(tcp_slot));
+    try testing.expect(pair_client.pool.quic.session.resumed());
+    try stop();
+}
+
 test "decision 156 ruling 12: an exchange cancelled before its request left gives no finished" {
     try start(.{ .h3 = false });
     _ = try handler.request("GET", "/greeting", "");

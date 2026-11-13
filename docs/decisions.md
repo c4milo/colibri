@@ -4315,6 +4315,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        Under `.tcp`, QUIC does not open first, so the old name was wrong. The rename breaks a
        dependent's code at v0.15.0.
 
+     Amended by the owner on 2026-11-13, after a pool under `.quic` opened TCP while its QUIC
+     connection closed:
+     - Under `.quic`, a QUIC connection that drains and carries no exchange only waits out its
+       closing period (RFC 9000 §10.2), about three PTOs. It did not fail. So a waiting exchange
+       waits for its slot, and QUIC opens again.
+     - A QUIC connection that drains after a GOAWAY and still carries exchanges lets TCP open. It
+       lasts as long as those exchanges do, so a wait for it has no bound.
+     - Before this ruling, TCP opened while any QUIC connection still ended. The pool then stayed
+       on TCP, because QUIC never opens beside an open TCP connection. The model
+       `spec/tla/client_exchanges` had the old rule since its first commit, and no decision named
+       it. Design §8 step 43 records the change.
+     The alternatives that lost: a wait for every QUIC connection that still ends, as under
+     `.tcp`, and the old rule, written down as it was.
+
 119. **How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
      which decision 117 rules; the owner may overrule any part of it.
      - A request's `Id` is a packed struct: a `ConnectionHandle` and the request's number on

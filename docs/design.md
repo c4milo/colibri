@@ -14192,6 +14192,33 @@ library.
       `spec/tla/client_exchanges` names a `Policy`, not the field, so no `.cfg` file changed. A
       field is not on a public list, so no list changed. The entries of step 17d keep the old
       name, because they record the build of that day.
+  - **QUIC's close under `.quic`, 2026-11-13** (decision 117 as amended on that day). A pool under
+    `.quic` opened TCP for a request that came while its QUIC connection waited out its closing
+    period (RFC 9000 §10.2), after the client closed it idle (RFC 9114 §5.1). The pool then stayed
+    on h2, because QUIC never opens beside an open TCP connection. A probe in
+    `src/colibri/fake_host_pair_test.zig` showed it on main `4a813acd`: the QUIC slot stayed
+    `draining` until the period ended, and the second GET took h2.
+    - The choice's view gains `quic_carries`: the QUIC connection carries an exchange that has not
+      ended. Under `.quic`, a QUIC connection that drains and carries none no longer lets TCP open.
+      The exchange waits for its slot, and QUIC opens again. One that drains after a GOAWAY with
+      exchanges in it still lets TCP open.
+    - `spec/tla/client_exchanges` gains the same rule in `CanOpenTcp`: no TCP while QUIC drains
+      and each exchange it holds ended. No `.cfg` file changes. Each configuration that checks
+      `Ends` or `Completes` sets `CloseWhenDrained`, and `Close` is fair, so the slot closes and
+      the exchange opens QUIC. The `tla` job checks it, because no TLC runs on a person's machine
+      (decision 67 as amended on 2026-11-05).
+    - The checks. `src/client/pool/pool_choice.zig` tests the wait, the slot that closes, a GOAWAY
+      with exchanges, and a QUIC connection of this attempt. `fake_host_pair_test.zig` makes the
+      second GET in the closing period: it takes h3, resumes the first session, and opens no TCP
+      connection. `zig build test-client test-colibri` passed 611 of 611, and `zig build
+      test-sim-run` 90 of 90 with no census changed: no simulator run sends a request in QUIC's
+      closing period. On x86-64 Debug, in an emulated container, both pool tests passed. That
+      binary then stops at `pool_limits_test` with a segmentation fault, and main's own binary
+      stops there too, so the native `checks` job judges the rest.
+    - The mutations, each against `zig build test-client test-colibri`: the rule removed;
+      `quic_carries` always true; always false; the rule reading the opposite fact; the rule before
+      this attempt's own QUIC; the rule for every QUIC phase that is not idle. Each was **CAUGHT**.
+      `quic_carries` always false was caught by three pool tests of a GOAWAY that existed before.
 - **Step 44 — colibri on a loop that the program hosts, proposed 2026-11-06, planned again
   2026-11-08.** [Decision 159](decisions.md), which amends decisions 150, 156 and 158.
   `colibri.Client` and `colibri.Server` take a host interface in colibri's own terms. Each object
