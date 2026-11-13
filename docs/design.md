@@ -5904,6 +5904,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       that decision 160 chose. A single check of the half-close for each connection would save
       about 70 instructions, under h11-one's noise of about 0.5%. Rotor's part stays with Rotor's
       session.
+    - Rotor 0.11.0 answers its part, and main pins it since `6dcd2d6f` (2026-11-12). Rotor's
+      decision 33 counts one connection on a plain loop, under cachegrind: 3,905 instructions on
+      io_uring at 0.10.0 and 3,771 at 0.11.0, and 5,006 and 4,712 on epoll. The judge then
+      measured `6dcd2d6f` against `7a8d33f2`, with the h11 inputs at 10 rounds
+      ([run 43359971092](https://github.com/c4milo/colibri/actions/runs/43359971092)). Each h11
+      and h2 input is within the noise. h11-one took 20,302 and 20,287 user instructions a
+      connection before the pin, and 20,288 and 20,254 after it: 0.9993 and 0.9984. So the pin
+      costs nothing, and h11-one gains 15 and 33 instructions, under its noise of 0.5%. Rotor's
+      row runs one tick for each operation of one connection. The judge's load holds many
+      connections at once, so one tick may serve several. No run measured that reading.
   - The loop that the program hosts (step 44), the long streams (step 46) and the h3 path show
     no change.
 
