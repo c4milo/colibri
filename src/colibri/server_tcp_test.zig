@@ -33,13 +33,13 @@ const routes = .{
 };
 const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
 
-fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
 }
 
-fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = internal_server_error;
 }
 

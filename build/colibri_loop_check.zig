@@ -6,7 +6,8 @@
 //! - Each case with a compile `message` must fail to compile with it: `run`, `fetch` and `port`
 //!   on `.hosted`, and `turn` and `complete` on `.private` (decision 156 ruling 4 as amended).
 //! - Each case with a halt `message` must compile, and its run must halt with SIGABRT and write
-//!   the message: decision 159's rules 2, 4 and 6, which a test binary does not live through.
+//!   the message: decision 159's rules 2, 4 and 6, and decision 163 ruling 3 for a route's
+//!   `server.RequestContext`, which a test binary does not live through.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -30,6 +31,12 @@ const complete_inside = "colibri: complete() called inside turn() or complete() 
 const run_inside = "colibri: run() called inside turn() or complete() (decision 159, rule 4)";
 const fetch_inside = "colibri: fetch() called inside turn() or complete() (decision 159, rule 4)";
 const instant_back = "colibri: now_ns went back (decision 159, rule 6)";
+
+// Decision 163 ruling 3: a call of a route's context with a type the router did not lend.
+const values_type = "server.RequestContext.values: loop_check_test.Other asked, loop_check_test.Values held (decision 163)";
+const path_type = "server.RequestContext.path: loop_check_test.Other asked, loop_check_test.Name held (decision 163)";
+const query_type = "server.RequestContext.query: loop_check_test.Other asked, loop_check_test.Mark held (decision 163)";
+const path_early = "server.RequestContext.path: this callback has no loop_check_test.Name (decision 163)";
 
 const cases = [_]Case{
     .{ .name = "hosted_init", .ending = .runs },
@@ -63,6 +70,10 @@ const cases = [_]Case{
     .{ .name = "halt_client_turn_before_init", .ending = .halt, .message = instant_back },
     .{ .name = "halt_client_complete_back", .ending = .halt, .message = instant_back },
     .{ .name = "halt_client_cancel_back", .ending = .halt, .message = instant_back },
+    .{ .name = "halt_context_values_type", .ending = .halt, .message = values_type },
+    .{ .name = "halt_context_path_type", .ending = .halt, .message = path_type },
+    .{ .name = "halt_context_query_type", .ending = .halt, .message = query_type },
+    .{ .name = "halt_context_path_early", .ending = .halt, .message = path_early },
 };
 
 /// Adds `zig build colibri-loop-check` and returns its step, which `zig build test` depends on.

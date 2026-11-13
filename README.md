@@ -178,27 +178,41 @@ const routes = .{
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
-        .{ .get, "/greetings/:name", greet_named },
+        .{ .get, "/greetings/:name", greet_named, .{ .path = Name, .query = Mark } },
     },
 };
 ```
 
-The router calls a route's function with the path's parameters and the query as structs, which it
-fills by their field names. The function writes its response through a `std.Io.Writer`:
+A route's function takes the program's context, the request context, the request and the response
+([decision 163](docs/decisions.md)). The route's options name the types of its path parameters and
+of its query, as `.path` and `.query`. The router fills each struct by its field names, and the
+function reads the two from the request context. The function writes its response through a
+`std.Io.Writer`:
 
 ```zig
-fn greet_named(
-    _: *App,
-    _: *const server.Request,
-    path: struct { name: []const u8 },
-    query: struct { mark: []const u8 = "" },
-    response: *server.ResponseWriter,
-) !void {
+/// The path and the query of `/greetings/:name`, which the route names as `.path` and `.query`.
+const Name = struct { name: []const u8 };
+const Mark = struct { mark: []const u8 = "" };
+
+/// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
+/// The router decodes the name and the query's pairs, and fills each struct by its field names.
+/// The request context lends the two structs during this call.
+fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", content_type);
-    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.body().print("hello, {s}{s}\n", .{ ctx.path(Name).name, ctx.query(Mark).mark });
     try response.end();
 }
 ```
+
+The request context is a `server.RequestContext`, the request's own object. Each callback of one
+request gets the same one: each middleware, the route and the error handler. It has four calls:
+
+- `id()` returns the request's id.
+- `values(T)` returns the request's values, for the whole request. The route table names their
+  type as `.Values`, a struct whose fields each have a default. Each request starts with `.{}`. A
+  middleware writes there what it learns about the request, and the route reads it.
+- `path(P)` and `query(Q)` return the route's path parameters and its query. They answer during
+  the route's function alone, or during a struct route's `on_request` alone.
 
 The program owns the router's memory. `server.RouterOptions` sizes it for the requests the server
 holds at once, and the program places it once:
@@ -288,8 +302,8 @@ request and the response:
 },
 ```
 
-[`docs/usage.md`](docs/usage.md) walks through both modules: the router, middleware, queries,
-request bodies, the client's pool, TLS, and the buffers each one needs.
+[`docs/usage.md`](docs/usage.md) walks through both modules: the router, the request context,
+middleware, queries, request bodies, the client's pool, TLS, and the buffers each one needs.
 
 ### One protocol by itself
 

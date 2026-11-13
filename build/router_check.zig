@@ -21,8 +21,8 @@ const Case = struct {
 };
 
 /// One case for each refusal of `server.Router` and the control. The text after `server.Router:`
-/// is the name of the refusal and its sentence, from `router_pattern.zig`, `router_method.zig`
-/// and `router_trie.zig`.
+/// is the name of the refusal and its sentence, from `router_pattern.zig`, `router_method.zig`,
+/// `router_trie.zig`, `router_handler.zig` and `router_call.zig`.
 const cases = [_]Case{
     .{ .name = "accepted", .message = null },
     .{
@@ -145,7 +145,8 @@ const cases = [_]Case{
     .{
         .name = "parameters_count",
         .message = "server.Router: route 1, \"/a\": parameters_count: " ++
-            "a route's function takes five parameters, and on_request six (decision 127)",
+            "a route's function takes the context, *server.RequestContext, the request and the response, " ++
+            "and on_request a *State after the request context (decision 163)",
     },
     .{
         .name = "context_parameter",
@@ -153,9 +154,14 @@ const cases = [_]Case{
             "the first parameter is a pointer to the router's Context",
     },
     .{
+        .name = "request_context_parameter",
+        .message = "server.Router: route 1, \"/a\": request_context_parameter: " ++
+            "the parameter after the context is *server.RequestContext (decision 163)",
+    },
+    .{
         .name = "state_parameter",
         .message = "server.Router: route 1, \"/a\": state_parameter: " ++
-            "on_request, on_body, on_writable and on_finished take a *State after the context",
+            "on_request, on_body, on_writable and on_finished take a *State after the request context",
     },
     .{
         .name = "request_parameter",
@@ -165,17 +171,17 @@ const cases = [_]Case{
     .{
         .name = "path_parameter",
         .message = "server.Router: route 1, \"/a\": path_parameter: " ++
-            "the path parameter is void, or a struct of []const u8 fields",
+            "a route's .path is void, or a struct of []const u8 fields (decision 163)",
     },
     .{
         .name = "path_fields_differ",
         .message = "server.Router: route 1, \"/a/:id\": path_fields_differ: " ++
-            "the path struct has one field for each parameter of the pattern, and rest for its \"*\"",
+            "the .path struct has one field for each parameter of the pattern, and rest for its \"*\"",
     },
     .{
         .name = "query_parameter",
         .message = "server.Router: route 1, \"/a\": query_parameter: " ++
-            "the query parameter is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields",
+            "a route's .query is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields (decision 163)",
     },
     .{
         .name = "response_parameter",
@@ -190,17 +196,17 @@ const cases = [_]Case{
     .{
         .name = "on_body_parameters",
         .message = "server.Router: route 1, \"/a\": on_body_parameters: " ++
-            "body takes the context, *State, *std.Io.Reader and *server.ResponseWriter",
+            "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.ResponseWriter",
     },
     .{
         .name = "on_writable_parameters",
         .message = "server.Router: route 1, \"/a\": on_writable_parameters: " ++
-            "writable takes the context, *State and *server.ResponseWriter",
+            "writable takes the context, *server.RequestContext, *State and *server.ResponseWriter",
     },
     .{
         .name = "on_finished_parameters",
         .message = "server.Router: route 1, \"/a\": on_finished_parameters: " ++
-            "finished takes the context, *State and server.Result, and returns void",
+            "finished takes the context, *server.RequestContext, *State and server.Result, and returns void",
     },
     .{
         .name = "state_defaults",
@@ -210,7 +216,7 @@ const cases = [_]Case{
     .{
         .name = "option_unknown",
         .message = "server.Router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body and middleware",
+            "a route's options are whole_body, path, query and middleware",
     },
     .{
         .name = "handler_type_not_struct",
@@ -220,17 +226,27 @@ const cases = [_]Case{
     .{
         .name = "path_field_type",
         .message = "server.Router: route 1, \"/a/:id\": path_parameter: " ++
-            "the path parameter is void, or a struct of []const u8 fields",
+            "a route's .path is void, or a struct of []const u8 fields (decision 163)",
+    },
+    .{
+        .name = "path_not_type",
+        .message = "server.Router: route 1, \"/a\": path_parameter: " ++
+            "a route's .path is void, or a struct of []const u8 fields (decision 163)",
+    },
+    .{
+        .name = "query_not_type",
+        .message = "server.Router: route 1, \"/a\": query_parameter: " ++
+            "a route's .query is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields (decision 163)",
     },
     .{
         .name = "path_field_extra",
         .message = "server.Router: route 1, \"/a/:id\": path_fields_differ: " ++
-            "the path struct has one field for each parameter of the pattern, and rest for its \"*\"",
+            "the .path struct has one field for each parameter of the pattern, and rest for its \"*\"",
     },
     .{
         .name = "finished_returns",
         .message = "server.Router: route 1, \"/a\": on_finished_parameters: " ++
-            "finished takes the context, *State and server.Result, and returns void",
+            "finished takes the context, *server.RequestContext, *State and server.Result, and returns void",
     },
     .{
         .name = "state_not_struct",
@@ -240,7 +256,7 @@ const cases = [_]Case{
     .{
         .name = "option_not_struct",
         .message = "server.Router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body and middleware",
+            "a route's options are whole_body, path, query and middleware",
     },
     .{
         .name = "whole_body_unread",
@@ -255,7 +271,8 @@ const cases = [_]Case{
     .{
         .name = "middleware_on_request",
         .message = "server.Router: route 1, \"/a\": middleware_on_request: " ++
-            "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.ResponseWriter, " ++
+            "and returns server.middleware.Next",
     },
     .{
         .name = "table_middleware_hooks",
@@ -265,17 +282,18 @@ const cases = [_]Case{
     .{
         .name = "middleware_on_finished",
         .message = "server.Router: route 1, \"/a\": middleware_on_finished: " ++
-            "a middleware's on_finished takes the context, server.RequestId and server.Result, and returns void",
+            "a middleware's on_finished takes the context, *server.RequestContext and server.Result, and returns void",
     },
     .{
         .name = "middleware_on_finished_parameters",
         .message = "server.Router: route 1, \"/a\": middleware_on_finished: " ++
-            "a middleware's on_finished takes the context, server.RequestId and server.Result, and returns void",
+            "a middleware's on_finished takes the context, *server.RequestContext and server.Result, and returns void",
     },
     .{
         .name = "middleware_on_request_parameters",
         .message = "server.Router: route 1, \"/a\": middleware_on_request: " ++
-            "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.ResponseWriter, " ++
+            "and returns server.middleware.Next",
     },
     .{
         .name = "middleware_state_defaults",
@@ -285,17 +303,20 @@ const cases = [_]Case{
     .{
         .name = "middleware_wrap_body",
         .message = "server.Router: route 1, \"/a\": middleware_wrap_body: " ++
-            "wrap_body takes the context, *State, *const server.Request and *std.Io.Reader, and returns ?*std.Io.Reader",
+            "wrap_body takes the context, *server.RequestContext, *State, *const server.Request and *std.Io.Reader, " ++
+            "and returns ?*std.Io.Reader",
     },
     .{
         .name = "middleware_wrap_response",
         .message = "server.Router: route 1, \"/a\": middleware_wrap_response: " ++
-            "wrap_response takes the context, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, and returns ?*std.Io.Writer",
+            "wrap_response takes the context, *server.RequestContext, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, " ++
+            "and returns ?*std.Io.Writer",
     },
     .{
         .name = "middleware_finish_response",
         .message = "server.Router: route 1, \"/a\": middleware_finish_response: " ++
-            "finish_response goes with wrap_response, takes the context and *State, and returns an error union of void",
+            "finish_response goes with wrap_response, takes the context, *server.RequestContext and *State, " ++
+            "and returns an error union of void",
     },
     .{
         .name = "route_table_shape",
@@ -310,7 +331,7 @@ const cases = [_]Case{
     .{
         .name = "table_field_unknown",
         .message = "server.Router: route table: table_field_unknown: " ++
-            "a route table holds error_handler, routes and middleware alone",
+            "a route table holds error_handler, routes, middleware and Values alone",
     },
     .{
         .name = "error_handler_missing",
@@ -320,7 +341,18 @@ const cases = [_]Case{
     .{
         .name = "error_handler_type",
         .message = "server.Router: route table: error_handler_type: " ++
-            "error_handler takes the context, *const server.Request, anyerror and *server.ResponseWriter, and returns void",
+            "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.ResponseWriter, " ++
+            "and returns void",
+    },
+    .{
+        .name = "values_type",
+        .message = "server.Router: route table: values_type: " ++
+            "Values is a struct whose fields each have a default, which each request starts from (decision 163)",
+    },
+    .{
+        .name = "values_not_struct",
+        .message = "server.Router: route table: values_type: " ++
+            "Values is a struct whose fields each have a default, which each request starts from (decision 163)",
     },
 };
 

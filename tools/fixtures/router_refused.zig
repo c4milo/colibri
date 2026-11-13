@@ -16,7 +16,7 @@ const valid = .{ .get, "/", route };
 const tables = struct {
     /// Each kind of method and pattern that a table accepts at design §8 step 21e.6: an enum
     /// literal, a value of `http.method.Standard`, a token, the root, literal segments,
-    /// parameters and the wildcard.
+    /// parameters and the wildcard. One route names its `.path` and its `.query` (decision 163).
     pub const accepted = .{
         .{ .get, "/", route },
         .{ http.method.Standard.put, "/users/me", route },
@@ -25,6 +25,7 @@ const tables = struct {
         .{ .get, "/files/:name/parts/:part_2", route },
         .{ .put, "/files/:name", route },
         .{ .get, "/static/*", route },
+        .{ .get, "/users/:id", route, .{ .path = handlers.Id, .query = http.QueryParameters } },
     };
     pub const pattern_not_absolute = .{ valid, .{ .get, "users", route } };
     pub const segment_empty = .{ valid, .{ .get, "/a//b", route } };
@@ -59,15 +60,20 @@ const tables = struct {
     pub const handler_type = .{ valid, .{ .get, "/a", 42 } };
     pub const handler_type_not_struct = .{ valid, .{ .get, "/a", u8 } };
     pub const on_request_missing = .{ valid, .{ .get, "/a", struct {} } };
-    pub const parameters_count = .{ valid, .{ .get, "/a", handlers.four } };
+    pub const parameters_count = .{ valid, .{ .get, "/a", handlers.three } };
     pub const context_parameter = .{ valid, .{ .get, "/a", handlers.context } };
+    pub const request_context_parameter = .{ valid, .{ .get, "/a", handlers.request_context } };
     pub const state_parameter = .{ valid, .{ .get, "/a", handlers.Stated } };
     pub const request_parameter = .{ valid, .{ .get, "/a", handlers.request } };
-    pub const path_parameter = .{ valid, .{ .get, "/a", handlers.path } };
-    pub const path_fields_differ = .{ valid, .{ .get, "/a/:id", handlers.fields } };
-    pub const path_field_type = .{ valid, .{ .get, "/a/:id", handlers.field_type } };
-    pub const path_field_extra = .{ valid, .{ .get, "/a/:id", handlers.field_extra } };
-    pub const query_parameter = .{ valid, .{ .get, "/a", handlers.query } };
+    // Decision 163 ruling 3: the path and the query are the route's options `.path` and `.query`.
+    pub const path_parameter = .{ valid, .{ .get, "/a", route, .{ .path = u8 } } };
+    pub const path_fields_differ = .{ valid, .{ .get, "/a/:id", route, .{ .path = handlers.Named } } };
+    pub const path_field_type = .{ valid, .{ .get, "/a/:id", route, .{ .path = handlers.IdNumber } } };
+    pub const path_field_extra = .{ valid, .{ .get, "/a/:id", route, .{ .path = handlers.IdNamed } } };
+    pub const query_parameter = .{ valid, .{ .get, "/a", route, .{ .query = handlers.Count } } };
+    // An option that names no type gets the router's message, not the compiler's own.
+    pub const path_not_type = .{ valid, .{ .get, "/a", route, .{ .path = 42 } } };
+    pub const query_not_type = .{ valid, .{ .get, "/a", route, .{ .query = "id" } } };
     pub const response_parameter = .{ valid, .{ .get, "/a", handlers.response } };
     pub const return_type = .{ valid, .{ .get, "/a", handlers.returns } };
     pub const on_body_parameters = .{ valid, .{ .post, "/a", handlers.Body } };
@@ -94,86 +100,98 @@ const tables = struct {
     pub const table_field_unknown = .{ .whole_table = .{ .error_handler = on_error, .routes = .{valid}, .extra = 1 } };
     pub const error_handler_missing = .{ .whole_table = .{ .routes = .{valid} } };
     pub const error_handler_type = .{ .whole_table = .{ .error_handler = route, .routes = .{valid} } };
+    pub const values_type = .{ .whole_table = .{ .error_handler = on_error, .Values = handlers.NoDefault, .routes = .{valid} } };
+    pub const values_not_struct = .{ .whole_table = .{ .error_handler = on_error, .Values = u8, .routes = .{valid} } };
     pub const whole_body_unread = .{ valid, .{ .post, "/a", route, .{ .whole_body = true } } };
 };
 
-/// One handler for each refusal of a route's handler, each wrong in one way alone.
+/// One handler for each refusal of a route's handler, each wrong in one way alone, and the types
+/// that the cases name as a route's `.path` or `.query` and as a route table's `Values`.
 const handlers = struct {
     const Request = server.Request;
     const Writer = server.ResponseWriter;
-    fn four(_: *void, _: *const Request, _: void, _: void) !void {}
-    fn context(_: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+    const RequestContext = server.RequestContext;
+    /// The `.path` of "/users/:id", which the control names.
+    const Id = struct { id: []const u8 };
+    /// A `.path` whose field is not a parameter of "/a/:id".
+    const Named = struct { name: []const u8 };
+    /// A `.path` whose field is not a `[]const u8`.
+    const IdNumber = struct { id: u8 };
+    /// A `.path` with one field more than "/a/:id" has parameters.
+    const IdNamed = struct { id: []const u8, name: []const u8 };
+    /// A `.query` whose field is not a `[]const u8` or a `?[]const u8`.
+    const Count = struct { count: u32 };
+    /// A `Values` whose field has no default.
+    const NoDefault = struct { count: u8 };
+    fn three(_: *void, _: *RequestContext, _: *const Request) !void {}
+    fn context(_: *u8, _: *RequestContext, _: *const Request, _: *Writer) !void {}
+    fn request_context(_: *void, _: *u8, _: *const Request, _: *Writer) !void {}
     const Stated = struct {
-        pub fn on_request(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Writer) !void {}
     };
-    fn request(_: *void, _: Request, _: void, _: void, _: *Writer) !void {}
-    fn path(_: *void, _: *const Request, _: u8, _: void, _: *Writer) !void {}
-    fn fields(_: *void, _: *const Request, _: struct { name: []const u8 }, _: void, _: *Writer) !void {}
-    fn field_type(_: *void, _: *const Request, _: struct { id: u8 }, _: void, _: *Writer) !void {}
-    fn field_extra(_: *void, _: *const Request, _: struct { id: []const u8, name: []const u8 }, _: void, _: *Writer) !void {}
-    fn query(_: *void, _: *const Request, _: void, _: struct { count: u32 }, _: *Writer) !void {}
-    fn response(_: *void, _: *const Request, _: void, _: void, _: *u8) !void {}
-    fn returns(_: *void, _: *const Request, _: void, _: void, _: *Writer) u8 {
+    fn request(_: *void, _: *RequestContext, _: Request, _: *Writer) !void {}
+    fn response(_: *void, _: *RequestContext, _: *const Request, _: *u8) !void {}
+    fn returns(_: *void, _: *RequestContext, _: *const Request, _: *Writer) u8 {
         return 0;
     }
-    fn plain_on_request(_: *void, _: *void, _: *const Request, _: void, _: void, _: *Writer) !void {}
+    fn plain_on_request(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *Writer) !void {}
     const Body = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_body(_: *void, _: *void, _: []const u8, _: *Writer) !void {}
+        pub fn on_body(_: *void, _: *RequestContext, _: *void, _: []const u8, _: *Writer) !void {}
     };
     const Writable = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_writable(_: *void, _: *void) !void {}
+        pub fn on_writable(_: *void, _: *RequestContext, _: *void) !void {}
     };
     const Finished = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_finished(_: *void, _: *void, _: u8) void {}
+        pub fn on_finished(_: *void, _: *RequestContext, _: *void, _: u8) void {}
     };
     const FinishedReturns = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_finished(_: *void, _: *void, _: server.Result) !void {}
+        pub fn on_finished(_: *void, _: *RequestContext, _: *void, _: server.Result) !void {}
     };
     const NotStruct = struct {
         pub const State = u8;
-        pub fn on_request(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Writer) !void {}
     };
     const FinishedParameters = struct {
         pub fn on_finished(_: *void, _: u8, _: server.Result) void {}
     };
     const RequestParameters = struct {
-        pub fn on_request(_: *void, _: *const Request) server.middleware.Next {
+        pub fn on_request(_: *void, _: *RequestContext, _: *const Request) server.middleware.Next {
             return .next;
         }
     };
     const FinishedLate = struct {
-        pub fn on_finished(_: *void, _: server.RequestId, _: server.Result) !void {}
+        pub fn on_finished(_: *void, _: *RequestContext, _: server.Result) !void {}
     };
     const NoNext = struct {
-        pub fn on_request(_: *void, _: *const Request, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *const Request, _: *Writer) !void {}
     };
     const Defaults = struct {
         pub const State = struct { count: u8 };
-        pub fn on_request(_: *void, _: *State, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *State, _: *const Request, _: *Writer) !void {}
     };
     const WrapDefaults = struct {
         pub const State = struct { count: u8 };
-        pub fn wrap_body(_: *void, _: *State, _: *const Request, _: *std.Io.Reader) ?*std.Io.Reader {
+        pub fn wrap_body(_: *void, _: *RequestContext, _: *State, _: *const Request, _: *std.Io.Reader) ?*std.Io.Reader {
             return null;
         }
     };
     const WrapBody = struct {
-        pub fn wrap_body(_: *void, _: *void, _: *const Request, _: *std.Io.Reader) *std.Io.Reader {
+        pub fn wrap_body(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *std.Io.Reader) *std.Io.Reader {
             unreachable;
         }
     };
     const WrapResponse = struct {
-        pub fn wrap_response(_: *void, _: *void, _: *const Request, _: *std.Io.Writer) ?*std.Io.Writer {
+        pub fn wrap_response(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *std.Io.Writer) ?*std.Io.Writer {
             return null;
         }
     };
     const FinishAlone = struct {
-        pub fn on_finished(_: *void, _: server.RequestId, _: server.Result) void {}
-        pub fn finish_response(_: *void, _: *void) !void {}
+        pub fn on_finished(_: *void, _: *RequestContext, _: server.Result) void {}
+        pub fn finish_response(_: *void, _: *RequestContext, _: *void) !void {}
     };
 };
 
@@ -198,6 +216,6 @@ fn is_whole(comptime Held: type) bool {
 }
 
 /// The function of every route of the fixture.
-fn route(_: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+fn route(_: *void, _: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !void {}
 
-fn on_error(_: *void, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}

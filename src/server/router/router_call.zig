@@ -1,22 +1,19 @@
-//! How the router calls a route's function: the five arguments it builds, and the error function
-//! it calls after an error (decision 127 rulings 2 and 4, design §8 step 25.3). The root exports
-//! none of it.
+//! How the router calls a route's function: the four arguments of decision 163, the path and the
+//! query it lends the request context, and the error function it calls after an error (decision
+//! 127 rulings 2 and 4, design §8 step 25.3). The root exports none of it.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("../event.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const request_context = @import("../request_context.zig");
+const RequestContext = request_context.RequestContext;
 const router_wrap = @import("router_wrap.zig");
 
 /// A route's parts: the method, the pattern, the handler, then the options, which may be absent.
 pub const handler_part = 2;
 pub const options_part = 3;
-
-/// The parameters a function takes after the path's and the query's: the response's writer. The
-/// path's come three from the end, and the query's two.
-const path_from_end = 3;
-const query_from_end = 2;
 
 /// The name of the parameter a trailing "*" binds, and the field of the path struct that holds it.
 const wildcard_name = "*";
@@ -29,15 +26,17 @@ pub const TableReason = enum {
     table_field_unknown,
     error_handler_missing,
     error_handler_type,
+    values_type,
 
     /// The sentence that the compile error writes after the name. Comptime-only.
     pub fn sentence(reason: TableReason) []const u8 {
         return switch (reason) {
             .route_table_shape => "a route table is a struct with error_handler and routes (decision 127)",
             .routes_missing => "a route table names routes, a tuple of route entries",
-            .table_field_unknown => "a route table holds error_handler, routes and middleware alone",
+            .table_field_unknown => "a route table holds error_handler, routes, middleware and Values alone",
             .error_handler_missing => "a route table names error_handler, which chooses the status after an error (decision 127 ruling 4)",
-            .error_handler_type => "error_handler takes the context, *const server.Request, anyerror and *server.ResponseWriter, and returns void",
+            .error_handler_type => "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.ResponseWriter, and returns void",
+            .values_type => "Values is a struct whose fields each have a default, which each request starts from (decision 163)",
         };
     }
 };
@@ -55,13 +54,33 @@ fn table_refusal(comptime Context: type, comptime table: anytype) ?TableReason {
     if (!@hasField(Table, "routes")) return .routes_missing;
     for (@typeInfo(Table).@"struct".fields) |field| {
         const known = std.mem.eql(u8, field.name, "routes") or std.mem.eql(u8, field.name, "error_handler") or
-            std.mem.eql(u8, field.name, middleware_field);
+            std.mem.eql(u8, field.name, middleware_field) or std.mem.eql(u8, field.name, values_field);
         if (!known) return .table_field_unknown;
     }
     if (!@hasField(Table, "error_handler")) return .error_handler_missing;
-    const Handler = fn (*Context, *const event.Request, anyerror, *ResponseWriter) void;
+    const Handler = fn (*Context, *RequestContext, *const event.Request, anyerror, *ResponseWriter) void;
     if (@TypeOf(table.error_handler) != Handler) return .error_handler_type;
+    if (!values_defaulted(Values(table))) return .values_type;
     return null;
+}
+
+/// The name of the route table's field that names the type of each request's values.
+pub const values_field = "Values";
+
+/// The type of each request's values: the route table's `Values`, or an empty struct (decision
+/// 163 ruling 2). Comptime-only.
+pub fn Values(comptime table: anytype) type {
+    if (@hasField(@TypeOf(table), values_field)) return @field(table, values_field);
+    return struct {};
+}
+
+/// Whether `T` is a struct whose fields each have a default. Comptime-only.
+fn values_defaulted(comptime T: type) bool {
+    if (@TypeOf(T) != type or @typeInfo(T) != .@"struct") return false;
+    for (@typeInfo(T).@"struct".fields) |field| {
+        if (field.default_value_ptr == null) return false;
+    }
+    return true;
 }
 
 /// What a call of a route's function ended in.
@@ -92,6 +111,11 @@ const query_storage_len = @import("../constants.zig").limits.path_len_max;
 pub const RouteOptions = struct {
     /// The router calls the route's `on_body` once, after the request's last byte, with every byte.
     whole_body: bool = false,
+    /// The type of the path's parameters, which the request context lends `on_request` (decision
+    /// 163 ruling 3).
+    path: type = void,
+    /// The type of the query's pairs, which the router reads before the call.
+    query: type = void,
 };
 
 /// The name of the option, and of the route table's field, that holds a tuple of middleware.
@@ -137,30 +161,30 @@ pub const Passed = union(enum) {
 /// reached, the one that answered or failed included, whose `on_finished` the router calls when the
 /// request ends. `kept` holds the chain's `states` and what its wrappers gave, `held`
 /// (`router_wrap.zig`).
-pub fn run_chain(comptime chain: anytype, context: anytype, request: *const event.Request, response: *ResponseWriter, ran: *u16, kept: anytype) Passed {
+pub fn run_chain(comptime chain: anytype, context: anytype, ctx: *RequestContext, request: *const event.Request, response: *ResponseWriter, ran: *u16, kept: anytype) Passed {
     comptime std.debug.assert(chain.len <= std.math.maxInt(u16));
     router_wrap.reset(chain, kept.states);
     inline for (0..chain.len) |index| {
         const Middleware = chain[index];
         ran.* = index + 1;
         if (comptime @hasDecl(Middleware, "on_request")) {
-            const result = Middleware.on_request(context, request, response);
+            const result = Middleware.on_request(context, ctx, request, response);
             const next = if (@typeInfo(@TypeOf(result)) == .error_union) (result catch |failure| return .{ .failed = failure }) else result;
             if (next == .answered) return .answered;
         }
-        router_wrap.wrap(chain, index, context, kept.states, kept.held, request, response);
+        router_wrap.wrap(chain, index, context, ctx, kept.states, kept.held, request, response);
     }
     return .next;
 }
 
 /// Calls the `on_finished` of each middleware the chain reached, in the reverse order, as code
 /// after `next()` runs in a framework whose middleware wraps the next one.
-pub fn finish_chain(comptime chain: anytype, ran: u16, context: anytype, id: event.RequestId, result: event.Result) void {
+pub fn finish_chain(comptime chain: anytype, ran: u16, context: anytype, ctx: *RequestContext, result: event.Result) void {
     std.debug.assert(ran <= chain.len);
     inline for (0..chain.len) |reverse| {
         const index = chain.len - 1 - reverse;
         if (comptime @hasDecl(chain[index], "on_finished")) {
-            if (index < ran) chain[index].on_finished(context, id, result);
+            if (index < ran) chain[index].on_finished(context, ctx, result);
         }
     }
 }
@@ -183,33 +207,52 @@ pub fn has(comptime handler: anytype, comptime name: []const u8) bool {
     return comptime is_struct(handler) and @hasDecl(handler, name);
 }
 
-/// Calls a route's function, or its `on_request`, with the arguments of decision 127: the context, the
-/// state of a struct route, the request, the path, the query and the response.
+/// Calls a route's function, or its `on_request`, with the arguments of decision 163: the context,
+/// the request context, the state of a struct route, the request and the response. The request
+/// context holds the route's path `Path` and query `Query` during the call alone, because the
+/// query's octets live in `query`, which every request shares.
 pub fn call_on_request(
     comptime handler: anytype,
+    comptime Path: type,
+    comptime Query: type,
     context: anytype,
+    ctx: *RequestContext,
     state: *State(handler),
     request: *const event.Request,
     parameters: *const PathParameters,
     query: *QueryMemory,
     response: *ResponseWriter,
 ) Outcome {
-    const function = if (comptime is_struct(handler)) handler.on_request else handler;
-    const params = function_info(@TypeOf(function)).params;
-    const path = path_of(params[params.len - path_from_end].type.?, parameters);
-    const query_value = query_of(params[params.len - query_from_end].type.?, request.query orelse "", query) catch |failure| return .{ .refused = status_of(failure) };
-    if (comptime is_struct(handler)) return outcome_of(function(context, state, request, path, query_value, response));
-    return outcome_of(function(context, request, path, query_value, response));
+    var path = path_of(Path, parameters);
+    var query_value = query_of(Query, request.query orelse "", query) catch |failure| return .{ .refused = status_of(failure) };
+    // A route with no path or no query lends none, so the two may stay unchanged.
+    _ = .{ &path, &query_value };
+    // Decision 163 ruling 3: the context holds the path and the query during this call alone. It
+    // holds none before, so a route that names none writes nothing here (design §8 step 50c).
+    if (comptime Path != void) {
+        assert(ctx.path_held.pointer == null);
+        ctx.path_held = .of(Path, &path);
+    }
+    if (comptime Query != void) {
+        assert(ctx.query_held.pointer == null);
+        ctx.query_held = .of(Query, &query_value);
+    }
+    defer {
+        if (comptime Path != void) ctx.path_held = .{};
+        if (comptime Query != void) ctx.query_held = .{};
+    }
+    if (comptime is_struct(handler)) return outcome_of(handler.on_request(context, ctx, state, request, response));
+    return outcome_of(handler(context, ctx, request, response));
 }
 
 /// Calls a struct route's `on_body` with the reader over the bytes that arrived.
-pub fn call_body(comptime handler: anytype, context: anytype, state: *State(handler), reader: *std.Io.Reader, response: *ResponseWriter) Outcome {
-    return outcome_of(handler.on_body(context, state, reader, response));
+pub fn call_body(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), reader: *std.Io.Reader, response: *ResponseWriter) Outcome {
+    return outcome_of(handler.on_body(context, ctx, state, reader, response));
 }
 
 /// Calls a struct route's `on_writable`.
-pub fn call_writable(comptime handler: anytype, context: anytype, state: *State(handler), response: *ResponseWriter) Outcome {
-    return outcome_of(handler.on_writable(context, state, response));
+pub fn call_writable(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *ResponseWriter) Outcome {
+    return outcome_of(handler.on_writable(context, ctx, state, response));
 }
 
 fn outcome_of(result: anytype) Outcome {
@@ -219,15 +262,6 @@ fn outcome_of(result: anytype) Outcome {
         return .{ .failed = failure };
     };
     return .returned;
-}
-
-/// The function type of a route's function, which a table of one entry type holds by pointer.
-fn function_info(comptime Function: type) std.builtin.Type.Fn {
-    return switch (@typeInfo(Function)) {
-        .@"fn" => |info| info,
-        .pointer => |pointer| @typeInfo(pointer.child).@"fn",
-        else => @compileError("server.Router: a route holds a function (decision 127)"),
-    };
 }
 
 fn path_of(comptime Path: type, parameters: *const PathParameters) Path {
@@ -276,8 +310,8 @@ fn status_of(failure: error{ UriTooLong, BadRequest }) http.Status {
 /// A table of one route, which the tests of the router's names build. Test-only.
 pub const sample_table = .{ .error_handler = sample_error, .routes = .{.{ .get, "/", sample_route }} };
 
-fn sample_route(_: *void, _: *const event.Request, _: void, _: void, response: *ResponseWriter) !void {
+fn sample_route(_: *void, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
     try response.end();
 }
 
-fn sample_error(_: *void, _: *const event.Request, _: anyerror, _: *ResponseWriter) void {}
+fn sample_error(_: *void, _: *RequestContext, _: *const event.Request, _: anyerror, _: *ResponseWriter) void {}

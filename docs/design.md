@@ -15740,6 +15740,49 @@ library.
       20,150 on h2-routes-post-many, and 37,734 and 38,000 on h2-routes-post-late-many, with a
       noise of up to 2.75% on the second.
     - Mutation, 1 of 1 CAUGHT: the POST route without `whole_body`.
+  - **50c, met 2026-11-12.** Each route's function, each callback of a struct route, each hook of
+    a middleware and the route table's `error_handler` take a `*server.RequestContext` after the
+    program's context. The route table's `.Values` and a route's `.path` and `.query` are in. The
+    root of `server` exports `RequestContext`, which a program names in each callback.
+    - **The first judge run.**
+      [Run 43343221401](https://github.com/c4milo/colibri/actions/runs/43343221401) compared
+      `1ade23f9` with main `7a8d33f2` on the `ubuntu-24.04-arm` runner, at 5 rounds, in two jobs.
+      Each of the seven inputs was within the noise. But h2-routes-many gave 1.0016 and 1.0017
+      with a spread of 0.02% to 0.06%: 26 instructions a request, from 16,294 to 16,320. The
+      judge's route table names no `.Values`, `.path` or `.query`, so that was the fixed cost of
+      a context. The router wrote its 88 octets at each request, and cleared the path and the
+      query after each route's first call.
+    - **The trim.** The owner ruled on 2026-11-12 that the sub-step lands after a trim. The cost
+      was the same in each job, and five sub-steps follow.
+      - An entry of the pool starts with a context that lends nothing, so a request writes its
+        id alone. A comptime assertion beside the entry pins that start.
+      - `call_on_request` writes and takes back only what the route names. It asserts that the
+        context held none before.
+      - A `Held` keeps the name of its type as one address, so a context is 64 octets. `values`,
+        `path` and `query` compare the two addresses first, and the octets when they differ.
+    - **The second judge run.**
+      [Run 43353525738](https://github.com/c4milo/colibri/actions/runs/43353525738) compared
+      `b6bec00c` with main `7a8d33f2` the same way. The commit that landed adds the comptime
+      assertion to `b6bec00c`, and no instruction.
+      - h2-routes-many gave 1.0002 and 1.0002: 3 instructions a request, from 16,291 to 16,294.
+      - h2-routes-post-many gave 1.0015 and 0.9982, and h2-routes-post-late-many 0.9987 and
+        1.0023.
+      - h2-many gave 0.9997 and 0.9999, h2-one 0.9973 and 1.0020, h2-tls-many 1.0007 and
+        1.0001, and h2-tls-one 0.9995 and 1.0006.
+    - **Checks.** `src/server/router/router_context_test.zig` holds 10 tests over h11, h2 and
+      h3. `zig build router-check` gained the refusals `request_context_parameter`,
+      `values_type`, `values_not_struct`, `path_not_type` and `query_not_type`. `zig build
+      colibri-loop-check` gained four halts: `values`, `path` and `query` asked with a type the
+      router did not lend, and `path` asked by a middleware, before the route's first call.
+    - **Mutations, 18 of 18 CAUGHT.**
+      - Nine of the callbacks: the values not reset; another id; the path and the query kept
+        after the call; an empty path; no query read; the context started again at
+        `on_finished`, or after the chain; a path, or a query, that names no type.
+      - Nine of the trim: the path, or the query, not taken back; the id not written; each name
+        equal to each other; names compared by address alone; a name that is not null at the
+        start; the type not compared; the halt of a call with none lent; an entry whose context
+        starts `undefined`. No test caught the last one at first, because the compiler wrote
+        zero there. The comptime assertion now refuses it.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

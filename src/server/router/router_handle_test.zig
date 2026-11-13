@@ -4,6 +4,7 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
 const testing = std.testing;
@@ -16,40 +17,50 @@ const App = struct {
     fail_after_head: bool = false,
 };
 
-fn greet(app: *App, _: *const event.Request, path: struct { name: []const u8 }, query: struct { mark: ?[]const u8 = null, times: []const u8 = "1" }, response: *ResponseWriter) !void {
+/// The path and the query of each route, which its entry names as `.path` and `.query` (decision
+/// 163 ruling 3). Test-only.
+const Name = struct { name: []const u8 };
+const Mark = struct { mark: ?[]const u8 = null, times: []const u8 = "1" };
+const Id = struct { id: []const u8 };
+const Rest = struct { rest: []const u8 };
+
+fn greet(app: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+    const path = ctx.path(Name);
+    const query = ctx.query(Mark);
     app.calls += 1;
     try response.header("content-type", "text/plain");
     try response.body().print("hello, {s}{s} x{s}", .{ path.name, query.mark orelse "", query.times });
     try response.end();
 }
 
-fn need(_: *App, _: *const event.Request, _: void, query: struct { id: []const u8 }, response: *ResponseWriter) !void {
-    try response.body().writeAll(query.id);
+fn need(_: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+    try response.body().writeAll(ctx.query(Id).id);
 }
 
-fn files(_: *App, _: *const event.Request, path: struct { rest: []const u8 }, query: http.QueryParameters, response: *ResponseWriter) !void {
-    try response.body().print("{s}?{s}", .{ path.rest, query.get("v") orelse "" });
+fn files(_: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+    const query = ctx.query(http.QueryParameters);
+    try response.body().print("{s}?{s}", .{ ctx.path(Rest).rest, query.get("v") orelse "" });
     try response.end();
 }
 
-fn broken(app: *App, _: *const event.Request, _: void, _: void, response: *ResponseWriter) !void {
+fn broken(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
     if (app.fail_after_head) {
         try response.write_kept("partial");
     }
     return error.TestUserUnknown;
 }
 
-fn on_error(_: *App, _: *const event.Request, failure: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, failure: anyerror, response: *ResponseWriter) void {
     response.status = if (failure == error.TestUserUnknown) not_found else server_error;
 }
 
 const routes = .{
     .error_handler = on_error,
     .routes = .{
-        .{ .get, "/greetings/:name", greet },
-        .{ .post, "/greetings/:name", greet },
-        .{ .get, "/need", need },
-        .{ .get, "/files/*", files },
+        .{ .get, "/greetings/:name", greet, .{ .path = Name, .query = Mark } },
+        .{ .post, "/greetings/:name", greet, .{ .path = Name, .query = Mark } },
+        .{ .get, "/need", need, .{ .query = Id } },
+        .{ .get, "/files/*", files, .{ .path = Rest, .query = http.QueryParameters } },
         .{ .get, "/broken", broken },
     },
 };

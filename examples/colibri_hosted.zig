@@ -328,13 +328,13 @@ const Host = struct {
 };
 
 /// Answers a GET of `/greeting`.
-fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
 }
 
 /// Answers 500 when a route's function fails.
-fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = internal_server_error;
 }

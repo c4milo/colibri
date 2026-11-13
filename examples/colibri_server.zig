@@ -45,8 +45,10 @@ comptime {
     _ = program;
 }
 
-/// The program's own state, which each route's function gets: the requests it answered.
+/// The program's own state, which each route's function gets: the requests it took and the
+/// requests it answered.
 const App = struct {
+    taken: u32 = 0,
     answered: u32 = 0,
 };
 var app: App align(@alignOf(App)) = .{};
@@ -54,9 +56,11 @@ var app: App align(@alignOf(App)) = .{};
 /// The server's table of routes, which the compiler builds and checks.
 const routes = .{
     .error_handler = on_error,
+    .Values = Values,
+    .middleware = .{Numbered},
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .get, "/greetings/:name", greet_named },
+        .{ .get, "/greetings/:name", greet_named, .{ .path = Name } },
     },
 };
 
@@ -210,30 +214,47 @@ fn expect_response(expected: []const u8, response: *const client.Response) !void
     return error.ResponseWrong;
 }
 
+/// What a middleware learns about one request, for the route of that request. The route table
+/// names the type as `.Values`, and each request starts with these defaults.
+const Values = struct {
+    /// The number of the request among those the server took, which `Numbered` writes.
+    number: u32 = 0,
+};
+
+/// A middleware of the route table: it numbers each request in the request's own values. The
+/// program's state is one for every request, and the values are one for each.
+const Numbered = struct {
+    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+        state.taken += 1;
+        ctx.values(Values).number = state.taken;
+        return .next;
+    }
+};
+
 /// Answers a GET of `/greeting`. The router ends a response the function leaves open, and `end`
 /// adds its Content-Length.
-fn greet(state: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn greet(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+    // `Numbered` ran before the route, so the request's values hold its number.
+    if (ctx.values(Values).number != state.taken) return error.RequestNotNumbered;
     state.answered += 1;
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
 }
 
-/// Answers a GET of `/greetings/:name` with a greeting to the name.
-fn greet_named(
-    state: *App,
-    _: *const server.Request,
-    path: struct { name: []const u8 },
-    _: void,
-    response: *server.ResponseWriter,
-) !void {
+/// The parameter of `/greetings/:name`, which the route names as its `.path`.
+const Name = struct { name: []const u8 };
+
+/// Answers a GET of `/greetings/:name` with a greeting to the name. The request context lends the
+/// route's path during this call.
+fn greet_named(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     state.answered += 1;
     try response.header("content-type", "text/plain");
-    try response.body().print("hello, {s}!\n", .{path.name});
+    try response.body().print("hello, {s}!\n", .{ctx.path(Name).name});
     try response.end();
 }
 
 /// Answers 500 when a route's function fails.
-fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = internal_server_error;
 }

@@ -193,8 +193,9 @@ const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connectio
 var http_server: Server align(@alignOf(Server)) = undefined;
 ```
 
-`init` takes a pointer to the configuration, the router, and the context that each route's function
-takes. It binds the port and reads the identity, and keeps no pointer to the configuration. Port 0
+`init` takes a pointer to the configuration, the router, and the program's context, which each
+route's function takes first. It binds the port and reads the identity, and keeps no pointer to the
+configuration. Port 0
 asks the system for a port, and `port()` returns the port bound. `run` serves on the thread that
 calls it, one Rotor loop on that thread, until another thread calls `shutdown`. `run` then ends
 each connection and returns:
@@ -823,10 +824,12 @@ request therefore answers it before its next call: a final response, the program
 
 A route's function answers through a `server.ResponseWriter` ([decision 127](decisions.md)). It
 sets `status`, a `server.Status`, which is `.ok` by default and is a code from 100 to 599. It
-adds headers, and writes the body through the `std.Io.Writer` that `body()` returns:
+adds headers, and writes the body through the `std.Io.Writer` that `body()` returns. The function
+takes the program's context, the request context, the request and the writer, as
+[Router](#router) describes:
 
 ```zig
-fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", content_type);
     try response.body().writeAll(greeting);
     try response.end();
@@ -1018,13 +1021,14 @@ Three more things a server sets:
 
 ### Router
 
-A program declares its routes in a route table at compile time, and the router calls the function of each
-request's route ([decisions 122 and 127](decisions.md)). `server.Router` builds the route table from the
-program's context type and a struct of two fields: `error_handler` and `routes`. Each route holds
-a method, a pattern and a function, and options may follow. `server.Router` takes a
-`server.RouterOptions` too, and returns the type of the router the program places. Each field of
-`server.RouterOptions` has a default: 32 requests at once, 256 octets of response memory for each,
-and no request body memory (decision 158 ruling 16):
+A program declares its routes in a route table at compile time, and the router calls the function
+of each request's route ([decisions 122, 127 and 163](decisions.md)). `server.Router` builds the
+route table from the program's context type and a struct. The struct names `error_handler` and
+`routes`, and may name `middleware` and `Values`. Each route holds a method, a pattern and a
+function, and options may follow. `server.Router` takes a `server.RouterOptions` too, and returns
+the type of the router the program places. Each field of `server.RouterOptions` has a default: 32
+requests at once, 256 octets of response memory for each, and no request body memory (decision 158
+ruling 16):
 
 ```zig
 const routes = .{
@@ -1033,7 +1037,7 @@ const routes = .{
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
-        .{ .get, "/greetings/:name", greet_named },
+        .{ .get, "/greetings/:name", greet_named, .{ .path = Name, .query = Mark } },
     },
 };
 
@@ -1049,21 +1053,30 @@ another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT r
 `:name`, or the wildcard `*` as the last segment. A pattern holds
 `server.constants.limits.path_parameters_max` parameters at most, the wildcard included.
 
-A route's function takes five parameters, in this order: the program's context, the request, the
-path's parameters, the query, and the response's writer. The path's parameters are `void`, or a
-struct with one `[]const u8` field for each parameter of the pattern, and `rest` for the wildcard.
-The query is `void`, `http.QueryParameters`, or a struct whose fields name the query's pairs:
+A route's function takes four parameters, in this order: the program's context, the request
+context, the request, and the response's writer ([decision 163](decisions.md)). The request
+context is a `*server.RequestContext`, which [Request context](#request-context) describes. The
+route's options name the types of its path parameters and of its query:
+
+- `.path` is a struct with one `[]const u8` field for each parameter of the pattern, and `rest`
+  for the wildcard. A struct whose fields are not the pattern's parameters does not compile.
+- `.query` is `http.QueryParameters`, or a struct whose fields name the query's pairs.
+
+A route with no `.path` reads no parameter, and a route with no `.query` reads no query. The
+router fills each struct by its field names before the call. The function reads the two with
+`ctx.path(Name)` and `ctx.query(Mark)`, and each returns a `*const` pointer:
 
 ```zig
-fn greet_named(
-    _: *App,
-    _: *const server.Request,
-    path: struct { name: []const u8 },
-    query: struct { mark: []const u8 = "" },
-    response: *server.ResponseWriter,
-) !void {
+/// The path and the query of `/greetings/:name`, which the route names as `.path` and `.query`.
+const Name = struct { name: []const u8 };
+const Mark = struct { mark: []const u8 = "" };
+
+/// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
+/// The router decodes the name and the query's pairs, and fills each struct by its field names.
+/// The request context lends the two structs during this call.
+fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", content_type);
-    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.body().print("hello, {s}{s}\n", .{ ctx.path(Name).name, ctx.query(Mark).mark });
     try response.end();
 }
 ```
@@ -1074,19 +1087,27 @@ query that lacks a `[]const u8` field with no default gets 400, and a query with
 request's head and reads no body. The router ends a response the function leaves open.
 
 A route can be a struct instead, with `on_request` and any of `on_body`, `on_writable` and
-`on_finished`, and a `State` that the request's pool entry holds. `on_request` takes a `*State`
-after the context, and else the parameters of a function. `on_body` reads the request body through
-a `std.Io.Reader`. A read past the bytes that arrived fails with `error.ReadFailed` while more of
-the request body is to come, and an `on_body` that returns that error waits for them: the bytes it
-left unread come first in its next call. At the request body's last byte a read fails with
+`on_finished`, and a `State` that the request's pool entry holds. Each callback takes the
+program's context, the request context and a `*State` first. A struct that declares no `State`
+takes a `*void` there. The other parameters follow:
+
+- `on_request` takes the request and the response's writer, as a function does. Its route names
+  `.path` and `.query` in the same way.
+- `on_body` takes a `std.Io.Reader` over the request body, and the response's writer.
+- `on_writable` takes the response's writer.
+- `on_finished` takes the request's result.
+
+In `on_body`, a read past the bytes that arrived fails with `error.ReadFailed` while more of the
+request body is to come. An `on_body` that returns that error waits for them: the bytes it left
+unread come first in its next call. At the request body's last byte a read fails with
 `error.EndOfStream`. With `.whole_body`, the router calls `on_body` once, after the last byte, with
 every byte in the pool entry's `body_bytes`:
 
 ```zig
 const Echo = struct {
-    pub fn on_request(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
 
-    pub fn on_body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
@@ -1112,12 +1133,13 @@ while the client still sends (decision 127 as amended on 2026-11-09):
 Decision 110's request body deadlines apply to such a route too. So a route that waits for a
 quiet client needs a program that sets them for its connection with `set_timeouts`.
 
-The route table must name `error_handler`, which chooses the status after a route's function returns an
-error ([decision 127](decisions.md) ruling 4). After the head went out, the router cancels the
-request instead, since its body may be cut short:
+The route table must name `error_handler`, which chooses the status after a route's function
+returns an error ([decision 127](decisions.md) ruling 4). It takes the program's context, the
+request context, the request, the error and the response's writer. After the head went out, the
+router cancels the request instead, since its body may be cut short:
 
 ```zig
-fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = .internal_server_error;
 }
 ```
@@ -1178,6 +1200,70 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   not, such as `/a/%2E%2E`, and a path longer than `server.constants.limits.path_len_max` bytes, its
   query included.
 
+### Request context
+
+The request context is the request's own object, a `server.RequestContext`
+([decision 163](decisions.md)). The program's context is one for every request of a router. The
+request context is a view of the router's entry for one request. Every callback takes it after the
+program's context:
+
+- a route's function, and each callback of a struct route;
+- each hook of a middleware;
+- the route table's `error_handler`.
+
+Each callback of one request gets the same request context. A callback keeps no pointer to it
+after the callback returns. The request context has four calls:
+
+- `id()` returns the request's `server.RequestId`.
+- `values(T)` returns a `*T` to the request's values.
+- `path(P)` returns a `*const P` to the route's path parameters.
+- `query(Q)` returns a `*const Q` to the route's query.
+
+The request's values hold what a program learns about one request, such as the user that a
+middleware authenticated. The route table names their type in its field `Values`, such as
+`.Values = Session`, beside `error_handler` and `routes`. The type is a struct whose fields each
+have a default, or the route table does not compile. A route table may leave `Values` out.
+
+Each request starts with the values `.{}`, and they stay for the whole request. Each later
+callback of the request reads what an earlier one wrote there. So a middleware writes the user at
+the head, and the route, each `on_finished` and `error_handler` read it. The request's pool
+entry holds the values, so each entry grows by `@sizeOf(Values)`.
+
+The server example numbers each request in a middleware, and its route reads the number. This
+excerpt is from `examples/colibri_server.zig`:
+
+```zig
+const Values = struct {
+    /// The number of the request among those the server took, which `Numbered` writes.
+    number: u32 = 0,
+};
+
+/// A middleware of the route table: it numbers each request in the request's own values. The
+/// program's state is one for every request, and the values are one for each.
+const Numbered = struct {
+    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+        state.taken += 1;
+        ctx.values(Values).number = state.taken;
+        return .next;
+    }
+};
+```
+
+`path(P)` and `query(Q)` answer during the route's first call alone: a function's one call, or a
+struct route's `on_request`. The router lends the two structs for that call, because every request
+of the router shares the query's memory. So the pointer that each call returns is valid until that
+call returns. A struct route that needs a value in a later callback copies its bytes into its
+`State`. A middleware and `error_handler` read no path and no query.
+
+`values`, `path` and `query` each check the type at run time. A wrong type is an error of the
+program, and the program halts with a message in these cases:
+
+- `values(T)` with a `T` that is not the route table's `Values`, or in a route table that names
+  none;
+- `path(P)` or `query(Q)` with a type that is not the route's `.path` or `.query`, or in a route
+  that names none;
+- `path(P)` or `query(Q)` in a callback that is not the route's first call.
+
 ### Middleware
 
 A middleware is a struct that the router calls before a route
@@ -1186,23 +1272,31 @@ then the route entry's, as `.{ .get, "/admin", admin, .{ .middleware = .{Auth} }
 They run one after the other: no middleware calls the next. A chain is a tuple, so a program names
 one, such as `const api = .{ Auth, RateLimit };`, and joins it to another with `++`.
 
-`on_request` runs at the request's head. It returns `.next`, and the router calls the next
-middleware, then the route. Or it writes the response and returns `.answered`, and the router calls
-nothing more for the request. An error goes to `error_handler`. The server example's middleware
-adds a header to each response:
+Each hook of a middleware takes the program's context, then the request context
+([decision 163](decisions.md)). `on_request` then takes the request and the response's writer, and
+runs at the request's head. It returns `.next`, and the router calls the next middleware, then the
+route. Or it writes the response and returns `.answered`, and the router calls nothing more for
+the request. An error goes to `error_handler`. The server example's middleware adds a header to
+each response:
 
 ```zig
 const Brand = struct {
-    pub fn on_request(_: *App, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
         try response.header("server", "colibri");
         return .next;
     }
 };
 ```
 
-`on_finished` runs when the request ends, with its id and its result, in the reverse order, for
-each middleware the chain reached. It holds what a framework whose middleware wraps the next one
-runs after `next()` returns, such as an access log.
+A middleware writes what it learns about a request into the request's values, with
+`ctx.values(T)`, and the route reads them there. [Request context](#request-context) describes
+them. A middleware reads no path and no query, because `ctx.path` and `ctx.query` answer during
+the route's first call alone.
+
+`on_finished` runs when the request ends, in the reverse order, for each middleware the chain
+reached. It takes the request context and the request's result, and `ctx.id()` returns the
+request's id. `on_finished` holds what a framework whose middleware wraps the next one runs after
+`next()` returns, such as an access log.
 
 A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader
 of the request body and returns another, which the next middleware wraps and the route's `on_body`
@@ -1212,6 +1306,15 @@ returns `.next`, and null keeps the reader or the writer it got. A wrapper write
 the route starts the body, because the headers are still open. A middleware keeps its wrapper in
 its `State`, which the request's pool entry holds, and each field of a `State` has a default
 value, which each request starts from.
+
+The three wrap hooks take the middleware's `*State` after the request context:
+
+- `wrap_body(context, ctx, state, request, reader)` returns a `?*std.Io.Reader`.
+- `wrap_response(context, ctx, state, request, response, inner)` returns a `?*std.Io.Writer`.
+- `finish_response(context, ctx, state)` returns an error union of `void`.
+
+A `State` belongs to one middleware. The request's values belong to the request, and each
+middleware and the route read the same ones.
 
 When the route ends a wrapped response, the router calls each `finish_response` from the route's
 side outward, so a wrapper writes what it owes at the end, such as a gzip trailer. It flushes the
@@ -1228,12 +1331,12 @@ const Counted = struct {
         bytes: usize = 0,
     };
 
-    pub fn wrap_response(_: *App, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+    pub fn wrap_response(_: *App, _: *server.RequestContext, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
         state.* = .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .inner = inner };
         return &state.writer;
     }
 
-    pub fn finish_response(app_state: *App, state: *State) !void {
+    pub fn finish_response(app_state: *App, _: *server.RequestContext, state: *State) !void {
         app_state.counted += 1;
         app_state.body_bytes += state.bytes;
     }
@@ -1259,7 +1362,8 @@ skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the
 values into a buffer the program gives, and refuses a query of more than
 `http.constants.limits.query_parameters_max` pairs, 32, or of more bytes than the buffer holds.
 `get` returns the first value of a name. The router reads a route's query this way before it fills
-the route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
+the struct that the route names as `.query`. A route whose `.query` is `http.QueryParameters` reads
+the pairs by name, through `ctx.query(http.QueryParameters)`.
 
 A malformed route table, or a route table with a conflict, does not compile, and the compile error names the
 entry and the rule. Two conflicts concern routes that other routes hide:

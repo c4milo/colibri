@@ -22,6 +22,10 @@
 //!     `halt_client_turn_before_init`, `halt_client_complete_back` and `halt_client_cancel_back`:
 //!     a call whose instant goes back, from the `now` of `init` or from the call before it
 //!     (rule 6).
+//!   - `halt_context_values_type`, `halt_context_path_type` and `halt_context_query_type`: a
+//!     route that asks its `server.RequestContext` for a type the router did not lend, and
+//!     `halt_context_path_early`: a middleware that asks for the path, which the router lends
+//!     during the route's first call alone (decision 163 ruling 3, design §8 step 50c).
 //!   A test binary does not live through its own halt, so the step runs each one as a program.
 const std = @import("std");
 const colibri = @import("colibri");
@@ -64,7 +68,7 @@ var reentrant_router: ReentrantRouter align(@alignOf(ReentrantRouter)) = .{};
 const RouteCall = enum { turn, complete, run };
 var route_call: RouteCall align(@alignOf(RouteCall)) = .turn;
 
-fn call_inside(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn call_inside(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     switch (route_call) {
         .turn => _ = hosted_server.turn(0, &inner_operations),
         // Its id names no operation, so a complete that the flag does not refuse halts with rule
@@ -75,12 +79,53 @@ fn call_inside(_: *void, _: *const server.Request, _: void, _: void, response: *
     try response.end();
 }
 
-fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.end();
 }
 
+/// What the route table of the context cases names: the values of a request, a path and a query.
+/// `Other` is a type the table does not name.
+const Values = struct { number: u32 = 0 };
+const Name = struct { name: []const u8 };
+const Mark = struct { mark: ?[]const u8 = null };
+const Other = struct { other: u32 = 0 };
+const ContextCall = enum { values_type, path_type, query_type, path_early };
+var context_call: ContextCall align(@alignOf(ContextCall)) = .values_type;
+
+/// A middleware that asks for the path before the route's first call, which breaks decision 163
+/// ruling 3.
+const Early = struct {
+    pub fn on_request(_: *void, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+        if (context_call == .path_early) _ = ctx.path(Name);
+        return .next;
+    }
+};
+
+/// A route that asks its context for `Other`, as `context_call` names, which the router did not
+/// lend (decision 163 ruling 3).
+fn ask_other(_: *void, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+    switch (context_call) {
+        .values_type => _ = ctx.values(Other),
+        .path_type => _ = ctx.path(Other),
+        .query_type => _ = ctx.query(Other),
+        .path_early => {},
+    }
+    try response.end();
+}
+
+const context_routes = .{
+    .Values = Values,
+    .middleware = .{Early},
+    .error_handler = on_error,
+    .routes = .{
+        .{ .get, "/who/:name", ask_other, .{ .path = Name, .query = Mark } },
+    },
+};
+const ContextRouter = server.Router(void, context_routes, .{ .requests = 1 });
+var context_router: ContextRouter align(@alignOf(ContextRouter)) = .{};
+
 /// RFC 9110 §15.6.1: a route's function that fails answers 500 (Internal Server Error).
-fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = .internal_server_error;
 }
 
@@ -153,6 +198,8 @@ var answer_of_get: client.Response align(@alignOf(client.Response)) = .{};
 
 /// RFC 9112 §3: a request of `/` with its Host field (RFC 9112 §3.2).
 const request_head = "GET / HTTP/1.1\r\nhost: localhost\r\n\r\n";
+/// A request of the context cases' route, with a path parameter and a query (RFC 3986 §3.4).
+const context_head = "GET /who/ada?mark=x HTTP/1.1\r\nhost: localhost\r\n\r\n";
 
 /// A port that no server of the check binds, so a connect to it on loopback is refused, or ends
 /// at `connect_ns`.
@@ -301,14 +348,45 @@ const halts = struct {
     /// Gives a hosted server one request, so its route calls what `call` names inside a turn.
     fn route_inside(call: RouteCall) !void {
         route_call = call;
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &reentrant_router, &context);
+        try serve(&reentrant_router, request_head);
+    }
+
+    /// A route that asks its context for the values as a type the route table does not name.
+    pub fn halt_context_values_type() !void {
+        try context_inside(.values_type);
+    }
+
+    /// A route that asks its context for the path as a type the route does not name.
+    pub fn halt_context_path_type() !void {
+        try context_inside(.path_type);
+    }
+
+    /// A route that asks its context for the query as a type the route does not name.
+    pub fn halt_context_query_type() !void {
+        try context_inside(.query_type);
+    }
+
+    /// A middleware that asks its context for the path, before the route's first call.
+    pub fn halt_context_path_early() !void {
+        try context_inside(.path_early);
+    }
+
+    /// Gives a hosted server one request of the context cases' route.
+    fn context_inside(call: ContextCall) !void {
+        context_call = call;
+        try serve(&context_router, context_head);
+    }
+
+    /// Gives a hosted server with `routed` the request `head`, so its route runs inside a turn.
+    fn serve(routed: anytype, comptime head: []const u8) !void {
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, routed, &context);
         const first = hosted_server.turn(0, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);
         const second = hosted_server.turn(0, &operations);
         const receive = try written(second.operations, .receive);
-        @memcpy(receive.kind.receive.buffer[0..request_head.len], request_head);
-        hosted_server.complete(&.{ .id = receive.id, .result = .{ .received = request_head.len } }, 0);
+        @memcpy(receive.kind.receive.buffer[0..head.len], head);
+        hosted_server.complete(&.{ .id = receive.id, .result = .{ .received = head.len } }, 0);
         _ = hosted_server.turn(0, &operations);
     }
 

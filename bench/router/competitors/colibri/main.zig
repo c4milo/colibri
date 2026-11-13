@@ -11,9 +11,9 @@ comptime {
     _ = @import("hook.zig");
 }
 
-fn route(_: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) anyerror!void {}
+fn route(_: *void, _: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) anyerror!void {}
 
-fn on_error(_: *void, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
 
 /// The routes of routes.txt, one "METHOD /path" on each line.
 const lines = @embedFile("routes.txt");

@@ -7,12 +7,12 @@ const server = @import("server");
 pub const Entry = struct { http.method.Standard, []const u8, *const Route };
 
 /// The type of every route's function, which no probe calls.
-pub const Route = fn (*void, *const server.Request, void, void, *server.ResponseWriter) anyerror!void;
+pub const Route = fn (*void, *server.RequestContext, *const server.Request, *server.ResponseWriter) anyerror!void;
 
-fn route(_: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) anyerror!void {}
+fn route(_: *void, _: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) anyerror!void {}
 
 /// The error function of every table, which no probe calls.
-pub fn on_error(_: *void, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
+pub fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
 
 /// The table `server.Router` takes, with the routes `entries`.
 pub fn table_of(comptime entries: anytype) struct { error_handler: @TypeOf(on_error), routes: @TypeOf(entries) } {

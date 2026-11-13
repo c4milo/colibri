@@ -6,6 +6,7 @@ const http = @import("http");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const writer_internal = @import("../response_writer/response_writer_internal.zig");
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -35,7 +36,7 @@ const short_message_len = 5;
 const acknowledgments_per_octet = 2;
 const internal_server_error: http.Status = .internal_server_error;
 
-fn on_error(_: *App, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
     response.status = internal_server_error;
 }
 

@@ -17,6 +17,7 @@ const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const writer_internal = @import("../response_writer/response_writer_internal.zig");
 const router_call = @import("router_call.zig");
 const router_body = @import("router_body.zig");
@@ -60,10 +61,16 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
     comptime assert(options_of.requests > 0);
     const state_layout = state_layout_of(table_of.routes);
     const wrap_layout = router_wrap.layout_of(table_of);
+    const ValuesOf = router_call.Values(table_of);
     const EntryOf = struct {
         used: bool = false,
         route: RouteOf = undefined,
         response: ResponseWriter = undefined,
+        /// The request's own object, and its values, which every callback of the request gets
+        /// (decision 163). It lends nothing between two requests, so `start_context` writes the
+        /// request's id alone.
+        request_context: RequestContext = .{ .request_id = event.id_of(0) },
+        values: ValuesOf = undefined,
         memory: [options_of.response_bytes]u8 = undefined,
         state: [state_layout.size]u8 align(state_layout.alignment) = undefined,
         body: router_body.Body(options_of.body_bytes) = .{},
@@ -73,6 +80,13 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         middleware_states: [wrap_layout.size]u8 align(wrap_layout.alignment) = undefined,
         held: router_wrap.Held(wrap_layout.chain_max) = .{},
     };
+    comptime {
+        // An entry starts with a context that lends no path and no query, and `call_on_request`
+        // takes back what it lent. So `start_context` writes the id alone (design §8 step 50c).
+        const fresh: EntryOf = .{};
+        assert(fresh.request_context.path_held.pointer == null);
+        assert(fresh.request_context.query_held.pointer == null);
+    }
     return struct {
         entries: [options_of.requests]EntryOf = @splat(.{}),
         parameters: PathParameters = .{},
@@ -150,17 +164,28 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
     entry.body.cursor = .{ .ended = request.end };
     writer_internal.init(&entry.response, writer_internal.Sink.of(@TypeOf(engine.*), engine), request.id, &entry.memory);
     entry.held = .{ .reader = &entry.body.cursor.reader };
+    start_context(P, entry, request.id);
     switch (route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             const state = state_of(P, handler, entry);
             if (comptime router_call.State(handler) != void) state.* = .{};
             if (!run_chain(P, @intFromEnum(tag), entry, context, engine, request)) return;
-            const outcome = router_call.call_on_request(handler, context, state, request, &pool.parameters, &pool.query, &entry.response);
+            const options = comptime route_options(P.table.routes[@intFromEnum(tag)]);
+            const outcome = router_call.call_on_request(handler, options.path, options.query, context, &entry.request_context, state, request, &pool.parameters, &pool.query, &entry.response);
             if (!after(P, entry, context, engine, request, outcome)) return;
             if (comptime !router_call.is_struct(handler)) return finish(P, entry, context, engine);
             if (request.end) on_body(P, entry, context, engine, "", true);
         },
+    }
+}
+
+/// Gives the request its own context, with values that start from `.{}` (decision 163 ruling 2).
+fn start_context(comptime P: type, entry: *P.Entry, id: event.RequestId) void {
+    entry.request_context.request_id = id;
+    if (comptime @hasField(@TypeOf(P.table), router_call.values_field)) {
+        entry.values = .{};
+        entry.request_context.values_held = .of(@TypeOf(entry.values), &entry.values);
     }
 }
 
@@ -204,7 +229,7 @@ fn read_body(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
     const over_bytes = entry.body.held_len == 0;
     // Design §8 step 25.6: the route reads through the last wrapper, which reads the held bytes.
     _ = entry.body.reader_over(bytes);
-    const outcome = router_call.call_body(handler, context, state_of(P, handler, entry), entry.held.reader, &entry.response);
+    const outcome = router_call.call_body(handler, context, &entry.request_context, state_of(P, handler, entry), entry.held.reader, &entry.response);
     if (end) {
         entry.body.delivered = true;
         return outcome;
@@ -244,7 +269,7 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: 
         const room = writer_internal.has_room(&entry.response) catch return engine.cancel(entry.response.id);
         if (!room) break;
         const before = writer_internal.mark(&entry.response);
-        const outcome = router_call.call_writable(handler, context, state_of(P, handler, entry), &entry.response);
+        const outcome = router_call.call_writable(handler, context, &entry.request_context, state_of(P, handler, entry), &entry.response);
         if (!after(P, entry, context, engine, null, outcome)) return;
         // Decision 127 as amended: while the request body is open, a call that wrote nothing waits
         // for the next body bytes or the next `writable`.
@@ -265,9 +290,9 @@ fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished:
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime router_call.has(handler, "on_finished")) handler.on_finished(context, state_of(P, handler, entry), finished.result);
+            if (comptime router_call.has(handler, "on_finished")) handler.on_finished(context, &entry.request_context, state_of(P, handler, entry), finished.result);
             const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[@intFromEnum(tag)]);
-            router_call.finish_chain(chain, entry.chain_ran, context, finished.id, finished.result);
+            router_call.finish_chain(chain, entry.chain_ran, context, &entry.request_context, finished.result);
         },
     }
     entry.used = false;
@@ -295,7 +320,7 @@ fn after(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype
                 return false;
             }
             // Decision 127 ruling 4: the program chooses the status after an error.
-            P.table.error_handler(context, request orelse &no_request, failure, &entry.response);
+            P.table.error_handler(context, &entry.request_context, request orelse &no_request, failure, &entry.response);
             finish(P, entry, context, engine);
             return false;
         },
@@ -345,7 +370,7 @@ fn run_chain(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
     const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[index]);
     if (chain.len == 0) return true;
     const kept = .{ .states = @as([*]u8, &entry.middleware_states), .held = &entry.held };
-    switch (router_call.run_chain(chain, context, request, &entry.response, &entry.chain_ran, kept)) {
+    switch (router_call.run_chain(chain, context, &entry.request_context, request, &entry.response, &entry.chain_ran, kept)) {
         .next => return true,
         .answered => {
             entry.body.delivered = true;
@@ -381,7 +406,7 @@ fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytyp
     switch (entry.route) {
         inline else => |tag| {
             const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[@intFromEnum(tag)]);
-            router_wrap.finish(chain, context, &entry.middleware_states, &entry.held) catch return cancel_wrapped(engine, response);
+            router_wrap.finish(chain, context, &entry.request_context, &entry.middleware_states, &entry.held) catch return cancel_wrapped(engine, response);
         },
     }
     writer_internal.end_wrapped(response) catch cancel_wrapped(engine, response);

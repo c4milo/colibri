@@ -143,7 +143,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
     }
 }
 
-fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", content_type);
     try response.body().writeAll(greeting);
     try response.end();
@@ -151,16 +151,16 @@ fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server
 
 /// Sends the POST's content back, once all of it arrived.
 const Echo = struct {
-    pub fn on_request(_: *void, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
 
-    pub fn on_body(_: *void, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
     }
 };
 
-fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = .internal_server_error;
 }
 

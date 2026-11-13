@@ -9,6 +9,7 @@
 const std = @import("std");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const router_call = @import("router_call.zig");
 
 /// The state a middleware keeps in a request's entry, or `void` for one with none. Comptime-only.
@@ -93,6 +94,7 @@ pub fn wrap(
     comptime chain: anytype,
     comptime index: usize,
     context: anytype,
+    ctx: *RequestContext,
     states: [*]u8,
     held: anytype,
     request: *const event.Request,
@@ -101,11 +103,11 @@ pub fn wrap(
     const Middleware = chain[index];
     const state = state_at(chain, index, states);
     if (comptime @hasDecl(Middleware, "wrap_body")) {
-        if (Middleware.wrap_body(context, state, request, held.reader)) |reader| held.reader = reader;
+        if (Middleware.wrap_body(context, ctx, state, request, held.reader)) |reader| held.reader = reader;
     }
     if (comptime @hasDecl(Middleware, "wrap_response")) {
         const inner = response.wrapped orelse &response.writer;
-        if (Middleware.wrap_response(context, state, request, response, inner)) |writer| {
+        if (Middleware.wrap_response(context, ctx, state, request, response, inner)) |writer| {
             response.wrapped = writer;
             held.writers[index] = writer;
         }
@@ -114,14 +116,14 @@ pub fn wrap(
 
 /// Lets each wrapper of the response write what it owes, from the route's side outward: its
 /// middleware's `finish_response`, or a flush of its writer when it declares none.
-pub fn finish(comptime chain: anytype, context: anytype, states: [*]u8, held: anytype) anyerror!void {
+pub fn finish(comptime chain: anytype, context: anytype, ctx: *RequestContext, states: [*]u8, held: anytype) anyerror!void {
     inline for (0..chain.len) |reverse| {
         const index = chain.len - 1 - reverse;
         const Middleware = chain[index];
         if (comptime @hasDecl(Middleware, "wrap_response")) {
             if (held.writers[index]) |writer| {
                 if (comptime @hasDecl(Middleware, "finish_response")) {
-                    try Middleware.finish_response(context, state_at(chain, index, states));
+                    try Middleware.finish_response(context, ctx, state_at(chain, index, states));
                 } else {
                     try writer.flush();
                 }

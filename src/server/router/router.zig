@@ -14,29 +14,38 @@ const router_pool = @import("router_pool.zig");
 const router_call = @import("router_call.zig");
 const router_handler = @import("router_handler.zig");
 
-/// Builds a route table at compile time. `table` is a struct with two fields:
+/// Builds a route table at compile time. `table` is a struct with these fields:
 ///
 /// - `error_handler`: the function the router calls when a route's function returns an error,
-///   with the context, the request, the error and the response writer. The program chooses the
-///   status ("The user always decides what status to return", decision 127 ruling 4).
+///   with the context, the request context, the request, the error and the response writer. The
+///   program chooses the status ("The user always decides what status to return", decision 127
+///   ruling 4).
 /// - `routes`: a tuple of entries. Each is a method, a pattern and a function, such as
 ///   `.{ .get, "/greetings/:name", greet }`, and options may follow, such as
-///   `.{ .whole_body = true }`. The method and the pattern are decision 122's, which
+///   `.{ .path = Name, .query = Mark }`. The method and the pattern are decision 122's, which
 ///   `router_table.zig` lists.
+/// - `Values`, which a table may leave out: the type of each request's values, a struct whose
+///   fields each have a default. Each request starts with `.{}` (decision 163 ruling 2).
+/// - `middleware`, which a table may leave out: a tuple of the middleware of every route.
 ///
-/// A route's function takes five parameters: `*Context`, `*const server.Request`, the path
-/// parameters, the query, and `*server.ResponseWriter`. It returns `!void`. The path parameters
-/// are `void`, or a struct with a `[]const u8` field for each parameter of the pattern, and `rest`
-/// for its wildcard. The query is `void`, `http.QueryParameters`, or a struct of fields that name
-/// query pairs.
+/// A route's function takes four parameters: `*Context`, `*server.RequestContext`,
+/// `*const server.Request` and `*server.ResponseWriter` (decision 163). It returns `!void`.
 ///
-/// A route can be a struct instead, with `on_request`, which takes a `*State` after the context and
-/// else the parameters of a function, and any of `on_body`, `on_writable` and `on_finished`.
-/// `on_body` reads the request body through a `*std.Io.Reader`. With `.whole_body`, it runs once,
-/// after the last byte.
+/// A route's options name the types of its path parameters and of its query (decision 163 ruling
+/// 3). `.path` is a struct with a `[]const u8` field for each parameter of the pattern, and `rest`
+/// for its wildcard. `.query` is `http.QueryParameters`, or a struct of fields that name query
+/// pairs. The function reads them with `ctx.path(Name)` and `ctx.query(Mark)`. A route that names
+/// no `.path` and no `.query` reads neither.
+///
+/// A route can be a struct instead, with `on_request`, which takes a `*State` after the request
+/// context and else the parameters of a function, and any of `on_body`, `on_writable` and
+/// `on_finished`. Each takes the context, the request context and the `*State` first. `on_body`
+/// reads the request body through a `*std.Io.Reader`. With `.whole_body`, it runs once, after the
+/// last byte.
 ///
 /// Middleware run before a route: the route table's `middleware`, then the route entry's, each a
-/// struct with `on_request`, `on_finished` or both (`server.middleware`).
+/// struct with `on_request`, `on_finished` or both (`server.middleware`). Each hook takes the
+/// request context after the context.
 ///
 /// The type is the router: a program places one, which does not move, and passes each event of its
 /// engine to its `handle`. `options` sizes it: `options.requests` entries, each with
@@ -129,6 +138,7 @@ test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_struct_test.zig");
     _ = @import("router_middleware_test.zig");
+    _ = @import("router_context_test.zig");
     _ = @import("router_wrap_test.zig");
     _ = @import("router_stream_test.zig");
     _ = @import("router_stream_h3_test.zig");

@@ -5,6 +5,7 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const Next = @import("../middleware.zig").Next;
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -38,19 +39,19 @@ const unavailable: http.Status = .service_unavailable;
 
 /// The route table's middleware: it notes its call.
 const Log = struct {
-    pub fn on_request(app: *App, _: *const event.Request, _: *ResponseWriter) Next {
+    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, _: *ResponseWriter) Next {
         app.add('l');
         return .next;
     }
 
-    pub fn on_finished(app: *App, _: event.RequestId, _: event.Result) void {
+    pub fn on_finished(app: *App, _: *RequestContext, _: event.Result) void {
         app.add('L');
     }
 };
 
 /// A route entry's middleware: it answers 401 when the test says, or fails.
 const Guard = struct {
-    pub fn on_request(app: *App, _: *const event.Request, response: *ResponseWriter) !Next {
+    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !Next {
         app.add('g');
         if (app.fail) return error.TestGuardFailed;
         if (!app.refuse) return .next;
@@ -59,7 +60,7 @@ const Guard = struct {
         return .answered;
     }
 
-    pub fn on_finished(app: *App, _: event.RequestId, _: event.Result) void {
+    pub fn on_finished(app: *App, _: *RequestContext, _: event.Result) void {
         app.add('G');
     }
 };
@@ -67,17 +68,17 @@ const Guard = struct {
 /// A route entry's middleware after `Guard`, with `on_finished` alone: it runs only when the
 /// chain reached it.
 const Late = struct {
-    pub fn on_finished(app: *App, _: event.RequestId, _: event.Result) void {
+    pub fn on_finished(app: *App, _: *RequestContext, _: event.Result) void {
         app.add('T');
     }
 };
 
-fn route(app: *App, _: *const event.Request, _: void, _: void, response: *ResponseWriter) !void {
+fn route(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
     app.add('r');
     try response.end();
 }
 
-fn on_error(_: *App, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
     response.status = unavailable;
 }
 

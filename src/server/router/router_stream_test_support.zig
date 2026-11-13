@@ -9,6 +9,7 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 
 /// The messages of the longest response a test's route writes, octets of its longest message, and
 /// octets of that response at most. Test-only.
@@ -90,9 +91,9 @@ pub const App = struct {
 pub const Stream = struct {
     pub const State = struct { written: usize = 0, messages: usize = 0 };
 
-    pub fn on_request(_: *App, _: *State, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *ResponseWriter) !void {}
 
-    pub fn on_writable(app: *App, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *ResponseWriter) !void {
         app.calls += 1;
         const writer = response.body();
         if (writer.unusedCapacityLen() == 0) app.roomless_calls += 1;

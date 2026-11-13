@@ -14,7 +14,7 @@ const lines = @embedFile("github_routes");
 pub const answer_body = "ok\n";
 const answer_content_type = "text/plain; charset=utf-8";
 
-fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
     try response.header("content-type", answer_content_type);
     try response.body().writeAll(answer_body);
     try response.end();
@@ -23,9 +23,9 @@ fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *serve
 /// The route of each POST line: it reads the request's whole body, then answers as `answer` does.
 /// So the judge counts what a request with a body costs through the router (design §8 step 50b).
 const Body = struct {
-    pub fn on_request(_: *void, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
 
-    pub fn on_body(_: *void, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
         // With `whole_body`, the reader holds every octet of the body.
         content.toss(content.buffered().len);
         try response.header("content-type", answer_content_type);
@@ -35,7 +35,7 @@ const Body = struct {
 };
 
 /// No route returns an error, so the status this chooses is never sent.
-fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = .internal_server_error;
 }
 

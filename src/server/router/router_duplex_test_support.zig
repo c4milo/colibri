@@ -6,6 +6,7 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
 /// Octets of the entry's response memory and of its body memory, and of each message the route
@@ -52,13 +53,13 @@ pub const App = struct {
 pub const Duplex = struct {
     pub const State = struct { owed: usize = 0, body_ended: bool = false };
 
-    pub fn on_request(app: *App, state: *State, _: *const event.Request, _: void, _: void, response: *ResponseWriter) !void {
+    pub fn on_request(app: *App, _: *RequestContext, state: *State, _: *const event.Request, response: *ResponseWriter) !void {
         try response.header("content-type", "application/octet-stream");
         state.owed = app.head_len;
         try write_owed(app, state, response);
     }
 
-    pub fn on_body(app: *App, state: *State, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, response: *ResponseWriter) !void {
         const bytes = reader.buffered();
         reader.toss(bytes.len);
         state.owed += bytes.len * app.reply_len;
@@ -67,7 +68,7 @@ pub const Duplex = struct {
         try write_owed(app, state, response);
     }
 
-    pub fn on_writable(app: *App, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *ResponseWriter) !void {
         if (!state.body_ended) app.open_calls += 1;
         const before = app.written;
         try write_owed(app, state, response);
@@ -96,7 +97,7 @@ fn write_owed(app: *App, state: *Duplex.State, response: *ResponseWriter) !void 
     }
 }
 
-fn on_error(_: *App, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
     response.status = internal_server_error;
 }
 

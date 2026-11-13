@@ -45,6 +45,7 @@ const files = struct {
     pub const router_pool = @import("router/router_pool.zig");
     pub const middleware = @import("middleware.zig");
     pub const response_writer = @import("response_writer/response_writer.zig");
+    pub const request_context = @import("request_context.zig");
 };
 
 /// What a program configures a server with, once: the engine copies it at `init` (decisions 119
@@ -100,6 +101,9 @@ pub const ResponseBody = files.event.ResponseBody;
 /// The response a route's function writes: a status, headers, and a body through a
 /// `std.Io.Writer` (decision 127).
 pub const ResponseWriter = files.response_writer.ResponseWriter;
+/// The request's own object, which each router callback takes after the program's context
+/// (decision 163).
+pub const RequestContext = files.request_context.RequestContext;
 pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
 /// A response's status code, which `Response.status` and `ResponseWriter.status` take (decision
@@ -157,21 +161,21 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Engine` in place of `Endpoint` and `EndpointOf`, the options of each pool in place of each
     // `Default*` name, and `Router` and `RouterOptions` in place of `router` (decision 158). 45h
     // adds `Instant`, and 45i `Status`. v0.16.0 renames `Instant` to `Timestamp`
-    // (https://github.com/c4milo/colibri/issues/131).
+    // (https://github.com/c4milo/colibri/issues/131). 50c adds `RequestContext` (decision 163).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",         "Protocols",    "Limits",             "Timeout",
-        "Timeouts",           "CloseReason",    "Limit",        "Engine",             "Capacity",
-        "Timestamp",          "Input",          "Datagram",     "StreamBytes",        "LogProvider",
-        "ResumeProvider",     "ResumeState",    "ResumeBounds", "Sent",               "Address",
-        "Ecn",                "StartError",     "SendError",    "Header",             "RequestId",
-        "ConnectionHandle",   "Version",        "Headers",      "Event",              "Request",
-        "RequestBody",        "Trailers",       "CancelReason", "Finished",           "Result",
-        "Writable",           "Ended",          "Response",     "ResponseBody",       "ResponseWriter",
-        "ReceiveResult",      "Alternative",    "Status",       "Coding",             "EncoderPool",
-        "EncoderPoolOptions", "Encoders",       "DecoderPool",  "DecoderPoolOptions", "Decoders",
-        "Features",           "PathParameters", "Handled",      "Router",             "RouterOptions",
-        "middleware",
+        "constants",        "Config",             "Protocols",      "Limits",       "Timeout",
+        "Timeouts",         "CloseReason",        "Limit",          "Engine",       "Capacity",
+        "Timestamp",        "Input",              "Datagram",       "StreamBytes",  "LogProvider",
+        "ResumeProvider",   "ResumeState",        "ResumeBounds",   "Sent",         "Address",
+        "Ecn",              "StartError",         "SendError",      "Header",       "RequestId",
+        "ConnectionHandle", "Version",            "Headers",        "Event",        "Request",
+        "RequestBody",      "Trailers",           "CancelReason",   "Finished",     "Result",
+        "Writable",         "Ended",              "Response",       "ResponseBody", "ResponseWriter",
+        "RequestContext",   "ReceiveResult",      "Alternative",    "Status",       "Coding",
+        "EncoderPool",      "EncoderPoolOptions", "Encoders",       "DecoderPool",  "DecoderPoolOptions",
+        "Decoders",         "Features",           "PathParameters", "Handled",      "Router",
+        "RouterOptions",    "middleware",
     });
 }
 
