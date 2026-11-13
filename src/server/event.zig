@@ -79,14 +79,15 @@ pub const ResponseBody = struct {
 /// first (RFC 9113 §8.3).
 pub const Headers = struct {
     /// The field section's lines, as slices of the engine's section or of a copy of its live
-    /// parts (decision 163 ruling 5).
-    lines: http.FieldSection.Slice,
+    /// parts (decision 163 ruling 5). The connection or the router's copy holds the `Slice`.
+    lines: *const http.FieldSection.Slice,
     /// The index of the first regular field line.
     first: u32,
 
-    /// The section's regular field lines, skipping the pseudo-header fields at its front.
-    pub fn init(section: *const http.FieldSection) Headers {
-        const lines = section.slice();
+    /// The regular field lines of `lines`, after the pseudo-header fields at its front. The
+    /// `Headers` keeps the pointer, so the slice it names must stay valid while the `Headers` is
+    /// read.
+    pub fn init(lines: *const http.FieldSection.Slice) Headers {
         var first: u32 = 0;
         // RFC 9113 §8.3: every pseudo-header field comes before the regular field lines.
         while (first < lines.len() and is_pseudo(lines.get(first).name)) first += 1;
@@ -104,7 +105,7 @@ pub const Headers = struct {
     /// The regular field lines in arrival order.
     pub fn iterator(headers: *const Headers) http.FieldSection.Iterator {
         assert(headers.first <= headers.lines.len());
-        return .{ .slice = headers.lines, .index = headers.first };
+        return .{ .slice = headers.lines.*, .index = headers.first };
     }
 
     /// How many regular field lines the section holds.
@@ -113,6 +114,12 @@ pub const Headers = struct {
         return headers.lines.len() - headers.first;
     }
 };
+
+comptime {
+    // Each layer of the engine passes an `Event` on by value, and a request's event holds a
+    // `Headers`. A pointer to the lines keeps it at 16 octets, where a `Slice` would take 40.
+    if (@sizeOf(usize) == 8) assert(@sizeOf(Headers) == 16);
+}
 
 /// RFC 9113 §8.3: a pseudo-header field's name starts with a colon.
 fn is_pseudo(name: []const u8) bool {

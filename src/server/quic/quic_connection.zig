@@ -132,6 +132,9 @@ pub const QuicConnection = struct {
     h3: h3.Connection,
     /// Where a response's field section is built, and where h3 copies a request's content.
     section: h3.http.FieldSection,
+    /// The lines of h3's field section for the last request or trailers event. The event's
+    /// `Headers` points here, and the lines stay valid until the next `receive`.
+    header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
     body: [constants.limits.quic_read_len]u8,
     requests: quic_request.Requests,
     owed: quic_request.Owed,

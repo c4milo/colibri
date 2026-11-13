@@ -56,6 +56,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.sends.init();
     connection.requests.init();
     connection.owed = .{};
+    connection.header_lines = .{ .octets = &.{}, .lines = &.{} };
     connection.started = false;
     connection.shutting_down = false;
     connection.continue_owed = false;

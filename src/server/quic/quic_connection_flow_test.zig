@@ -6,6 +6,7 @@ const quic = @import("quic");
 const http = @import("http");
 const support = @import("quic_test_support.zig");
 const internal = @import("quic_connection_internal.zig");
+const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -87,6 +88,36 @@ test "RFC 9110 §6.5: a request's trailer section ends it, and no end of its con
     try testing.expectEqual(fetch.id, support.nth(.request, 0).?.id);
     try testing.expectEqual(fetch.id, support.nth(.trailers, 0).?.id);
     try testing.expectEqual(null, support.nth(.body, 0));
+}
+
+/// The count of lines that the program read in a trailers event's headers, during the event.
+/// Test-only.
+threadlocal var trailers_read_len: u32 = 0;
+/// Whether the trailers event's "checksum" line held the value sent. Test-only.
+threadlocal var trailers_checksum_matched: bool = false;
+
+/// Reads the headers of a trailers event while they are valid, as a program does. Test-only.
+fn read_trailers(reported: event.Event) void {
+    const trailers = switch (reported) {
+        .trailers => |trailers| trailers,
+        else => return,
+    };
+    trailers_read_len = trailers.headers.len();
+    const line = trailers.headers.find(trailer_fields[0].name) orelse return;
+    trailers_checksum_matched = std.mem.eql(u8, line.value, trailer_fields[0].value);
+}
+
+test "RFC 9110 §6.5: a trailers event reads the lines of the trailer section, not of the head" {
+    try support.start();
+    support.seen_support.program = read_trailers;
+    defer support.seen_support.program = null;
+    trailers_read_len = 0;
+    trailers_checksum_matched = false;
+    try support.connect();
+    _ = try support.request_with_trailers("/upload", &trailer_fields);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(trailer_fields.len, trailers_read_len);
+    try testing.expect(trailers_checksum_matched);
 }
 
 /// A receive pool smaller than a request stream's window. Test-only.

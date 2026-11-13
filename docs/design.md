@@ -15708,8 +15708,10 @@ library.
     - `server.ResponseStream`, with the calls of `server.Response`.
     - `server.RouterOptions.header_bytes`, the octets of each entry's copy of a header. It has
       no default, and a header past it gets 431 (decision 163 ruling 5).
-    - `server.Headers` keeps its calls. It holds `lines`, an `http.FieldSection.Slice`, and
-      `first`, so that it reads the engine's section or the router's copy (sub-step 50e).
+    - `server.Headers` keeps its calls. It holds `lines` and `first`, so that it reads the
+      engine's section or the router's copy (sub-step 50e). `lines` points to an
+      `http.FieldSection.Slice` that the connection or the router's copy keeps, so
+      `server.Headers` stays at 16 octets in each event that the engine's layers copy.
     - `http.FieldSection.Slice`, a section's live lines as two slices, with `len(slice) u32`,
       `get(slice, index: u32) Field`, `find(slice, name: []const u8) ?Field` and
       `iterator(slice) Iterator`; and `http.FieldSection.slice(section) Slice`. A
@@ -15821,6 +15823,37 @@ library.
       `ResponseHeader`.
     - **Runs.** `tools/ci.sh` on `3d44f103`, on the same machine: 31 of 31 checks passed. The
       `server` module's tests in Debug for x86-64 Linux, in an amd64 container: 649 of 649.
+  - **50e, part 1, met 2026-11-13.** `server.Headers` reads its lines through an
+    `http.FieldSection.Slice`, so that part 2 can point it at the router's copy of a header. The
+    owner ruled the name `Slice` on 2026-11-13. The part changes no behaviour and copies nothing.
+    - **The first judge run.**
+      [Run 43370964281](https://github.com/c4milo/colibri/actions/runs/43370964281) compared
+      `dec2df9a`, where `server.Headers` held a `Slice` by value, with main `4a813acd`. Each
+      input was within the noise, but each counted more user instructions a request:
+      h2-routes-many 18, from 13,891 to 13,909, in both jobs; h2-many 19 and 24; and
+      h2-routes-post-many 31 and 32.
+    - **A trim that lost.** `FieldSection.get` and `find` read a line with no `Slice` built first.
+      [Run 43373781578](https://github.com/c4milo/colibri/actions/runs/43373781578) gave 29 on
+      h2-routes-many, so it did not land.
+    - **The cause.** callgrind counted the instructions of each source line of the test server
+      under the judge's routed load, on main and on `dec2df9a`. The reads of a header's lines cost
+      less than on main. The files that pass an event along cost about 50 instructions a request
+      more: `engine_state_tcp.zig`, `engine_state.zig`, `engine_state_events.zig`, `engine.zig`,
+      `connection.zig` and `connection_owed.zig`. Each copies the event by value, and
+      `server.Headers` had grown from 16 octets to 40.
+    - **The fix.** `server.Headers` holds a pointer to a `Slice` that the connection keeps beside
+      its section, and is 16 octets again, which a comptime assertion pins. Each TCP and QUIC
+      connection grows by the 32 octets of that `Slice`. `Headers.init` keeps the pointer, so
+      the lint rule `kept-options-pointer` excludes `src/server/event.zig`, at the owner's ruling
+      of 2026-11-13.
+      [Run 43388573905](https://github.com/c4milo/colibri/actions/runs/43388573905) compared
+      `fd68d77c` with `4a813acd`: h2-routes-many gave 1.0004 and 1.0003, 3 user instructions a
+      request, from 13,892 to 13,895. Each other input is within the noise.
+    - **Mutations, 15 of 15 CAUGHT:** `Slice.find` returns the last line, or compares case;
+      `slice` drops a line; `Headers` starts at 0, or counts pseudo-header fields; `init` skips
+      none; the iterator starts late; the Expect check reads another field; the h11, h2 and h3
+      request events, and the h2, h11 and h3 trailers events, read a `Slice` not written again;
+      and the lint rule reads `src/server/event.zig`.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

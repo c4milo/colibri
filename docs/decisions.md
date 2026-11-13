@@ -7970,4 +7970,5 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
      `@sizeOf(Values)` and by `header_bytes`. A request with a body on a function route pays one
-     copy of its header, and every request's `server.Headers` holds two slices.
+     copy of its header. Each connection keeps the `http.FieldSection.Slice` of its event, 32
+     octets, so `server.Headers` stays at 16 octets in each copy of an event.

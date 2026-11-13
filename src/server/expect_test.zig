@@ -11,6 +11,8 @@ const testing = std.testing;
 
 /// The section the tests read, outside any stack frame. Test-only.
 var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
+/// The section's lines, which each request's headers point to. Test-only.
+var test_lines: http.FieldSection.Slice align(@alignOf(http.FieldSection.Slice)) = undefined;
 
 /// A request carrying `expect` as its Expect value, at `version`, with content when `end` is
 /// false. Test-only.
@@ -18,6 +20,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
     test_section.init();
     try test_section.append("host", "a");
     try test_section.append("Expect", expect);
+    test_lines = test_section.slice();
     return .{
         .id = event.id_of(1),
         .method = "PUT",
@@ -27,7 +30,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
         .authority = "a",
         .path = "/",
         .query = null,
-        .headers = .{ .lines = test_section.slice(), .first = 0 },
+        .headers = .{ .lines = &test_lines, .first = 0 },
         .end = end,
     };
 }
@@ -53,8 +56,8 @@ test "RFC 9110 §10.1.1: no 100 for HTTP/1.0, for a request with no content, or 
 test "RFC 9110 §10.1.1: the expectation is the Expect field's, and no other field's" {
     var request = try request_with("200-ok", http_1_1, false);
     try test_section.append("x-note", "100-continue");
-    // The headers are slices of the section as it was, so the test takes them again.
-    request.headers = .{ .lines = test_section.slice(), .first = 0 };
+    // The lines are slices of the section as it was, so the test takes them again.
+    test_lines = test_section.slice();
     try testing.expectEqualStrings("100-continue", request.headers.find("x-note").?.value);
     try testing.expect(!expects_continue(request));
 }

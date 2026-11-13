@@ -16,6 +16,11 @@
 //! `&pool.config`), which lives as long as it does. No pointer to the program's options stays, so
 //! decision 158 ruling 2 holds, and a copy in each connection would cost memory for each slot. The
 //! two simulator files keep a pointer to a plan that their test owns.
+//!
+//! `src/server/event.zig` is excluded too, at the owner's ruling of 2026-11-13.
+//! `server.Headers.init` keeps a pointer to the lines of a header, which its connection or the
+//! router's copy holds: a view, not options. A copy would make `server.Headers` 40 octets, and the
+//! engine's layers copy each event by value (design §8 step 50e).
 
 const std = @import("std");
 const pepegrillo = @import("pepegrillo");
@@ -31,6 +36,7 @@ pub const config: kept_options_pointer.Config = .{
             "src/client/quic/quic_connection.zig",
             "src/server/connection/connection.zig",
             "src/server/engine/engine_connections.zig",
+            "src/server/event.zig",
             "src/sim/h3_endpoint.zig",
             "src/sim/h3_trace_endpoint.zig",
         },
@@ -104,4 +110,18 @@ test "kept-options-pointer reads no connection that keeps its engine's own confi
         \\};
     );
     try testing.expectEqual(0, internal.len);
+}
+
+test "kept-options-pointer reads no server.Headers, which keeps a pointer to a header's lines" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const view = try findings_of(arena_state.allocator(), "src/server/event.zig",
+        \\pub const Headers = struct {
+        \\    lines: *const Slice,
+        \\    pub fn init(lines: *const Slice) Headers {
+        \\        return .{ .lines = lines };
+        \\    }
+        \\};
+    );
+    try testing.expectEqual(0, view.len);
 }

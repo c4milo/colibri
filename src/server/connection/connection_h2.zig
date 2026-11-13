@@ -41,14 +41,14 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Erro
             if (!session.has_pending() or !internal.write_owed(connection, now_ns)) return .{ .consumed = consumed, .event = null };
             continue;
         }
-        const reported = report(session, received.event orelse continue) orelse continue;
+        const reported = report(connection, received.event orelse continue) orelse continue;
         return .{ .consumed = consumed, .event = reported };
     }
     return .{ .consumed = consumed, .event = null };
 }
 
 /// The server's event for h2's, or null for one that concerns the connection alone.
-fn report(session: *const h2.Connection, h2_event: h2.Event) ?ConnectionEvent {
+fn report(connection: *Connection, h2_event: h2.Event) ?ConnectionEvent {
     return switch (h2_event) {
         .request => |arrived| .{
             .request = .{
@@ -62,12 +62,12 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?ConnectionEvent {
                 .authority = arrived.request.authority,
                 .path = event.split_target(arrived.request.path).path,
                 .query = event.split_target(arrived.request.path).query,
-                .headers = request_fields(session.field_section(), arrived),
+                .headers = request_fields(connection, arrived),
                 .end = arrived.end_stream,
             },
         },
         .data => |data| .{ .body = .{ .id = event.id_of(data.stream_id), .bytes = data.payload, .end = data.end_stream } },
-        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .headers = trailer_fields(session.field_section()) } },
+        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .headers = trailer_fields(connection) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
         .stream_reset => |reset| .{ .cancelled = .{ .id = event.id_of(reset.stream_id), .reason = .peer_reset } },
         .stream_refused => |refused| .{ .cancelled = .{ .id = event.id_of(refused.stream_id), .reason = .refused } },
@@ -82,20 +82,25 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?ConnectionEvent {
 /// §8.3; decision 19 refuses `:protocol`), and with `:method` always (§8.3.1). So the count of
 /// pseudo-header fields the request carries is the index of its first regular line. The code
 /// finds that index without reading a line, and the assertion reads that one line to check it.
-fn request_fields(section: *const http.FieldSection, arrived: h2.Connection.Request) event.Headers {
+/// The lines go into `header_lines`, which the event's `Headers` points to.
+fn request_fields(connection: *Connection, arrived: h2.Connection.Request) event.Headers {
+    const section = connection.session.h2.field_section();
     const optional = [_]?[]const u8{ arrived.request.scheme, arrived.request.authority, arrived.request.path };
     var first: u32 = 1;
     for (optional) |value| first += @intFromBool(value != null);
     assert(first <= section.len());
     assert(first == section.len() or !http.message_lines.is_pseudo_header(section.get(first).name));
-    return .{ .lines = section.slice(), .first = first };
+    connection.header_lines = section.slice();
+    return .{ .lines = &connection.header_lines, .first = first };
 }
 
 /// The field lines of a trailer section h2 read, which holds no pseudo-header field
-/// (RFC 9113 §8.1).
-fn trailer_fields(section: *const http.FieldSection) event.Headers {
+/// (RFC 9113 §8.1). The lines go into `header_lines`, which the event's `Headers` points to.
+fn trailer_fields(connection: *Connection) event.Headers {
+    const section = connection.session.h2.field_section();
     assert(section.len() == 0 or !http.message_lines.is_pseudo_header(section.get(0).name));
-    return .{ .lines = section.slice(), .first = 0 };
+    connection.header_lines = section.slice();
+    return .{ .lines = &connection.header_lines, .first = 0 };
 }
 
 /// Writes what h2 owes ahead of a frame of the caller's, as the client's TCP connection does. A

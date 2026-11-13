@@ -199,7 +199,8 @@ fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool)
 /// Fails, printing both, when the event's first regular line is not where `event.Headers.init`
 /// finds it.
 fn expect_first_as_scanned(fields: *const event.Headers) !void {
-    const scanned = event.Headers.init(connection.session.h2.field_section()).first;
+    const lines_now = connection.session.h2.field_section().slice();
+    const scanned = event.Headers.init(&lines_now).first;
     if (fields.first == scanned) return;
     std.debug.print("first difference: the count gives {d}, the scan {d}\n", .{ fields.first, scanned });
     return error.TestUnexpectedResult;

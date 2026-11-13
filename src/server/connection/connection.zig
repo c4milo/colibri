@@ -104,6 +104,9 @@ pub const Connection = struct {
     /// The protocol serving the connection: in cleartext from the start or once the first octets
     /// chose it, and over TLS once the handshake completes.
     session: Session,
+    /// The lines of the field section of the last request or trailers event. The event's
+    /// `Headers` points here, and the lines stay valid until the next `receive`.
+    header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
     tls_server: tls.record.Server,
     /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
     /// octets are what the last event pointed into, dropped at the next call.
@@ -186,6 +189,7 @@ pub const Connection = struct {
         connection.stopped = false;
         connection.shutting_down = false;
         connection.continue_owed = null;
+        connection.header_lines = .{ .octets = &.{}, .lines = &.{} };
         connection.next_id = 1;
         connection.current_id = 0;
         connection.chunked_allowed = false;

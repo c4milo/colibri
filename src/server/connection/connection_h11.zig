@@ -67,13 +67,20 @@ fn report(connection: *Connection, h11_event: h11.Connection.Event) ConnectionEv
         .request => |request| start_request(connection, request),
         .data, .tunnel => |octets| .{ .body = .{ .id = id, .bytes = octets, .end = false } },
         // RFC 9112 §7.1.2: a chunked body's trailer section ends it.
-        .end => if (session.trailers.len() > 0)
-            .{ .trailers = .{ .id = id, .headers = .{ .lines = session.trailers.slice(), .first = 0 } } }
-        else
-            .{ .body = .{ .id = id, .bytes = &.{}, .end = true } },
+        .end => if (session.trailers.len() > 0) trailers_event(connection, id) else .{ .body = .{ .id = id, .bytes = &.{}, .end = true } },
         // A server's h11 connection reads requests alone.
         .interim, .response => unreachable,
     };
+}
+
+/// The event of the trailer section that ended a chunked body. Its lines go into
+/// `header_lines`, which the event's `Headers` points to.
+fn trailers_event(connection: *Connection, id: event.RequestId) ConnectionEvent {
+    const session = &connection.session.h11;
+    assert(session.trailers.len() > 0);
+    connection.header_lines = session.trailers.slice();
+    assert(connection.header_lines.len() == session.trailers.len());
+    return .{ .trailers = .{ .id = id, .headers = .{ .lines = &connection.header_lines, .first = 0 } } };
 }
 
 fn start_request(connection: *Connection, request: h11.Connection.Request) ConnectionEvent {
@@ -85,6 +92,7 @@ fn start_request(connection: *Connection, request: h11.Connection.Request) Conne
     connection.head_request = session.asked == .head;
     const target = target_of(request, &session.section, connection.config.tls != null);
     const parts = event.split_target(target.path);
+    connection.header_lines = session.section.slice();
     return .{
         .request = .{
             .id = event.id_of(connection.current_id),
@@ -95,7 +103,7 @@ fn start_request(connection: *Connection, request: h11.Connection.Request) Conne
             .authority = target.authority,
             .path = parts.path,
             .query = parts.query,
-            .headers = .{ .lines = session.section.slice(), .first = 0 },
+            .headers = .{ .lines = &connection.header_lines, .first = 0 },
             // h11 reads no body for a request that declared none.
             .end = session.phase == .waiting,
         },

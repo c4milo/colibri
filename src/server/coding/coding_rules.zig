@@ -116,11 +116,14 @@ const test_http_1_1: event.Version = .{ .major = 1, .minor = 1 };
 
 /// A request's field section, outside any stack frame. Test-only.
 threadlocal var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
+/// The section's lines, which the request's headers point to. Test-only.
+threadlocal var test_lines: http.FieldSection.Slice align(@alignOf(http.FieldSection.Slice)) = undefined;
 
 /// What a request with `method`, `version` and the field lines `lines` asks.
 fn test_asked(method: []const u8, version: event.Version, lines: []const http.Field) !Asked {
     test_section.init();
     for (lines) |line| try test_section.append(line.name, line.value);
+    test_lines = test_section.slice();
     return asked(&test_codings, .{
         .id = event.id_of(1),
         .method = method,
@@ -130,7 +133,7 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.Fi
         .authority = "example.test",
         .path = "/",
         .query = null,
-        .headers = event.Headers.init(&test_section),
+        .headers = event.Headers.init(&test_lines),
         .end = true,
     });
 }
