@@ -141,7 +141,7 @@ pub const Program = struct {
         request.word = word;
     }
 
-    pub fn respond(program: *Program, id: server.RequestId, response: server.Response) Violation!?server.SendError {
+    pub fn respond(program: *Program, id: server.RequestId, response: server.ResponseHeader) Violation!?server.SendError {
         const responded = program.endpoint.respond(id, response);
         try program.called("respond");
         if (responded) |_| return null else |failure| return @as(?server.SendError, failure);

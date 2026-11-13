@@ -186,7 +186,7 @@ const cases = [_]Case{
     .{
         .name = "response_parameter",
         .message = "server.Router: route 1, \"/a\": response_parameter: " ++
-            "the last parameter is *server.ResponseWriter",
+            "the last parameter is *server.Response",
     },
     .{
         .name = "return_type",
@@ -196,12 +196,12 @@ const cases = [_]Case{
     .{
         .name = "on_body_parameters",
         .message = "server.Router: route 1, \"/a\": on_body_parameters: " ++
-            "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.ResponseWriter",
+            "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.Response",
     },
     .{
         .name = "on_writable_parameters",
         .message = "server.Router: route 1, \"/a\": on_writable_parameters: " ++
-            "writable takes the context, *server.RequestContext, *State and *server.ResponseWriter",
+            "writable takes the context, *server.RequestContext, *State and *server.Response",
     },
     .{
         .name = "on_finished_parameters",
@@ -271,7 +271,7 @@ const cases = [_]Case{
     .{
         .name = "middleware_on_request",
         .message = "server.Router: route 1, \"/a\": middleware_on_request: " ++
-            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.ResponseWriter, " ++
+            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.Response, " ++
             "and returns server.middleware.Next",
     },
     .{
@@ -292,7 +292,7 @@ const cases = [_]Case{
     .{
         .name = "middleware_on_request_parameters",
         .message = "server.Router: route 1, \"/a\": middleware_on_request: " ++
-            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.ResponseWriter, " ++
+            "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.Response, " ++
             "and returns server.middleware.Next",
     },
     .{
@@ -309,7 +309,7 @@ const cases = [_]Case{
     .{
         .name = "middleware_wrap_response",
         .message = "server.Router: route 1, \"/a\": middleware_wrap_response: " ++
-            "wrap_response takes the context, *server.RequestContext, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, " ++
+            "wrap_response takes the context, *server.RequestContext, *State, *const server.Request, *server.Response and *std.Io.Writer, " ++
             "and returns ?*std.Io.Writer",
     },
     .{
@@ -341,7 +341,7 @@ const cases = [_]Case{
     .{
         .name = "error_handler_type",
         .message = "server.Router: route table: error_handler_type: " ++
-            "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.ResponseWriter, " ++
+            "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.Response, " ++
             "and returns void",
     },
     .{

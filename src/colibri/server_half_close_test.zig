@@ -28,11 +28,11 @@ const routes = .{
 };
 const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
 
-fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.end();
 }
 
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }
 
@@ -41,9 +41,9 @@ const Held = struct { finished: u32 = 0 };
 
 /// A route that writes no response, so its request ends only with its connection.
 const Hold = struct {
-    pub fn on_request(_: *Held, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *Held, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
-    pub fn on_body(_: *Held, _: *server.RequestContext, _: *void, reader: *std.Io.Reader, _: *server.ResponseWriter) !void {
+    pub fn on_body(_: *Held, _: *server.RequestContext, _: *void, reader: *std.Io.Reader, _: *server.Response) !void {
         reader.tossBuffered();
     }
 
@@ -60,7 +60,7 @@ const held_routes = .{
 };
 const HeldRouter = server.Router(Held, held_routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = response_bytes });
 
-fn on_held_error(_: *Held, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_held_error(_: *Held, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }
 

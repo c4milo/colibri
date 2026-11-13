@@ -56,7 +56,7 @@ pub const Version = struct {
 /// The head of a response, which `respond` writes: its status, its field lines, and whether the
 /// response ends with it. An interim response (1xx) ignores `end`, because the final response
 /// still follows it (RFC 9110 §15.2).
-pub const Response = struct {
+pub const ResponseHeader = struct {
     status: http.Status,
     headers: []const Header = &.{},
     end: bool,

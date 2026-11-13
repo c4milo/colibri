@@ -190,7 +190,7 @@ fn reading(connection: *QuicConnection, stream_id: u64) ?*Request {
     return if (record.ended) null else record;
 }
 
-pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
+pub fn respond(connection: *QuicConnection, id: Number, response: event.ResponseHeader) SendError!void {
     const record = try writable(connection, id);
     connection.requests.mark(record);
     const status = @intFromEnum(response.status);
@@ -205,13 +205,13 @@ pub fn respond(connection: *QuicConnection, id: Number, response: event.Response
 /// A final response on a connection that codes, with its head as decision 101 plans it. The
 /// rewritten field lines live in this frame alone, so a response that `plans` passes over does not
 /// pay for the room: a safe build fills `undefined` memory on every call.
-fn respond_planned(connection: *QuicConnection, record: *Request, response: event.Response) SendError!void {
+fn respond_planned(connection: *QuicConnection, record: *Request, response: event.ResponseHeader) SendError!void {
     var rewritten: coding_fields.Rewritten = undefined;
     return send_head(connection, record, response, try quic_coding.plan_head(connection, record, response, &rewritten));
 }
 
 /// Writes `head` as the response's HEADERS frame, and records what the response owes next.
-fn send_head(connection: *QuicConnection, record: *Request, response: event.Response, head: coding_response.Head) SendError!void {
+fn send_head(connection: *QuicConnection, record: *Request, response: event.ResponseHeader, head: coding_response.Head) SendError!void {
     const status = @intFromEnum(response.status);
     errdefer if (head.slot) |slot| connection.config.encoders.?.give_back(slot);
     try build_section(connection, status, head.fields);

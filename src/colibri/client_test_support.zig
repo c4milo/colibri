@@ -72,9 +72,9 @@ const Router = server.Router(void, routes, .{ .requests = connections, .response
 
 /// Answers a POST of `/echo` with the request's body, once the body has arrived whole.
 pub const Echo = struct {
-    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
-    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
         try response.header("content-type", "text/plain");
         try response.body().writeAll(content.buffered());
         try response.end();
@@ -85,7 +85,7 @@ pub const Echo = struct {
 /// inside a `turn` or a `complete` (decision 159, rule 4). The server's thread writes it.
 pub var routes_outside_turn: std.atomic.Value(u32) align(@alignOf(std.atomic.Value(u32))) = .init(0);
 
-fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     const in_turn = if (udp_served) test_server.in_turn else tcp_server.in_turn;
     if (!in_turn) _ = routes_outside_turn.fetchAdd(1, .monotonic);
     try response.header("content-type", "text/plain");
@@ -94,7 +94,7 @@ fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response
 }
 
 /// Answers with the greeting, and closes the connection after it (RFC 9112 §9.6).
-fn greet_and_close(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet_and_close(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("connection", "close");
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
@@ -107,11 +107,11 @@ fn greet_and_close(_: *void, _: *server.RequestContext, _: *const server.Request
 const Stream = struct {
     pub const State = struct { written: usize = 0 };
 
-    pub fn on_request(_: *void, _: *server.RequestContext, _: *State, _: *const server.Request, response: *server.ResponseWriter) !void {
+    pub fn on_request(_: *void, _: *server.RequestContext, _: *State, _: *const server.Request, response: *server.Response) !void {
         try response.header("content-type", "application/octet-stream");
     }
 
-    pub fn on_writable(_: *void, _: *server.RequestContext, state: *State, response: *server.ResponseWriter) !void {
+    pub fn on_writable(_: *void, _: *server.RequestContext, state: *State, response: *server.Response) !void {
         const writer = response.body();
         var message: [message_len]u8 = undefined;
         // Bounded: each pass writes one message.
@@ -142,7 +142,7 @@ fn stream_in(response: *const client.Response) bool {
     return true;
 }
 
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }
 

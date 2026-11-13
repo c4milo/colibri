@@ -1,26 +1,26 @@
-//! What the tests of `ResponseWriter` share: an engine that records each call of the writer's
-//! sink and takes as many bytes as a test lets it, and a writer over it. Split out of
-//! `response_writer_test.zig` for length. Test-only.
+//! What the tests of `Response` share: an engine that records each call of the response's
+//! sink and takes as many bytes as a test lets it, and a response over it. Split out of
+//! `response_test.zig` for length. Test-only.
 const std = @import("std");
 const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
-const ResponseWriter = @import("response_writer.zig").ResponseWriter;
-const internal = @import("response_writer_internal.zig");
+const Response = @import("response.zig").Response;
+const internal = @import("response_internal.zig");
 
 /// The calls a test reads back. Test-only.
 const calls_max = 32;
 /// Octets of response memory each test gives. Test-only.
 pub const memory_len = 256;
-/// Octets of the longest body a test writes, which is longer than its memory when the writer
+/// Octets of the longest body a test writes, which is longer than its memory when the body's writer
 /// writes again over the runs the engine released. Test-only.
 const stream_len_max = 512;
-/// The runs a writer has slots for. Test-only.
+/// The runs a response has slots for. Test-only.
 pub const slots = constants.limits.response_pieces_max;
 
 pub const Call = union(enum) {
-    head: event.Response,
+    head: event.ResponseHeader,
     body: event.ResponseBody,
     trailers: []const http.Field,
 };
@@ -43,7 +43,7 @@ pub const Recorder = struct {
     held: usize = 0,
     release_waits: usize = 0,
 
-    pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.Response) connection_errors.SendError!void {
+    pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.ResponseHeader) connection_errors.SendError!void {
         if (recorder.failure) |failure| return failure;
         if (recorder.head_blocked) return error.NoSpaceLeft;
         recorder.add(.{ .head = response });
@@ -95,9 +95,9 @@ pub const Recorder = struct {
 pub const Fixture = struct {
     recorder: Recorder = .{},
     memory: [memory_len]u8 = undefined,
-    response: ResponseWriter = undefined,
+    response: Response = undefined,
 
-    pub fn start(fixture: *Fixture) *ResponseWriter {
+    pub fn start(fixture: *Fixture) *Response {
         internal.init(&fixture.response, internal.Sink.of(Recorder, &fixture.recorder), @bitCast(@as(u128, 0)), &fixture.memory);
         return &fixture.response;
     }

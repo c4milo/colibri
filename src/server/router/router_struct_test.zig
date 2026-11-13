@@ -4,7 +4,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -32,11 +32,11 @@ const App = struct {
 const Lines = struct {
     pub const State = struct { kept: [kept_len]u8 = undefined, len: usize = 0 };
 
-    pub fn on_request(app: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *ResponseWriter) !void {
+    pub fn on_request(app: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *Response) !void {
         app.heads += 1;
     }
 
-    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, _: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, _: *Response) !void {
         app.bodies += 1;
         if (app.fail_body) return error.TestRefused;
         // Bounded: each pass takes one line of the bytes that arrived.
@@ -62,24 +62,24 @@ const Lines = struct {
 
 /// Answers with the whole body after its last byte.
 const Whole = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
         app.bodies += 1;
         try response.body().writeAll(reader.buffered());
         try response.end();
     }
 };
 
-/// Writes one byte of `digits` for each call of `writable`: more calls than the runs a writer
+/// Writes one byte of `digits` for each call of `writable`: more calls than the runs a response
 /// holds, so a call while the engine is full would overflow it.
 const Counter = struct {
     pub const State = struct { next: u8 = 0 };
     const digits = "0123456789abcdefghij";
 
-    pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(_: *App, _: *RequestContext, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(_: *App, _: *RequestContext, state: *State, response: *Response) !void {
         if (state.next == digits.len) return response.end();
         try response.write_kept(digits[state.next..][0..1]);
         state.next += 1;
@@ -89,9 +89,9 @@ const Counter = struct {
 /// Echoes each body byte from `on_body`, and counts its calls of `on_writable`, which write one byte
 /// when the test asks and nothing otherwise: a route that answers while the client still sends.
 const Duplex = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
         app.bodies += 1;
         const bytes = reader.buffered();
         reader.toss(bytes.len);
@@ -99,7 +99,7 @@ const Duplex = struct {
         try response.body().flush();
     }
 
-    pub fn on_writable(app: *App, _: *RequestContext, _: *void, response: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, _: *void, response: *Response) !void {
         app.writables += 1;
         if (app.write_on_writable) try response.write_kept("w");
     }
@@ -107,16 +107,16 @@ const Duplex = struct {
 
 /// Writes at the head, and counts its calls of `on_writable`, with `.whole_body`.
 const WholeWritable = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, response: *ResponseWriter) !void {
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, response: *Response) !void {
         try response.body().writeAll("head");
         try response.body().flush();
     }
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *Response) !void {
         app.bodies += 1;
     }
 
-    pub fn on_writable(app: *App, _: *RequestContext, _: *void, _: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, _: *void, _: *Response) !void {
         app.writables += 1;
     }
 };
@@ -126,14 +126,14 @@ const Id = struct { id: []const u8 };
 
 /// Requires the query pair `id`, and counts its calls of `on_body`.
 const Needs = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *Response) !void {
         app.bodies += 1;
     }
 };
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = unprocessable;
 }
 

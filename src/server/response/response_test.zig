@@ -1,12 +1,12 @@
-//! The tests of `ResponseWriter` (decision 127, design §8 step 25.2), against the recorder of
-//! `response_writer_test_support.zig`. `response_writer_ring_test.zig` holds more tests of the
+//! The tests of `Response` (decision 127, design §8 step 25.2), against the recorder of
+//! `response_test_support.zig`. `response_ring_test.zig` holds more tests of the
 //! body's ring.
 const std = @import("std");
 const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
-const internal = @import("response_writer_internal.zig");
-const support = @import("response_writer_test_support.zig");
+const internal = @import("response_internal.zig");
+const support = @import("response_test_support.zig");
 
 const testing = std.testing;
 const Call = support.Call;
@@ -14,14 +14,14 @@ const Fixture = support.Fixture;
 const memory_len = support.memory_len;
 const slots = support.slots;
 
-fn expect_head(call: Call, status: u16, ends: bool) !event.Response {
+fn expect_head(call: Call, status: u16, ends: bool) !event.ResponseHeader {
     try testing.expect(call == .head);
     try testing.expectEqual(status, @intFromEnum(call.head.status));
     try testing.expectEqual(ends, call.head.end);
     return call.head;
 }
 
-fn header_value(head: event.Response, name: []const u8) ?[]const u8 {
+fn header_value(head: event.ResponseHeader, name: []const u8) ?[]const u8 {
     for (head.headers) |line| if (std.mem.eql(u8, line.name, name)) return line.value;
     return null;
 }
@@ -91,7 +91,7 @@ test "decision 103: the body never writes over bytes the engine holds, and fails
     // The first run the recorder holds still reads as it was taken.
     try testing.expectEqualStrings("abc", fixture.recorder.calls[1].body.bytes);
     try testing.expectError(error.WriteFailed, writer.writeAll("x" ** memory_len));
-    // Design §8 step 46: the writer waits for the engine to release bytes.
+    // Design §8 step 46: the response waits for the engine to release bytes.
     try testing.expectEqual(1, fixture.recorder.release_waits);
     try testing.expect(internal.waiting(response));
 }
@@ -226,7 +226,7 @@ test "design §8 step 46: trailers with no room send the body first, and go once
     try writer.writeAll("b" ** 150);
     const lines: []const http.Field = &.{.{ .name = "x-trailer", .value = "v" ** 20 }};
     try testing.expectError(error.NoSpaceLeft, response.trailers(lines));
-    // The run cut before the trailers went to the engine, and the writer waits for its release.
+    // The run cut before the trailers went to the engine, and the response waits for its release.
     var out: [memory_len]u8 = undefined;
     const sent, _ = fixture.recorder.body_of(&out);
     try testing.expectEqualStrings("a" ** 100 ++ "b" ** 150, sent);
@@ -292,7 +292,7 @@ test "design §8 step 46: a flush stays in the writer while the engine holds a r
     }
     const calls = fixture.recorder.count;
     // No slot is free, and the engine took the newest run, which must stay as it is. The flush
-    // keeps its bytes with no error, and the writer waits for a release.
+    // keeps its bytes with no error, and the response waits for a release.
     try writer.writeAll("efgh");
     try writer.flush();
     try testing.expectEqual(4, writer.end);

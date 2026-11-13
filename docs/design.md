@@ -15783,6 +15783,20 @@ library.
         start; the type not compared; the halt of a call with none lent; an entry whose context
         starts `undefined`. No test caught the last one at first, because the compiler wrote
         zero there. The comptime assertion now refuses it.
+  - **50d, met 2026-11-12.** `server.ResponseWriter` has the name `server.Response`, and the
+    engine's header struct has the name `server.ResponseHeader` (decision 163 ruling 7). The
+    files of the type are in `src/server/response/`, under the type's name. No call changes.
+    - [Run 43357801311](https://github.com/c4milo/colibri/actions/runs/43357801311) compared
+      `6d328819` with `77d49d96`, the commit of 50c, on the `ubuntu-24.04-arm` runner, at 5
+      rounds, in two jobs. Each input is within the noise. h2-routes-many gave 1.0001 and
+      1.0002. Its user instructions a request differ by less than 1: 13,891.0 and 13,891.7 in
+      one job, and 13,891.6 and 13,892.4 in the other. The commit that landed changes four
+      comments, one test's name and one fixture's alias in `6d328819`, and no instruction.
+    - Three reviewers read the commit, each for one thing: the truth of each changed sentence,
+      the names that the rename missed, and the rules of a public API. They found those six
+      places, and no fault in the code.
+    - Mutations, 2 of 2 CAUGHT: the root exports the old name; the root exports no
+      `ResponseHeader`.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

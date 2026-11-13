@@ -34,10 +34,10 @@ pub const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes
 pub var router: Router align(@alignOf(Router)) = .{};
 pub var context: void = {};
 
-fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.end();
 }
 
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }

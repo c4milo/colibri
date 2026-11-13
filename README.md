@@ -197,7 +197,7 @@ const Mark = struct { mark: []const u8 = "" };
 /// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
 /// The router decodes the name and the query's pairs, and fills each struct by its field names.
 /// The request context lends the two structs during this call.
-fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", content_type);
     try response.body().print("hello, {s}{s}\n", .{ ctx.path(Name).name, ctx.query(Mark).mark });
     try response.end();

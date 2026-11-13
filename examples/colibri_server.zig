@@ -224,7 +224,7 @@ const Values = struct {
 /// A middleware of the route table: it numbers each request in the request's own values. The
 /// program's state is one for every request, and the values are one for each.
 const Numbered = struct {
-    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.Response) !server.middleware.Next {
         state.taken += 1;
         ctx.values(Values).number = state.taken;
         return .next;
@@ -233,7 +233,7 @@ const Numbered = struct {
 
 /// Answers a GET of `/greeting`. The router ends a response the function leaves open, and `end`
 /// adds its Content-Length.
-fn greet(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     // `Numbered` ran before the route, so the request's values hold its number.
     if (ctx.values(Values).number != state.taken) return error.RequestNotNumbered;
     state.answered += 1;
@@ -247,7 +247,7 @@ const Name = struct { name: []const u8 };
 
 /// Answers a GET of `/greetings/:name` with a greeting to the name. The request context lends the
 /// route's path during this call.
-fn greet_named(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet_named(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     state.answered += 1;
     try response.header("content-type", "text/plain");
     try response.body().print("hello, {s}!\n", .{ctx.path(Name).name});
@@ -255,6 +255,6 @@ fn greet_named(state: *App, ctx: *server.RequestContext, _: *const server.Reques
 }
 
 /// Answers 500 when a route's function fails.
-fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }

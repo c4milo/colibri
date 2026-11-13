@@ -8,7 +8,7 @@ const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 
 /// The messages of the longest response a test's route writes, octets of its longest message, and
@@ -24,7 +24,7 @@ const varied_lengths = message_len_max - message_len_min + 1;
 const varied_step = 37;
 /// The runs the engine holds at most unless a test says more, as an h3 response holds 16 runs,
 /// two for each DATA frame. And the runs of an engine that holds every run it takes: one for each
-/// slot of the writer, which frees a slot only at a release.
+/// slot of a `Response`, which frees a slot only at a release.
 const runs_h3 = 8;
 pub const runs_all = constants.limits.response_pieces_max;
 /// The trailer section of a route that ends with one.
@@ -91,9 +91,9 @@ pub const App = struct {
 pub const Stream = struct {
     pub const State = struct { written: usize = 0, messages: usize = 0 };
 
-    pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
         app.calls += 1;
         const writer = response.body();
         if (writer.unusedCapacityLen() == 0) app.roomless_calls += 1;
@@ -118,7 +118,7 @@ pub const Stream = struct {
 /// Ends the response, with a trailer section when the test asks for one. `error.Full` and
 /// `error.NoSpaceLeft` say that the call changed nothing. A route that the test lets end again
 /// returns with no error, and its next call ends the response. Else it returns the error.
-fn end_response(app: *App, response: *ResponseWriter) !void {
+fn end_response(app: *App, response: *Response) !void {
     const ended = if (app.trailers) response.trailers(&trailer_lines) else response.end();
     ended catch |failure| {
         if (!app.end_again or (failure != error.Full and failure != error.NoSpaceLeft)) return failure;
@@ -127,7 +127,7 @@ fn end_response(app: *App, response: *ResponseWriter) !void {
 }
 
 /// Writes `octet`, the next of the response, alone after a write that failed, and flushes it, when
-/// the test asks for it. The engine takes that run whole, after the writer began its wait for a
+/// the test asks for it. The engine takes that run whole, after the response began its wait for a
 /// release.
 fn write_octet_after_failure(app: *App, state: *Stream.State, writer: *std.Io.Writer, octet: u8) !void {
     if (!app.octet_after_failure) return;
@@ -146,7 +146,7 @@ fn flush_message(app: *App, writer: *std.Io.Writer) !void {
 }
 
 /// An engine that takes every body byte, and holds each run in place until `acknowledge` releases
-/// it when `holds` is set. It owes a `writable` once a write found no room, or once the writer
+/// it when `holds` is set. It owes a `writable` once a write found no room, or once the response
 /// asked for one at a release. A write it takes whole ends that wait, as the engine's `write_body`
 /// does: the engine keeps one wait for a request, and a write that found room waits for none.
 pub const Holder = struct {
@@ -169,7 +169,7 @@ pub const Holder = struct {
     /// Whether a run the engine held changed before its release.
     overwritten: bool = false,
 
-    pub fn respond(holder: *Holder, _: event.RequestId, response: event.Response) connection_errors.SendError!void {
+    pub fn respond(holder: *Holder, _: event.RequestId, response: event.ResponseHeader) connection_errors.SendError!void {
         holder.heads += 1;
         holder.ended = response.end;
     }

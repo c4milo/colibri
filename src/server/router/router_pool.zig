@@ -2,7 +2,7 @@
 //! engine's events and calls the routes' functions (decision 127 ruling 2, design §8 step 25.3).
 //!
 //! Each request a route answers holds one entry from its head to its `finished`. The entry holds
-//! the request's `ResponseWriter` and its response memory, which the engine may read until it
+//! the request's `Response` and its response memory, which the engine may read until it
 //! releases the bytes (decision 103 as amended), and a struct route's state and held body bytes.
 //! The engine's word for the request is the entry's index plus one, so 0 names no entry.
 //!
@@ -16,9 +16,9 @@ const http = @import("http");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
-const writer_internal = @import("../response_writer/response_writer_internal.zig");
+const response_internal = @import("../response/response_internal.zig");
 const router_call = @import("router_call.zig");
 const router_body = @import("router_body.zig");
 const router_wrap = @import("router_wrap.zig");
@@ -65,7 +65,7 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
     const EntryOf = struct {
         used: bool = false,
         route: RouteOf = undefined,
-        response: ResponseWriter = undefined,
+        response: Response = undefined,
         /// The request's own object, and its values, which every callback of the request gets
         /// (decision 163). It lends nothing between two requests, so `start_context` writes the
         /// request's id alone.
@@ -162,7 +162,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
     entry.body.held_len = 0;
     entry.body.delivered = false;
     entry.body.cursor = .{ .ended = request.end };
-    writer_internal.init(&entry.response, writer_internal.Sink.of(@TypeOf(engine.*), engine), request.id, &entry.memory);
+    response_internal.init(&entry.response, response_internal.Sink.of(@TypeOf(engine.*), engine), request.id, &entry.memory);
     entry.held = .{ .reader = &entry.body.cursor.reader };
     start_context(P, entry, request.id);
     switch (route) {
@@ -246,7 +246,7 @@ fn body_ended(comptime P: type, entry: *P.Entry, context: *P.Context, engine: an
 }
 
 fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
-    const whole = writer_internal.resume_writes(&entry.response) catch return engine.cancel(entry.response.id);
+    const whole = response_internal.resume_writes(&entry.response) catch return engine.cancel(entry.response.id);
     if (whole or entry.response.ended) return;
     switch (entry.route) {
         inline else => |tag| {
@@ -264,16 +264,16 @@ fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: a
 /// writer has room (design §8 step 46).
 fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype) void {
     for (0..writable_calls_max) |_| {
-        if (entry.response.ended or writer_internal.waiting(&entry.response)) return;
-        // A writer with no room waits for the engine to release bytes, which `waiting` says.
-        const room = writer_internal.has_room(&entry.response) catch return engine.cancel(entry.response.id);
+        if (entry.response.ended or response_internal.waiting(&entry.response)) return;
+        // A response with no room waits for the engine to release bytes, which `waiting` says.
+        const room = response_internal.has_room(&entry.response) catch return engine.cancel(entry.response.id);
         if (!room) break;
-        const before = writer_internal.mark(&entry.response);
+        const before = response_internal.mark(&entry.response);
         const outcome = router_call.call_writable(handler, context, &entry.request_context, state_of(P, handler, entry), &entry.response);
         if (!after(P, entry, context, engine, null, outcome)) return;
         // Decision 127 as amended: while the request body is open, a call that wrote nothing waits
         // for the next body bytes or the next `writable`.
-        if (!entry.body.delivered and writer_internal.mark(&entry.response).eql(before)) return;
+        if (!entry.body.delivered and response_internal.mark(&entry.response).eql(before)) return;
     }
     cancel_held(P, entry, engine);
 }
@@ -282,7 +282,7 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: 
 /// so the router cancels it, once its request body ended.
 fn cancel_held(comptime P: type, entry: *P.Entry, engine: anytype) void {
     if (!entry.body.delivered) return;
-    if (!entry.response.ended and !writer_internal.waiting(&entry.response)) engine.cancel(entry.response.id);
+    if (!entry.response.ended and !response_internal.waiting(&entry.response)) engine.cancel(entry.response.id);
 }
 
 fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished: event.Finished) void {
@@ -402,19 +402,19 @@ fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytyp
     if (response.ended) return;
     if (response.wrapped == null) return response.end() catch engine.cancel(response.id);
     // The headers close before a wrapper writes what it owes.
-    if (!response.body_started) writer_internal.start_body(response);
+    if (!response.body_started) response_internal.start_body(response);
     switch (entry.route) {
         inline else => |tag| {
             const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[@intFromEnum(tag)]);
             router_wrap.finish(chain, context, &entry.request_context, &entry.middleware_states, &entry.held) catch return cancel_wrapped(engine, response);
         },
     }
-    writer_internal.end_wrapped(response) catch cancel_wrapped(engine, response);
+    response_internal.end_wrapped(response) catch cancel_wrapped(engine, response);
 }
 
 /// Cancels a wrapped response that could not end, and marks it ended, so no later call finishes
 /// it again.
-fn cancel_wrapped(engine: anytype, response: *ResponseWriter) void {
+fn cancel_wrapped(engine: anytype, response: *Response) void {
     response.ended = true;
     engine.cancel(response.id);
 }

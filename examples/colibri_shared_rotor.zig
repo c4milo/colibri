@@ -366,12 +366,12 @@ fn wait_of(waits: []const colibri.Wait) u64 {
     return wait_ns;
 }
 
-fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
 }
 
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = internal_server_error;
 }

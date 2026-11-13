@@ -75,7 +75,7 @@ pub const Plan = struct {
 };
 
 /// What a final response to a request that asked `request` gets.
-pub fn plan(request: Asked, response: event.Response) Plan {
+pub fn plan(request: Asked, response: event.ResponseHeader) Plan {
     const status = @intFromEnum(response.status);
     assert(status >= final_min);
     // Decision 101: only a response the caller marks is coded.

@@ -4,7 +4,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Next = @import("../middleware.zig").Next;
 const Router = @import("router.zig").Router;
@@ -39,7 +39,7 @@ const unavailable: http.Status = .service_unavailable;
 
 /// The route table's middleware: it notes its call.
 const Log = struct {
-    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, _: *ResponseWriter) Next {
+    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, _: *Response) Next {
         app.add('l');
         return .next;
     }
@@ -51,7 +51,7 @@ const Log = struct {
 
 /// A route entry's middleware: it answers 401 when the test says, or fails.
 const Guard = struct {
-    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !Next {
+    pub fn on_request(app: *App, _: *RequestContext, _: *const event.Request, response: *Response) !Next {
         app.add('g');
         if (app.fail) return error.TestGuardFailed;
         if (!app.refuse) return .next;
@@ -73,12 +73,12 @@ const Late = struct {
     }
 };
 
-fn route(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn route(app: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     app.add('r');
     try response.end();
 }
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = unavailable;
 }
 

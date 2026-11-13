@@ -68,7 +68,7 @@ var reentrant_router: ReentrantRouter align(@alignOf(ReentrantRouter)) = .{};
 const RouteCall = enum { turn, complete, run };
 var route_call: RouteCall align(@alignOf(RouteCall)) = .turn;
 
-fn call_inside(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn call_inside(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     switch (route_call) {
         .turn => _ = hosted_server.turn(0, &inner_operations),
         // Its id names no operation, so a complete that the flag does not refuse halts with rule
@@ -79,7 +79,7 @@ fn call_inside(_: *void, _: *server.RequestContext, _: *const server.Request, re
     try response.end();
 }
 
-fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.end();
 }
 
@@ -95,7 +95,7 @@ var context_call: ContextCall align(@alignOf(ContextCall)) = .values_type;
 /// A middleware that asks for the path before the route's first call, which breaks decision 163
 /// ruling 3.
 const Early = struct {
-    pub fn on_request(_: *void, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(_: *void, ctx: *server.RequestContext, _: *const server.Request, _: *server.Response) !server.middleware.Next {
         if (context_call == .path_early) _ = ctx.path(Name);
         return .next;
     }
@@ -103,7 +103,7 @@ const Early = struct {
 
 /// A route that asks its context for `Other`, as `context_call` names, which the router did not
 /// lend (decision 163 ruling 3).
-fn ask_other(_: *void, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn ask_other(_: *void, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     switch (context_call) {
         .values_type => _ = ctx.values(Other),
         .path_type => _ = ctx.path(Other),
@@ -125,7 +125,7 @@ const ContextRouter = server.Router(void, context_routes, .{ .requests = 1 });
 var context_router: ContextRouter align(@alignOf(ContextRouter)) = .{};
 
 /// RFC 9110 §15.6.1: a route's function that fails answers 500 (Internal Server Error).
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = .internal_server_error;
 }
 

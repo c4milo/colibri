@@ -5,7 +5,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
@@ -53,13 +53,13 @@ pub const App = struct {
 pub const Duplex = struct {
     pub const State = struct { owed: usize = 0, body_ended: bool = false };
 
-    pub fn on_request(app: *App, _: *RequestContext, state: *State, _: *const event.Request, response: *ResponseWriter) !void {
+    pub fn on_request(app: *App, _: *RequestContext, state: *State, _: *const event.Request, response: *Response) !void {
         try response.header("content-type", "application/octet-stream");
         state.owed = app.head_len;
         try write_owed(app, state, response);
     }
 
-    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, response: *Response) !void {
         const bytes = reader.buffered();
         reader.toss(bytes.len);
         state.owed += bytes.len * app.reply_len;
@@ -68,7 +68,7 @@ pub const Duplex = struct {
         try write_owed(app, state, response);
     }
 
-    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
         if (!state.body_ended) app.open_calls += 1;
         const before = app.written;
         try write_owed(app, state, response);
@@ -78,7 +78,7 @@ pub const Duplex = struct {
 
 /// Writes what the route owes, one message at a time, each flushed. A message that does not fit
 /// waits for the next call. Ends the response once the body ended and nothing is owed.
-fn write_owed(app: *App, state: *Duplex.State, response: *ResponseWriter) !void {
+fn write_owed(app: *App, state: *Duplex.State, response: *Response) !void {
     const writer = response.body();
     var message: [message_len]u8 = undefined;
     // Bounded: each pass writes one message.
@@ -97,7 +97,7 @@ fn write_owed(app: *App, state: *Duplex.State, response: *ResponseWriter) !void 
     }
 }
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = internal_server_error;
 }
 

@@ -1,4 +1,4 @@
-//! The ring of a `ResponseWriter`'s body (decisions 103 and 127 as amended on 2026-11-09, design
+//! The ring of a `Response`'s body (decisions 103 and 127 as amended on 2026-11-09, design
 //! §8 step 46). The body's writer writes into the entry's memory after the headers, and writes
 //! again into memory whose bytes the engine released. The engine releases bytes at once over h11
 //! and h2, which copy them inside `write_body`, and for a coded h3 response, whose encoder copies
@@ -17,11 +17,11 @@
 //! - The bytes added are the writer's own, in a region that no run the engine holds overlaps.
 const std = @import("std");
 const assert = std.debug.assert;
-const ResponseWriter = @import("response_writer.zig").ResponseWriter;
+const Response = @import("response.zig").Response;
 
 /// Takes back the runs at the front that the engine released. The octets the engine took, less
 /// the octets it still reads, cover each run that goes, whole.
-pub fn reclaim(response: *ResponseWriter) void {
+pub fn reclaim(response: *Response) void {
     const held: u64 = response.sink.held_len(response.sink.context, response.id);
     assert(held <= response.taken_len - response.released_len);
     const released = response.taken_len - held;
@@ -36,7 +36,7 @@ pub fn reclaim(response: *ResponseWriter) void {
 }
 
 /// Frees the slots of the runs the engine released, and moves the other runs to the front.
-pub fn free_pieces(response: *ResponseWriter) void {
+pub fn free_pieces(response: *Response) void {
     reclaim(response);
     const released = response.piece_released;
     if (released == 0) return;
@@ -50,7 +50,7 @@ pub fn free_pieces(response: *ResponseWriter) void {
 /// Gives the body's writer a free region of `need` octets at least, from memory whose bytes the
 /// engine released, and returns whether it found one. Memory the engine may still read is never
 /// written again (decision 103). The writer holds no bytes it has not cut into a run.
-pub fn refill(response: *ResponseWriter, need: usize) bool {
+pub fn refill(response: *Response, need: usize) bool {
     assert(response.writer.end == 0 and need > 0);
     // Before the body starts, after it ends, and once a wrapped response's trailers wait at the end
     // of its region, the region stays where it is.
@@ -63,7 +63,7 @@ pub fn refill(response: *ResponseWriter, need: usize) bool {
 
 /// Asks the engine for a `writable` once it releases bytes, when the engine took every run and
 /// still holds some. A run that waits for the engine already brings a `writable`.
-pub fn wait_for_release(response: *ResponseWriter) void {
+pub fn wait_for_release(response: *Response) void {
     const engine_waits = response.piece_sent < response.piece_count or (response.ended and !response.complete);
     if (engine_waits or response.piece_released == response.piece_count) return;
     response.sink.wait_release(response.sink.context, response.id);
@@ -73,7 +73,7 @@ pub fn wait_for_release(response: *ResponseWriter) void {
 /// Asks the engine again for the `writable` of a release, after a push that followed the first
 /// ask. It reads the octets the engine holds again first. When the engine holds none, the push
 /// gave it no run, so its wait still stands, and `wait_for_release` asks for nothing.
-pub fn wait_again(response: *ResponseWriter) void {
+pub fn wait_again(response: *Response) void {
     assert(response.release_waited);
     reclaim(response);
     wait_for_release(response);
@@ -83,7 +83,7 @@ pub fn wait_again(response: *ResponseWriter) void {
 /// frees the slots of the runs the engine released, and cuts a run of the writer's bytes. With no
 /// slot free, it adds them to the newest run. When that run cannot take them, they stay in the
 /// writer, the next `writable` cuts again, and the call returns `error.Full`.
-pub fn cut_full(response: *ResponseWriter) error{Full}!void {
+pub fn cut_full(response: *Response) error{Full}!void {
     const written = response.writer.end;
     assert(written > 0 and response.piece_count == response.pieces.len);
     free_pieces(response);
@@ -103,7 +103,7 @@ pub fn cut_full(response: *ResponseWriter) error{Full}!void {
 /// Adds the `written` octets at the front of the writer's region to the newest run, and returns
 /// whether it did. A run the engine took whole stays as it is, since the engine may read it in
 /// place (decision 103). So does a run of `write_kept`, whose octets are the program's.
-fn extend_newest(response: *ResponseWriter, written: usize) bool {
+fn extend_newest(response: *Response, written: usize) bool {
     if (response.piece_sent == response.piece_count) return false;
     const newest = &response.pieces[response.piece_count - 1];
     if (!in_memory(response, newest.*)) return false;
@@ -118,7 +118,7 @@ fn extend_newest(response: *ResponseWriter, written: usize) bool {
 
 /// Places the writer over a free region of `need` octets at least: after the newest run, or from
 /// the region's start up to the oldest run the engine holds. Returns false when neither has room.
-fn select(response: *ResponseWriter, need: usize) bool {
+fn select(response: *Response, need: usize) bool {
     const low = response.header_len;
     const high = response.memory.len;
     const at = offset_of(response, response.writer.buffer.ptr);
@@ -133,7 +133,7 @@ fn select(response: *ResponseWriter, need: usize) bool {
     return place(response, at, oldest, need);
 }
 
-fn place(response: *ResponseWriter, from: usize, to: usize, need: usize) bool {
+fn place(response: *Response, from: usize, to: usize, need: usize) bool {
     assert(from <= to and to <= response.memory.len);
     if (to - from < need) return false;
     assert(!overlaps_held(response, from, to));
@@ -143,7 +143,7 @@ fn place(response: *ResponseWriter, from: usize, to: usize, need: usize) bool {
 }
 
 /// The offset in the memory of the oldest run the engine holds there, or null when it holds none.
-fn oldest_held(response: *const ResponseWriter) ?usize {
+fn oldest_held(response: *const Response) ?usize {
     for (response.pieces[response.piece_released..response.piece_count]) |piece| {
         if (in_memory(response, piece)) return offset_of(response, piece.ptr);
     }
@@ -151,7 +151,7 @@ fn oldest_held(response: *const ResponseWriter) ?usize {
 }
 
 /// Whether a run the engine holds lies in the memory from `from` to `to`.
-pub fn overlaps_held(response: *const ResponseWriter, from: usize, to: usize) bool {
+pub fn overlaps_held(response: *const Response, from: usize, to: usize) bool {
     for (response.pieces[response.piece_released..response.piece_count]) |piece| {
         if (!in_memory(response, piece)) continue;
         const start = offset_of(response, piece.ptr);
@@ -161,13 +161,13 @@ pub fn overlaps_held(response: *const ResponseWriter, from: usize, to: usize) bo
 }
 
 /// Whether `piece` is in the entry's memory, and not bytes the program keeps (`write_kept`).
-fn in_memory(response: *const ResponseWriter, piece: []const u8) bool {
+fn in_memory(response: *const Response, piece: []const u8) bool {
     const start = @intFromPtr(response.memory.ptr);
     const at = @intFromPtr(piece.ptr);
     return at >= start and at < start + response.memory.len;
 }
 
-fn offset_of(response: *const ResponseWriter, pointer: [*]const u8) usize {
+fn offset_of(response: *const Response, pointer: [*]const u8) usize {
     const at = @intFromPtr(pointer) - @intFromPtr(response.memory.ptr);
     assert(at <= response.memory.len);
     return at;

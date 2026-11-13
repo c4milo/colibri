@@ -12,7 +12,7 @@ const body_len_max = 256;
 /// An engine that records each head, the body bytes, the trailers, the words and the cancels. `room` is how
 /// many body bytes it takes before it blocks. Test-only.
 pub const Recorder = struct {
-    heads: [heads_max]event.Response = undefined,
+    heads: [heads_max]event.ResponseHeader = undefined,
     allow: [heads_max][]const u8 = undefined,
     head_count: usize = 0,
     body: [body_len_max]u8 = undefined,
@@ -25,7 +25,7 @@ pub const Recorder = struct {
     trailer_value: []const u8 = "",
     room: usize = std.math.maxInt(usize),
 
-    pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.Response) connection_errors.SendError!void {
+    pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.ResponseHeader) connection_errors.SendError!void {
         recorder.heads[recorder.head_count] = response;
         recorder.allow[recorder.head_count] = if (response.headers.len > 0) response.headers[0].value else "";
         recorder.head_count += 1;

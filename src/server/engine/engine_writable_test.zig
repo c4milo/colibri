@@ -135,8 +135,8 @@ test "design §8 step 46: content the engine takes whole ends a release wait" {
     _ = try engine.write_body(id, .{ .bytes = piece, .end = false });
     engine.state.wait_release(id);
     // The engine keeps one wait for a request, and a write that found room ends it. So the
-    // response writer asks again after a push (`push_open`), and the router's test engine ends
-    // its wait the same way.
+    // router's `Response` asks again after a push (`push_open`), and the router's test engine
+    // ends its wait the same way.
     _ = try engine.write_body(id, .{ .bytes = piece, .end = false });
     try expect_no_writable();
 }

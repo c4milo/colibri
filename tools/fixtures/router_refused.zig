@@ -109,7 +109,7 @@ const tables = struct {
 /// that the cases name as a route's `.path` or `.query` and as a route table's `Values`.
 const handlers = struct {
     const Request = server.Request;
-    const Writer = server.ResponseWriter;
+    const Response = server.Response;
     const RequestContext = server.RequestContext;
     /// The `.path` of "/users/:id", which the control names.
     const Id = struct { id: []const u8 };
@@ -124,20 +124,20 @@ const handlers = struct {
     /// A `Values` whose field has no default.
     const NoDefault = struct { count: u8 };
     fn three(_: *void, _: *RequestContext, _: *const Request) !void {}
-    fn context(_: *u8, _: *RequestContext, _: *const Request, _: *Writer) !void {}
-    fn request_context(_: *void, _: *u8, _: *const Request, _: *Writer) !void {}
+    fn context(_: *u8, _: *RequestContext, _: *const Request, _: *Response) !void {}
+    fn request_context(_: *void, _: *u8, _: *const Request, _: *Response) !void {}
     const Stated = struct {
-        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Response) !void {}
     };
-    fn request(_: *void, _: *RequestContext, _: Request, _: *Writer) !void {}
+    fn request(_: *void, _: *RequestContext, _: Request, _: *Response) !void {}
     fn response(_: *void, _: *RequestContext, _: *const Request, _: *u8) !void {}
-    fn returns(_: *void, _: *RequestContext, _: *const Request, _: *Writer) u8 {
+    fn returns(_: *void, _: *RequestContext, _: *const Request, _: *Response) u8 {
         return 0;
     }
-    fn plain_on_request(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *Writer) !void {}
+    fn plain_on_request(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *Response) !void {}
     const Body = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_body(_: *void, _: *RequestContext, _: *void, _: []const u8, _: *Writer) !void {}
+        pub fn on_body(_: *void, _: *RequestContext, _: *void, _: []const u8, _: *Response) !void {}
     };
     const Writable = struct {
         pub const on_request = handlers.plain_on_request;
@@ -153,7 +153,7 @@ const handlers = struct {
     };
     const NotStruct = struct {
         pub const State = u8;
-        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *u8, _: *const Request, _: *Response) !void {}
     };
     const FinishedParameters = struct {
         pub fn on_finished(_: *void, _: u8, _: server.Result) void {}
@@ -167,11 +167,11 @@ const handlers = struct {
         pub fn on_finished(_: *void, _: *RequestContext, _: server.Result) !void {}
     };
     const NoNext = struct {
-        pub fn on_request(_: *void, _: *RequestContext, _: *const Request, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *const Request, _: *Response) !void {}
     };
     const Defaults = struct {
         pub const State = struct { count: u8 };
-        pub fn on_request(_: *void, _: *RequestContext, _: *State, _: *const Request, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *RequestContext, _: *State, _: *const Request, _: *Response) !void {}
     };
     const WrapDefaults = struct {
         pub const State = struct { count: u8 };
@@ -216,6 +216,6 @@ fn is_whole(comptime Held: type) bool {
 }
 
 /// The function of every route of the fixture.
-fn route(_: *void, _: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !void {}
+fn route(_: *void, _: *server.RequestContext, _: *const server.Request, _: *server.Response) !void {}
 
-fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
+fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, _: *server.Response) void {}

@@ -822,21 +822,21 @@ call. An answer the program gives first takes the place of the 100. A program th
 request therefore answers it before its next call: a final response, the program's own 100, or
 `cancel` takes the place of the 100 the connection owes.
 
-A route's function answers through a `server.ResponseWriter` ([decision 127](decisions.md)). It
+A route's function answers through a `server.Response` ([decision 127](decisions.md)). It
 sets `status`, a `server.Status`, which is `.ok` by default and is a code from 100 to 599. It
 adds headers, and writes the body through the `std.Io.Writer` that `body()` returns. The function
-takes the program's context, the request context, the request and the writer, as
+takes the program's context, the request context, the request and the response, as
 [Router](#router) describes:
 
 ```zig
-fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", content_type);
     try response.body().writeAll(greeting);
     try response.end();
 }
 ```
 
-`end` sends a head that carries the whole body with its Content-Length. The writer copies each
+`end` sends a head that carries the whole body with its Content-Length. The response copies each
 header and writes the body into the request's entry. It writes again into the entry's memory once
 the engine has released the bytes there (decision 103 as amended on 2026-11-09):
 
@@ -844,29 +844,30 @@ the engine has released the bytes there (decision 103 as amended on 2026-11-09):
 - Over h3, once the client has acknowledged the bytes (RFC 9000 §3.1).
 
 So the entry's `response_bytes` bound the body bytes in flight, not the body. `flush()` sends the
-bytes the writer holds. When the memory has no room, a call fails, and a struct route with
+bytes the body's writer holds. When the memory has no room, a call fails, and a struct route with
 `on_writable` tries again in its next call:
 
 - One `writeAll` of one slice through `body()` goes into the memory whole, or fails with
   `error.WriteFailed` and writes nothing. The route writes the slice again.
 - A `print` can write part of a message and then fail, and so can a write through a middleware's
   wrapper. The route does not write that message again.
-- Each `flush()` makes one run of the bytes the writer holds. The writer has
+- Each `flush()` makes one run of the bytes the body's writer holds. The response has
   `server.constants.limits.response_pieces_max` slots for the runs that the engine has not
   released. When each slot holds a run, a `flush()` adds its bytes to the newest run. So a route
   can flush each small message, and only the memory bounds the bytes in flight.
-- While each slot holds a run, the writer does not go back to the start of the memory. A write
-  that finds no room after the newest run fails, and the route writes it again.
+- While each slot holds a run, the body's writer does not go back to the start of the memory. A
+  write that finds no room after the newest run fails, and the route writes it again.
 - When each slot holds a run and the newest is a run of `write_kept`, that run takes no bytes. A
-  `flush()` then keeps its bytes in the writer, and the writer sends them once a slot is free.
-  That `flush()` fails with `error.WriteFailed` only when the memory is full too. The route does
-  not write its bytes again.
+  `flush()` then keeps its bytes in the body's writer, and the response sends them once a slot is
+  free. That `flush()` fails with `error.WriteFailed` only when the memory is full too. The route
+  does not write its bytes again.
 
 `end`, `trailers` and `write_kept` can return two errors that leave the response as it was
 (design §8 step 46h):
 
 - `error.Full`: each slot holds a run, and no run takes the bytes of the call.
-  - `end`, `trailers` and `write_kept` return it while the writer keeps the bytes of a `flush()`.
+  - `end`, `trailers` and `write_kept` return it while the body's writer keeps the bytes of a
+    `flush()`.
   - `write_kept` returns it too when its own bytes find no free slot.
 - `error.NoSpaceLeft`: `trailers` returns it while the memory has no room for the trailer
   section. A section longer than the memory after the headers never fits, and a route that asks
@@ -895,10 +896,10 @@ a larger `response_bytes`.
 
 `write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such as a
 file the program mapped. `trailers` ends the response with a trailer section. When the engine
-takes less than the writer gives it, the rest waits, and the router sends it at the request's
+takes less than the response gives it, the rest waits, and the router sends it at the request's
 `writable`.
 
-The writer calls the engine's three calls that write a response, which a program that answers
+The response calls the engine's three calls that write a response, which a program that answers
 requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
 `write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer octets than it was given, or
 any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
@@ -1054,7 +1055,7 @@ another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT r
 `server.constants.limits.path_parameters_max` parameters at most, the wildcard included.
 
 A route's function takes four parameters, in this order: the program's context, the request
-context, the request, and the response's writer ([decision 163](decisions.md)). The request
+context, the request, and the response ([decision 163](decisions.md)). The request
 context is a `*server.RequestContext`, which [Request context](#request-context) describes. The
 route's options name the types of its path parameters and of its query:
 
@@ -1074,7 +1075,7 @@ const Mark = struct { mark: []const u8 = "" };
 /// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
 /// The router decodes the name and the query's pairs, and fills each struct by its field names.
 /// The request context lends the two structs during this call.
-fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", content_type);
     try response.body().print("hello, {s}{s}\n", .{ ctx.path(Name).name, ctx.query(Mark).mark });
     try response.end();
@@ -1091,10 +1092,10 @@ A route can be a struct instead, with `on_request` and any of `on_body`, `on_wri
 program's context, the request context and a `*State` first. A struct that declares no `State`
 takes a `*void` there. The other parameters follow:
 
-- `on_request` takes the request and the response's writer, as a function does. Its route names
+- `on_request` takes the request and the response, as a function does. Its route names
   `.path` and `.query` in the same way.
-- `on_body` takes a `std.Io.Reader` over the request body, and the response's writer.
-- `on_writable` takes the response's writer.
+- `on_body` takes a `std.Io.Reader` over the request body, and the response.
+- `on_writable` takes the response.
 - `on_finished` takes the request's result.
 
 In `on_body`, a read past the bytes that arrived fails with `error.ReadFailed` while more of the
@@ -1105,9 +1106,9 @@ every byte in the pool entry's `body_bytes`:
 
 ```zig
 const Echo = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
-    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
@@ -1118,7 +1119,7 @@ const Echo = struct {
 A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
 with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
 calls: the router calls it while the response is open, the engine took all it was given, and the
-writer has room. The route ends the response itself. `on_finished` runs at the request's
+body's writer has room. The route ends the response itself. `on_finished` runs at the request's
 `finished` event, with its result.
 
 The router calls `on_writable` while the request body is still open too, so a route can answer
@@ -1135,11 +1136,11 @@ quiet client needs a program that sets them for its connection with `set_timeout
 
 The route table must name `error_handler`, which chooses the status after a route's function
 returns an error ([decision 127](decisions.md) ruling 4). It takes the program's context, the
-request context, the request, the error and the response's writer. After the head went out, the
+request context, the request, the error and the response. After the head went out, the
 router cancels the request instead, since its body may be cut short:
 
 ```zig
-fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = .internal_server_error;
 }
 ```
@@ -1241,7 +1242,7 @@ const Values = struct {
 /// A middleware of the route table: it numbers each request in the request's own values. The
 /// program's state is one for every request, and the values are one for each.
 const Numbered = struct {
-    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.Response) !server.middleware.Next {
         state.taken += 1;
         ctx.values(Values).number = state.taken;
         return .next;
@@ -1273,7 +1274,7 @@ They run one after the other: no middleware calls the next. A chain is a tuple, 
 one, such as `const api = .{ Auth, RateLimit };`, and joins it to another with `++`.
 
 Each hook of a middleware takes the program's context, then the request context
-([decision 163](decisions.md)). `on_request` then takes the request and the response's writer, and
+([decision 163](decisions.md)). `on_request` then takes the request and the response, and
 runs at the request's head. It returns `.next`, and the router calls the next middleware, then the
 route. Or it writes the response and returns `.answered`, and the router calls nothing more for
 the request. An error goes to `error_handler`. The server example's middleware adds a header to
@@ -1281,7 +1282,7 @@ each response:
 
 ```zig
 const Brand = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !server.middleware.Next {
         try response.header("server", "colibri");
         return .next;
     }
@@ -1331,7 +1332,7 @@ const Counted = struct {
         bytes: usize = 0,
     };
 
-    pub fn wrap_response(_: *App, _: *server.RequestContext, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+    pub fn wrap_response(_: *App, _: *server.RequestContext, state: *State, _: *const server.Request, _: *server.Response, inner: *std.Io.Writer) ?*std.Io.Writer {
         state.* = .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .inner = inner };
         return &state.writer;
     }

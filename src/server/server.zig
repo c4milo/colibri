@@ -44,7 +44,7 @@ const files = struct {
     pub const router = @import("router/router.zig");
     pub const router_pool = @import("router/router_pool.zig");
     pub const middleware = @import("middleware.zig");
-    pub const response_writer = @import("response_writer/response_writer.zig");
+    pub const response = @import("response/response.zig");
     pub const request_context = @import("request_context.zig");
 };
 
@@ -96,17 +96,17 @@ pub const Finished = files.event.Finished;
 pub const Result = files.event.Result;
 pub const Writable = files.event.Writable;
 pub const Ended = files.event.Ended;
-pub const Response = files.event.Response;
+pub const ResponseHeader = files.event.ResponseHeader;
 pub const ResponseBody = files.event.ResponseBody;
 /// The response a route's function writes: a status, headers, and a body through a
 /// `std.Io.Writer` (decision 127).
-pub const ResponseWriter = files.response_writer.ResponseWriter;
+pub const Response = files.response.Response;
 /// The request's own object, which each router callback takes after the program's context
 /// (decision 163).
 pub const RequestContext = files.request_context.RequestContext;
 pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
-/// A response's status code, which `Response.status` and `ResponseWriter.status` take (decision
+/// A response's status code, which `ResponseHeader.status` and `Response.status` take (decision
 /// 158 ruling 5).
 pub const Status = http.Status;
 /// The content codings a server applies (decision 101).
@@ -161,7 +161,9 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Engine` in place of `Endpoint` and `EndpointOf`, the options of each pool in place of each
     // `Default*` name, and `Router` and `RouterOptions` in place of `router` (decision 158). 45h
     // adds `Instant`, and 45i `Status`. v0.16.0 renames `Instant` to `Timestamp`
-    // (https://github.com/c4milo/colibri/issues/131). 50c adds `RequestContext` (decision 163).
+    // (https://github.com/c4milo/colibri/issues/131). 50c adds `RequestContext` (decision 163),
+    // and 50d renames `Response` to `ResponseHeader` and `ResponseWriter` to `Response` (decision
+    // 163 ruling 7).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",        "Config",             "Protocols",      "Limits",       "Timeout",
@@ -171,7 +173,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Ecn",              "StartError",         "SendError",      "Header",       "RequestId",
         "ConnectionHandle", "Version",            "Headers",        "Event",        "Request",
         "RequestBody",      "Trailers",           "CancelReason",   "Finished",     "Result",
-        "Writable",         "Ended",              "Response",       "ResponseBody", "ResponseWriter",
+        "Writable",         "Ended",              "ResponseHeader", "ResponseBody", "Response",
         "RequestContext",   "ReceiveResult",      "Alternative",    "Status",       "Coding",
         "EncoderPool",      "EncoderPoolOptions", "Encoders",       "DecoderPool",  "DecoderPoolOptions",
         "Decoders",         "Features",           "PathParameters", "Handled",      "Router",
@@ -261,7 +263,7 @@ test {
     _ = @import("router/router_fuzz_test.zig");
     _ = @import("router/router_refusal_test.zig");
     _ = @import("router/router_slash_test.zig");
-    _ = @import("response_writer/response_writer_internal.zig");
+    _ = @import("response/response_internal.zig");
     // `zig build router-hidden-check` runs `router/router_hidden_test.zig` and
     // `router/router_quota_test.zig`, each in a binary of its own, because each compile takes
     // about a minute (the owner's rulings of 2026-10-14).

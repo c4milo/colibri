@@ -3,8 +3,8 @@
 //! before the route's function: first each middleware of the route table, then each of the route
 //! entry's, in table order.
 //!
-//! `on_request` takes the router's context, the request context, the request and the response's
-//! writer (decision 163). It returns `.next`, and the router calls the next middleware, then the
+//! `on_request` takes the router's context, the request context, the request and the response
+//! (decision 163). It returns `.next`, and the router calls the next middleware, then the
 //! route. Or it returns `.answered`: it wrote the response, such as a 401, and the router calls
 //! nothing more for the request. An error goes to the route table's `error_handler`, as a route's
 //! error does.

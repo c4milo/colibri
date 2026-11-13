@@ -110,7 +110,7 @@ fn release(connection: *Connection, entry: *Entry) void {
 
 /// Writes the head of the response to request `id`, rewritten as its plan says when it is the
 /// final one, and takes an encoder when its content is to be coded.
-pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
+pub fn respond(connection: *Connection, id: Number, response: event.ResponseHeader) SendError!void {
     const status = @intFromEnum(response.status);
     const entry = connection.coding.find(id) orelse return write_head(connection, id, status, response.headers, response.end);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.

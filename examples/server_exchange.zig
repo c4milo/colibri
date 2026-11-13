@@ -351,9 +351,9 @@ fn note_request(request: server.Request) !void {
 }
 
 /// Answers a GET of `/greeting`. The router passes the program's context, the request context,
-/// the request and the response's writer. The router ends a response the function leaves open,
+/// the request and the response. The router ends a response the function leaves open,
 /// and `end` adds its Content-Length.
-fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", content_type);
     try response.body().writeAll(greeting);
     try response.end();
@@ -366,7 +366,7 @@ const Mark = struct { mark: []const u8 = "" };
 /// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
 /// The router decodes the name and the query's pairs, and fills each struct by its field names.
 /// The request context lends the two structs during this call.
-fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !void {
+fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", content_type);
     try response.body().print("hello, {s}{s}\n", .{ ctx.path(Name).name, ctx.query(Mark).mark });
     try response.end();
@@ -375,9 +375,9 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
 /// Sends the POST's content back. With `.whole_body`, the router calls `on_body` once, after the
 /// last byte, with a reader over the whole content in the request's entry.
 const Echo = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
-    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
@@ -388,7 +388,7 @@ const Echo = struct {
 /// header to each response a route writes. A middleware that answers the request itself, such as
 /// with a 401, returns `.answered`, and the router calls no route.
 const Brand = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !server.middleware.Next {
         try response.header("server", "colibri");
         return .next;
     }
@@ -405,7 +405,7 @@ const Counted = struct {
         bytes: usize = 0,
     };
 
-    pub fn wrap_response(_: *App, _: *server.RequestContext, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+    pub fn wrap_response(_: *App, _: *server.RequestContext, state: *State, _: *const server.Request, _: *server.Response, inner: *std.Io.Writer) ?*std.Io.Writer {
         state.* = .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .inner = inner };
         return &state.writer;
     }
@@ -424,7 +424,7 @@ const Counted = struct {
 };
 
 /// Chooses the status after a route's error. No route of this server returns one.
-fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = .internal_server_error;
 }
 

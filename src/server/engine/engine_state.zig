@@ -211,7 +211,7 @@ pub const State = struct {
     }
 
     /// Writes the head of the response to request `id`. One with no room waits for `writable`.
-    pub fn respond(state: *State, id: RequestId, response: event.Response) SendError!void {
+    pub fn respond(state: *State, id: RequestId, response: event.ResponseHeader) SendError!void {
         const slot = try state.request_slot(id);
         defer touch(state, slot);
         const answered = if (state.is_tcp(slot)) state.tcp[slot].respond(id.number, response) else state.connections.at(slot).respond(id.number, response);
@@ -255,7 +255,7 @@ pub const State = struct {
     /// Octets of the program's content that the engine still reads in place for request `id`
     /// (design §8 step 46): none over TCP, whose connections copy them inside `write_body`, and
     /// those of an uncoded h3 response that the peer has not acknowledged (RFC 9000 §3.1). The
-    /// router's response writer reads it, and `Engine` has no call for it.
+    /// router's response reads it, and `Engine` has no call for it.
     pub fn held_len(state: *State, id: RequestId) usize {
         const slot = state.open_slot(id) orelse return 0;
         if (state.is_tcp(slot)) return 0;

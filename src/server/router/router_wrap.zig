@@ -8,7 +8,7 @@
 //! it.
 const std = @import("std");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const router_call = @import("router_call.zig");
 
@@ -98,7 +98,7 @@ pub fn wrap(
     states: [*]u8,
     held: anytype,
     request: *const event.Request,
-    response: *ResponseWriter,
+    response: *Response,
 ) void {
     const Middleware = chain[index];
     const state = state_at(chain, index, states);

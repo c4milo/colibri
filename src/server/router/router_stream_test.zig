@@ -5,9 +5,9 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
-const writer_internal = @import("../response_writer/response_writer_internal.zig");
+const response_internal = @import("../response/response_internal.zig");
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
 const stream = @import("router_stream_test_support.zig");
@@ -36,7 +36,7 @@ const short_message_len = 5;
 const acknowledgments_per_octet = 2;
 const internal_server_error: http.Status = .internal_server_error;
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = internal_server_error;
 }
 
@@ -76,7 +76,7 @@ fn FixtureOf(comptime PoolOf: type) type {
             std.debug.assert(handled == .taken);
         }
 
-        fn response(fixture: *Self) *ResponseWriter {
+        fn response(fixture: *Self) *Response {
             return &fixture.pool.entries[0].response;
         }
 
@@ -129,11 +129,11 @@ test "design §8 step 46: over an engine that holds runs, writes wait for late a
     };
     fixture.start();
     // The memory holds five messages and three octets more: the sixth fits nowhere, so it is
-    // not written, and the writer waits for the engine to release a run.
+    // not written, and the response waits for the engine to release a run.
     try testing.expectEqual(5 * message_len_odd, fixture.holder.taken);
     try testing.expectEqual(1, fixture.app.failed_writes);
     try testing.expectEqual(1, fixture.holder.release_waits);
-    try testing.expect(writer_internal.waiting(fixture.response()));
+    try testing.expect(response_internal.waiting(fixture.response()));
     try testing.expectEqual(0, fixture.holder.cancelled);
     try fixture.acknowledge_late();
     try fixture.expect_stream();
@@ -149,7 +149,7 @@ test "design §8 step 46: the router calls on_writable only when the writer has 
     // Four messages fill the memory exactly, and the engine holds each.
     try testing.expectEqual(response_bytes, fixture.holder.taken);
     try testing.expectEqual(1, fixture.app.calls);
-    // A `writable` that released nothing finds no room: the route is not called, and the writer
+    // A `writable` that released nothing finds no room: the route is not called, and the response
     // waits again.
     fixture.writable();
     try testing.expectEqual(1, fixture.app.calls);
@@ -161,9 +161,9 @@ test "design §8 step 46: the router calls on_writable only when the writer has 
 }
 
 test "design §8 step 46: a route writes after a write that failed, and its response still ends" {
-    // The sixth message finds no room, so the writer asks the engine for a `writable` at a
+    // The sixth message finds no room, so the response asks the engine for a `writable` at a
     // release. The route then writes one octet, which fits, and flushes it. The engine takes that
-    // run whole, which ends the wait it held, so the writer asks again.
+    // run whole, which ends the wait it held, so the response asks again.
     var fixture: Fixture = .{
         .app = .{ .stream_len = stream_len, .message_len = message_len_odd, .flush = true, .octet_after_failure = true },
         .holder = .{ .holds = true },
@@ -173,7 +173,7 @@ test "design §8 step 46: a route writes after a write that failed, and its resp
     try testing.expectEqual(1, fixture.app.octets_after_failure);
     try testing.expectEqual(2, fixture.holder.release_waits);
     try testing.expect(fixture.holder.owed);
-    try testing.expect(writer_internal.waiting(fixture.response()));
+    try testing.expect(response_internal.waiting(fixture.response()));
     try fixture.acknowledge_late();
     try fixture.expect_stream();
     try testing.expectEqual(0, fixture.app.failed_flushes);
@@ -191,7 +191,7 @@ test "design §8 step 46: the test engine ends a wait at a write it takes whole,
 }
 
 test "design §8 step 46: a route flushes 1,000 small messages while the engine holds runs" {
-    // The owner's ruling of 2026-11-09: the writer has a slot for each of sixteen runs, and the
+    // The owner's ruling of 2026-11-09: the response has a slot for each of sixteen runs, and the
     // engine holds eight until late acknowledgments. A flush past the sixteenth run adds its
     // octets to the newest run, so no flush fails and the request is not cancelled.
     var fixture: FixtureOf(LongPool) = .{
@@ -202,7 +202,7 @@ test "design §8 step 46: a route flushes 1,000 small messages while the engine 
     try testing.expectEqual(0, fixture.app.failed_flushes);
     try testing.expectEqual(0, fixture.holder.cancelled);
     // The first call filled the memory. The engine holds eight runs, and eight wait in the
-    // writer's other slots: the newest of them holds each message after the sixteenth.
+    // response's other slots: the newest of them holds each message after the sixteenth.
     try testing.expectEqual(1, fixture.app.failed_writes);
     try testing.expectEqual(constants.limits.response_pieces_max, fixture.response().piece_count);
     try fixture.acknowledge_late();
@@ -244,7 +244,7 @@ test "decision 127: a route that flushed 20 messages ends once the engine releas
         try testing.expectEqual(1, fixture.app.failed_ends);
         try testing.expect(!fixture.holder.ended);
         try testing.expectEqual(0, fixture.holder.cancelled);
-        // The writer waits for a release. Its `writable` cuts the bytes kept into the slot the
+        // The response waits for a release. Its `writable` cuts the bytes kept into the slot the
         // release freed, and the route's next call ends the response.
         try testing.expect(fixture.holder.owed);
         try fixture.acknowledge_late();

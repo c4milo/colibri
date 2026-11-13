@@ -201,7 +201,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// Writes the head of the response to request `id`: an interim one (1xx) or the final
         /// one. With `end`, the final response carries no content. `error.NoSpaceLeft` says the
         /// response has no room for it: its `writable` comes once it has.
-        pub fn respond(engine: *Self, id: RequestId, response: event.Response) SendError!void {
+        pub fn respond(engine: *Self, id: RequestId, response: event.ResponseHeader) SendError!void {
             return engine.state.respond(id, response);
         }
 

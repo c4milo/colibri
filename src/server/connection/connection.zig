@@ -244,7 +244,7 @@ pub const Connection = struct {
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content. A final response marked `codable` goes
     /// out as decision 101 has it (`connection_coding.zig`).
-    pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
+    pub fn respond(connection: *Connection, id: Number, response: event.ResponseHeader) SendError!void {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces
         // it too: the protocol refuses a 100 after it, and `write_continue` drops the one owed.

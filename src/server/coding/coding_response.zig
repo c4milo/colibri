@@ -24,7 +24,7 @@ pub const Head = struct {
 /// Plans the final `response` to a request that asked `asked`: its field lines, rewritten into
 /// `into`, and an encoder taken for its content when it is coded. With every encoder taken, the
 /// content goes uncoded (decision 101). The caller gives the slot back if the head fails to go out.
-pub fn plan_head(encoders: Encoders, asked: coding_rules.Asked, response: event.Response, into: *coding_fields.Rewritten) coding_fields.Error!Head {
+pub fn plan_head(encoders: Encoders, asked: coding_rules.Asked, response: event.ResponseHeader, into: *coding_fields.Rewritten) coding_fields.Error!Head {
     var plan = coding_rules.plan(asked, response);
     const slot = if (plan.encodes) encoders.take(plan.coding.?) else null;
     if (plan.encodes and slot == null) plan = .{ .vary = plan.vary };

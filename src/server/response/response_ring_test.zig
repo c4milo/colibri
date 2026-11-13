@@ -1,17 +1,17 @@
-//! The tests of the ring of a `ResponseWriter`'s body (design §8 step 46), against the recorder of
-//! `response_writer_test_support.zig`: what a writer does that waits for the engine to release
-//! octets, or that finds a run in every slot. Split out of `response_writer_test.zig` for length.
+//! The tests of the ring of a `Response`'s body (design §8 step 46), against the recorder of
+//! `response_test_support.zig`: what a response does that waits for the engine to release
+//! octets, or that finds a run in every slot. Split out of `response_test.zig` for length.
 const std = @import("std");
 const http = @import("http");
-const internal = @import("response_writer_internal.zig");
-const support = @import("response_writer_test_support.zig");
+const internal = @import("response_internal.zig");
+const support = @import("response_test_support.zig");
 
 const testing = std.testing;
 const Fixture = support.Fixture;
 const memory_len = support.memory_len;
 const slots = support.slots;
 
-test "design §8 step 46: a writer that waits for a release asks again after a push" {
+test "design §8 step 46: a response that waits for a release asks again after a push" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     const writer = response.body();
@@ -149,7 +149,7 @@ test "decision 127: write_kept with no free slot sends the run it cut before it 
     const calls = fixture.recorder.count;
     // The bytes the writer holds take the last slot, so the program's bytes find none, and the
     // call returns `error.Full`. The run it cut goes to the engine first. So the engine holds
-    // every run, the writer waits for a release, and a `writable` comes.
+    // every run, the response waits for a release, and a `writable` comes.
     try writer.writeAll("cd");
     try testing.expectError(error.Full, response.write_kept("KEPT"));
     try testing.expectEqual(calls + 1, fixture.recorder.count);

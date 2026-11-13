@@ -5,7 +5,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const router_pattern = @import("router_pattern.zig");
 const router_call = @import("router_call.zig");
@@ -54,10 +54,10 @@ pub const Reason = enum {
             .path_parameter => "a route's .path is void, or a struct of []const u8 fields (decision 163)",
             .path_fields_differ => "the .path struct has one field for each parameter of the pattern, and rest for its \"*\"",
             .query_parameter => "a route's .query is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields (decision 163)",
-            .response_parameter => "the last parameter is *server.ResponseWriter",
+            .response_parameter => "the last parameter is *server.Response",
             .return_type => "a route's function returns void or an error union of void",
-            .on_body_parameters => "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.ResponseWriter",
-            .on_writable_parameters => "writable takes the context, *server.RequestContext, *State and *server.ResponseWriter",
+            .on_body_parameters => "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.Response",
+            .on_writable_parameters => "writable takes the context, *server.RequestContext, *State and *server.Response",
             .on_finished_parameters => "finished takes the context, *server.RequestContext, *State and server.Result, and returns void",
             .state_defaults => "each field of State has a default value, which each request starts from",
             .option_unknown => "a route's options are whole_body, path, query and middleware",
@@ -65,10 +65,10 @@ pub const Reason = enum {
             .middleware_type => "middleware is a tuple of structs (decision 127 ruling 5)",
             .middleware_hooks => "a middleware declares one or more of on_request, on_finished, wrap_body and wrap_response (decision 127 ruling 5)",
             .middleware_on_finished => "a middleware's on_finished takes the context, *server.RequestContext and server.Result, and returns void",
-            .middleware_on_request => "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+            .middleware_on_request => "a middleware's on_request takes the context, *server.RequestContext, *const server.Request and *server.Response, and returns server.middleware.Next",
             .middleware_state_defaults => "each field of a middleware's State has a default value, which each request starts from",
             .middleware_wrap_body => "wrap_body takes the context, *server.RequestContext, *State, *const server.Request and *std.Io.Reader, and returns ?*std.Io.Reader",
-            .middleware_wrap_response => "wrap_response takes the context, *server.RequestContext, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, and returns ?*std.Io.Writer",
+            .middleware_wrap_response => "wrap_response takes the context, *server.RequestContext, *State, *const server.Request, *server.Response and *std.Io.Writer, and returns ?*std.Io.Writer",
             .middleware_finish_response => "finish_response goes with wrap_response, takes the context, *server.RequestContext and *State, and returns an error union of void",
         };
     }
@@ -156,7 +156,7 @@ fn hooks_refusal(comptime Context: type, comptime Middleware: type) ?Reason {
     if (state_refusal(router_wrap.State(Middleware)) != null) return .middleware_state_defaults;
     if (wrap_refusal(Context, Middleware)) |reason| return reason;
     if (requested) {
-        if (!fits(@TypeOf(Middleware.on_request), &.{ *Context, *RequestContext, *const event.Request, *ResponseWriter }, middleware.Next, true)) return .middleware_on_request;
+        if (!fits(@TypeOf(Middleware.on_request), &.{ *Context, *RequestContext, *const event.Request, *Response }, middleware.Next, true)) return .middleware_on_request;
     }
     if (finished) {
         if (!fits(@TypeOf(Middleware.on_finished), &.{ *Context, *RequestContext, event.Result }, void, false)) return .middleware_on_finished;
@@ -172,7 +172,7 @@ fn wrap_refusal(comptime Context: type, comptime Middleware: type) ?Reason {
         if (!fits(@TypeOf(Middleware.wrap_body), &.{ *Context, *RequestContext, Stated, *const event.Request, *std.Io.Reader }, ?*std.Io.Reader, false)) return .middleware_wrap_body;
     }
     if (@hasDecl(Middleware, "wrap_response")) {
-        if (!fits(@TypeOf(Middleware.wrap_response), &.{ *Context, *RequestContext, Stated, *const event.Request, *ResponseWriter, *std.Io.Writer }, ?*std.Io.Writer, false)) return .middleware_wrap_response;
+        if (!fits(@TypeOf(Middleware.wrap_response), &.{ *Context, *RequestContext, Stated, *const event.Request, *Response, *std.Io.Writer }, ?*std.Io.Writer, false)) return .middleware_wrap_response;
     }
     if (@hasDecl(Middleware, "finish_response")) {
         if (!@hasDecl(Middleware, "wrap_response")) return .middleware_finish_response;
@@ -229,7 +229,7 @@ fn function_refusal(comptime Context: type, comptime State: ?type, comptime Func
         if (params[state_index].type != *Held) return .state_parameter;
     }
     if (params[request_index + stated].type != *const event.Request) return .request_parameter;
-    if (params[response_index + stated].type != *ResponseWriter) return .response_parameter;
+    if (params[response_index + stated].type != *Response) return .response_parameter;
     if (!returns_void(info.return_type.?)) return .return_type;
     return null;
 }
@@ -300,8 +300,8 @@ fn state_refusal(comptime State: type) ?Reason {
 /// The checks of a struct route's `on_body`, `on_writable` and `on_finished`.
 fn calls_refusal(comptime Context: type, comptime State: type, comptime handler: type) ?Reason {
     const Stated = if (State == void) *void else *State;
-    if (@hasDecl(handler, "on_body") and !takes(handler.on_body, &.{ *Context, *RequestContext, Stated, *std.Io.Reader, *ResponseWriter })) return .on_body_parameters;
-    if (@hasDecl(handler, "on_writable") and !takes(handler.on_writable, &.{ *Context, *RequestContext, Stated, *ResponseWriter })) return .on_writable_parameters;
+    if (@hasDecl(handler, "on_body") and !takes(handler.on_body, &.{ *Context, *RequestContext, Stated, *std.Io.Reader, *Response })) return .on_body_parameters;
+    if (@hasDecl(handler, "on_writable") and !takes(handler.on_writable, &.{ *Context, *RequestContext, Stated, *Response })) return .on_writable_parameters;
     if (@hasDecl(handler, "on_finished")) {
         if (!takes(handler.on_finished, &.{ *Context, *RequestContext, Stated, event.Result })) return .on_finished_parameters;
         if (@typeInfo(@TypeOf(handler.on_finished)).@"fn".return_type.? != void) return .on_finished_parameters;

@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("../event.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const request_context = @import("../request_context.zig");
 const RequestContext = request_context.RequestContext;
 const router_wrap = @import("router_wrap.zig");
@@ -35,7 +35,7 @@ pub const TableReason = enum {
             .routes_missing => "a route table names routes, a tuple of route entries",
             .table_field_unknown => "a route table holds error_handler, routes, middleware and Values alone",
             .error_handler_missing => "a route table names error_handler, which chooses the status after an error (decision 127 ruling 4)",
-            .error_handler_type => "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.ResponseWriter, and returns void",
+            .error_handler_type => "error_handler takes the context, *server.RequestContext, *const server.Request, anyerror and *server.Response, and returns void",
             .values_type => "Values is a struct whose fields each have a default, which each request starts from (decision 163)",
         };
     }
@@ -58,7 +58,7 @@ fn table_refusal(comptime Context: type, comptime table: anytype) ?TableReason {
         if (!known) return .table_field_unknown;
     }
     if (!@hasField(Table, "error_handler")) return .error_handler_missing;
-    const Handler = fn (*Context, *RequestContext, *const event.Request, anyerror, *ResponseWriter) void;
+    const Handler = fn (*Context, *RequestContext, *const event.Request, anyerror, *Response) void;
     if (@TypeOf(table.error_handler) != Handler) return .error_handler_type;
     if (!values_defaulted(Values(table))) return .values_type;
     return null;
@@ -161,7 +161,7 @@ pub const Passed = union(enum) {
 /// reached, the one that answered or failed included, whose `on_finished` the router calls when the
 /// request ends. `kept` holds the chain's `states` and what its wrappers gave, `held`
 /// (`router_wrap.zig`).
-pub fn run_chain(comptime chain: anytype, context: anytype, ctx: *RequestContext, request: *const event.Request, response: *ResponseWriter, ran: *u16, kept: anytype) Passed {
+pub fn run_chain(comptime chain: anytype, context: anytype, ctx: *RequestContext, request: *const event.Request, response: *Response, ran: *u16, kept: anytype) Passed {
     comptime std.debug.assert(chain.len <= std.math.maxInt(u16));
     router_wrap.reset(chain, kept.states);
     inline for (0..chain.len) |index| {
@@ -221,7 +221,7 @@ pub fn call_on_request(
     request: *const event.Request,
     parameters: *const PathParameters,
     query: *QueryMemory,
-    response: *ResponseWriter,
+    response: *Response,
 ) Outcome {
     var path = path_of(Path, parameters);
     var query_value = query_of(Query, request.query orelse "", query) catch |failure| return .{ .refused = status_of(failure) };
@@ -246,12 +246,12 @@ pub fn call_on_request(
 }
 
 /// Calls a struct route's `on_body` with the reader over the bytes that arrived.
-pub fn call_body(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), reader: *std.Io.Reader, response: *ResponseWriter) Outcome {
+pub fn call_body(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), reader: *std.Io.Reader, response: *Response) Outcome {
     return outcome_of(handler.on_body(context, ctx, state, reader, response));
 }
 
 /// Calls a struct route's `on_writable`.
-pub fn call_writable(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *ResponseWriter) Outcome {
+pub fn call_writable(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *Response) Outcome {
     return outcome_of(handler.on_writable(context, ctx, state, response));
 }
 
@@ -310,8 +310,8 @@ fn status_of(failure: error{ UriTooLong, BadRequest }) http.Status {
 /// A table of one route, which the tests of the router's names build. Test-only.
 pub const sample_table = .{ .error_handler = sample_error, .routes = .{.{ .get, "/", sample_route }} };
 
-fn sample_route(_: *void, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn sample_route(_: *void, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.end();
 }
 
-fn sample_error(_: *void, _: *RequestContext, _: *const event.Request, _: anyerror, _: *ResponseWriter) void {}
+fn sample_error(_: *void, _: *RequestContext, _: *const event.Request, _: anyerror, _: *Response) void {}

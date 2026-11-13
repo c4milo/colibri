@@ -82,11 +82,11 @@ pub const quic_response_kept_len: usize = 8192;
 /// and each run of the caller's octets `write_body` took, which stay the caller's (decision 103).
 pub const quic_response_pieces_max: usize = 16;
 
-/// The headers and trailers one `ResponseWriter` holds until it writes them (decision 127, design
+/// The headers and trailers one `Response` holds until it writes them (decision 127, design
 /// §8 step 25.2). Its `header` and `trailers` refuse one more.
 pub const response_headers_max: usize = 32;
 
-/// The runs of body bytes one `ResponseWriter` holds until the engine releases them: each run the
+/// The runs of body bytes one `Response` holds until the engine releases them: each run the
 /// body's writer wrote before a flush, and each run of `write_kept`. An h3 response holds as many
 /// (decision 103). A flush that finds a run in each slot adds its bytes to the newest run (design
 /// §8 step 46).

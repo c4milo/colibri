@@ -175,12 +175,12 @@ pub fn main() !void {
 
 /// Answers a GET of `/` with an empty 200. The program never runs the server, so no request
 /// arrives.
-fn on_root(_: *void, _: *colibri.server.RequestContext, _: *const colibri.server.Request, response: *colibri.server.ResponseWriter) !void {
+fn on_root(_: *void, _: *colibri.server.RequestContext, _: *const colibri.server.Request, response: *colibri.server.Response) !void {
     try response.end();
 }
 
 /// Answers 500 when a route's function fails (RFC 9110 §15.6.1).
-fn on_route_error(_: *void, _: *colibri.server.RequestContext, _: *const colibri.server.Request, _: anyerror, response: *colibri.server.ResponseWriter) void {
+fn on_route_error(_: *void, _: *colibri.server.RequestContext, _: *const colibri.server.Request, _: anyerror, response: *colibri.server.Response) void {
     response.status = .internal_server_error;
 }
 

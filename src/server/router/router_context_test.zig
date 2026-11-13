@@ -6,7 +6,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Next = @import("../middleware.zig").Next;
 const Router = @import("router.zig").Router;
@@ -67,7 +67,7 @@ const App = struct {
 /// middleware that authenticates a request does. Its wrapper, which wraps nothing, and its
 /// `on_finished` read the values again.
 const Identify = struct {
-    pub fn on_request(app: *App, ctx: *RequestContext, _: *const event.Request, _: *ResponseWriter) Next {
+    pub fn on_request(app: *App, ctx: *RequestContext, _: *const event.Request, _: *Response) Next {
         const values = ctx.values(Values);
         app.found = values.*;
         values.user.set(app.user);
@@ -99,7 +99,7 @@ fn id_word(ctx: *const RequestContext, request: *const event.Request) []const u8
 
 /// Answers with the user of the values, the path's name, the query's mark, and the word for the
 /// context's id.
-fn who(_: *App, ctx: *RequestContext, request: *const event.Request, response: *ResponseWriter) !void {
+fn who(_: *App, ctx: *RequestContext, request: *const event.Request, response: *Response) !void {
     const values = ctx.values(Values);
     values.writes += 1;
     const mark = ctx.query(Mark).mark orelse "";
@@ -107,7 +107,7 @@ fn who(_: *App, ctx: *RequestContext, request: *const event.Request, response: *
     try response.end();
 }
 
-fn broken(_: *App, _: *RequestContext, _: *const event.Request, _: *ResponseWriter) !void {
+fn broken(_: *App, _: *RequestContext, _: *const event.Request, _: *Response) !void {
     return error.TestBroken;
 }
 
@@ -116,12 +116,12 @@ fn broken(_: *App, _: *RequestContext, _: *const event.Request, _: *ResponseWrit
 const Later = struct {
     pub const State = struct { name: Text = .{} };
 
-    pub fn on_request(_: *App, ctx: *RequestContext, state: *State, _: *const event.Request, _: *ResponseWriter) !void {
+    pub fn on_request(_: *App, ctx: *RequestContext, state: *State, _: *const event.Request, _: *Response) !void {
         state.name.set(ctx.path(Name).name);
         ctx.values(Values).writes += 1;
     }
 
-    pub fn on_body(_: *App, ctx: *RequestContext, state: *State, _: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(_: *App, ctx: *RequestContext, state: *State, _: *std.Io.Reader, response: *Response) !void {
         const values = ctx.values(Values);
         values.writes += 1;
         try response.body().print("{s} {s} {d}", .{ values.user.get(), state.name.get(), values.writes });
@@ -135,7 +135,7 @@ const Later = struct {
 };
 
 /// Chooses 422, and keeps the user of the request's values.
-fn on_error(app: *App, ctx: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(app: *App, ctx: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = unprocessable;
     app.error_user = ctx.values(Values).user;
 }

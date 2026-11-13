@@ -224,7 +224,7 @@ pub const QuicConnection = struct {
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
-    pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
+    pub fn respond(connection: *QuicConnection, id: Number, response: event.ResponseHeader) SendError!void {
         return quic_connection_h3.respond(connection, id, response);
     }
 

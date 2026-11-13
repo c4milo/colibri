@@ -6,7 +6,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 const quic_support = @import("../quic/quic_test_support.zig");
@@ -37,7 +37,7 @@ const client_heard_every = 3;
 const ok_code: u16 = 200;
 const internal_server_error: http.Status = .internal_server_error;
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
     response.status = internal_server_error;
 }
 
@@ -91,9 +91,9 @@ test "design §8 step 46: a struct route sends sixteen times response_bytes over
 }
 
 test "design §8 step 46: a struct route writes after a write that failed, over h3" {
-    // A message finds no room, so the writer asks the engine for a `writable` at a release. The
+    // A message finds no room, so the response asks the engine for a `writable` at a release. The
     // route then writes one octet, which fits, and flushes it. The engine takes that run whole,
-    // which ends the wait it held (`State.write_body`), so the writer asks again. Before it did,
+    // which ends the wait it held (`State.write_body`), so the response asks again. Before it did,
     // no `writable` came and the response stopped.
     try quic_support.start_engine(null);
     try quic_support.connect();
@@ -117,7 +117,7 @@ test "design §8 step 46: a struct route writes after a write that failed, over 
 
 test "design §8 step 46: a struct route flushes 1,000 small messages over h3, acknowledged late" {
     // The owner's ruling of 2026-11-09: an h3 response holds about seven runs until the peer
-    // acknowledges them, and the writer has sixteen slots. A flush that finds a run in each slot
+    // acknowledges them, and a `Response` has sixteen slots. A flush that finds a run in each slot
     // adds its octets to the newest run the engine has not taken, so no flush fails.
     try quic_support.start_engine(null);
     try quic_support.connect();

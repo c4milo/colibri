@@ -3,7 +3,7 @@
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
@@ -24,7 +24,7 @@ const Mark = struct { mark: ?[]const u8 = null, times: []const u8 = "1" };
 const Id = struct { id: []const u8 };
 const Rest = struct { rest: []const u8 };
 
-fn greet(app: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn greet(app: *App, ctx: *RequestContext, _: *const event.Request, response: *Response) !void {
     const path = ctx.path(Name);
     const query = ctx.query(Mark);
     app.calls += 1;
@@ -33,24 +33,24 @@ fn greet(app: *App, ctx: *RequestContext, _: *const event.Request, response: *Re
     try response.end();
 }
 
-fn need(_: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn need(_: *App, ctx: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.body().writeAll(ctx.query(Id).id);
 }
 
-fn files(_: *App, ctx: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn files(_: *App, ctx: *RequestContext, _: *const event.Request, response: *Response) !void {
     const query = ctx.query(http.QueryParameters);
     try response.body().print("{s}?{s}", .{ ctx.path(Rest).rest, query.get("v") orelse "" });
     try response.end();
 }
 
-fn broken(app: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn broken(app: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     if (app.fail_after_head) {
         try response.write_kept("partial");
     }
     return error.TestUserUnknown;
 }
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, failure: anyerror, response: *ResponseWriter) void {
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, failure: anyerror, response: *Response) void {
     response.status = if (failure == error.TestUserUnknown) not_found else server_error;
 }
 

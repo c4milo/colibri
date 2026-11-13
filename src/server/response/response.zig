@@ -1,4 +1,4 @@
-//! `server.ResponseWriter`: the response to one request, which a route's function writes (decision
+//! `server.Response`: the response to one request, which a route's function writes (decision
 //! 127, design §8 step 25.2). The router places one in each request's entry, over the entry's
 //! response memory, and passes a pointer to it. A program never makes one.
 //!
@@ -7,34 +7,34 @@
 //! section. `write_kept` sends bytes the program keeps, with no copy. The head goes to the engine
 //! with the first bytes of the body that go, or with `end`.
 //!
-//! The bytes of `body` go into the entry's memory after the headers. The writer writes again into
-//! memory whose bytes the engine released (decisions 103 and 127 as amended, design §8 step 46):
-//! at once over h11 and h2, and over h3 once the peer acknowledged them. So `response_bytes`
-//! bounds the bytes in flight, not the response. One `writeAll` of one slice goes into the memory
-//! whole, or fails with `error.WriteFailed` and writes nothing, and a route writes it again in
-//! `on_writable`.
+//! The bytes of `body` go into the entry's memory after the headers. The body's writer writes
+//! again into memory whose bytes the engine released (decisions 103 and 127 as amended, design §8
+//! step 46): at once over h11 and h2, and over h3 once the peer acknowledged them. So
+//! `response_bytes` bounds the bytes in flight, not the response. One `writeAll` of one slice
+//! goes into the memory whole, or fails with `error.WriteFailed` and writes nothing, and a route
+//! writes it again in `on_writable`.
 //!
-//! A `flush` makes a run of the bytes the writer holds. The writer has `response_pieces_max`
-//! slots for the runs the engine has not released. With a run in each slot, a `flush` adds its
-//! bytes to the newest run (the owner's ruling of 2026-11-09). A run the engine took whole takes
-//! none, and a run of `write_kept` takes none. The bytes then stay in the writer until a slot is
-//! free, and that `flush` fails only when the memory is full too. A `flush` that fails keeps its
-//! bytes, and the writer sends them later.
+//! A `flush` makes a run of the bytes the body's writer holds. The response has
+//! `response_pieces_max` slots for the runs the engine has not released. With a run in each slot,
+//! a `flush` adds its bytes to the newest run (the owner's ruling of 2026-11-09). A run the
+//! engine took whole takes none, and a run of `write_kept` takes none. The bytes then stay in the
+//! writer until a slot is free, and that `flush` fails only when the memory is full too. A
+//! `flush` that fails keeps its bytes, and the response sends them later.
 //!
 //! A middleware's `wrap_response` may wrap the body's writer (design §8 step 25.6). `body` then
 //! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
 //! ends it once each wrapper wrote what it owes.
 //!
-//! When the engine takes less than the writer offers, the rest waits in the writer. The router
+//! When the engine takes less than the response offers, the rest waits in the response. The router
 //! sends it on the request's `writable`, so a call that queues returns with no error.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
-const internal = @import("response_writer_internal.zig");
+const internal = @import("response_internal.zig");
 
-pub const ResponseWriter = struct {
+pub const Response = struct {
     /// The status of the head, which a program sets before the head goes out. The engine refuses
     /// a code outside 100 to 599 and 101 (RFC 9110 §15).
     status: http.Status = .ok,
@@ -62,7 +62,7 @@ pub const ResponseWriter = struct {
     piece_released: u8 = 0,
     taken_len: u64 = 0,
     released_len: u64 = 0,
-    /// The writer asked the engine for a `writable` once it releases bytes.
+    /// The response asked the engine for a `writable` once it releases bytes.
     release_waited: bool = false,
     /// A cut found a run in every slot, and none took its bytes: they stay in the writer, and the
     /// next `writable` cuts again (the owner's ruling of 2026-11-09).
@@ -86,7 +86,7 @@ pub const ResponseWriter = struct {
 
     /// Adds one header to the head. Each name and value is copied into the entry's memory. A
     /// header after the body started is refused, as is one past `response_headers_max`.
-    pub fn header(response: *ResponseWriter, name: []const u8, value: []const u8) Error!void {
+    pub fn header(response: *Response, name: []const u8, value: []const u8) Error!void {
         // RFC 9110 §6.3: header fields go before the content.
         if (response.body_started) return error.SectionOutOfOrder;
         // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
@@ -100,7 +100,7 @@ pub const ResponseWriter = struct {
     /// The writer of the body, over the entry's memory after the headers. Its first call closes
     /// the headers. One `writeAll` of one slice that does not fit the memory the engine released,
     /// or a write after `end`, fails with `error.WriteFailed` and writes nothing.
-    pub fn body(response: *ResponseWriter) *std.Io.Writer {
+    pub fn body(response: *Response) *std.Io.Writer {
         if (!response.body_started) internal.start_body(response);
         return response.wrapped orelse &response.writer;
     }
@@ -109,7 +109,7 @@ pub const ResponseWriter = struct {
     /// until the request's `finished`. The head goes out first, when it has not. With a run in
     /// every slot it returns `error.Full` and adds none of `bytes`, and the program calls it
     /// again at the request's next `writable`.
-    pub fn write_kept(response: *ResponseWriter, bytes: []const u8) Error!void {
+    pub fn write_kept(response: *Response, bytes: []const u8) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -124,7 +124,7 @@ pub const ResponseWriter = struct {
     /// Content-Length when the program set none. While the writer keeps the bytes of a `flush`
     /// that found a run in every slot, `end` returns `error.Full` and changes nothing. The
     /// program calls it again at the request's next `writable`.
-    pub fn end(response: *ResponseWriter) Error!void {
+    pub fn end(response: *Response) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -140,7 +140,7 @@ pub const ResponseWriter = struct {
     /// the entry's memory after the body. It returns `error.Full` as `end` does, and
     /// `error.NoSpaceLeft` while that memory has no room for the section. After either, the
     /// response is open and has no trailer, and the program calls `trailers` again.
-    pub fn trailers(response: *ResponseWriter, headers: []const http.Field) Error!void {
+    pub fn trailers(response: *Response, headers: []const http.Field) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -158,19 +158,19 @@ pub const ResponseWriter = struct {
 
     /// Whether the head went to the engine. Before it has, the program may still choose the
     /// status, which an error function does.
-    pub fn head_sent(response: *const ResponseWriter) bool {
+    pub fn head_sent(response: *const Response) bool {
         return response.head_out;
     }
 };
 
-test "decision 127: ResponseWriter exports header, body, write_kept, end, trailers and head_sent" {
+test "decision 127: Response exports header, body, write_kept, end, trailers and head_sent" {
     // Decision 158 ruling 6 adds `Error`, which the calls return.
-    try @import("core").public_names.expect(ResponseWriter, &.{
+    try @import("core").public_names.expect(Response, &.{
         "Error", "header", "body", "write_kept", "end", "trailers", "head_sent",
     });
 }
 
 test {
-    _ = @import("response_writer_test.zig");
-    _ = @import("response_writer_ring_test.zig");
+    _ = @import("response_test.zig");
+    _ = @import("response_ring_test.zig");
 }

@@ -3,7 +3,7 @@
 //! router finishes them from the route's side outward before it ends the response.
 const std = @import("std");
 const event = @import("../event.zig");
-const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -48,7 +48,7 @@ fn Mapping(comptime times: usize, comptime upper: bool, comptime suffix: u8) typ
             inner: *std.Io.Writer = undefined,
         };
 
-        pub fn wrap_response(_: *App, _: *RequestContext, state: *State, _: *const event.Request, _: *ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+        pub fn wrap_response(_: *App, _: *RequestContext, state: *State, _: *const event.Request, _: *Response, inner: *std.Io.Writer) ?*std.Io.Writer {
             state.* = .{ .writer = .{ .vtable = &vtable, .buffer = &.{} }, .inner = inner };
             return &state.writer;
         }
@@ -111,21 +111,21 @@ const Lower = struct {
     }
 };
 
-fn written(_: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn written(_: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.body().writeAll("ok");
     try response.end();
 }
 
-fn kept(_: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn kept(_: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.write_kept("ok");
     try response.trailers(&.{.{ .name = "x-sum", .value = "1" }});
 }
 
 /// A struct route that reads the whole body through `Lower`, and answers with what it read.
 const Echo = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
         for (0..read_len_max) |_| {
             const byte = reader.takeByte() catch |failure| switch (failure) {
                 error.EndOfStream => break,
@@ -138,27 +138,27 @@ const Echo = struct {
     }
 };
 
-fn left_open(_: *App, _: *RequestContext, _: *const event.Request, _: *ResponseWriter) !void {}
+fn left_open(_: *App, _: *RequestContext, _: *const event.Request, _: *Response) !void {}
 
 /// Bytes that, with the trailers, fill the response memory, so `Outer`'s "!" finds no room.
 const full_len = response_bytes - "x-sum".len - "1".len;
 
-fn full(_: *App, _: *RequestContext, _: *const event.Request, response: *ResponseWriter) !void {
+fn full(_: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.body().splatByteAll('a', full_len);
     try response.trailers(&.{.{ .name = "x-sum", .value = "1" }});
 }
 
 /// A struct route that writes its response on `writable`, and ends it.
 const Late = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(_: *App, _: *RequestContext, _: *void, response: *ResponseWriter) !void {
+    pub fn on_writable(_: *App, _: *RequestContext, _: *void, response: *Response) !void {
         try response.body().writeAll("ab");
         try response.end();
     }
 };
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, _: *ResponseWriter) void {}
+fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, _: *Response) void {}
 
 const routes = .{
     .error_handler = on_error,

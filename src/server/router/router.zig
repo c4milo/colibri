@@ -17,7 +17,7 @@ const router_handler = @import("router_handler.zig");
 /// Builds a route table at compile time. `table` is a struct with these fields:
 ///
 /// - `error_handler`: the function the router calls when a route's function returns an error,
-///   with the context, the request context, the request, the error and the response writer. The
+///   with the context, the request context, the request, the error and the response. The
 ///   program chooses the status ("The user always decides what status to return", decision 127
 ///   ruling 4).
 /// - `routes`: a tuple of entries. Each is a method, a pattern and a function, such as
@@ -29,7 +29,7 @@ const router_handler = @import("router_handler.zig");
 /// - `middleware`, which a table may leave out: a tuple of the middleware of every route.
 ///
 /// A route's function takes four parameters: `*Context`, `*server.RequestContext`,
-/// `*const server.Request` and `*server.ResponseWriter` (decision 163). It returns `!void`.
+/// `*const server.Request` and `*server.Response` (decision 163). It returns `!void`.
 ///
 /// A route's options name the types of its path parameters and of its query (decision 163 ruling
 /// 3). `.path` is a struct with a `[]const u8` field for each parameter of the pattern, and `rest`
