@@ -7897,11 +7897,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         option `whole_body` goes. Where a `server.Request` comes before its body, a read of
         `request.body` fails: in the engine's event, in a middleware and in a struct route's
         `on_request`. An empty reader there would read as an empty body.
-     5. The engine lends a header until its next `receive`. So the router copies the header only
-        when the body's end arrives in a later `receive` than the header. A request with no body,
-        and a body that arrives with its header, cost no copy. An option of `server.RouterOptions`
-        bounds the copy. The owner rules its name and its default with sub-step 50e, from the
-        judge's numbers.
+     5. The router copies a request's header at the request's event, for each request with a
+        body on a function route. A request with no body costs no copy. The owner ruled this
+        on 2026-11-12, in place of a copy only when the body's end comes in a later `receive`
+        than the header. The router cannot tell that case: the engine reports one event for
+        each `receive`, and h2 and h3 keep one field section for each connection, which the next
+        HEADERS frame of any stream writes again. `server.RouterOptions.header_bytes` bounds the
+        copy for each entry. It has no default, as ruling 9 says of memory that a program sizes,
+        and a header past it gets 431 (RFC 6585 §5). The copy holds a header's live parts
+        alone, so `server.Headers` reads its lines through slices, from the engine's section or
+        from the copy.
      6. A struct route is a stream. Its `on_request` runs at the header and takes the
         `server.Request`, so it never copies the header. `on_data` takes the stream of the
         request's body, a `server.RequestStream`, and no header: the body is the request's
@@ -7927,7 +7932,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The name `Context` for the request's object. It is the program's type that `server.Router`
        takes.
      - Two calls for a whole body, at the header and at the body's end, which never copy a
-       header. The owner chose one call, with the copy when the body is late.
+       header. The owner chose one call with a copy, and chose it again on 2026-11-12, when the
+       copy became one for each request with a body.
+     - An event of the engine that tells the router before a lent header changes, so that the
+       copy comes only when the body is late. It changes the engine and each protocol's
+       connection.
+     - A whole `http.FieldSection` for each entry, with no option: 17,420 octets an entry, where
+       the judge's POST header has 171 live octets.
+     - A pool of whole sections with a count of its own, which a program sizes beside
+       `requests`.
      - A reader for a stream's body. `std.Io.Reader` reports a body that has no bytes yet as
        `error.ReadFailed`, which is what `on_body` did.
      - The names `RequestHeader` for the engine's request header, and `header_sent` for
@@ -7939,5 +7952,5 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
-     `@sizeOf(Values)` and by the bound of the header's copy. A request whose body arrives late pays one copy of
-     its header.
+     `@sizeOf(Values)` and by `header_bytes`. A request with a body on a function route pays one
+     copy of its header, and every request's `server.Headers` holds two slices.

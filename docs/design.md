@@ -15695,16 +15695,18 @@ library.
   - **The public names,** each listed in decision 115's form:
     - `server.RequestContext`, with `id(ctx) server.RequestId`, `values(ctx, comptime T: type)
       *T`, `path(ctx, comptime P: type) *const P` and `query(ctx, comptime Q: type) *const Q`.
-    - `server.Request` gains the field `body: *std.Io.Reader`. The engine's event carries an
-      empty reader there, and the router gives a function route the whole body.
+    - `server.Request` gains the field `body: *std.Io.Reader`. In the engine's event a read of
+      it fails (decision 163 ruling 4), and the router gives a function route the whole body.
     - `server.Response`, the new name of `server.ResponseWriter`, with the same calls: `Error`,
       `header`, `body`, `write_kept`, `end`, `trailers` and `head_sent`.
     - `server.ResponseHeader`, the new name of the engine's `server.Response`.
     - `server.RequestStream`, the stream of a request's body, with `next(stream) ?[]const u8`
       and `ended(stream) bool`. It holds no header.
     - `server.ResponseStream`, with the calls of `server.Response`.
-    - An option of `server.RouterOptions` that bounds the copy of a header. The owner rules its
-      name and its default with sub-step 50e.
+    - `server.RouterOptions.header_bytes`, the octets of each entry's copy of a header. It has
+      no default, and a header past it gets 431 (decision 163 ruling 5).
+    - `server.Headers` keeps its calls. What it holds changes, so that it reads the engine's
+      section or the router's copy through slices. Sub-step 50e names its fields.
     - The route table's optional `.Values`, and a route's options `.path` and `.query`: literals
       with no public name (decision 156 ruling 2). The option `whole_body` goes.
   - **The callbacks.**
@@ -15727,7 +15729,7 @@ library.
        `.query`, in every callback of today's routes.
     4. 50d, `refactor(server)!`: the names `server.Response` and `server.ResponseHeader`.
     5. 50e, `feat(server)!`: a function route gets the whole request, with `request.body` and the
-       header's copy when the body is late. The option `whole_body` goes.
+       header's copy for each request with a body. The option `whole_body` goes.
     6. 50f, `feat(server)!`: `server.RequestStream`, `server.ResponseStream`, `on_data` and
        `next`. `on_body` and `on_writable` go.
     7. 50g, `feat(server)!`: `RouterOptions.body_bytes` and `response_bytes` lose their
@@ -15793,6 +15795,9 @@ library.
         start; the type not compared; the halt of a call with none lent; an entry whose context
         starts `undefined`. No test caught the last one at first, because the compiler wrote
         zero there. The comptime assertion now refuses it.
+    - **Runs.** `tools/ci.sh` on `77d49d96`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed, and the TLA+ check is the nightly job's. The `server` module's tests in
+      Debug for x86-64 Linux, in an amd64 container: 649 of 649.
   - **50d, met 2026-11-12.** `server.ResponseWriter` has the name `server.Response`, and the
     engine's header struct has the name `server.ResponseHeader` (decision 163 ruling 7). The
     files of the type are in `src/server/response/`, under the type's name. No call changes.
@@ -15807,6 +15812,8 @@ library.
       places, and no fault in the code.
     - Mutations, 2 of 2 CAUGHT: the root exports the old name; the root exports no
       `ResponseHeader`.
+    - **Runs.** `tools/ci.sh` on `3d44f103`, on the same machine: 31 of 31 checks passed. The
+      `server` module's tests in Debug for x86-64 Linux, in an amd64 container: 649 of 649.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
