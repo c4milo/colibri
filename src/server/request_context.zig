@@ -14,6 +14,13 @@ pub const RequestContext = struct {
     path_held: Held = .{},
     query_held: Held = .{},
 
+    /// A context for request `id` that lends `values`, and no path and no query. A test of a
+    /// program's code calls it to pass that code a context with no router (the owner's ruling of
+    /// 2026-11-13). The router makes each request's context itself.
+    pub fn init(request_id: event.RequestId, comptime T: type, request_values: *T) RequestContext {
+        return .{ .request_id = request_id, .values_held = .of(T, request_values) };
+    }
+
     /// The request this context belongs to.
     pub fn id(ctx: *const RequestContext) event.RequestId {
         return ctx.request_id;
@@ -83,7 +90,8 @@ const testing = std.testing;
 const public_names = @import("core").public_names;
 
 test "decision 115: a RequestContext's calls" {
-    try public_names.expect(RequestContext, &.{ "id", "values", "path", "query" });
+    // The owner's ruling of 2026-11-13 adds `init`, for a test of a program's code.
+    try public_names.expect(RequestContext, &.{ "init", "id", "values", "path", "query" });
 }
 
 test "design §8 step 50c: a context that lends nothing is zero bits past its id" {
@@ -115,4 +123,16 @@ test "decision 163: values, path and query give what the router lent, by type" {
     try testing.expectEqual(1, values.count);
     try testing.expectEqualStrings("ada", ctx.path(Path).name);
     try testing.expectEqual(@as(u128, 7), @as(u128, @bitCast(ctx.id())));
+}
+
+test "decision 163: init gives a test a context that lends its values, and no path or query" {
+    const Values = struct { number: u32 = 0 };
+    var values: Values = .{};
+    const id: event.RequestId = .{ .connection = .{ .slot = 3, .generation = 5 }, .number = 9 };
+    var ctx: RequestContext = .init(id, Values, &values);
+    ctx.values(Values).number = 7;
+    try testing.expectEqual(7, values.number);
+    try testing.expectEqual(id, ctx.id());
+    try testing.expectEqual(null, ctx.path_held.pointer);
+    try testing.expectEqual(null, ctx.query_held.pointer);
 }

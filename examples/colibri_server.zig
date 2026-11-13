@@ -100,6 +100,8 @@ const internal_server_error: server.Status = .internal_server_error;
 const body_len_max = 256;
 
 pub fn main() !void {
+    // A program's code that takes a request context runs with no router, as in a test.
+    try check_numbered();
     // A program probes its CPU once and passes it to every TLS configuration. With no `random`,
     // the server and the client draw from the system's entropy.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
@@ -225,11 +227,27 @@ const Values = struct {
 /// program's state is one for every request, and the values are one for each.
 const Numbered = struct {
     pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.Response) !server.middleware.Next {
-        state.taken += 1;
-        ctx.values(Values).number = state.taken;
+        number(state, ctx);
         return .next;
     }
+
+    /// Gives the request the next number.
+    fn number(state: *App, ctx: *server.RequestContext) void {
+        state.taken += 1;
+        ctx.values(Values).number = state.taken;
+    }
 };
+
+/// Calls `Numbered.number` as a test of the program's code does: `RequestContext.init` makes a
+/// context that lends values of the test's own, with no router.
+fn check_numbered() !void {
+    var state: App = .{};
+    var values: Values = .{};
+    const id: server.RequestId = .{ .connection = .{ .slot = 0, .generation = 0 }, .number = 1 };
+    var ctx: server.RequestContext = .init(id, Values, &values);
+    Numbered.number(&state, &ctx);
+    if (values.number != 1) return error.RequestNotNumbered;
+}
 
 /// Answers a GET of `/greeting`. The router ends a response the function leaves open, and `end`
 /// adds its Content-Length.

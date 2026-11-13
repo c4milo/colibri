@@ -15695,6 +15695,9 @@ library.
   - **The public names,** each listed in decision 115's form:
     - `server.RequestContext`, with `id(ctx) server.RequestId`, `values(ctx, comptime T: type)
       *T`, `path(ctx, comptime P: type) *const P` and `query(ctx, comptime Q: type) *const Q`.
+      `init(request_id, comptime T: type, request_values: *T) RequestContext` makes one for a
+      test of a program's code, with no router: connect-zig asked for it, and the owner ruled it
+      on 2026-11-13.
     - `server.Request` gains the field `body: *std.Io.Reader`. In the engine's event a read of
       it fails (decision 163 ruling 4), and the router gives a function route the whole body.
     - `server.Response`, the new name of `server.ResponseWriter`, with the same calls: `Error`,

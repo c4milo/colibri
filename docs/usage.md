@@ -1243,11 +1243,31 @@ const Values = struct {
 /// program's state is one for every request, and the values are one for each.
 const Numbered = struct {
     pub fn on_request(state: *App, ctx: *server.RequestContext, _: *const server.Request, _: *server.Response) !server.middleware.Next {
-        state.taken += 1;
-        ctx.values(Values).number = state.taken;
+        number(state, ctx);
         return .next;
     }
+
+    /// Gives the request the next number.
+    fn number(state: *App, ctx: *server.RequestContext) void {
+        state.taken += 1;
+        ctx.values(Values).number = state.taken;
+    }
 };
+```
+
+A test of a program's code that takes a request context makes one with
+`server.RequestContext.init(id, T, &values)`. The context lends those values, and no path and no
+query, and needs no router. The example checks its middleware's code this way:
+
+```zig
+fn check_numbered() !void {
+    var state: App = .{};
+    var values: Values = .{};
+    const id: server.RequestId = .{ .connection = .{ .slot = 0, .generation = 0 }, .number = 1 };
+    var ctx: server.RequestContext = .init(id, Values, &values);
+    Numbered.number(&state, &ctx);
+    if (values.number != 1) return error.RequestNotNumbered;
+}
 ```
 
 `path(P)` and `query(Q)` answer during the route's first call alone: a function's one call, or a

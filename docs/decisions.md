@@ -7925,6 +7925,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         reply of 1,520 octets failed, and neither answer named the pool. No value is right to
         assume for memory that a program sizes (decision 158 ruling 16). `requests` keeps its
         default.
+    10. A test of a program's code makes a context with `server.RequestContext.init(id, T,
+        &values)`, which lends those values and no path or query. The owner ruled it on
+        2026-11-13, after connect-zig's report. The context's fields stay the router's, and no
+        document names them.
 
      The alternatives refused:
      - A slot that `server.ResponseWriter` gives, with no change of signature. The owner chose
@@ -7949,6 +7953,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        write two more options.
      - The defaults of `body_bytes` and `response_bytes`, with what each failure looks like in
        docs/usage.md. A new program would still meet 413 or 500 first.
+     - For a test's context, a literal over the context's fields, written in docs/usage.md, or
+       no way at all, so that a program tests a route through `server.Router`. The first makes
+       the fields part of the API, and the second gives a middleware's own code no test.
 
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
