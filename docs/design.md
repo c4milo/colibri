@@ -5525,6 +5525,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         colibri's test server issues no ticket, so each connection to it runs a full handshake.
         h11-tls-one therefore compares colibri's full handshake with hyper's resumed one. The
         owner ruled step 48 on 2026-11-10: colibri's TCP servers issue tickets.
+    - **h11-many and h11-tls-many against hyper, 2026-11-14.** colibri takes 1.16 to 1.22 times
+      hyper's instructions a request on the two inputs. The owner asked where they go.
+      - Judge run [43604566860](https://github.com/c4milo/colibri/actions/runs/43604566860), on
+        `f4cd4f48`, measured the competitors with `h11`. A request takes, in job 1 and job 2:
+        - On h11-many, 13,303 and 13,447 user instructions for colibri, and 7,236 and 7,195 for
+          hyper. The kernel runs 22,169 and 22,178 for colibri, and 23,224 and 23,191 for hyper.
+        - On h11-tls-many, 21,450 and 21,472 user instructions for colibri, and 13,172 in both
+          jobs for hyper. The kernel runs 22,292 and 22,298, and 22,967 and 22,765.
+        - colibri makes 0.07 to 0.11 system calls a request, and hyper 2.08.
+      - So the kernel's work is equal, and the whole loss is in user space: about 6,150
+        instructions a request in cleartext, and about 2,150 more in the TLS record path. By CPU
+        time colibri wins h11-many, at 0.86 and 0.90 of hyper's. On h11-tls-many it takes 1.01
+        and 1.13 times hyper's.
+      - Judge run [43604640176](https://github.com/c4milo/colibri/actions/runs/43604640176), on
+        `f9d19171`, a branch not on main, profiled hyper beside colibri on the two inputs. On
+        h11-many, four functions hold about 38% of colibri's samples in user space: the engine's
+        `State.receive` 13%, the connection's `read_protocol` 10% to 12%, the test worker's
+        `handle` 8% and `Connection.receive` 6%.
+      - The TLS record path. On h11-tls-many, chapulin's `aead_start` and `compute_powers` hold
+        1.05% to 1.09% and 0.57% to 0.63% of all colibri's samples. The seal and the open of the
+        data hold 1.6% to 1.7% together. chapulin computes the GHASH key and its powers again for
+        each record, and aws-lc keeps them for the life of the key. The owner ruled on
+        2026-11-14, as chapulin's decision 234, that a host object stores the powers beside each
+        stored AES schedule. colibri gets that with a later pin of chapulin.
+      - The engine. A local experiment counted the test server's calls of `receive` under
+        callgrind on a laptop, whose instruction counts are never published. A request takes 7
+        calls, and 5 of them take nothing and report nothing. `src/colibri/server_pump.zig` has
+        the same two loops. A `server.Event` takes 160 octets and a `ReceiveResult` 192, and each
+        call returns one by value. The session that owns the engine has the numbers.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
