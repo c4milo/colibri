@@ -519,8 +519,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   CUBIC, under BBRv3 (`colibri-bbr`) and under NewReno (`colibri-newreno`), chi, axum and ngtcp2's server under its own BBR (step
   29d), and over h2-tls from chi and axum, while a
   second oha sends a small GET each 100 ms. Its `h3-shared` runs load colibri under CUBIC and
-  under BBRv3 at once through the one bottleneck. The report gives the download time at p50 and
-  p90, the goodput, the GETs' p50 and p99, and each controller's share of the shared bottleneck
+  under BBRv3 at once through the one bottleneck. Its `h3-resume` runs download the file on
+  connections of their own, from colibri under each of its three controllers, as it is and with
+  `careful-resume` (design §8 step 35e). The report gives the download time at p50 and
+  p90, the goodput, the GETs' p50 and p99, each controller's share of the shared bottleneck, and
+  the time of a download on a new connection and on one that resumes
   (design §8 steps 13k and 29c). It needs sudo -n, tc, ethtool, sch_netem and Docker, and the workflow's `bulk` input runs it
   on the judge. With `BENCH_BULK_QLOG` set to a directory, colibri's servers write their qlog
   there, and the workflow's `qlog` input keeps it beside the report; no document publishes the
@@ -614,8 +617,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [newreno] [connections=<n>]
-  [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]`
+  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [newreno] [careful-resume]
+  [idle=<milliseconds>] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
+  [rsa=<prefix>] [mldsa87=<prefix>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
   clients over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
@@ -630,7 +634,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   connections, and with `qlogdir` writes each one's qlog through the endpoint's log provider; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
   it. With `routes=github` too, `server.Router` answers every request over the GitHub API's routes
   in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). With `bbr` too,
-  each connection runs BBRv3 in place of CUBIC (design §8 step 29c). With `newreno` too, each connection runs RFC 9002's NewReno (design §8 step 34). On Linux the `h3`
+  each connection runs BBRv3 in place of CUBIC (design §8 step 29c). With `newreno` too, each connection runs RFC 9002's NewReno (design §8 step 34).
+  With `careful-resume` too, the server keeps what each connection observed of its path, and gives
+  it to the next connection of that client's host (RFC 9959, design §8 step 35e). With
+  `idle=<milliseconds>` too, it advertises that idle timeout in place of 30 s. On Linux the `h3`
   mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
   (UDP_SEGMENT, design §8 step 13f.6), and with `no-gso` it sends each datagram in a send of its
   own (design §8 step 13i). An address is IPv4
@@ -638,7 +645,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
   checks each file arrives octet for octet, that a missing one is refused, that a client with
   `chacha20` runs TLS_CHACHA20_POLY1305_SHA256, and that a second connection resumes the first one's
-  session. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
+  session. It checks that a client's second connection to a server with `careful-resume` takes
+  what its first one saved. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
   each record to be a JSON text with the members its event requires. `tools/qlog_to_qvis.py
   <file.sqlog> [output]` rewrites one into the qlog 0.3 form qvis reads (decision 102 as amended).
   `tools/quic_aioquic.sh` runs the same endpoint against aioquic's, pinned and installed into a

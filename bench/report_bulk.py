@@ -128,9 +128,12 @@ def read_resume(scratch):
                 continue
             data = json.loads(download.read_text())
             # The one request's time, from its start on the open connection to its last octet.
-            # `total` also holds the idle timeout oha waits out before it ends.
-            run["ms"].append(data["summary"]["slowest"] * MS)
-            run["ok"] = run["ok"] and answered(data)[1]
+            # `total` also holds the idle timeout oha waits out before it ends. oha gives no
+            # time for a download it did not complete, which the report does not count.
+            slowest = data["summary"]["slowest"]
+            run["ok"] = run["ok"] and answered(data)[1] and slowest is not None
+            if slowest is not None:
+                run["ms"].append(slowest * MS)
         counts = COUNTS.search(path.read_text())
         if counts:
             run["resumed"] += int(counts.group(1))
@@ -155,6 +158,10 @@ def resume_section(scratch):
         if server.endswith(RESUME) or resumed is None:
             continue
         new = runs[(profile, server)]
+        if not new["ms"] or not resumed["ms"]:
+            lines.append(f"| {profile} | {server} | {len(resumed['ms'])} | - | - | - | "
+                         f"{resumed['resumed']} | {resumed['retreated']} | no |")
+            continue
         new_ms, resumed_ms = statistics.median(new["ms"]), statistics.median(resumed["ms"])
         ok = "yes" if new["ok"] and resumed["ok"] else "no"
         lines.append(f"| {profile} | {server} | {len(resumed['ms'])} | {new_ms:.0f} | {resumed_ms:.0f} | "
@@ -190,11 +197,13 @@ def write_run(scratch, round_, label, server, connections, p50, count, codes):
 
 
 def write_resume(scratch, round_, server, seconds, counts):
-    """The downloads of one server of `h3-resume`: download 0 and one of each of `seconds`."""
+    """The downloads of one server of `h3-resume`: download 0 and one of each of `seconds`, where
+    None is a download that oha did not complete."""
     directory = pathlib.Path(scratch, "resume", str(round_), "bottleneck", server)
     directory.mkdir(parents=True, exist_ok=True)
-    for download, total in enumerate((9.0, *seconds)):
-        data = {"summary": {"slowest": total, "total": total + 2.0}, "statusCodeDistribution": {"200": 1}}
+    for download, slowest in enumerate((9.0, *seconds)):
+        data = {"summary": {"slowest": slowest, "total": 12.0},
+                "statusCodeDistribution": {} if slowest is None else {"200": 1}}
         pathlib.Path(directory, f"{download}.json").write_text(json.dumps(data))
     pathlib.Path(directory, "server.txt").write_text(counts)
 
@@ -234,6 +243,14 @@ def test():
             write_resume(scratch, round_, "a-resume", (9.0, 9.0) if warm else (0.7, 0.9), line)
         text = report(scratch, 1_000_000, 30)
         assert "| bottleneck | a | 4 | 1000 | 800 | 0.80 | 3 | 1 | yes |" in text, text
+        # A download that oha did not complete has no time: it is not counted, and not all were 200.
+        write_resume(scratch, 1, "b", (1.0, None), "")
+        write_resume(scratch, 1, "b-resume", (0.5, 0.5), "")
+        write_resume(scratch, 1, "c", (None,), "")
+        write_resume(scratch, 1, "c-resume", (0.5,), "")
+        text = report(scratch, 1_000_000, 30)
+        assert "| bottleneck | b | 2 | 1000 | 500 | 0.50 | 0 | 0 | no |" in text, text
+        assert "| bottleneck | c | 1 | - | - | - | 0 | 0 | no |" in text, text
     print("report_bulk.py: the report reads the runs as the tests require")
 
 

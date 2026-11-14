@@ -266,18 +266,20 @@ load() {  # load <protocol> <connections> <out> [port]
   wait "$probe_pid"
 }
 
-# Waits until the server with `careful-resume` has ended <count> connections, which is when it
-# has saved what the last one observed (RFC 9959 §3.1): its log gives the count after each end.
+# The connections the server with `careful-resume` has ended: its log gives a line after each.
+ended_count() {
+  grep -c "careful-resume: ended=" "$scratch/server.log" || true
+}
+
+# Waits until the server has ended more connections than <count>, which is when it has saved what
+# the last one observed (RFC 9959 §3.1). A download that left no connection to end costs the wait
+# and no more: the report shows that download.
 await_ended() {  # await_ended <count>
-  local ended
   for _ in $(seq "$ended_tries"); do
-    ended="$(grep -c "careful-resume: ended=" "$scratch/server.log" || true)"
-    if [ "$ended" -ge "$1" ]; then return 0; fi
+    if [ "$(ended_count)" -gt "$1" ]; then return 0; fi
     sleep 0.1
   done
-  echo "run_bulk.sh: the server did not end connection $1" >&2
-  cat "$scratch/server.log" >&2
-  exit 1
+  echo "run_bulk.sh: the server ended no connection past $1" >&2
 }
 
 # The downloads of `h3-resume` from <server> on `port`, each on a connection of its own, into
@@ -286,12 +288,14 @@ await_ended() {  # await_ended <count>
 resume_load() {  # resume_load <server> <out>
   local first=1
   local download
+  local ended
   if [[ "$1" == *-resume ]]; then first=0; fi
   mkdir -p "$2"
   for download in $(seq "$first" "$resume_downloads"); do
+    ended="$(ended_count)"
     taskset -c "$load_cores" "$oha" --no-tui -n 1 -c 1 -p 1 --http-version 3 --insecure \
       --output-format json "https://127.0.0.1:${port}/${bulk_file}" >"$2/$download.json"
-    if [[ "$1" == *-resume ]]; then await_ended "$((download + 1))"; fi
+    if [[ "$1" == *-resume ]]; then await_ended "$ended"; fi
   done
   grep "careful-resume: ended=" "$scratch/server.log" | tail -1 >"$2/server.txt" || true
 }
