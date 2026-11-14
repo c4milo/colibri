@@ -31,6 +31,16 @@
 # share each controller takes. Each server has its own probe of small GETs. It adds about 4 minutes
 # a round.
 #
+# Each round then runs `h3-resume`, the judge run of design §8 step 35e: `resume_downloads`
+# downloads of the file from each of colibri's three controllers, each download on a connection
+# of its own, with no load beside it. A server as the other loads run it starts each connection
+# with no saved set. A server with `careful-resume` serves one download more first, which saves
+# what it observed, and each later connection takes the set (RFC 9959). The report gives the time
+# of a download from each, and how many connections took a set and how many retreated. oha sends
+# no close after its one download, so each server advertises an idle timeout of
+# `resume_idle_ms`, which ends the connection in place of the 30 s of the other loads. It adds
+# about 7 minutes a round.
+#
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset (decision 33 as
 # amended). Round 0 is a warm-up that the report discards. It needs sudo -n, tc, ethtool,
 # sch_netem, Zig, Go, cargo, curl, Docker and python3. BENCH_OHA names an oha with h3 built
@@ -65,6 +75,18 @@ readonly pair_core=0
 readonly load_cores=2,3
 # The two servers that share the bottleneck: colibri under CUBIC and under BBRv3.
 readonly shared_servers=(colibri colibri-bbr)
+# The servers of `h3-resume`, each run as it is and, as `<server>-resume`, with `careful-resume`,
+# and the downloads the report counts from each.
+readonly resume_servers=(colibri colibri-bbr colibri-newreno)
+readonly resume_downloads=5
+# The idle timeout the servers of `h3-resume` advertise, in milliseconds: past any silence in a
+# download, and short enough that a download and its end take about 3 s.
+readonly resume_idle_ms=2000
+# The words the servers of `h3-resume` take beside their own, and none for the other loads.
+resume_words=()
+# How long a download waits for the server to end the connection before it, in tenths of a
+# second: past the idle timeout of 30 s, which ends a connection whose close the path dropped.
+readonly ended_tries=400
 pair_pids=()
 readonly ready_tries=100
 readonly oha_version=v1.16.0
@@ -148,16 +170,18 @@ serves() {  # serves <server> <protocol>
 # and with no GSO, as bench/run_latency.sh --network starts them.
 server_command() {  # server_command <server> <protocol>
   local tls=(--tls "$scratch/identity")
-  local qlog=()
+  # The words a colibri server takes after its controller's: those of `h3-resume`, and its qlog
+  # directory. `<server>-resume` is <server> with `careful-resume` (design §8 step 35e).
+  local words=("${resume_words[@]}")
   if [ -n "$qlog_root" ]; then
     mkdir -p "$qlog_root/$qlog_run/$1"
-    qlog=("qlogdir=$qlog_root/$qlog_run/$1")
+    words+=("qlogdir=$qlog_root/$qlog_run/$1")
   fi
   if [ "$2" = h3 ]; then tls=(--h3 --tls "$scratch/identity"); fi
-  case "$1" in
-    colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso "${qlog[@]}") ;;
-    colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr "${qlog[@]}") ;;
-    colibri-newreno) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso newreno "${qlog[@]}") ;;
+  case "${1%-resume}" in
+    colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso "${words[@]}") ;;
+    colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr "${words[@]}") ;;
+    colibri-newreno) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso newreno "${words[@]}") ;;
     chi) command=(env GOMAXPROCS=1 QUIC_GO_DISABLE_GSO=true "$scratch/chi" --port "$port" --www "$scratch/www" "${tls[@]}") ;;
     axum)
       command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --www "$scratch/www" "${tls[@]}")
@@ -240,6 +264,36 @@ load() {  # load <protocol> <connections> <out> [port]
   taskset -c "$load_cores" "$oha" --no-tui -z "${seconds}s" -c "$2" -p 1 "${words[@]}" \
     --output-format json "https://127.0.0.1:${to}/${bulk_file}" >"$3.json"
   wait "$probe_pid"
+}
+
+# Waits until the server with `careful-resume` has ended <count> connections, which is when it
+# has saved what the last one observed (RFC 9959 §3.1): its log gives the count after each end.
+await_ended() {  # await_ended <count>
+  local ended
+  for _ in $(seq "$ended_tries"); do
+    ended="$(grep -c "careful-resume: ended=" "$scratch/server.log" || true)"
+    if [ "$ended" -ge "$1" ]; then return 0; fi
+    sleep 0.1
+  done
+  echo "run_bulk.sh: the server did not end connection $1" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+}
+
+# The downloads of `h3-resume` from <server> on `port`, each on a connection of its own, into
+# <out>/<download>.json. Download 0 is the one more that a server with `careful-resume` serves
+# first, and the report does not count it. <out>/server.txt keeps that server's last counts.
+resume_load() {  # resume_load <server> <out>
+  local first=1
+  local download
+  if [[ "$1" == *-resume ]]; then first=0; fi
+  mkdir -p "$2"
+  for download in $(seq "$first" "$resume_downloads"); do
+    taskset -c "$load_cores" "$oha" --no-tui -n 1 -c 1 -p 1 --http-version 3 --insecure \
+      --output-format json "https://127.0.0.1:${port}/${bulk_file}" >"$2/$download.json"
+    if [[ "$1" == *-resume ]]; then await_ended "$((download + 1))"; fi
+  done
+  grep "careful-resume: ended=" "$scratch/server.log" | tail -1 >"$2/server.txt" || true
 }
 
 # Makes the loopback device a path netem drops single packets on, as bench/run_latency.sh does.
@@ -342,6 +396,7 @@ machine() {
   echo "ngtcp2=commit $(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ngtcp2_image"), --cc bbr, $ngtcp2_image"
   echo "oha=${oha_version} ${oha_commit}, with h3"
   echo "rounds=$rounds seconds=$seconds file=$bulk_len octets probe=$probe_rate GET/s"
+  echo "h3-resume=$resume_downloads downloads from each server, each on a connection of its own, idle timeout $resume_idle_ms ms"
   echo "path=loopback, 127.0.0.1, MTU ${network_mtu}, TSO, GSO and GRO off, no GSO in the h3 servers"
   for profile in "${profiles[@]}"; do
     echo "profile ${profile}=the server's packets netem limit ${queue_packets} delay ${delay} $(profile_loss "$profile") rate ${bottleneck_rate}; others netem delay ${delay} $(profile_loss "$profile") rate ${other_rate}"
@@ -396,6 +451,20 @@ for round in $(seq 0 "$rounds"); do
       wait "${loads[@]}"
     done
     stop_pair
+    # A download on a connection of its own, from each controller with no saved set and with one.
+    for base in "${resume_servers[@]}"; do
+      for server in "$base" "$base-resume"; do
+        echo "run_bulk.sh: round $round, h3-resume@$profile, $server" >&2
+        qlog_run="$round/h3-resume@$profile"
+        resume_words=("idle=$resume_idle_ms")
+        if [ "$server" != "$base" ]; then resume_words+=(careful-resume); fi
+        start_server "$server" h3
+        resume_words=()
+        apply_profile "$profile"
+        resume_load "$server" "$scratch/resume/$round/$profile/$server"
+        stop_server
+      done
+    done
   done
 done
 

@@ -365,6 +365,11 @@ pub const pool_run_ns_max: u64 = 60 * nanoseconds_per_second;
 /// lingers until its idle timeout (RFC 9000 §10.1), so the table holds more than the case opens.
 pub const quic_connections_max: usize = 64;
 
+/// Client hosts whose saved set the UDP server's `careful-resume` word keeps at once (RFC 9959
+/// §3.1, design §8 step 35e). The judge's bulk run loads from one host, and a host past the count
+/// resumes nothing.
+pub const quic_resume_hosts_max: usize = 16;
+
 /// Octets of one UDP QUIC connection's qlog between two turns of the loop (decision 102). A turn
 /// logs the packets of at most `udp_operations_max` datagrams received and as many sent, a few
 /// hundred octets each, and the next turn writes them to the connection's file.

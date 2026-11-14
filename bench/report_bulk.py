@@ -14,12 +14,20 @@ The protocol `h3-shared` holds two servers loaded at once through one bottleneck
 step 29c). For it the report also gives each server's share of the two goodputs, the median of
 each counted round's share.
 
+`resume/<round>/<profile>/<server>/<download>.json` holds one download on a connection of its
+own (design §8 step 35e), and `server.txt` beside it the last counts a server with
+`careful-resume` logged. Download 0 saved the set the others take, and is not counted. For each
+profile and controller the report gives the median time of a download from the server as it is
+and from `<server>-resume`, their ratio, and how many of the counted connections took a set and
+how many retreated (RFC 9959 §3.5).
+
     python3 bench/report_bulk.py <scratch> <report.md> --file-len <octets> --seconds <seconds>
     python3 bench/report_bulk.py --test
 """
 
 import json
 import pathlib
+import re
 import statistics
 import sys
 import tempfile
@@ -102,6 +110,58 @@ def shared_section(runs):
     return lines + [""]
 
 
+# What a server with `careful-resume` is named after, and the counts its log gives.
+RESUME = "-resume"
+COUNTS = re.compile(r"resumed=(\d+) saved=\d+ retreated=(\d+)")
+
+
+def read_resume(scratch):
+    """{(profile, server): {"ms": [each counted download], "ok", "resumed", "retreated"}}."""
+    runs = {}
+    for path in sorted(pathlib.Path(scratch, "resume").glob("*/*/*/server.txt")):
+        round_, profile, server = path.parts[-4], path.parts[-3], path.parts[-2]
+        if round_ == "0":
+            continue
+        run = runs.setdefault((profile, server), {"ms": [], "ok": True, "resumed": 0, "retreated": 0})
+        for download in sorted(path.parent.glob("*.json")):
+            if download.stem == "0":
+                continue
+            data = json.loads(download.read_text())
+            # The one request's time, from its start on the open connection to its last octet.
+            # `total` also holds the idle timeout oha waits out before it ends.
+            run["ms"].append(data["summary"]["slowest"] * MS)
+            run["ok"] = run["ok"] and answered(data)[1]
+        counts = COUNTS.search(path.read_text())
+        if counts:
+            run["resumed"] += int(counts.group(1))
+            run["retreated"] += int(counts.group(2))
+    return runs
+
+
+def resume_section(scratch):
+    """The table of the downloads on connections of their own, or no lines when none ran."""
+    runs = read_resume(scratch)
+    if not runs:
+        return []
+    lines = ["## A download on a connection of its own", "",
+             "Each download ran alone, on a connection of its own. `New` is a server that starts "
+             "each connection with no saved set. `Resumed` is that server with `careful-resume`, "
+             "which gives each connection what the one before it observed (RFC 9959). A time is "
+             "the median over the downloads of the counted rounds.", "",
+             "| Profile | Server | Downloads | New (ms) | Resumed (ms) | Resumed / new | Took a set | Retreated | All 200 |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for profile, server in sorted(runs):
+        resumed = runs.get((profile, server + RESUME))
+        if server.endswith(RESUME) or resumed is None:
+            continue
+        new = runs[(profile, server)]
+        new_ms, resumed_ms = statistics.median(new["ms"]), statistics.median(resumed["ms"])
+        ok = "yes" if new["ok"] and resumed["ok"] else "no"
+        lines.append(f"| {profile} | {server} | {len(resumed['ms'])} | {new_ms:.0f} | {resumed_ms:.0f} | "
+                     f"{resumed_ms / new_ms:.2f} | {resumed['resumed']} | {resumed['retreated']} | {ok} |")
+    return lines + [""]
+
+
 def report(scratch, file_len, seconds):
     runs = read_runs(scratch, file_len, seconds)
     machine = pathlib.Path(scratch, "machine.txt").read_text()
@@ -114,7 +174,7 @@ def report(scratch, file_len, seconds):
                   "|---|---|---|" + "---|" * (len(FIGURES) + 1)]
         lines += [row(key, runs[key]) for key in sorted(runs) if key[0] == profile]
         lines.append("")
-    return "\n".join(lines + shared_section(runs))
+    return "\n".join(lines + shared_section(runs) + resume_section(scratch))
 
 
 def write_run(scratch, round_, label, server, connections, p50, count, codes):
@@ -127,6 +187,16 @@ def write_run(scratch, round_, label, server, connections, p50, count, codes):
     probe = {"statusCodeDistribution": {"200": 300}, "latencyPercentiles": {"p50": p50 / 10, "p99": p50 / 5}}
     pathlib.Path(directory, f"{connections}.json").write_text(json.dumps(downloads))
     pathlib.Path(directory, f"{connections}.probe.json").write_text(json.dumps(probe))
+
+
+def write_resume(scratch, round_, server, seconds, counts):
+    """The downloads of one server of `h3-resume`: download 0 and one of each of `seconds`."""
+    directory = pathlib.Path(scratch, "resume", str(round_), "bottleneck", server)
+    directory.mkdir(parents=True, exist_ok=True)
+    for download, total in enumerate((9.0, *seconds)):
+        data = {"summary": {"slowest": total, "total": total + 2.0}, "statusCodeDistribution": {"200": 1}}
+        pathlib.Path(directory, f"{download}.json").write_text(json.dumps(data))
+    pathlib.Path(directory, "server.txt").write_text(counts)
 
 
 def test():
@@ -154,6 +224,16 @@ def test():
         text = report(scratch, 1_000_000, 30)
         assert "| bottleneck | 1 | cubic | 0.62 |" in text, text
         assert "| bottleneck | 1 | bbr | 0.38 |" in text, text
+        assert "## A download on a connection of its own" not in text, text
+        # Round 0 and download 0 are not counted. The medians are 1.0 s and 0.8 s, and of the 4
+        # connections that the server with `careful-resume` counted, 3 took a set and 1 retreated.
+        for round_ in (0, 1, 2):
+            warm = round_ == 0
+            write_resume(scratch, round_, "a", (9.0, 9.0) if warm else (0.9, 1.1), "")
+            line = "quic-udp: careful-resume: ended=3 resumed=%d saved=3 retreated=%d\n" % ((9, 9) if warm else (round_, round_ - 1))
+            write_resume(scratch, round_, "a-resume", (9.0, 9.0) if warm else (0.7, 0.9), line)
+        text = report(scratch, 1_000_000, 30)
+        assert "| bottleneck | a | 4 | 1000 | 800 | 0.80 | 3 | 1 | yes |" in text, text
     print("report_bulk.py: the report reads the runs as the tests require")
 
 

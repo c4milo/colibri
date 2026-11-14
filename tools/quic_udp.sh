@@ -6,7 +6,8 @@
 # first connection's session on its second (RFC 9846 §2.2). The hq-interop and h3 runs write each
 # connection's qlog, and every file must pass tools/qlog_check.py (design §8 step 18c). The files
 # come over h3 from the server's `h3` mode too, which serves them through the `server` module
-# (design §8 step 17b).
+# (design §8 step 17b). With `careful-resume` that mode must give a client's second connection
+# what its first one observed (RFC 9959, design §8 step 35e).
 #
 # It needs a Go toolchain, for the identity, and python3. chapulin comes from the package build.zig.zon pins
 # (design §8 step 16a). It is not part of `zig build test`.
@@ -339,6 +340,41 @@ if kill -0 "$server_pid" 2>/dev/null || wait "$server_pid"; then
   exit 1
 fi
 server_pid=""
+# A server with `careful-resume` keeps what a connection observed of its path, and the client's
+# next connection, which comes from another port, takes it (RFC 9959 §2.2 and §3.2, design §8 step
+# 35e). The large file takes the window past the four initial windows a set needs (§3.1). The
+# server advertises the idle timeout of `idle=<milliseconds>`, which the client's qlog records.
+mkdir -p "$scratch/qlog_resume"
+start_server h3 careful-resume idle=1500
+for connection in 1 2; do
+  rm -f "$scratch/downloads/large"
+  if ! client h3 "qlogdir=$scratch/qlog_resume/" /large >"$scratch/careful_resume.log" 2>&1; then
+    echo "quic_udp: the h3 client failed against the h3 mode with careful-resume:" >&2
+    cat "$scratch/careful_resume.log" "$scratch/server.log" >&2
+    exit 1
+  fi
+  # The client's close ends the server's connection, which then logs its counts.
+  for _ in $(seq 1 50); do
+    grep -q "careful-resume: ended=$connection " "$scratch/server.log" && break
+    sleep 0.1
+  done
+done
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
+if ! grep -q "careful-resume: ended=1 resumed=0 saved=1 retreated=0" "$scratch/server.log" ||
+  ! grep -q "careful-resume: ended=2 resumed=1 " "$scratch/server.log"; then
+  echo "quic_udp: the second connection did not take what the first one saved:" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+fi
+cmp -s "$scratch/www/large" "$scratch/downloads/large" || {
+  echo "quic_udp: large arrived on the resumed connection different from what the server holds" >&2
+  exit 1
+}
+if grep -L '"initiator":"remote".*"max_idle_timeout":1500,' "$scratch"/qlog_resume/*.sqlog | grep -q .; then
+  echo "quic_udp: the server with idle=1500 advertised another idle timeout" >&2
+  exit 1
+fi
 # A server given the time issues a ticket, and the client's second connection presents it.
 # chapulin fails a handshake whose ticket the server declines, so a second connection that
 # fetches its file resumed.

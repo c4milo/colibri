@@ -1,8 +1,9 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [newreno] [connections=<n>]
-//!         [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]
+//!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [newreno] [careful-resume]
+//!         [idle=<milliseconds>] [connections=<n>] [seconds=<unix-seconds>]
+//!         [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
@@ -32,6 +33,11 @@
 //!   step 29c), as the judge's `bulk` and `network` inputs measure it.
 //! - `newreno`, with `h3`, runs RFC 9002's NewReno on each connection in place of CUBIC (decision
 //!   133 as amended, design §8 step 34), as the judge's `bulk` input measures it.
+//! - `careful-resume`, with `h3`, keeps what each connection observed of its path, and gives it
+//!   to the next connection of that client's host (RFC 9959, decision 149, `udp_resume.zig`), as
+//!   the judge's `bulk` input measures it (design §8 step 35e).
+//! - `idle=<milliseconds>`, with `h3`, is the idle timeout the server advertises (RFC 9000 §10.1)
+//!   in place of `quic_idle_timeout_ms`. oha sends no close, so its connections end by it.
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -91,6 +97,10 @@ pub const Server = struct {
     /// Whether the h3 server's connections run RFC 9002's NewReno (`newreno`, decision 133 as
     /// amended).
     newreno: bool = false,
+    /// Whether the h3 server keeps RFC 9959's saved sets (`careful-resume`, decision 149).
+    careful_resume: bool = false,
+    /// The idle timeout the h3 server advertises (`idle=<milliseconds>`), or null for its own.
+    idle_ms: ?u64 = null,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
@@ -102,11 +112,12 @@ pub const Server = struct {
     rsa_prefix: ?[]const u8 = null,
     mldsa87_prefix: ?[]const u8 = null,
 
-    /// Whether the options agree: the router, BBRv3 and NewReno run through `server`, which the
-    /// `h3` mode alone runs on, and a server runs one controller.
+    /// Whether the options agree: the router, BBRv3, NewReno, Careful Resume and the idle timeout
+    /// run through `server`, which the `h3` mode alone runs on, and a server runs one controller.
     fn complete(server: Server) bool {
         if (server.bbr and server.newreno) return false;
-        return (!server.routes and !server.bbr and !server.newreno) or server.h3;
+        const through_server = server.routes or server.bbr or server.newreno or server.careful_resume or server.idle_ms != null;
+        return !through_server or server.h3;
     }
 
     /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
@@ -182,20 +193,29 @@ fn server_of(arguments: anytype, address: udp.Address) ?Server {
     for (0..server_options_count) |_| {
         const word = arguments.next() orelse break;
         if (parse_server_word(&server, word)) continue;
-        if (parse_seconds(word)) |seconds| {
-            server.now_seconds = seconds;
-        } else if (parse_qlogdir(word)) |directory| {
-            server.qlogdir = directory;
-        } else if (std.mem.startsWith(u8, word, rsa_prefix)) {
-            server.rsa_prefix = word[rsa_prefix.len..];
-        } else if (std.mem.startsWith(u8, word, mldsa87_prefix)) {
-            server.mldsa87_prefix = word[mldsa87_prefix.len..];
-        } else {
-            server.connections = parse_connections(word) orelse return null;
-        }
+        if (!parse_server_value(&server, word)) return null;
     } else if (arguments.next() != null) return null;
     if (!server.complete()) return null;
     return server;
+}
+
+/// Sets the server option `word` names when it is one of the words that carry a value, and
+/// answers whether it was.
+fn parse_server_value(server: *Server, word: []const u8) bool {
+    if (parse_positive(word, seconds_prefix)) |seconds| {
+        server.now_seconds = seconds;
+    } else if (parse_positive(word, idle_prefix)) |milliseconds| {
+        server.idle_ms = milliseconds;
+    } else if (parse_qlogdir(word)) |directory| {
+        server.qlogdir = directory;
+    } else if (std.mem.startsWith(u8, word, rsa_prefix)) {
+        server.rsa_prefix = word[rsa_prefix.len..];
+    } else if (std.mem.startsWith(u8, word, mldsa87_prefix)) {
+        server.mldsa87_prefix = word[mldsa87_prefix.len..];
+    } else {
+        server.connections = parse_connections(word) orelse return false;
+    }
+    return true;
 }
 
 /// Sets the server option `word` names when it is one of the words that carry no value, and
@@ -217,6 +237,8 @@ fn parse_server_word(server: *Server, word: []const u8) bool {
         server.bbr = true;
     } else if (std.mem.eql(u8, word, "newreno")) {
         server.newreno = true;
+    } else if (std.mem.eql(u8, word, careful_resume_word)) {
+        server.careful_resume = true;
     } else if (std.mem.eql(u8, word, h3_word)) {
         server.h3 = true;
     } else if (std.mem.eql(u8, word, routes_word)) {
@@ -238,15 +260,18 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `bbr`, `newreno`, `h3`, `routes=github`,
-/// `connections=<n>`, `seconds=<unix-seconds>`, `qlogdir=<directory>`, `rsa=<prefix>` and
-/// `mldsa87=<prefix>`.
-const server_options_count: usize = 15;
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `bbr`, `newreno`, `careful-resume`,
+/// `h3`, `routes=github`, `idle=<milliseconds>`, `connections=<n>`, `seconds=<unix-seconds>`,
+/// `qlogdir=<directory>`, `rsa=<prefix>` and `mldsa87=<prefix>`.
+const server_options_count: usize = 17;
+/// The word that makes the h3 server keep RFC 9959's saved sets.
+const careful_resume_word = "careful-resume";
 /// The one route table the h3 server routes.
 const routes_word = "routes=github";
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
+const idle_prefix = "idle=";
 const qlogdir_prefix = "qlogdir=";
 const rsa_prefix = "rsa=";
 const mldsa87_prefix = "mldsa87=";
@@ -259,13 +284,13 @@ fn parse_qlogdir(word: []const u8) ?[]const u8 {
     return directory;
 }
 
-/// The Unix seconds of `seconds=<unix-seconds>`, or null for any other word, or for 0, which
-/// chapulin reads as no clock.
-fn parse_seconds(word: []const u8) ?u64 {
-    if (!std.mem.startsWith(u8, word, seconds_prefix)) return null;
-    const seconds = std.fmt.parseUnsigned(u64, word[seconds_prefix.len..], decimal) catch return null;
-    if (seconds == 0) return null;
-    return seconds;
+/// The number of `<prefix><number>`, or null for any other word, or for 0: chapulin reads 0 Unix
+/// seconds as no clock, and an idle timeout of 0 is none (RFC 9000 §18.2).
+fn parse_positive(word: []const u8, prefix: []const u8) ?u64 {
+    if (!std.mem.startsWith(u8, word, prefix)) return null;
+    const number = std.fmt.parseUnsigned(u64, word[prefix.len..], decimal) catch return null;
+    if (number == 0) return null;
+    return number;
 }
 
 /// The count of `connections=<n>`, or null for any other word, or for a count the table cannot
@@ -349,7 +374,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [no-gso] [h3] [routes=github] [bbr] [newreno] [careful-resume] [idle=<milliseconds>] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]\n" ++
             "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...\n",
         .{},
     );
@@ -401,11 +426,11 @@ test "a server's Unix seconds advance with Rotor's instant, and 0 stays no clock
 
 test "a server's clock is one word of Unix seconds, and 0 is no clock" {
     const seconds: u64 = 1_790_000_000;
-    try testing.expectEqual(seconds, parse_seconds("seconds=1790000000").?);
-    try testing.expectEqual(null, parse_seconds("seconds=0"));
-    try testing.expectEqual(null, parse_seconds("seconds="));
-    try testing.expectEqual(null, parse_seconds("second=1790000000"));
-    try testing.expectEqual(null, parse_seconds("connections=4"));
+    try testing.expectEqual(seconds, parse_positive("seconds=1790000000", seconds_prefix).?);
+    try testing.expectEqual(null, parse_positive("seconds=0", seconds_prefix));
+    try testing.expectEqual(null, parse_positive("seconds=", seconds_prefix));
+    try testing.expectEqual(null, parse_positive("second=1790000000", seconds_prefix));
+    try testing.expectEqual(null, parse_positive("connections=4", seconds_prefix));
 }
 
 test "main schema §12.1: a qlog directory is one word, and an empty one is none" {
@@ -457,4 +482,18 @@ test "no-gso is one word, and a server sends segments without it" {
     try testing.expectEqual(null, server_of(&newreno_alone, address));
     var both: Words = .{ .words = &.{ "identity", "www", "h3", "bbr", "newreno" } };
     try testing.expectEqual(null, server_of(&both, address));
+    // `careful-resume` likewise, under any controller.
+    var resumes: Words = .{ .words = &.{ "identity", "www", "h3", "bbr", "careful-resume" } };
+    try testing.expect(server_of(&resumes, address).?.careful_resume);
+    var without: Words = .{ .words = &.{ "identity", "www", "h3", "bbr" } };
+    try testing.expect(!server_of(&without, address).?.careful_resume);
+    var resumes_alone: Words = .{ .words = &.{ "identity", "www", "careful-resume" } };
+    try testing.expectEqual(null, server_of(&resumes_alone, address));
+    // `idle=<milliseconds>` likewise, and no server advertises an idle timeout of 0.
+    var idle: Words = .{ .words = &.{ "identity", "www", "h3", "idle=2000" } };
+    try testing.expectEqual(2000, server_of(&idle, address).?.idle_ms.?);
+    var idle_alone: Words = .{ .words = &.{ "identity", "www", "idle=2000" } };
+    try testing.expectEqual(null, server_of(&idle_alone, address));
+    var idle_none: Words = .{ .words = &.{ "identity", "www", "h3", "idle=0" } };
+    try testing.expectEqual(null, server_of(&idle_none, address));
 }

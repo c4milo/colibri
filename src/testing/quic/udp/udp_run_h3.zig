@@ -30,6 +30,7 @@ const udp_identity = @import("udp_identity.zig");
 const udp_h3_files = @import("udp_h3_files.zig");
 const udp_qlog = @import("udp_qlog.zig");
 const udp_batch = @import("udp_batch.zig");
+const udp_resume = @import("udp_resume.zig");
 const server_routes = @import("../../server/server_routes.zig");
 
 const Engine = udp_h3_files.Engine;
@@ -60,6 +61,9 @@ var log_context: u8 = 0;
 /// The router of `routes=github`, which answers every request in place of `files` (design §8 step
 /// 13f).
 var route_pool: server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
+/// The sets of `careful-resume`, which each client host's connections save and take (RFC 9959,
+/// design §8 step 35e).
+var resumes: udp_resume.Table align(@alignOf(udp_resume.Table)) = .{};
 const log_vtable: server.LogProvider.VTable = .{ .open = open_log, .close = close_log };
 
 /// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
@@ -90,11 +94,12 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
     engine_config = .{
         .tls = udp_identity.server_identity(),
         .ecn = asked.ecn,
-        .idle_timeout_ms = constants.quic_idle_timeout_ms,
+        .idle_timeout_ms = asked.idle_ms orelse constants.quic_idle_timeout_ms,
         .switch_to = asked.switch_to,
         .congestion_controller = if (asked.bbr) .bbr else if (asked.newreno) .newreno else .cubic,
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
+        .resumes = if (asked.careful_resume) resumes.provider() else null,
     };
     engine.init(&engine_config, entropy.random(), .{ .unix_seconds = asked.now_seconds, .monotonic_ns = started_ns }) catch |failure| fail("the engine did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www, &mapped);
@@ -157,6 +162,9 @@ fn end(asked: udp_arguments.Server, over: server.Ended) void {
     served += held.served;
     held.reset();
     ended += 1;
+    // The engine gave the table what the connection observed before it reported the end, so the
+    // line counts this connection. `tools/quic_udp.sh` and `bench/run_bulk.sh` read it.
+    if (asked.careful_resume) std.debug.print("quic-udp: careful-resume: ended={d} resumed={d} saved={d} retreated={d}\n", .{ ended, resumes.resumed, resumes.saved, resumes.retreated });
     if (!over.failed) return;
     connection_errors += 1;
     if (!asked.errors) fail("a connection ended on a connection error", .{});
