@@ -14206,7 +14206,8 @@ library.
       and each exchange it holds ended. No `.cfg` file changes. Each configuration that checks
       `Ends` or `Completes` sets `CloseWhenDrained`, and `Close` is fair, so the slot closes and
       the exchange opens QUIC. The `tla` job checks it, because no TLC runs on a person's machine
-      (decision 67 as amended on 2026-11-05).
+      (decision 67 as amended on 2026-11-05). The job passed on `82fb6793` on 2026-11-14
+      ([run 43588839091](https://github.com/c4milo/colibri/actions/runs/43588839091)).
     - The checks. `src/client/pool/pool_choice.zig` tests the wait, the slot that closes, a GOAWAY
       with exchanges, and a QUIC connection of this attempt. `fake_host_pair_test.zig` makes the
       second GET in the closing period: it takes h3, resumes the first session, and opens no TCP
