@@ -1,5 +1,6 @@
 //! The values the RFCs fix for server, which no one may change.
 //! Decision 137 groups them, and `constants.zig` exports this file as `protocol`.
+const http = @import("http");
 const h11 = @import("h11");
 const h2 = @import("h2");
 const quic = @import("quic");
@@ -15,3 +16,7 @@ pub const quic_request_number_step: u64 = 1 << quic.constants.protocol.stream_id
 /// How far apart a TCP connection's request numbers are at least: a client's h2 streams are 2
 /// apart (RFC 9113 §5.1.1), and h11's requests, which count from 0, are one at a time.
 pub const tcp_request_number_step: u64 = h2.constants.protocol.stream_id_step;
+
+/// The status of a request whose header fields are larger than the server takes. RFC 6585 §5
+/// defines it as 431 (Request Header Fields Too Large). `http.Status` names no member for it.
+pub const request_header_fields_too_large: http.Status = @enumFromInt(431);

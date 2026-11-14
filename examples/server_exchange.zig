@@ -75,6 +75,10 @@ const idle_after_answer_ns = 100_000_000;
 
 /// Requests the server keeps state for, at most.
 const requests_max = 7;
+/// The octets of the router's copy of a POST's header, which the router keeps until the content
+/// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
+/// fields too.
+const header_bytes = 512;
 
 const greeting = peers.greeting;
 const note = peers.note;
@@ -145,14 +149,15 @@ const routes = .{
     .middleware = .{ Brand, Counted },
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", echo },
         .{ .get, "/greetings/:name", greet_named, .{ .path = Name, .query = Mark } },
     },
 };
 
-/// The router's pool: an entry for each request at once, with room for its response and for the
-/// POST's content. The program places it once and does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
+/// The router's pool: an entry for each request at once. Each entry holds room for its response,
+/// for the POST's content and for the copy of the POST's header. The program places it once and
+/// does not move it.
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len, .header_bytes = header_bytes });
 var router: Router align(@alignOf(Router)) = .{};
 
 /// Sockets the engine said to close, and to close in stages (decision 160), connections that are
@@ -314,9 +319,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
         .finished => |finished| app.done += @intFromBool(finished.result == .sent),
         else => {},
     }
-    // The router takes each event of a request: it calls the route's function at the head, passes
-    // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
-    // `finished`. It hands back the events of the connections, which are the program's I/O.
+    // The router takes each event of a request. It calls the route's function at the head, or for
+    // the POST once its body ended. It sends what waits at `writable`, and frees the request's
+    // entry at its `finished`. It hands back the events of the connections, the program's I/O.
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other) {
@@ -372,17 +377,13 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
     try response.end();
 }
 
-/// Sends the POST's content back. With `.whole_body`, the router calls `on_body` once, after the
-/// last byte, with a reader over the whole content in the request's entry.
-const Echo = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
-
-    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
-        try response.header("content-type", content_type);
-        try response.body().writeAll(content.buffered());
-        try response.end();
-    }
-};
+/// Sends the POST's content back. The router calls the function once the content ended, and
+/// `request.body` reads the whole content, which the request's entry holds. The read never waits.
+fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    try response.header("content-type", content_type);
+    _ = try request.body.streamRemaining(response.body());
+    try response.end();
+}
 
 /// A middleware of the route table, which the router calls before each route: it adds a `server`
 /// header to each response a route writes. A middleware that answers the request itself, such as

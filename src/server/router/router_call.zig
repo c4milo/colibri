@@ -92,7 +92,8 @@ pub const Outcome = union(enum) {
     /// The router answered with this status before the call: the query has more pairs than it
     /// holds, or lacks one the function requires.
     refused: http.Status,
-    /// An `on_body` read all the bytes that arrived and returned `error.ReadFailed`: it waits for more.
+    /// A struct route read all the bytes that arrived and returned `error.ReadFailed`: it waits
+    /// for more.
     waiting,
 };
 
@@ -109,8 +110,6 @@ const query_storage_len = @import("../constants.zig").limits.path_len_max;
 
 /// The options a route entry may carry after its function, other than its middleware.
 pub const RouteOptions = struct {
-    /// The router calls the route's `on_body` once, after the request's last byte, with every byte.
-    whole_body: bool = false,
     /// The type of the path's parameters, which the request context lends `on_request` (decision
     /// 163 ruling 3).
     path: type = void,
@@ -241,24 +240,28 @@ pub fn call_on_request(
         if (comptime Path != void) ctx.path_held = .{};
         if (comptime Query != void) ctx.query_held = .{};
     }
-    if (comptime is_struct(handler)) return outcome_of(handler.on_request(context, ctx, state, request, response));
-    return outcome_of(handler(context, ctx, request, response));
+    if (comptime is_struct(handler)) return outcome_of(.waits, handler.on_request(context, ctx, state, request, response));
+    return outcome_of(.fails, handler(context, ctx, request, response));
 }
 
 /// Calls a struct route's `on_body` with the reader over the bytes that arrived.
 pub fn call_body(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), reader: *std.Io.Reader, response: *Response) Outcome {
-    return outcome_of(handler.on_body(context, ctx, state, reader, response));
+    return outcome_of(.waits, handler.on_body(context, ctx, state, reader, response));
 }
 
 /// Calls a struct route's `on_writable`.
 pub fn call_writable(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *Response) Outcome {
-    return outcome_of(handler.on_writable(context, ctx, state, response));
+    return outcome_of(.waits, handler.on_writable(context, ctx, state, response));
 }
 
-fn outcome_of(result: anytype) Outcome {
+/// What a call's `error.ReadFailed` means. A struct route's call `waits` for more of the body. A
+/// function route reads a whole body that never waits, so its read `fails` (decision 163 ruling 4).
+const ReadFailed = enum { waits, fails };
+
+fn outcome_of(comptime read_failed: ReadFailed, result: anytype) Outcome {
     if (@typeInfo(@TypeOf(result)) != .error_union) return .returned;
     result catch |failure| {
-        if (failure == error.ReadFailed) return .waiting;
+        if (read_failed == .waits and failure == error.ReadFailed) return .waiting;
         return .{ .failed = failure };
     };
     return .returned;

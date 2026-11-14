@@ -15916,6 +15916,40 @@ library.
       652 of 652, `quic` 957 of 957 and `crypto` 12 of 12. The `client` tests stop at test 209
       of 460 with a segmentation fault there, as main `4a813acd`'s own do, so the emulation and
       not the change fails them. GitHub's `checks` job runs them on x86-64.
+  - **50e, part 2, met 2026-11-14.** A function route gets the whole request in one call, at
+    the body's end (decision 163 ruling 4). `server.Request` gains `body`, a `*std.Io.Reader`.
+    `server.RouterOptions.header_bytes` bounds the router's copy of a header, with no default
+    and 431 past it. With `header_bytes` 0 the router copies nothing and calls each function
+    route at the header (ruling 5 as amended on 2026-11-13). The option `whole_body` goes.
+    - **The engine's reader.** A request whose header ended it gets a reader that ends at once,
+      and a request whose body is still to come gets one whose every read fails. Each
+      connection holds the two, because std's own `ending` is a constant and a read writes it.
+    - **The first judge run.**
+      [Run 43491731763](https://github.com/c4milo/colibri/actions/runs/43491731763) compared
+      `6b81837e` with main `82fb6793`. It lost: a GET cost 108 user instructions a request
+      more, and a small POST 472.
+    - **The cause, by callgrind.** The function route's call at the header moved into three new
+      functions, and the compiler then inlined the pool's `start` into `handle`, whose frame
+      grew for every event. The copy made eight bounded writes, and copied each part of an h2
+      request although it lies in the copied lines.
+    - **The fix.** `start`, `start_ended` and `call` are `inline`, so the call at the header
+      stays in `start`, as a struct route's does. The copy makes two copies, of the line records
+      and of their octets, and gives each part that lies in them the same offset in the copy.
+      [Run 43606139265](https://github.com/c4milo/colibri/actions/runs/43606139265) compared
+      `4b053ee9` with `f4cd4f48`: each GET input within the noise, and h2-routes-post-many
+      1.0088 and 1.0072, 163 and 172 user instructions a request more. The owner first refused
+      that cost and ruled a copy only before the connection writes its section again.
+    - **The copy that waits.**
+      [Run 43628275223](https://github.com/c4milo/colibri/actions/runs/43628275223) compared it,
+      `21a8b237`, with `c17ca6f4`. It lost more: a GET 94 user instructions a
+      request more, a small POST 482, and the late POST 510. callgrind showed why. h2load runs
+      ten streams on a connection, so another stream's HEADERS frame comes before most bodies
+      end. That path then paid the hold, two calls into the engine, and the copy too. The owner
+      accepted the copy at the request on 2026-11-14, at its cost.
+    - **Mutations.** 8 of 8 of the first draft, 12 of 12 of its fixes, and 14 of 14 of the copy
+      CAUGHT. Among them: the late call reads the engine's request; a bound one octet off; the
+      path matched again from another request; a part read from octets that a later read writes
+      again, over h11 in cleartext and over TLS; the copy of a part skipped at the same size.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

@@ -7914,7 +7914,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         query parameters. The router checks P against the pattern at compile time, and reads Q
         before the call, with 400 or 414 as before. `path(P)` and `query(Q)` answer during the
         route's first call alone. Each call checks its type at run time, and a wrong type halts.
-     4. A function route gets the whole request in one call, when the request's body ended:
+     4. A function route gets the whole request in one call, when the request's body ended,
+        unless `header_bytes` is 0 (ruling 5):
         `fn (context, ctx, request: *const server.Request, response: *server.Response) !void`.
         `request.body` is a `*std.Io.Reader` over the whole body, which never waits. A request
         with no body gives an empty reader, and the call comes at the header, as before. The
@@ -7922,7 +7923,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `request.body` fails: in the engine's event, in a middleware and in a struct route's
         `on_request`. An empty reader there would read as an empty body.
      5. The router copies a request's header at the request's event, for each request with a
-        body on a function route. A request with no body costs no copy. The owner ruled this
+        body on a function route. A request that its header ends costs no copy. The owner ruled this
         on 2026-11-12, in place of a copy only when the body's end comes in a later `receive`
         than the header. The router cannot tell that case: the engine reports one event for
         each `receive`, and h2 and h3 keep one field section for each connection, which the next
@@ -7931,6 +7932,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         and a header past it gets 431 (RFC 6585 §5). The copy holds a header's live parts
         alone, so `server.Headers` reads its lines through slices, from the engine's section or
         from the copy.
+
+        Amended on 2026-11-13: with `header_bytes` 0 the router copies no header. It calls each
+        function route at the header, where a read of a body still to come fails, and it drops
+        that body. Over h2 and h3 a GET may end in a later frame, so the router cannot tell at
+        the header that no body follows.
+
+        Amended on 2026-11-14, after three judge runs (design §8 step 50e). The copy at the
+        request costs a small POST over h2 about 165 instructions, past the noise, and the owner
+        accepted that cost. A copy only before the connection writes its section again lost
+        more: about 480. h2load runs ten streams on a connection, so another stream's HEADERS
+        frame comes before most bodies end, and that path paid its own costs and the copy too.
+        The copy gives a part that lies in the copied octets the same offset there. It finds the
+        offset as the difference of two addresses. The owner ruled that such an offset is no
+        pointer value in the sense of non-negotiable 5: it follows from the request's octets,
+        at every address. INV-3 and INV-6 say so.
      6. A struct route is a stream. Its `on_request` runs at the header and takes the
         `server.Request`, so it never copies the header. `on_data` takes the stream of the
         request's body, a `server.RequestStream`, and no header: the body is the request's
@@ -7955,6 +7971,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         document names them.
 
      The alternatives refused:
+     - A copy that the connection makes only before it writes its field section again, ruled on
+       2026-11-14 and refused by the judge the same day (ruling 5 as amended).
+     - A function route that never reads a body, and a second field section for each h2 and h3
+       connection. The first takes the whole request from the routes that most need it. The
+       second costs 17,420 octets for each connection.
      - A slot that `server.ResponseWriter` gives, with no change of signature. The owner chose
        connect-zig's split.
      - The name `Context` for the request's object. It is the program's type that `server.Router`
@@ -7982,7 +8003,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the fields part of the API, and the second gives a middleware's own code no test.
 
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
-     do connect_colibri's routes. Each router entry grows by a `RequestContext`, by
-     `@sizeOf(Values)` and by `header_bytes`. A request with a body on a function route pays one
-     copy of its header. Each connection keeps the `http.FieldSection.Slice` of its event, 32
-     octets, so `server.Headers` stays at 16 octets in each copy of an event.
+     do connect_colibri's routes. Each router entry grows by a `RequestContext` and by
+     `@sizeOf(Values)`. With `header_bytes` above 0 it also grows by `header_bytes`, and by the
+     copy's `Slice` and `server.Request`: 176 octets on a 64-bit target. A request with a body on
+     a function route pays one copy of its header, about 165 instructions on a small POST. Each
+     connection keeps the `http.FieldSection.Slice` of its event, 32 octets, so `server.Headers`
+     stays at 16 octets in each copy of an event.

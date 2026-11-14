@@ -12,6 +12,9 @@
 //! Each hook of a middleware takes the request context, a `*server.RequestContext`, after the
 //! router's context. Its `values` are the request's own: what a middleware writes there at the
 //! head, the route and each later hook of the request read.
+//!
+//! The values stay, but a slice of the request does not. The engine writes the request's storage
+//! again after the head's event. So a middleware copies the bytes that it keeps into its values.
 
 /// What a middleware's `on_request` returns.
 pub const Next = enum {

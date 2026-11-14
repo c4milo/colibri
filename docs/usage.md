@@ -754,9 +754,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
         .finished => |finished| app.done += @intFromBool(finished.result == .sent),
         else => {},
     }
-    // The router takes each event of a request: it calls the route's function at the head, passes
-    // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
-    // `finished`. It hands back the events of the connections, which are the program's I/O.
+    // The router takes each event of a request. It calls the route's function at the head, or for
+    // the POST once its body ended. It sends what waits at `writable`, and frees the request's
+    // entry at its `finished`. It hands back the events of the connections, the program's I/O.
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other) {
@@ -1027,9 +1027,15 @@ of each request's route ([decisions 122, 127 and 163](decisions.md)). `server.Ro
 route table from the program's context type and a struct. The struct names `error_handler` and
 `routes`, and may name `middleware` and `Values`. Each route holds a method, a pattern and a
 function, and options may follow. `server.Router` takes a `server.RouterOptions` too, and returns
-the type of the router the program places. Each field of `server.RouterOptions` has a default: 32
-requests at once, 256 octets of response memory for each, and no request body memory (decision 158
-ruling 16):
+the type of the router the program places. `server.RouterOptions` sizes the router's pool entry
+for each request:
+
+- `requests`: the requests the router holds at once, 32 by default.
+- `response_bytes`: the response memory of each request, 256 octets by default.
+- `body_bytes`: the request body memory of each request, none by default (decision 158 ruling 16).
+- `header_bytes`: the memory of each request's copy of its header, which a function route needs
+  for a request with a body (decision 163 ruling 5). It has no default, so a program names it, 0
+  included. With 0 the router copies no header, and calls each function at the head.
 
 ```zig
 const routes = .{
@@ -1037,14 +1043,15 @@ const routes = .{
     .middleware = .{ Brand, Counted },
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", echo },
         .{ .get, "/greetings/:name", greet_named, .{ .path = Name, .query = Mark } },
     },
 };
 
-/// The router's pool: an entry for each request at once, with room for its response and for the
-/// POST's content. The program places it once and does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
+/// The router's pool: an entry for each request at once. Each entry holds room for its response,
+/// for the POST's content and for the copy of the POST's header. The program places it once and
+/// does not move it.
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len, .header_bytes = header_bytes });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
@@ -1083,9 +1090,49 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
 ```
 
 A field of the query's struct is `[]const u8`, `?[]const u8`, or a field with a default value. A
-query that lacks a `[]const u8` field with no default gets 400, and a query with more pairs than
-`http.constants.limits.query_parameters_max` gets 414, with no call. A function runs at the
-request's head and reads no body. The router ends a response the function leaves open.
+query that lacks a `[]const u8` field with no default gets 400. A query with more pairs than
+`http.constants.limits.query_parameters_max` gets 414. Neither gets a call. The router ends a
+response the function leaves open.
+
+A function gets the whole request in one call ([decision 163](decisions.md) ruling 4). A request
+with no body gets its call at the head, and its `request.body` ends at once. A request with a
+body gets its call when the body ended, unless `header_bytes` is 0. The function then reads the
+whole body through `request.body`, a `*std.Io.Reader` whose reads never wait. The server example
+sends the POST's content back:
+
+```zig
+/// Sends the POST's content back. The router calls the function once the content ended, and
+/// `request.body` reads the whole content, which the request's entry holds. The read never waits.
+fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    try response.header("content-type", content_type);
+    _ = try request.body.streamRemaining(response.body());
+    try response.end();
+}
+```
+
+The engine writes the storage of a request's header again before the body ends. So for a
+request with a body, the router copies the header into the request's pool entry at the head. It
+holds each byte of the body there too:
+
+- The copy holds the header's field lines, each as 8 octets of record and its name and value.
+- Over h2 and h3 the field lines hold the pseudo-header fields, and the copy holds no more. The
+  method, the target, the scheme, the authority, the path and the query are those fields' values.
+  One exception: a `:path` that starts with `?` has the static "/" as its path, one octet more.
+- Over h11 the copy holds the method and the target too. It also holds each part that lies in
+  neither the target nor a field line, such as the scheme.
+- Over h2 and h3 a GET may end in a later frame: an empty DATA frame with END_STREAM, or a FIN
+  after HEADERS. Such a GET takes a copy too.
+- A header whose copy is larger than `header_bytes` gets 431 (RFC 6585 §5), with no call.
+- A body larger than `body_bytes` gets 413 (RFC 9110 §15.5.14), with no call.
+- A request that its head ends costs no copy.
+- A function does not see a trailer section. The trailer section ends the body, and the call
+  follows.
+- The whole body never waits, so an `error.ReadFailed` that the function returns goes to
+  `error_handler`, as each other error does.
+
+With `header_bytes` 0 the router copies no header, and calls each function at the head. For a
+request whose body is still to come, a read of `request.body` then fails with `error.ReadFailed`,
+and the router drops the body. A program whose functions read no body can choose 0.
 
 A route can be a struct instead, with `on_request` and any of `on_body`, `on_writable` and
 `on_finished`, and a `State` that the request's pool entry holds. Each callback takes the
@@ -1098,29 +1145,18 @@ takes a `*void` there. The other parameters follow:
 - `on_writable` takes the response.
 - `on_finished` takes the request's result.
 
-In `on_body`, a read past the bytes that arrived fails with `error.ReadFailed` while more of the
-request body is to come. An `on_body` that returns that error waits for them: the bytes it left
-unread come first in its next call. At the request body's last byte a read fails with
-`error.EndOfStream`. With `.whole_body`, the router calls `on_body` once, after the last byte, with
-every byte in the pool entry's `body_bytes`:
+`on_request` runs at the head, before the body. So for a request with a body, a read of
+`request.body` there fails with `error.ReadFailed`, as it does in a middleware's `on_request`. The
+route reads the body in `on_body`, as the bytes arrive. There a read past the bytes that arrived
+fails with `error.ReadFailed` while more of the request body is to come. An `on_body` that returns
+that error waits for them: the bytes it left unread come first in its next call. At the request
+body's last byte a read fails with `error.EndOfStream`.
 
-```zig
-const Echo = struct {
-    pub fn on_request(_: *App, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
-
-    pub fn on_body(_: *App, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
-        try response.header("content-type", content_type);
-        try response.body().writeAll(content.buffered());
-        try response.end();
-    }
-};
-```
-
-A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
-with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
-calls: the router calls it while the response is open, the engine took all it was given, and the
-body's writer has room. The route ends the response itself. `on_finished` runs at the request's
-`finished` event, with its result.
+The pool entry's `body_bytes` holds the bytes an `on_body` left unread, and more than fit there
+get 413. The router ends the response once `on_body` ran with the last byte, unless the route has
+`on_writable`. `on_writable` writes a response over many calls. The router calls it while the
+response is open, the engine took all it was given, and the body's writer has room. The route ends
+the response itself. `on_finished` runs at the request's `finished` event, with its result.
 
 The router calls `on_writable` while the request body is still open too, so a route can answer
 while the client still sends (decision 127 as amended on 2026-11-09):
@@ -1129,7 +1165,6 @@ while the client still sends (decision 127 as amended on 2026-11-09):
   `writable`.
 - Once the body has ended, a route that neither ends its response nor fills the engine is
   cancelled.
-- A `.whole_body` route's `on_writable` runs only after its `on_body`.
 
 Decision 110's request body deadlines apply to such a route too. So a route that waits for a
 quiet client needs a program that sets them for its connection with `set_timeouts`.
@@ -1230,6 +1265,11 @@ callback of the request reads what an earlier one wrote there. So a middleware w
 the head, and the route, each `on_finished` and `error_handler` read it. The request's pool
 entry holds the values, so each entry grows by `@sizeOf(Values)`.
 
+The values stay, but a slice of the request does not. A middleware gets the engine's request,
+whose storage the engine writes again after the head's event. A function route of a request with
+a body gets its call later, with the router's copy of the header. So a middleware copies the bytes
+that it keeps into a field of its `Values`, and keeps no slice of the request there.
+
 The server example numbers each request in a middleware, and its route reads the number. This
 excerpt is from `examples/colibri_server.zig`:
 
@@ -1297,8 +1337,9 @@ Each hook of a middleware takes the program's context, then the request context
 ([decision 163](decisions.md)). `on_request` then takes the request and the response, and
 runs at the request's head. It returns `.next`, and the router calls the next middleware, then the
 route. Or it writes the response and returns `.answered`, and the router calls nothing more for
-the request. An error goes to `error_handler`. The server example's middleware adds a header to
-each response:
+the request. An error goes to `error_handler`. The body comes after the head. So for a request
+with a body, a read of `request.body` in `on_request` fails with `error.ReadFailed`. The server
+example's middleware adds a header to each response:
 
 ```zig
 const Brand = struct {
@@ -1319,14 +1360,14 @@ reached. It takes the request context and the request's result, and `ctx.id()` r
 request's id. `on_finished` holds what a framework whose middleware wraps the next one runs after
 `next()` returns, such as an access log.
 
-A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader
-of the request body and returns another, which the next middleware wraps and the route's `on_body`
-reads. `wrap_response` does the same for the writer that the route's `body()` returns, and may add
-a header, such as Content-Encoding. Each runs at the head, after the middleware's `on_request`
-returns `.next`, and null keeps the reader or the writer it got. A wrapper writes nothing before
-the route starts the body, because the headers are still open. A middleware keeps its wrapper in
-its `State`, which the request's pool entry holds, and each field of a `State` has a default
-value, which each request starts from.
+A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader of
+the request body and returns another, which the next middleware wraps. The route reads the last one:
+a function through `request.body`, and a struct route in `on_body`. `wrap_response` does the same
+for the writer that the route's `body()` returns, and may add a header, such as Content-Encoding.
+Each runs at the head, after the middleware's `on_request` returns `.next`, and null keeps the
+reader or the writer it got. A wrapper writes nothing before the route starts the body, because the
+headers are still open. A middleware keeps its wrapper in its `State`, which the request's pool
+entry holds. Each field of a `State` has a default value, which each request starts from.
 
 The three wrap hooks take the middleware's `*State` after the request context:
 

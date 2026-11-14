@@ -30,6 +30,14 @@ pub fn wraps(comptime Middleware: type) bool {
     return @hasDecl(Middleware, "wrap_body") or @hasDecl(Middleware, "wrap_response");
 }
 
+/// Whether a middleware of `chain` wraps the request body's reader. Comptime-only.
+pub fn wraps_body(comptime chain: anytype) bool {
+    for (0..chain.len) |index| {
+        if (@hasDecl(chain[index], "wrap_body")) return true;
+    }
+    return false;
+}
+
 /// The comptime branches of `layout_of`: a base, and a share for each route.
 const branch_quota_base = 1000;
 const branch_quota_per_route = 100;

@@ -66,7 +66,7 @@ fn count_of(comptime text: []const u8) usize {
 
 const routes = .{ .error_handler = on_error, .routes = entries };
 /// The router of the routes. The probe calls `match` alone, so the router holds one entry.
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = 0 });
+const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = 0, .header_bytes = 0 });
 
 pub fn main(init: std.process.Init) !void {
     @setEvalBranchQuota(10_000_000);

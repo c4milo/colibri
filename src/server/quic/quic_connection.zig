@@ -135,6 +135,8 @@ pub const QuicConnection = struct {
     /// The lines of h3's field section for the last request or trailers event. The event's
     /// `Headers` points here, and the lines stay valid until the next `receive`.
     header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
+    /// The readers at which each request event points `body` (decision 163 ruling 4).
+    body_readers: event.BodyReaders = .{},
     body: [constants.limits.quic_read_len]u8,
     requests: quic_request.Requests,
     owed: quic_request.Owed,

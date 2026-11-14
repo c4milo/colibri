@@ -93,6 +93,8 @@ fn start_request(connection: *Connection, request: h11.Connection.Request) Conne
     const target = target_of(request, &session.section, connection.config.tls != null);
     const parts = event.split_target(target.path);
     connection.header_lines = session.section.slice();
+    // h11 reads no body for a request that declared none.
+    const end = session.phase == .waiting;
     return .{
         .request = .{
             .id = event.id_of(connection.current_id),
@@ -104,8 +106,8 @@ fn start_request(connection: *Connection, request: h11.Connection.Request) Conne
             .path = parts.path,
             .query = parts.query,
             .headers = .{ .lines = &connection.header_lines, .first = 0 },
-            // h11 reads no body for a request that declared none.
-            .end = session.phase == .waiting,
+            .body = connection.body_readers.of(end),
+            .end = end,
         },
     };
 }

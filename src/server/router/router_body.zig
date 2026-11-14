@@ -5,7 +5,8 @@
 //! body has not ended, a read fails with `error.ReadFailed`, and an `on_body` that returns it waits for
 //! the next bytes. At the request's last byte a read fails with `error.EndOfStream`. The bytes a
 //! call leaves unread are copied into the entry's `body_bytes`, and the next call reads them first.
-//! With `.whole_body`, every byte is copied there, and `on_body` runs once, after the last.
+//! A function route's every byte is copied there, and the route reads them all at the body's end
+//! (decision 163 ruling 4).
 const std = @import("std");
 const assert = std.debug.assert;
 

@@ -63,6 +63,7 @@ fn report(connection: *Connection, h2_event: h2.Event) ?ConnectionEvent {
                 .path = event.split_target(arrived.request.path).path,
                 .query = event.split_target(arrived.request.path).query,
                 .headers = request_fields(connection, arrived),
+                .body = connection.body_readers.of(arrived.end_stream),
                 .end = arrived.end_stream,
             },
         },

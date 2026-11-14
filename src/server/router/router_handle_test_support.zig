@@ -64,9 +64,17 @@ pub const Recorder = struct {
     }
 };
 
-/// The version of every request of the tests. Test-only.
+/// The version, the scheme and the authority of every request of the tests. Test-only.
 const h2_major = 2;
 const h2_version: event.Version = .{ .major = h2_major, .minor = 0 };
+pub const scheme = "https";
+pub const authority = "example.com";
+
+/// The header lines of every request of the tests, which hold none. Test-only.
+const no_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} };
+/// The readers at which a request's event points its body, as an engine's are (decision 163
+/// ruling 4). Test-only.
+pub var body_readers: event.BodyReaders align(@alignOf(event.BodyReaders)) = .{};
 
 /// The head of a request with `target`, of id `number`. Test-only.
 pub fn request_of(number: u64, method: []const u8, target: []const u8, end: bool) event.Request {
@@ -76,11 +84,12 @@ pub fn request_of(number: u64, method: []const u8, target: []const u8, end: bool
         .method = method,
         .version = h2_version,
         .target = target,
-        .scheme = "https",
-        .authority = "example.com",
+        .scheme = scheme,
+        .authority = authority,
         .path = split.path,
         .query = split.query,
-        .headers = undefined,
+        .headers = .{ .lines = &no_lines, .first = 0 },
+        .body = body_readers.of(end),
         .end = end,
     };
 }

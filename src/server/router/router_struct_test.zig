@@ -1,6 +1,7 @@
-//! The tests of `server.Router`'s struct routes (decision 127 ruling 2, design §8 step 25.3): a
-//! route with a state, which reads the request body through a `std.Io.Reader` and may write its
-//! response over many `writable` events.
+//! The tests of `server.Router`'s struct routes (decision 127 ruling 2, design §8 step 25.3). Such
+//! a route has a state, reads the request body through a `std.Io.Reader`, and may write its
+//! response over many `writable` events. A function route beside them reads the whole body in one
+//! call (decision 163 ruling 4).
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
@@ -26,6 +27,10 @@ const App = struct {
     /// Calls of `on_writable`, and whether each writes one byte.
     writables: usize = 0,
     write_on_writable: bool = false,
+    /// The lines the error function counted in its request's headers, and what a read of its
+    /// request's body gave.
+    error_lines: ?u32 = null,
+    error_read: ?anyerror = null,
 };
 
 /// Echoes each line of the body, one call of `body` at a time.
@@ -60,16 +65,15 @@ const Lines = struct {
     }
 };
 
-/// Answers with the whole body after its last byte.
-const Whole = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
-
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
-        app.bodies += 1;
-        try response.body().writeAll(reader.buffered());
-        try response.end();
-    }
-};
+/// A function route that answers with the whole body, which it reads in its one call after the
+/// body's last byte.
+fn whole(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {
+    app.bodies += 1;
+    var bytes: [body_bytes]u8 = undefined;
+    const len = try request.body.readSliceShort(&bytes);
+    try response.body().writeAll(bytes[0..len]);
+    try response.end();
+}
 
 /// Writes one byte of `digits` for each call of `writable`: more calls than the runs a response
 /// holds, so a call while the engine is full would overflow it.
@@ -105,22 +109,6 @@ const Duplex = struct {
     }
 };
 
-/// Writes at the head, and counts its calls of `on_writable`, with `.whole_body`.
-const WholeWritable = struct {
-    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, response: *Response) !void {
-        try response.body().writeAll("head");
-        try response.body().flush();
-    }
-
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *Response) !void {
-        app.bodies += 1;
-    }
-
-    pub fn on_writable(app: *App, _: *RequestContext, _: *void, _: *Response) !void {
-        app.writables += 1;
-    }
-};
-
 /// The query of `Needs`, which its entry names as `.query` (decision 163 ruling 3). Test-only.
 const Id = struct { id: []const u8 };
 
@@ -133,28 +121,32 @@ const Needs = struct {
     }
 };
 
-fn on_error(_: *App, _: *RequestContext, _: *const event.Request, _: anyerror, response: *Response) void {
+fn on_error(app: *App, _: *RequestContext, request: *const event.Request, _: anyerror, response: *Response) void {
     response.status = unprocessable;
+    app.error_lines = request.headers.len();
+    if (request.body.takeByte()) |_| {
+        app.error_read = null;
+    } else |failure| app.error_read = failure;
 }
 
 const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .post, "/lines", Lines },
-        .{ .post, "/whole", Whole, .{ .whole_body = true } },
+        .{ .post, "/whole", whole },
         .{ .get, "/count", Counter },
         .{ .post, "/needs", Needs, .{ .query = Id } },
         .{ .post, "/duplex", Duplex },
-        .{ .post, "/whole-writable", WholeWritable, .{ .whole_body = true } },
     },
 };
 
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
 
-/// Octets of each entry's response and body memory, and the status the error function chooses.
-/// Test-only.
+/// Octets of each entry's response, body and header memory, and the status the error function
+/// chooses. Test-only.
 const response_bytes = 128;
 const body_bytes = 16;
+const header_bytes = 64;
 const unprocessable: http.Status = .unprocessable_content;
 
 const Fixture = struct {
@@ -207,7 +199,7 @@ test "decision 127: a head that ends the request still runs body once, with an e
     try testing.expect(fixture.recorder.ended);
 }
 
-test "decision 127: whole_body runs body once, after the last byte" {
+test "decision 163 ruling 4: a function route gets one call, after the body's last byte" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/whole", false);
     fixture.body("abc", false);
@@ -232,6 +224,10 @@ test "decision 127 ruling 4: an error of body before the head goes to the error 
     fixture.head("POST", "/lines", false);
     fixture.body("a\n", false);
     try testing.expectEqual(422, @intFromEnum(fixture.recorder.heads[0].status));
+    // Decision 163: the request the error function gets after the head holds no line, and its
+    // body has no byte to read.
+    try testing.expectEqual(0, fixture.app.error_lines.?);
+    try testing.expectEqual(error.ReadFailed, fixture.app.error_read.?);
     // A later body event of the request calls nothing more.
     fixture.body("b\n", true);
     try testing.expectEqual(1, fixture.app.bodies);
@@ -297,11 +293,14 @@ test "decision 127 as amended: calls that write while the body is open do not ca
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
 
-test "decision 127 as amended: a .whole_body route's on_writable waits for its on_body" {
+test "decision 163 ruling 4: a writable event before the body's end calls no function route" {
     var fixture: Fixture = .{};
-    fixture.recorder.room = 2;
-    fixture.head("POST", "/whole-writable", false);
+    fixture.head("POST", "/whole", false);
+    fixture.body("ab", false);
     writable_after_room(&fixture);
-    try testing.expectEqualStrings("head", fixture.recorder.body_bytes());
-    try testing.expectEqual(0, fixture.app.writables);
+    try testing.expectEqual(0, fixture.app.bodies);
+    try testing.expectEqual(0, fixture.recorder.head_count);
+    fixture.body("c", true);
+    try testing.expectEqual(1, fixture.app.bodies);
+    try testing.expectEqualStrings("abc", fixture.recorder.body_bytes());
 }

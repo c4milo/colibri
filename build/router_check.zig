@@ -216,7 +216,7 @@ const cases = [_]Case{
     .{
         .name = "option_unknown",
         .message = "server.Router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body, path, query and middleware",
+            "a route's options are path, query and middleware",
     },
     .{
         .name = "handler_type_not_struct",
@@ -256,12 +256,12 @@ const cases = [_]Case{
     .{
         .name = "option_not_struct",
         .message = "server.Router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body, path, query and middleware",
+            "a route's options are path, query and middleware",
     },
     .{
-        .name = "whole_body_unread",
-        .message = "server.Router: route 1, \"/a\": whole_body_unread: " ++
-            "whole_body needs a struct route with on_body",
+        .name = "whole_body_gone",
+        .message = "server.Router: route 1, \"/a\": option_unknown: " ++
+            "a route's options are path, query and middleware",
     },
     .{
         .name = "middleware_type",

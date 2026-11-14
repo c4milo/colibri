@@ -20,19 +20,17 @@ fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, respons
     try response.end();
 }
 
-/// The route of each POST line: it reads the request's whole body, then answers as `answer` does.
-/// So the judge counts what a request with a body costs through the router (design §8 step 50b).
-const Body = struct {
-    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
-
-    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
-        // With `whole_body`, the reader holds every octet of the body.
-        content.toss(content.buffered().len);
-        try response.header("content-type", answer_content_type);
-        try response.body().writeAll(answer_body);
-        try response.end();
-    }
-};
+/// The function of each POST line: it reads the request's whole body, then answers as `answer`
+/// does. So the judge counts what a request with a body costs through the router (design §8 step
+/// 50b). The router calls it once the body ended, and `request.body` reads each octet of the body
+/// (decision 163 ruling 4).
+fn read_and_answer(_: *void, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    // The reader holds every octet of the body, as the struct route that this replaced read them.
+    request.body.toss(request.body.buffered().len);
+    try response.header("content-type", answer_content_type);
+    try response.body().writeAll(answer_body);
+    try response.end();
+}
 
 /// No route returns an error, so the status this chooses is never sent.
 fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
@@ -41,7 +39,7 @@ fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: an
 
 /// A route that answers at the header, and a POST route, which reads its whole body first.
 const Entry = struct { http.method.Standard, []const u8, *const @TypeOf(answer) };
-const BodyEntry = struct { http.method.Standard, []const u8, type, struct { whole_body: bool } };
+const BodyEntry = struct { http.method.Standard, []const u8, *const @TypeOf(read_and_answer) };
 
 const route_count = count: {
     @setEvalBranchQuota(constants.routes_quota);
@@ -76,7 +74,7 @@ const entries: std.meta.Tuple(&entry_types) = build: {
     while (iterator.next()) |line| : (index += 1) {
         const path = line[std.mem.indexOfScalar(u8, line, ' ').? + 1 ..];
         held[index] = if (method_of(line) == .post)
-            BodyEntry{ .post, path, Body, .{ .whole_body = true } }
+            BodyEntry{ .post, path, &read_and_answer }
         else
             Entry{ method_of(line), path, &answer };
     }
@@ -90,9 +88,13 @@ pub const Pool = server.Router(void, routes, .{
     .requests = constants.routes_requests_max,
     .response_bytes = constants.routes_response_bytes,
     .body_bytes = constants.routes_body_bytes,
+    .header_bytes = constants.routes_header_bytes,
 });
 
 const testing = std.testing;
+
+/// The field section of each request of these tests, which holds no line. Test-only.
+const no_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} };
 
 test "design §8 step 13f: the GitHub API's routes build, and a GET route matches" {
     try testing.expectEqual(203, route_count);
@@ -130,6 +132,8 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
     pool.* = .{};
     var engine: Engine = .{};
     var context: void = {};
+    // A request that ended at its head gives a body that ends at once (decision 163 ruling 4).
+    var no_body: std.Io.Reader = .fixed(&.{});
     const path = "/repos/colibri/hummingbird/events";
     const head: server.Request = .{
         .id = @bitCast(@as(u128, 1)),
@@ -140,7 +144,8 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
         .authority = "example.com",
         .path = path,
         .query = null,
-        .headers = undefined,
+        .headers = .init(&no_lines),
+        .body = &no_body,
         .end = true,
     };
     try testing.expect(pool.handle(&context, &engine, .{ .request = head }) == .taken);
@@ -155,6 +160,9 @@ test "design §8 step 50b: a POST route answers once its whole body arrived" {
     pool.* = .{};
     var engine: Engine = .{};
     var context: void = {};
+    // A request whose body is still to come gives a body that no read can read (decision 163
+    // ruling 4).
+    var no_body: std.Io.Reader = .failing;
     const path = "/user/repos";
     const head: server.Request = .{
         .id = @bitCast(@as(u128, 2)),
@@ -165,7 +173,8 @@ test "design §8 step 50b: a POST route answers once its whole body arrived" {
         .authority = "example.com",
         .path = path,
         .query = null,
-        .headers = undefined,
+        .headers = .init(&no_lines),
+        .body = &no_body,
         .end = false,
     };
     try testing.expect(pool.handle(&context, &engine, .{ .request = head }) == .taken);

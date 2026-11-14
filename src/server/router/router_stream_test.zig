@@ -47,8 +47,8 @@ const routes = .{
     },
 };
 
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
-const LongPool = Router(App, routes, .{ .requests = 1, .response_bytes = long_response_bytes, .body_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const LongPool = Router(App, routes, .{ .requests = 1, .response_bytes = long_response_bytes, .body_bytes = 0, .header_bytes = 0 });
 
 const Fixture = FixtureOf(Pool);
 

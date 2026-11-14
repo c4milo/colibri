@@ -31,7 +31,6 @@ pub const Reason = enum {
     on_finished_parameters,
     state_defaults,
     option_unknown,
-    whole_body_unread,
     middleware_type,
     middleware_hooks,
     middleware_on_request,
@@ -60,8 +59,7 @@ pub const Reason = enum {
             .on_writable_parameters => "writable takes the context, *server.RequestContext, *State and *server.Response",
             .on_finished_parameters => "finished takes the context, *server.RequestContext, *State and server.Result, and returns void",
             .state_defaults => "each field of State has a default value, which each request starts from",
-            .option_unknown => "a route's options are whole_body, path, query and middleware",
-            .whole_body_unread => "whole_body needs a struct route with on_body",
+            .option_unknown => "a route's options are path, query and middleware",
             .middleware_type => "middleware is a tuple of structs (decision 127 ruling 5)",
             .middleware_hooks => "a middleware declares one or more of on_request, on_finished, wrap_body and wrap_response (decision 127 ruling 5)",
             .middleware_on_finished => "a middleware's on_finished takes the context, *server.RequestContext and server.Result, and returns void",
@@ -117,8 +115,6 @@ fn options_refusal(comptime Context: type, comptime entry: anytype) ?Reason {
     if (@hasField(Options, router_call.middleware_field)) {
         if (chain_refusal(Context, @field(entry[router_call.options_part], router_call.middleware_field))) |reason| return reason;
     }
-    const handler = entry[router_call.handler_part];
-    if (@hasField(Options, "whole_body") and !router_call.has(handler, "on_body")) return .whole_body_unread;
     return types_refusal(Options, entry);
 }
 

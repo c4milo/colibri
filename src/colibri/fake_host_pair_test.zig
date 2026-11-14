@@ -37,10 +37,10 @@ const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .post, "/echo", fixture.Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", fixture.echo },
     },
 };
-const Router = server.Router(void, routes, .{ .requests = fixture.requests_max, .response_bytes = fixture.response_bytes, .body_bytes = fixture.request_body_bytes });
+const Router = server.Router(void, routes, .{ .requests = fixture.requests_max, .response_bytes = fixture.response_bytes, .body_bytes = fixture.request_body_bytes, .header_bytes = fixture.request_header_bytes });
 
 fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", "text/plain");

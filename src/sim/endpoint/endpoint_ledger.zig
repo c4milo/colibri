@@ -409,6 +409,7 @@ const test_generation: u32 = 3;
 const test_handle: Handle = .{ .slot = test_slot, .generation = test_generation };
 const test_major: u8 = 2;
 
+/// A request event of `test_handle`. The ledger reads neither its headers nor its body.
 fn test_request(number: u64) server.Event {
     return .{ .request = .{
         .id = .{ .connection = test_handle, .number = number },
@@ -420,6 +421,7 @@ fn test_request(number: u64) server.Event {
         .path = "/",
         .query = null,
         .headers = undefined,
+        .body = undefined,
         .end = true,
     } };
 }

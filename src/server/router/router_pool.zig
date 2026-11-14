@@ -6,10 +6,15 @@
 //! releases the bytes (decision 103 as amended), and a struct route's state and held body bytes.
 //! The engine's word for the request is the entry's index plus one, so 0 names no entry.
 //!
-//! The router ends a response the program left open: a function's at its return, and a struct
-//! route's once the request body ended and `on_body` ran with its last byte, unless the route has
-//! `on_writable`. A route with `on_writable` ends its response itself. Its `on_writable` runs
-//! while the request body is open too, except for a `.whole_body` route (decision 127 as amended).
+//! A function route gets the whole request in one call (decision 163 ruling 4). The call comes at
+//! the head when the head ended the request, or when `header_bytes` is 0. Else it comes when the
+//! body ended. The entry then holds a copy of the request's header and every byte of its body
+//! (`router_copy.zig`, ruling 5).
+//!
+//! The router ends a response the program left open. It ends a function's at its return. It ends
+//! a struct route's once the request body ended and `on_body` ran with its last byte, unless the
+//! route has `on_writable`. A route with `on_writable` ends its response itself. Its
+//! `on_writable` runs while the request body is open too (decision 127 as amended).
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -21,6 +26,8 @@ const RequestContext = @import("../request_context.zig").RequestContext;
 const response_internal = @import("../response/response_internal.zig");
 const router_call = @import("router_call.zig");
 const router_body = @import("router_body.zig");
+const router_copy = @import("router_copy.zig");
+const router_pool_whole = @import("router_pool_whole.zig");
 const router_wrap = @import("router_wrap.zig");
 
 /// The sizes of a router's pool.
@@ -31,8 +38,26 @@ pub const Options = struct {
     /// bytes its body's writer writes.
     response_bytes: usize = constants.limits.router_response_bytes_default,
     /// Octets of each entry's request body memory: the bytes an `on_body` left unread, and every byte
-    /// of a `.whole_body` route.
+    /// of a function route's body. A body past it gets 413 (RFC 9110 §15.5.14).
     body_bytes: usize = 0,
+    /// Octets of each entry's copy of a request's header, for a function route whose request has a
+    /// body (decision 163 ruling 5). A program names it, 0 included, since the router cannot know
+    /// the size of its requests.
+    ///
+    /// With 0, the router copies nothing, and calls each function route at the head, the owner's
+    /// ruling of 2026-11-13. For a request whose body is still to come, a read of `request.body`
+    /// fails, and the router drops the body.
+    ///
+    /// Above 0, the router copies the header of each request whose body is still to come. Over h2
+    /// and h3 a GET may end in a later frame: an empty DATA frame with END_STREAM, or a FIN after
+    /// HEADERS. Such a GET takes a copy too. The copy holds the section's live lines: 8 octets of
+    /// record for each line, and its name and value. Over h2 and h3 the lines hold the
+    /// pseudo-header fields, and the copy holds no more: the method, the target, the scheme, the
+    /// authority, the path and the query are those fields' values. A `:path` that starts with `?`
+    /// has the static "/" as its path, one octet more. Over h11 the copy holds the method and the
+    /// target too, and each part that lies in neither the target nor a line, such as the scheme.
+    /// A header past `header_bytes` gets 431 (RFC 6585 §5), with no call.
+    header_bytes: usize,
 };
 
 /// What `handle` did with an event: it took it, or it hands it back, for the program to act on.
@@ -49,7 +74,7 @@ const branch_quota_per_route = 100;
 /// The statuses the router answers with, with no call of a program's function.
 const not_found: http.Status = .not_found;
 const method_not_allowed: http.Status = .method_not_allowed;
-const content_too_large: http.Status = .content_too_large;
+pub const content_too_large: http.Status = .content_too_large;
 const not_implemented: http.Status = .not_implemented;
 const service_unavailable: http.Status = .service_unavailable;
 
@@ -79,6 +104,8 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// The state of each middleware of the request's chain, and what their wrappers gave.
         middleware_states: [wrap_layout.size]u8 align(wrap_layout.alignment) = undefined,
         held: router_wrap.Held(wrap_layout.chain_max) = .{},
+        /// The copy of the request's header, for a function route whose request has a body.
+        header: router_copy.Header(options_of.header_bytes) = .{},
     };
     comptime {
         // An entry starts with a context that lends no path and no query, and `call_on_request`
@@ -91,6 +118,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         entries: [options_of.requests]EntryOf = @splat(.{}),
         parameters: PathParameters = .{},
         query: router_call.QueryMemory = .{},
+        /// The reader at which `no_request_error` points the body of its request, whose every
+        /// read fails (decision 163 ruling 4).
+        failing_body: std.Io.Reader = event.failing_reader,
 
         const Self = @This();
 
@@ -112,13 +142,18 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// Takes one event of `engine`, an `*Engine(capacity)`. It answers a request's head
         /// with the route's function, or with 404, 405, 501 or 503, passes its body to a struct
         /// route, sends what waits on `writable`, and frees the request's entry on `finished`.
+        ///
+        /// A function route of a request with a body gets its call at the head when
+        /// `header_bytes` is 0. With `header_bytes` above 0, the router copies the request's
+        /// header and holds its body, and calls the function at the body's end. A header past
+        /// `header_bytes` gets 431, and a body past `body_bytes` gets 413, with no call.
         pub fn handle(pool: *Self, context: *ContextOf, engine: anytype, received: event.Event) Handled {
             switch (received) {
                 .request => |request| on_request(Self, pool, context, engine, &request),
-                .body => |body| if (entry_of(Self, pool, body.user_data)) |entry| on_body(Self, entry, context, engine, body.bytes, body.end),
+                .body => |body| if (entry_of(Self, pool, body.user_data)) |entry| on_body(Self, pool, entry, context, engine, body.bytes, body.end),
                 // A trailer section ends the body (RFC 9110 §6.5).
-                .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, entry, context, engine, "", true),
-                .writable => |writable| if (entry_of(Self, pool, writable.user_data)) |entry| on_writable(Self, entry, context, engine),
+                .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, pool, entry, context, engine, "", true),
+                .writable => |writable| if (entry_of(Self, pool, writable.user_data)) |entry| on_writable(Self, pool, entry, context, engine),
                 .finished => |finished| if (entry_of(Self, pool, finished.user_data)) |entry| on_finished(Self, entry, context, finished),
                 .send, .half_close, .close, .ended, .closed => return .{ .event = received },
             }
@@ -136,6 +171,18 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         const Table = TableOf;
         const table = table_of;
         const options = options_of;
+    };
+}
+
+/// What another file of the router reads of a pool's type. Only the pool's own file reads its
+/// declarations, so a router's type exports no more names (decision 158).
+pub fn Parts(comptime P: type) type {
+    return struct {
+        pub const Entry = P.Entry;
+        pub const Context = P.Context;
+        pub const Table = P.Table;
+        pub const table = P.table;
+        pub const header_bytes = P.options.header_bytes;
     };
 }
 
@@ -170,12 +217,12 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             const state = state_of(P, handler, entry);
             if (comptime router_call.State(handler) != void) state.* = .{};
-            if (!run_chain(P, @intFromEnum(tag), entry, context, engine, request)) return;
+            if (!run_chain(P, pool, @intFromEnum(tag), entry, context, engine, request)) return;
+            if (comptime !router_call.is_struct(handler)) return router_pool_whole.start(P, pool, @intFromEnum(tag), entry, context, engine, request);
             const options = comptime route_options(P.table.routes[@intFromEnum(tag)]);
             const outcome = router_call.call_on_request(handler, options.path, options.query, context, &entry.request_context, state, request, &pool.parameters, &pool.query, &entry.response);
-            if (!after(P, entry, context, engine, request, outcome)) return;
-            if (comptime !router_call.is_struct(handler)) return finish(P, entry, context, engine);
-            if (request.end) on_body(P, entry, context, engine, "", true);
+            if (!after(P, pool, entry, context, engine, request, outcome)) return;
+            if (request.end) on_body(P, pool, entry, context, engine, "", true);
         },
     }
 }
@@ -204,28 +251,27 @@ fn entry_of(comptime P: type, pool: *P, user_data: usize) ?*P.Entry {
     return entry;
 }
 
-/// Passes body bytes to a struct route's `on_body`. A function, or a struct without `on_body`,
-/// reads none.
-fn on_body(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, bytes: []const u8, end: bool) void {
+/// Passes body bytes to a function route, which holds them, or to a struct route's `on_body`. A
+/// struct without `on_body` reads none.
+fn on_body(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype, bytes: []const u8, end: bool) void {
     if (entry.body.delivered) return;
     entry.body.cursor.ended = end;
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime !router_call.has(handler, "on_body")) return body_ended(P, entry, context, engine, handler, end);
-            const outcome = read_body(P, @intFromEnum(tag), entry, context, bytes, end) catch return refuse_body(P, entry, context, engine);
-            if (!after(P, entry, context, engine, null, outcome)) return;
-            body_ended(P, entry, context, engine, handler, end);
+            if (comptime !router_call.is_struct(handler)) return router_pool_whole.on_body(P, pool, @intFromEnum(tag), entry, context, engine, bytes, end);
+            if (comptime !router_call.has(handler, "on_body")) return body_ended(P, pool, entry, context, engine, handler, end);
+            const outcome = read_body(P, @intFromEnum(tag), entry, context, bytes, end) catch return refuse(P, entry, context, engine, content_too_large);
+            if (!after(P, pool, entry, context, engine, null, outcome)) return;
+            body_ended(P, pool, entry, context, engine, handler, end);
         },
     }
 }
 
 fn read_body(comptime P: type, comptime index: usize, entry: *P.Entry, context: *P.Context, bytes: []const u8, end: bool) router_body.Error!router_call.Outcome {
     const handler = P.table.routes[index][router_call.handler_part];
-    const whole = comptime route_options(P.table.routes[index]).whole_body;
     // Held bytes come first, so the new ones go after them.
-    if (whole or entry.body.held_len > 0) try entry.body.append(bytes);
-    if (whole and !end) return .returned;
+    if (entry.body.held_len > 0) try entry.body.append(bytes);
     const over_bytes = entry.body.held_len == 0;
     // Design §8 step 25.6: the route reads through the last wrapper, which reads the held bytes.
     _ = entry.body.reader_over(bytes);
@@ -238,31 +284,28 @@ fn read_body(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
     return outcome;
 }
 
-fn body_ended(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype, end: bool) void {
+fn body_ended(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype, end: bool) void {
     if (!end) return;
     entry.body.delivered = true;
-    if (comptime router_call.has(handler, "on_writable")) return run_writable(P, entry, context, engine, handler);
+    if (comptime router_call.has(handler, "on_writable")) return run_writable(P, pool, entry, context, engine, handler);
     finish(P, entry, context, engine);
 }
 
-fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
+fn on_writable(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype) void {
     const whole = response_internal.resume_writes(&entry.response) catch return engine.cancel(entry.response.id);
     if (whole or entry.response.ended) return;
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             if (comptime !router_call.has(handler, "on_writable")) return;
-            // Decision 127 as amended: a `.whole_body` route's `on_writable` runs after its `on_body`.
-            const whole_body = comptime route_options(P.table.routes[@intFromEnum(tag)]).whole_body;
-            if (whole_body and !entry.body.delivered) return;
-            run_writable(P, entry, context, engine, handler);
+            run_writable(P, pool, entry, context, engine, handler);
         },
     }
 }
 
 /// Calls `on_writable` while the response is open, the engine took all it was given, and the
 /// writer has room (design §8 step 46).
-fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype) void {
+fn run_writable(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype) void {
     for (0..writable_calls_max) |_| {
         if (entry.response.ended or response_internal.waiting(&entry.response)) return;
         // A response with no room waits for the engine to release bytes, which `waiting` says.
@@ -270,7 +313,7 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: 
         if (!room) break;
         const before = response_internal.mark(&entry.response);
         const outcome = router_call.call_writable(handler, context, &entry.request_context, state_of(P, handler, entry), &entry.response);
-        if (!after(P, entry, context, engine, null, outcome)) return;
+        if (!after(P, pool, entry, context, engine, null, outcome)) return;
         // Decision 127 as amended: while the request body is open, a call that wrote nothing waits
         // for the next body bytes or the next `writable`.
         if (!entry.body.delivered and response_internal.mark(&entry.response).eql(before)) return;
@@ -299,7 +342,7 @@ fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished:
 }
 
 /// Acts on a call's outcome, and returns whether the router goes on with the request.
-fn after(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, request: ?*const event.Request, outcome: router_call.Outcome) bool {
+pub fn after(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype, request: ?*const event.Request, outcome: router_call.Outcome) bool {
     switch (outcome) {
         .returned, .waiting => {
             // Design §8 step 25.6: the program ended a wrapped response, which ends once the
@@ -320,41 +363,55 @@ fn after(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype
                 return false;
             }
             // Decision 127 ruling 4: the program chooses the status after an error.
-            P.table.error_handler(context, &entry.request_context, request orelse &no_request, failure, &entry.response);
+            if (request) |known| {
+                P.table.error_handler(context, &entry.request_context, known, failure, &entry.response);
+            } else {
+                no_request_error(P, pool, entry, context, failure);
+            }
             finish(P, entry, context, engine);
             return false;
         },
     }
 }
 
-fn refuse_body(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
+/// Answers a request with `status` and no call, and reads no more of its body: a body or a header
+/// larger than the entry holds. A response whose head went out is cancelled instead.
+pub fn refuse(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, status: http.Status) void {
     entry.body.delivered = true;
     if (entry.response.head_sent()) return engine.cancel(entry.response.id);
-    entry.response.status = content_too_large;
+    entry.response.status = status;
     finish(P, entry, context, engine);
 }
 
-fn state_of(comptime P: type, comptime handler: anytype, entry: *P.Entry) *router_call.State(handler) {
+pub fn state_of(comptime P: type, comptime handler: anytype, entry: *P.Entry) *router_call.State(handler) {
     return @ptrCast(&entry.state);
 }
 
-/// The request an error function gets when the error came after the head, whose slices the
-/// engine reused. Its method and path are empty, and its id names no request.
-const no_request: event.Request = .{
-    .id = @bitCast(@as(u128, 0)),
-    .method = "",
-    .version = .{ .major = 0, .minor = 0 },
-    .target = "",
-    .scheme = null,
-    .authority = null,
-    .path = null,
-    .query = null,
-    .headers = undefined,
-    .end = true,
-};
+/// The lines of the request that `no_request_error` gives, which hold none.
+const no_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} };
+
+/// Calls the error function after an error of a struct route's `on_body` or `on_writable`. The
+/// engine reused the head's slices by then, so the error function gets a request whose method and
+/// path are empty. Its id names no request, its headers hold no line, and a read of its body fails.
+fn no_request_error(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, failure: anyerror) void {
+    const request: event.Request = .{
+        .id = @bitCast(@as(u128, 0)),
+        .method = "",
+        .version = .{ .major = 0, .minor = 0 },
+        .target = "",
+        .scheme = null,
+        .authority = null,
+        .path = null,
+        .query = null,
+        .headers = .{ .lines = &no_lines, .first = 0 },
+        .body = &pool.failing_body,
+        .end = true,
+    };
+    P.table.error_handler(context, &entry.request_context, &request, failure, &entry.response);
+}
 
 /// The options of a route's entry: its fourth part, or none.
-fn route_options(comptime entry: anytype) router_call.RouteOptions {
+pub fn route_options(comptime entry: anytype) router_call.RouteOptions {
     if (entry.len <= router_call.options_part) return .{};
     const given = entry[router_call.options_part];
     var held: router_call.RouteOptions = .{};
@@ -366,7 +423,7 @@ fn route_options(comptime entry: anytype) router_call.RouteOptions {
 
 /// Runs the middleware of the route table and of the route entry at `index`, and returns whether
 /// the router goes on to the route (decision 127 ruling 5).
-fn run_chain(comptime P: type, comptime index: usize, entry: *P.Entry, context: *P.Context, engine: anytype, request: *const event.Request) bool {
+fn run_chain(comptime P: type, pool: *P, comptime index: usize, entry: *P.Entry, context: *P.Context, engine: anytype, request: *const event.Request) bool {
     const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[index]);
     if (chain.len == 0) return true;
     const kept = .{ .states = @as([*]u8, &entry.middleware_states), .held = &entry.held };
@@ -377,7 +434,7 @@ fn run_chain(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
             finish(P, entry, context, engine);
             return false;
         },
-        .failed => |failure| return after(P, entry, context, engine, request, .{ .failed = failure }),
+        .failed => |failure| return after(P, pool, entry, context, engine, request, .{ .failed = failure }),
     }
 }
 
@@ -396,7 +453,7 @@ fn state_layout_of(comptime routes: anytype) struct { size: usize, alignment: us
 /// Ends a response the program left open, or a wrapped one the program ended, once each wrapper
 /// wrote what it owes (design §8 step 25.6). An error of a wrapper or of the engine cancels the
 /// request.
-fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
+pub fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
     @setEvalBranchQuota(P.branch_quota);
     const response = &entry.response;
     if (response.ended) return;

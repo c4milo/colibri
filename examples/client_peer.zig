@@ -46,12 +46,17 @@ const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", echo },
     },
 };
 
-/// One request at a time, with room for the POST's content.
-const Router = server.Router(void, routes, .{ .requests = 1, .body_bytes = note.len });
+/// The octets of the router's copy of the POST's header, which the router keeps until the content
+/// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
+/// fields too.
+const header_bytes = 512;
+
+/// One request at a time, with room for the POST's header and content.
+const Router = server.Router(void, routes, .{ .requests = 1, .body_bytes = note.len, .header_bytes = header_bytes });
 
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
@@ -149,16 +154,12 @@ fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response
     try response.end();
 }
 
-/// Sends the POST's content back, once all of it arrived.
-const Echo = struct {
-    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
-
-    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
-        try response.header("content-type", content_type);
-        try response.body().writeAll(content.buffered());
-        try response.end();
-    }
-};
+/// Sends the POST's content back. The router calls the function once all of it arrived.
+fn echo(_: *void, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    try response.header("content-type", content_type);
+    _ = try request.body.streamRemaining(response.body());
+    try response.end();
+}
 
 fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
     response.status = .internal_server_error;

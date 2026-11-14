@@ -84,6 +84,8 @@ const tables = struct {
     pub const state_not_struct = .{ valid, .{ .get, "/a", handlers.NotStruct } };
     pub const option_unknown = .{ valid, .{ .get, "/a", route, .{ .streaming = true } } };
     pub const option_not_struct = .{ valid, .{ .get, "/a", route, 7 } };
+    // Decision 163 ruling 4: the option `whole_body` went. A function route gets the whole body.
+    pub const whole_body_gone = .{ valid, .{ .post, "/a", route, .{ .whole_body = true } } };
     pub const middleware_type = .{ valid, .{ .get, "/a", route, .{ .middleware = .{42} } } };
     pub const middleware_on_request = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.NoNext} } } };
     // The refusals of a route table as a whole: each case holds a whole route table.
@@ -102,7 +104,6 @@ const tables = struct {
     pub const error_handler_type = .{ .whole_table = .{ .error_handler = route, .routes = .{valid} } };
     pub const values_type = .{ .whole_table = .{ .error_handler = on_error, .Values = handlers.NoDefault, .routes = .{valid} } };
     pub const values_not_struct = .{ .whole_table = .{ .error_handler = on_error, .Values = u8, .routes = .{valid} } };
-    pub const whole_body_unread = .{ valid, .{ .post, "/a", route, .{ .whole_body = true } } };
 };
 
 /// One handler for each refusal of a route's handler, each wrong in one way alone, and the types
@@ -196,7 +197,7 @@ const handlers = struct {
 };
 
 comptime {
-    _ = server.Router(void, table_of(@field(tables, case)), .{ .requests = 1, .response_bytes = 0 });
+    _ = server.Router(void, table_of(@field(tables, case)), .{ .requests = 1, .response_bytes = 0, .header_bytes = 0 });
 }
 
 /// The route table of a case: the whole route table a case holds in `whole_table`, and else a

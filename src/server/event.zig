@@ -165,9 +165,62 @@ pub const Request = struct {
     /// carries none. `http.QueryParameters` reads its pairs (decision 127).
     query: ?[]const u8,
     headers: Headers,
+    /// The request's content. A function route of `server.Router` reads the whole content here,
+    /// which never waits (decision 163 ruling 4). When the head ended the request, each read here
+    /// ends at once. Else the engine's event comes before the content, so a read of it here fails
+    /// with `error.ReadFailed`. So does a read in a middleware's `on_request` and in a struct
+    /// route's `on_request`.
+    body: *std.Io.Reader,
     /// Whether the head ended the request, so no content follows.
     end: bool,
 };
+
+/// The readers at which a connection's request events point `body` (decision 163 ruling 4). A
+/// request that ended at its head gets `empty`, and one whose content is still to come gets
+/// `failing`. Each connection holds its own readers, because a read writes a reader's `seek`.
+pub const BodyReaders = struct {
+    failing: std.Io.Reader = failing_reader,
+    empty: std.Io.Reader = empty_reader,
+
+    /// The reader of a request event, whose head ended the request when `end` is set.
+    pub fn of(readers: *BodyReaders, end: bool) *std.Io.Reader {
+        return if (end) &readers.empty else &readers.failing;
+    }
+};
+
+/// A reader with no bytes, whose every read gives `error.EndOfStream` or 0 octets. std's `ending`
+/// is a constant, and a read such as `readSliceShort` or `discardRemaining` writes its `seek`. On
+/// Linux, the loader of a program that links dynamically makes that constant's memory read-only.
+/// So each connection holds a copy of this one.
+const empty_reader: std.Io.Reader = .fixed(&.{});
+
+/// A reader whose every read fails with `error.ReadFailed`. Each connection holds a copy, at which
+/// its request events point `body` (decision 163 ruling 4). std's `failing` keeps the default
+/// `rebase`, which asserts when a read such as `takeByte` asks for a byte, so this one fails there.
+pub const failing_reader: std.Io.Reader = .{ .vtable = &failing_vtable, .buffer = &.{}, .seek = 0, .end = 0 };
+
+const failing_vtable: std.Io.Reader.VTable = .{
+    .stream = fail_stream,
+    .discard = fail_discard,
+    .readVec = fail_read_vec,
+    .rebase = fail_rebase,
+};
+
+fn fail_stream(_: *std.Io.Reader, _: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+    return error.ReadFailed;
+}
+
+fn fail_discard(_: *std.Io.Reader, _: std.Io.Limit) std.Io.Reader.Error!usize {
+    return error.ReadFailed;
+}
+
+fn fail_read_vec(_: *std.Io.Reader, _: [][]u8) std.Io.Reader.Error!usize {
+    return error.ReadFailed;
+}
+
+fn fail_rebase(_: *std.Io.Reader, _: usize) std.Io.Reader.RebaseError!void {
+    return error.ReadFailed;
+}
 
 /// Octets of a request's content, and whether they end it. The last `body` of a request may carry
 /// none. `user_data` is the word the program set at the request's head (decision 119).
@@ -318,6 +371,40 @@ test "decision 119: a connection's ids name no connection, which the engine that
     // Ids compare whole: the same number on another connection is another request.
     const other: RequestId = .{ .connection = .{ .slot = 0, .generation = 1 }, .number = 7 };
     try std.testing.expect(id != other);
+}
+
+test "decision 163 ruling 4: each read of the failing reader fails, a byte's read too" {
+    var reader = failing_reader;
+    var bytes: [1]u8 = undefined;
+    try std.testing.expectError(error.ReadFailed, reader.takeByte());
+    try std.testing.expectError(error.ReadFailed, reader.peekByte());
+    try std.testing.expectError(error.ReadFailed, reader.readSliceShort(&bytes));
+    try std.testing.expectError(error.ReadFailed, reader.discardShort(1));
+    try std.testing.expectError(error.ReadFailed, reader.takeDelimiterInclusive('\n'));
+    // A read that fails writes nothing into the reader.
+    try std.testing.expectEqual(0, reader.seek);
+    try std.testing.expectEqual(0, reader.end);
+}
+
+test "decision 163 ruling 4: each read of the body of a request that ended at its head ends" {
+    var readers: BodyReaders = .{};
+    const reader = readers.of(true);
+    var bytes: [1]u8 = undefined;
+    var sink: [1]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&sink);
+    try std.testing.expectError(error.EndOfStream, reader.takeByte());
+    try std.testing.expectError(error.EndOfStream, reader.peekByte());
+    try std.testing.expectError(error.EndOfStream, reader.readSliceAll(&bytes));
+    try std.testing.expectError(error.EndOfStream, reader.takeDelimiterInclusive('\n'));
+    try std.testing.expectEqual(0, try reader.readSliceShort(&bytes));
+    try std.testing.expectEqual(0, try reader.streamRemaining(&writer));
+    try std.testing.expectEqual(0, try reader.discardRemaining());
+    try std.testing.expectEqual(0, try reader.discardShort(1));
+    try std.testing.expectEqual(0, writer.end);
+    // The reads leave the reader with no byte, and a request with content gets the other reader.
+    try std.testing.expectEqual(0, reader.seek);
+    try std.testing.expectEqual(0, reader.end);
+    try std.testing.expect(readers.of(false) == &readers.failing);
 }
 
 test "decision 115: the calls a program makes on a Headers" {
