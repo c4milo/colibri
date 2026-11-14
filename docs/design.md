@@ -15946,6 +15946,15 @@ library.
       ten streams on a connection, so another stream's HEADERS frame comes before most bodies
       end. That path then paid the hold, two calls into the engine, and the copy too. The owner
       accepted the copy at the request on 2026-11-14, at its cost.
+    - **The run of what landed.**
+      [Run 43635382945](https://github.com/c4milo/colibri/actions/runs/43635382945) compared
+      `020553e0`, which differs from `71fb98c3` by one comment, with main `c17ca6f4`.
+      h2-routes-post-many gave 1.0044 and 1.0060, 152 and 157 user instructions a request more,
+      within the noise in one job and past it in the other. h2-routes-many gave 1.0004 and
+      1.0001. Each other input is within the noise.
+    - **Runs.** `tools/ci.sh` on `bfb349e7`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed. In Debug for x86-64 Linux, in an amd64 container: `server` 685 of 685 and
+      `http` 98 of 98.
     - **Mutations.** 8 of 8 of the first draft, 12 of 12 of its fixes, and 14 of 14 of the copy
       CAUGHT. Among them: the late call reads the engine's request; a bound one octet off; the
       path matched again from another request; a part read from octets that a later read writes
