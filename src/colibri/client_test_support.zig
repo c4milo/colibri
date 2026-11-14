@@ -63,23 +63,24 @@ const routes = .{
         .{ .get, "/greeting", greet },
         .{ .get, "/goodbye", greet_and_close },
         .{ .get, "/stream", Stream },
-        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", echo },
     },
 };
 /// The room of a request's body that `/echo` takes.
 pub const request_body_bytes = 64;
-const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = request_body_bytes });
+/// The room of the copy of a request's header that `/echo` takes (decision 163 ruling 5). The
+/// copy of the client's POST header takes less than 192 octets, with its pseudo-header fields over
+/// h2 and h3.
+pub const request_header_bytes = 512;
+const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = request_body_bytes, .header_bytes = request_header_bytes });
 
-/// Answers a POST of `/echo` with the request's body, once the body has arrived whole.
-pub const Echo = struct {
-    pub fn on_request(_: *void, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
-
-    pub fn on_body(_: *void, _: *server.RequestContext, _: *void, content: *std.Io.Reader, response: *server.Response) !void {
-        try response.header("content-type", "text/plain");
-        try response.body().writeAll(content.buffered());
-        try response.end();
-    }
-};
+/// Answers a POST of `/echo` with the request's body. The router calls the function once the body
+/// has arrived whole, and `request.body` reads each byte of it (decision 163 ruling 4).
+pub fn echo(_: *void, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    try response.header("content-type", "text/plain");
+    _ = try request.body.streamRemaining(response.body());
+    try response.end();
+}
 
 /// The routes that ran while the running server's `in_turn` was clear: none, because each runs
 /// inside a `turn` or a `complete` (decision 159, rule 4). The server's thread writes it.

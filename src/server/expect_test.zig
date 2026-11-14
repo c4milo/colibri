@@ -13,6 +13,8 @@ const testing = std.testing;
 var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 /// The section's lines, which each request's headers point to. Test-only.
 var test_lines: http.FieldSection.Slice align(@alignOf(http.FieldSection.Slice)) = undefined;
+/// The body a request's event points to, whose every read fails (decision 163 ruling 4).
+var test_body: std.Io.Reader align(@alignOf(std.Io.Reader)) = event.failing_reader;
 
 /// A request carrying `expect` as its Expect value, at `version`, with content when `end` is
 /// false. Test-only.
@@ -31,6 +33,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
         .path = "/",
         .query = null,
         .headers = .{ .lines = &test_lines, .first = 0 },
+        .body = &test_body,
         .end = end,
     };
 }

@@ -66,7 +66,7 @@ const routes = .{
 };
 
 /// A pool of two entries, so a third request at once finds none.
-const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = response_bytes });
+const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = response_bytes, .header_bytes = 0 });
 
 /// The entries of the pool, octets of each entry's response memory, and the statuses the error
 /// function chooses. Test-only.

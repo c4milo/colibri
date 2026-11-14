@@ -119,6 +119,7 @@ test "rfc-citation reads neither operational errors, test errors nor test blocks
         \\    if (len > self.buffer.len) return error.NoSpaceLeft;
         \\    if (len > self.slots.len) return error.Full;
         \\    if (len > self.memory.len) return error.WriteFailed;
+        \\    if (len > self.held.len) return error.ReadFailed;
         \\    return error.TestUnexpectedResult;
         \\}
         \\test "a refusal" {

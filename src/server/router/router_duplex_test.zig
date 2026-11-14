@@ -21,6 +21,9 @@ const pieces = "abc";
 const memories_per_reply = 4;
 const h11_reply_len = server_constants.limits.output_len + memories_per_reply * duplex.response_bytes;
 const h2_reply_len = memories_per_reply * duplex.response_bytes;
+/// Octets of a function route's reply: two windows, which its response memory holds.
+const windows_per_reply = 2;
+const whole_reply_len = windows_per_reply * small_window;
 /// The rounds a test moves octets for each piece at most.
 const rounds_max = 64;
 
@@ -128,17 +131,20 @@ test "decision 127 as amended: a struct route answers each octet before the body
     try testing.expectEqual(null, support.nth(.cancelled, 0));
 }
 
-test "decision 127 as amended: a .whole_body route's on_writable waits for the body's end, over h2" {
-    // The route owes its reply at the head, and the window takes a part of it.
-    const handle = try start_h2(.{ .reply_len = 0, .head_len = h2_reply_len }, "/whole");
-    try drain_h2(handle, h2_reply_len);
-    try testing.expectEqual(0, app.open_calls);
-    try testing.expect(app.written < h2_reply_len);
-    // Once the body ends, the router calls `on_writable` under the rule of decision 127.
-    try give_data(handle, pieces[0], true);
-    try drain_h2(handle, h2_reply_len);
+test "decision 163 ruling 4: a function route gets no call before the body's end, over h2" {
+    const handle = try start_h2(.{ .reply_len = 0, .head_len = whole_reply_len }, "/whole");
+    try give_data(handle, pieces[0], false);
+    try testing.expectEqual(0, app.whole_calls);
+    try testing.expectEqual(0, app.written);
+    // The body's end calls the route once, with each octet. The window takes a part of its reply,
+    // and the router writes the rest at each `writable`.
+    try give_data(handle, pieces[1], true);
+    try testing.expectEqual(1, app.whole_calls);
+    try testing.expectEqual(2, app.body_len);
+    try testing.expectEqual(whole_reply_len, app.written);
+    try testing.expectEqual(null, support.nth(.done, 0));
     try open_window(handle);
-    try testing.expectEqual(h2_reply_len, app.written);
     try testing.expect(app.ended);
     try testing.expect(support.nth(.done, 0) != null);
+    try testing.expectEqual(null, support.nth(.cancelled, 0));
 }

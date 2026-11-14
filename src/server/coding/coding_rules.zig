@@ -118,6 +118,8 @@ const test_http_1_1: event.Version = .{ .major = 1, .minor = 1 };
 threadlocal var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 /// The section's lines, which the request's headers point to. Test-only.
 threadlocal var test_lines: http.FieldSection.Slice align(@alignOf(http.FieldSection.Slice)) = undefined;
+/// The body a request's event points to, whose every read fails (decision 163 ruling 4).
+threadlocal var test_body: std.Io.Reader align(@alignOf(std.Io.Reader)) = event.failing_reader;
 
 /// What a request with `method`, `version` and the field lines `lines` asks.
 fn test_asked(method: []const u8, version: event.Version, lines: []const http.Field) !Asked {
@@ -134,6 +136,7 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.Fi
         .path = "/",
         .query = null,
         .headers = event.Headers.init(&test_lines),
+        .body = &test_body,
         .end = true,
     });
 }

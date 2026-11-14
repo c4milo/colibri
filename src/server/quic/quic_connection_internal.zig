@@ -9,6 +9,7 @@ const quic = @import("quic");
 const h3 = @import("h3");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
+const event = @import("../event.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
 const quic_connection_h3_settle = @import("quic_connection_h3_settle.zig");
@@ -57,6 +58,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.requests.init();
     connection.owed = .{};
     connection.header_lines = .{ .octets = &.{}, .lines = &.{} };
+    connection.body_readers = .{};
     connection.started = false;
     connection.shutting_down = false;
     connection.continue_owed = false;

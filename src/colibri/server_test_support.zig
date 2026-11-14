@@ -30,7 +30,7 @@ const routes = .{
 };
 
 /// A router that answers a GET of `/` with an empty 200, and its context.
-pub const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
+pub const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
 pub var router: Router align(@alignOf(Router)) = .{};
 pub var context: void = {};
 

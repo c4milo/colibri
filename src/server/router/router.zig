@@ -29,7 +29,18 @@ const router_handler = @import("router_handler.zig");
 /// - `middleware`, which a table may leave out: a tuple of the middleware of every route.
 ///
 /// A route's function takes four parameters: `*Context`, `*server.RequestContext`,
-/// `*const server.Request` and `*server.Response` (decision 163). It returns `!void`.
+/// `*const server.Request` and `*server.Response` (decision 163). It returns `!void`. It gets the
+/// whole request in one call, and reads the body through `request.body`, which never waits
+/// (decision 163 ruling 4):
+///
+/// - A request with no body gets its call at the head, with a body that ends at once.
+/// - A request with a body gets its call when the body ended. The router copies the header into
+///   the request's entry, and holds every byte of the body. `options.header_bytes` bounds the
+///   copy, with 431 past it, and `options.body_bytes` bounds the body, with 413.
+/// - With `options.header_bytes` 0, a request with a body gets its call at the head too. A read of
+///   its body fails, and the router drops the body.
+///
+/// The route never sees a trailer section.
 ///
 /// A route's options name the types of its path parameters and of its query (decision 163 ruling
 /// 3). `.path` is a struct with a `[]const u8` field for each parameter of the pattern, and `rest`
@@ -40,8 +51,9 @@ const router_handler = @import("router_handler.zig");
 /// A route can be a struct instead, with `on_request`, which takes a `*State` after the request
 /// context and else the parameters of a function, and any of `on_body`, `on_writable` and
 /// `on_finished`. Each takes the context, the request context and the `*State` first. `on_body`
-/// reads the request body through a `*std.Io.Reader`. With `.whole_body`, it runs once, after the
-/// last byte.
+/// reads the request body through a `*std.Io.Reader`, as the bytes arrive. For a request with a
+/// body, a read of `request.body` fails with `error.ReadFailed` in `on_request` and in a
+/// middleware's `on_request`. The body comes after the head.
 ///
 /// Middleware run before a route: the route table's `middleware`, then the route entry's, each a
 /// struct with `on_request`, `on_finished` or both (`server.middleware`). Each hook takes the
@@ -49,8 +61,9 @@ const router_handler = @import("router_handler.zig");
 ///
 /// The type is the router: a program places one, which does not move, and passes each event of its
 /// engine to its `handle`. `options` sizes it: `options.requests` entries, each with
-/// `options.response_bytes` of response memory. `match` stays for a program that dispatches a
-/// request itself: its `found` gives the route's `Route` tag, named by its method and its pattern,
+/// `options.response_bytes` of response memory, `options.body_bytes` of body memory and
+/// `options.header_bytes` for a copy of a header. `match` stays for a program that dispatches a
+/// request itself. Its `found` gives the route's `Route` tag, named by its method and its pattern,
 /// such as `.@"GET /users/:id"`.
 pub fn Router(comptime Context: type, comptime table: anytype, comptime options: Options) type {
     router_call.check_table(Context, table);
@@ -123,15 +136,20 @@ fn ValueOf(comptime Entry: type, comptime Route: type) type {
 }
 
 test "decision 158: a router's type exports Route, Match, match, memory_bytes and handle" {
-    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0 });
+    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0, .header_bytes = 0 });
     try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
 }
 
 test "decision 158 ruling 16: a router's options default to 32 requests of 256 response octets" {
-    const options: router_pool.Options = .{};
+    const options: router_pool.Options = .{ .header_bytes = 0 };
     try std.testing.expectEqual(32, options.requests);
     try std.testing.expectEqual(256, options.response_bytes);
     try std.testing.expectEqual(0, options.body_bytes);
+}
+
+test "decision 163 ruling 5: header_bytes has no default, so a program names it" {
+    const field = std.meta.fieldIndex(router_pool.Options, "header_bytes").?;
+    try std.testing.expectEqual(null, @typeInfo(router_pool.Options).@"struct".fields[field].default_value_ptr);
 }
 
 test {
@@ -144,5 +162,8 @@ test {
     _ = @import("router_stream_h3_test.zig");
     _ = @import("router_duplex_test.zig");
     _ = @import("router_duplex_h3_test.zig");
+    _ = @import("router_whole_test.zig");
+    _ = @import("router_whole_head_test.zig");
+    _ = @import("router_copy.zig");
     _ = @import("router_path.zig");
 }

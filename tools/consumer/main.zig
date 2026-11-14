@@ -50,7 +50,7 @@ const bound_routes = .{
     },
 };
 // `colibri.server` is the module `server`, which the root of `colibri` re-exports.
-const BoundRouter = colibri.server.Router(void, bound_routes, .{ .requests = 1 });
+const BoundRouter = colibri.server.Router(void, bound_routes, .{ .requests = 1, .header_bytes = 0 });
 var router: BoundRouter align(@alignOf(BoundRouter)) = .{};
 var router_context: void = {};
 // A `colibri.Client` of one TCP connection, four requests and no QUIC, which the program places

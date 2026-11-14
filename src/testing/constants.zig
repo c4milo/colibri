@@ -109,6 +109,11 @@ pub const routes_response_bytes: usize = 128;
 /// its header.
 pub const routes_body_bytes: usize = 8192;
 
+/// Octets of each request's copy of its header in the `--routes` mode. A POST route takes the
+/// copy, because its body comes after the header (decision 163 ruling 5). h2load's POST header
+/// holds about 171 octets of live parts, so this leaves room for a larger header.
+pub const routes_header_bytes: usize = 1024;
+
 /// Most steps one session takes between two reads from the socket. A step that neither consumes
 /// nor writes ends the loop, so this only bounds it: one step answers at most one request, and a
 /// read holds at most one frame.

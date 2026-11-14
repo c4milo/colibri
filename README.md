@@ -177,7 +177,7 @@ const routes = .{
     .middleware = .{ Brand, Counted },
     .routes = .{
         .{ .get, "/greeting", greet },
-        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .post, "/echo", echo },
         .{ .get, "/greetings/:name", greet_named, .{ .path = Name, .query = Mark } },
     },
 };
@@ -204,6 +204,25 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
 }
 ```
 
+A function gets the whole request in one call ([decision 163](docs/decisions.md) ruling 4). A
+request with a body gets its call once the body ended, unless `header_bytes` is 0. The function
+reads the whole body through `request.body`, which never waits:
+
+```zig
+/// Sends the POST's content back. The router calls the function once the content ended, and
+/// `request.body` reads the whole content, which the request's entry holds. The read never waits.
+fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
+    try response.header("content-type", content_type);
+    _ = try request.body.streamRemaining(response.body());
+    try response.end();
+}
+```
+
+A request with no body gets its call at the head, and its `request.body` ends at once. For a
+request with a body, the router copies the header and holds the body until the call. A function
+does not see a trailer section. A middleware and a struct route's `on_request` run at the head,
+before the body. So for a request with a body, a read of `request.body` there fails.
+
 The request context is a `server.RequestContext`, the request's own object. Each callback of one
 request gets the same one: each middleware, the route and the error handler. It has four calls:
 
@@ -215,10 +234,16 @@ request gets the same one: each middleware, the route and the error handler. It 
   the route's function alone, or during a struct route's `on_request` alone.
 
 The program owns the router's memory. `server.RouterOptions` sizes it for the requests the server
-holds at once, and the program places it once:
+holds at once, and the program places it once. `header_bytes` bounds the copy of each request's
+header, and has no default: a program names it. With 0 the router copies no header. It then calls
+each function at the head, where a read of a body still to come fails. Above 0, a header past
+`header_bytes` gets 431 (RFC 6585 §5), and a body past `body_bytes` gets 413:
 
 ```zig
-const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
+/// The router's pool: an entry for each request at once. Each entry holds room for its response,
+/// for the POST's content and for the copy of the POST's header. The program places it once and
+/// does not move it.
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len, .header_bytes = header_bytes });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 

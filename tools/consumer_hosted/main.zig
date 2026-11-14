@@ -22,7 +22,7 @@ const routes = .{
         .{ .get, "/", on_root },
     },
 };
-const Router = colibri.server.Router(void, routes, .{ .requests = 1 });
+const Router = colibri.server.Router(void, routes, .{ .requests = 1, .header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = .{};
 var router_context: void = {};
 // A `colibri.Client` of one TCP connection and no QUIC, on this program's loop.

@@ -1,7 +1,7 @@
 //! What the tests of a struct route that answers while its client still sends share (decision 127
-//! as amended, design §8 step 46): a route that owes `App.reply_len` octets for each request octet
-//! and writes them from `on_body` and `on_writable`, and the route table that names it twice, once
-//! with `.whole_body`. Test-only.
+//! as amended, design §8 step 46). The route owes `App.reply_len` octets for each request octet,
+//! and writes them from `on_body` and `on_writable`. The route table names it beside a function
+//! route, which answers once the body ended (decision 163 ruling 4). Test-only.
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
@@ -9,10 +9,11 @@ const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
-/// Octets of the entry's response memory and of its body memory, and of each message the route
-/// writes. Test-only.
+/// Octets of the entry's response memory, body memory and header memory, and of each message the
+/// route writes. Test-only.
 pub const response_bytes = 256;
 const body_bytes = 16;
+const header_bytes = 128;
 const message_len = 100;
 /// The prime that `octet_at` counts modulo, so no message repeats the one before it.
 const pattern_period = 251;
@@ -46,6 +47,9 @@ pub const App = struct {
     idle_calls: usize = 0,
     /// Whether the route ended its response.
     ended: bool = false,
+    /// The calls of the function route, and the octets of the body it read.
+    whole_calls: usize = 0,
+    body_len: usize = 0,
 };
 
 /// Owes `App.head_len` octets at the head and `App.reply_len` for each request octet, writes what
@@ -76,6 +80,17 @@ pub const Duplex = struct {
     }
 };
 
+/// Reads the whole body in its one call, and owes `App.head_len` octets, which it writes before it
+/// ends the response. The engine takes a part of them, and the router writes the rest once the
+/// engine has room.
+pub fn whole(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {
+    app.whole_calls += 1;
+    var bytes: [body_bytes]u8 = undefined;
+    app.body_len = try request.body.readSliceShort(&bytes);
+    var state: Duplex.State = .{ .owed = app.head_len, .body_ended = true };
+    try write_owed(app, &state, response);
+}
+
 /// Writes what the route owes, one message at a time, each flushed. A message that does not fit
 /// waits for the next call. Ends the response once the body ended and nothing is owed.
 fn write_owed(app: *App, state: *Duplex.State, response: *Response) !void {
@@ -105,8 +120,8 @@ const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .post, "/duplex", Duplex },
-        .{ .post, "/whole", Duplex, .{ .whole_body = true } },
+        .{ .post, "/whole", whole },
     },
 };
 
-pub const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes });
+pub const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });

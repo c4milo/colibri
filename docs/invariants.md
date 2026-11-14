@@ -71,7 +71,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Claim.** colibri never writes outside the bounds of the slice it was given, and it never
   reads past the end of the bytes it was told are present.
 - **Mechanism.** All output goes through one bounds-checked writer and all parsing through one
-  bounds-checked reader. No raw pointer arithmetic exists outside those two files.
+  bounds-checked reader. No raw pointer arithmetic exists outside those two files, but one form:
+  the difference of two addresses, compared with a length, asks whether one slice lies in
+  another. The slice that it then takes is checked by the language. `router_copy.moved` and the
+  ring of `server.Response` use it (the owner's ruling of 2026-11-14, decision 163).
 - **Check.** Lint rule (`tools/lint/peer_index.zig`: no index or slice bound that reads a value
   a `Reader` produced, followed through one function, outside the reader and writer), plus
   a runtime assertion at every reader and writer entry that the cursor is within the slice, plus
@@ -118,7 +121,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Claim.** A connection's output bytes and state transitions are a pure function of its
   configuration, the bytes it has been fed, and the instants it has been given, in order.
 - **Mechanism.** INV-1, INV-2, INV-4 and INV-5 together leave no other input. No branch reads a
-  pointer value, an address, or a hash of one.
+  pointer value, an address, or a hash of one. One form is allowed: a branch may compare the
+  difference of two addresses with a length, to ask whether one slice lies in another. A slice
+  that is not empty lies in another only when it was cut from it, so the answer follows from the
+  bytes and not from where they lie (the owner's ruling of 2026-11-14, decision 163).
 - **Check.** Simulator invariant: every check runs each seed twice and requires the two runs to
   produce byte-identical output, byte-identical traces and the same outcome, on macOS and Linux
   and in both optimization modes. Steps 2 and 8.

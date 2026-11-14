@@ -107,6 +107,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.Connection.Request) ?even
             .path = event.split_target(request.path).path,
             .query = event.split_target(request.path).query,
             .headers = event.Headers.init(&connection.header_lines),
+            .body = connection.body_readers.of(arrived.end),
             // RFC 9114 §4.1: h3 reports the end of a request with content, or with a trailer
             // section, apart from its head, as a `body` event.
             .end = arrived.end,

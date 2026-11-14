@@ -107,6 +107,8 @@ pub const Connection = struct {
     /// The lines of the field section of the last request or trailers event. The event's
     /// `Headers` points here, and the lines stay valid until the next `receive`.
     header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
+    /// The readers at which each request event points `body` (decision 163 ruling 4).
+    body_readers: event.BodyReaders = .{},
     tls_server: tls.record.Server,
     /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
     /// octets are what the last event pointed into, dropped at the next call.
@@ -190,6 +192,7 @@ pub const Connection = struct {
         connection.shutting_down = false;
         connection.continue_owed = null;
         connection.header_lines = .{ .octets = &.{}, .lines = &.{} };
+        connection.body_readers = .{};
         connection.next_id = 1;
         connection.current_id = 0;
         connection.chunked_allowed = false;
