@@ -13604,6 +13604,37 @@ library.
       that keeps Careful Resume, in `Resume` and in `Recovery`; slow start saving the whole
       window; a small window saved; the smoothed round trip saved; a set saved with no sample;
       BBRv3's BDP in the wrong unit; and the option ignored.
+  - **35e, the judge run, 2026-11-14.** The bulk run of step 13k gains `h3-resume`: 5 downloads
+    of the file of 2 MiB from colibri under each of its three controllers, each download alone
+    and on a connection of its own. Each server runs as the other loads run it, and then with
+    `careful-resume`.
+    - The UDP server's word `careful-resume` gives `server.Config.resumes` a table of 16 hosts,
+      `src/testing/quic/udp/udp_resume.zig`. A client opens each connection from another port,
+      so the table compares hosts and no ports (RFC 9959 §2.2).
+    - The provider's calls name a host and no connection. So the table counts each host's open
+      connections, and gives a set only to a connection that is its host's one open connection
+      (§3.2). A table that follows §3.2 exactly needs a call that names the connection.
+    - oha sends no close after one download, and holds the connection for the idle timeout of
+      30 s. The word `idle=<milliseconds>` makes the server advertise another one, and these
+      loads advertise 2 s.
+    - A server with `careful-resume` serves one download more first, which saves the set. Its
+      log gives its counts after each connection's end, and each download waits for that line.
+      The report gives the median time of a download from each server, the ratio, and how many
+      connections took a set and how many retreated.
+    - `tools/quic_udp.sh` requires a client's second connection to take what its first one
+      saved, and the client's qlog to hold the idle timeout of `idle=1500`.
+    - The bench job's limit goes from 180 to 210 minutes, because the loads add about 7 minutes
+      a round.
+    - The new tests pass on x86-64 Debug in an amd64 container.
+    - 25 mutations, each **CAUGHT**. Of the table: ports compared; a second open connection, or
+      one that `take` did not count, given the set; `put` that leaves its connection open or
+      deletes the set for a null; `drop` that keeps the set or deletes every host's; a full
+      table that gives a new host an entry; a count below zero; and each of the three counts
+      wrong. Of the words: `careful-resume` or `idle` taken without `h3`, a number of 0 taken,
+      `careful-resume` that sets nothing, and `idle` that sets the clock. Of the server: no
+      provider given to the engine, and `idle` ignored. Of the report: download 0 or round 0
+      counted, the idle wait counted in the time, the ratio inverted, the sets taken not
+      summed, and the retreats read from the sets taken.
 - **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md). It depends
   on a layer stdx's `json` does not have yet, which maps a Zig value to JSON and back:
   [stdx#22](https://github.com/c4milo/stdx/issues/22). colibri builds no such layer of its own.
