@@ -13635,6 +13635,29 @@ library.
       provider given to the engine, and `idle` ignored. Of the report: download 0 or round 0
       counted, the idle wait counted in the time, the ratio inverted, the sets taken not
       summed, and the retreats read from the sets taken.
+    - [Run 43627411197](https://github.com/c4milo/colibri/actions/runs/43627411197), 3 rounds,
+      measured `712936c1`, a branch whose bench code is the code above. The median time of one
+      download on a connection of its own, over 15 downloads, in job 1 and job 2:
+
+      | Path | Server | New (ms) | Resumed (ms) | Resumed / new | Took a set | Retreated |
+      | --- | --- | --- | --- | --- | --- | --- |
+      | 20 Mbit/s, 25 ms | colibri (CUBIC) | 1078 and 1078 | 1032 and 1032 | 0.96 and 0.96 | 15 and 15 | 0 and 0 |
+      | 20 Mbit/s, 25 ms | colibri-bbr | 1083 and 1083 | 1066 and 1066 | 0.98 and 0.98 | 15 and 15 | 0 and 0 |
+      | 20 Mbit/s, 25 ms | colibri-newreno | 1078 and 1078 | 1051 and 1051 | 0.98 and 0.98 | 15 and 15 | 0 and 0 |
+      | the same, 1% loss | colibri (CUBIC) | 5863 and 5904 | 6673 and 6692 | 1.14 and 1.13 | 1 and 0 | 1 and 0 |
+      | the same, 1% loss | colibri-bbr | 1118 and 1114 | 1105 and 1135 | 0.99 and 1.02 | 15 and 15 | 4 and 5 |
+      | the same, 1% loss | colibri-newreno | 7116 and 6952 | 6208 and 6910 | 0.87 and 0.99 | 0 and 0 | 0 and 0 |
+
+    - With no loss, each connection took a set, and a resumed download took 17 ms to 46 ms less.
+      A download on a connection that is already open takes 946 ms in the same run. So under
+      CUBIC, Careful Resume removes 46 ms of the 132 ms that a new connection adds.
+    - With 1% loss, CUBIC and NewReno end each connection with a window below four initial
+      windows, so they save no set (RFC 9959 §3.1). One connection of CUBIC in job 1 took a set,
+      and retreated. Their ratios are the noise of one download under loss, which
+      [#123](https://github.com/c4milo/colibri/issues/123) tracks for CUBIC.
+    - BBRv3 saves its BDP under loss too, so each connection took a set. 4 and 5 of 15
+      retreated (§3.5), and the time did not change.
+    - Each job took 157 and 158 minutes, against 132 for the last bulk run.
 - **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md). It depends
   on a layer stdx's `json` does not have yet, which maps a Zig value to JSON and back:
   [stdx#22](https://github.com/c4milo/stdx/issues/22). colibri builds no such layer of its own.
