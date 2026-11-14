@@ -42,7 +42,9 @@ pub fn provider() server.ResumeProvider {
 
 fn find(address: server.Address) ?*Entry {
     for (entries[0..entries_len]) |*entry| {
-        if (entry.address.eql(&address)) return entry;
+        // RFC 9959 §2.2: the remote endpoint is the destination's IP address. A client's next
+        // connection comes from another port, so the port is no part of the key.
+        if (entry.address.same_host(&address)) return entry;
     }
     return null;
 }
@@ -76,3 +78,25 @@ fn drop(_: *anyopaque, address: server.Address) void {
     // RFC 9959 §3.5: "The set of saved CC parameters for the path are deleted".
     if (find(address)) |entry| entry.saved = null;
 }
+
+/// Checks that a client's next connection, from another port, gets the set that its first one
+/// saved (RFC 9959 §2.2), then empties the table and the counts. `server_exchange.zig` calls it
+/// before its server starts.
+pub fn check_another_port() !void {
+    const host = [_]u8{ 127, 0, 0, 1 };
+    const first: server.Address = .init(&host, first_port);
+    const next: server.Address = .init(&host, first_port + 1);
+    const saved: server.ResumeState = .{ .window_len = check_window_len, .rtt_ns = check_rtt_ns, .saved_at_ns = 0 };
+    put(&context, first, saved, 0);
+    const taken_set = take(&context, next, 0) orelse return error.SetNotFound;
+    if (taken_set.window_len != check_window_len) return error.SetWrong;
+    entries_len = 0;
+    taken = 0;
+    put_back = 0;
+    dropped = 0;
+}
+
+/// The values of the check's set and the port of its first connection.
+const first_port = 40000;
+const check_window_len = 12000;
+const check_rtt_ns = 25_000_000;
