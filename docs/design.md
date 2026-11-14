@@ -5554,6 +5554,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         calls, and 5 of them take nothing and report nothing. `src/colibri/server_pump.zig` has
         the same two loops. A `server.Event` takes 160 octets and a `ReceiveResult` 192, and each
         call returns one by value. The session that owns the engine has the numbers.
+      - chapulin's decision 234, pinned at `72ed3509` with v0.7.0. Judge run
+        [43648917274](https://github.com/c4milo/colibri/actions/runs/43648917274), on `02d75cc4`
+        against main `21433cdf`, with `h11` and `h3` at 10 rounds:
+        - h11-tls-many takes 0.9890 and 0.9882 of main's instructions, and 0.9788 and 0.9783 of
+          its user instructions. That wins past the noise in job 2 alone; job 1's noise was 3.02%
+          on user instructions. A request saves about 460 user instructions, the work of the
+          GHASH powers of its two records. That is about 6% of the gap to hyper.
+        - h11-tls-one takes 1.0022 and 1.0024, within the noise of 0.50%. Each key a connection
+          derives now computes its powers once, which costs about 2,000 user instructions.
+        - h2-tls-one takes 0.9963 and 0.9965, within the noise, from v0.7.0's faster P-256 and
+          ML-KEM. Every other h11, h2 and h3 input is within the noise in both jobs.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
