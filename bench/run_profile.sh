@@ -23,7 +23,7 @@ profile_event=""
 # A profile needs perf, and records colibri's build alone, in one round after the warm-up.
 check_profile() {
   [ -z "$profile" ] && return 0
-  if [ "$mode" != judge ] || [ -n "$base" ] || [ -n "$competitors" ]; then
+  if [ "$mode" != judge ] || [ -n "$base" ]; then
     echo "run.sh: --profile needs perf, and takes no --filter, --base or --competitors" >&2
     exit 2
   fi
@@ -50,5 +50,5 @@ record_profile() {  # record_profile <name> <variant> <input>
     load "$profile_loads" "$scratch/load.sh" "$3" "$(port_of "$2")" >"$scratch/$1.h2load"
   # perf's warnings, such as lost samples, go to the job's log.
   sudo -n "${PERF:-perf}" script -i "$scratch/$1.data" --no-inline -F comm,ip,sym,dso >"$scratch/$1.stacks"
-  echo "$3,$scratch/$1.stacks" >>"$scratch/profiles.csv"
+  echo "$2-$3,$scratch/$1.stacks" >>"$scratch/profiles.csv"
 }

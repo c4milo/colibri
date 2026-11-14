@@ -88,10 +88,12 @@ readonly ready_seconds=1
 inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-routes-post-many h2-routes-post-late-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
+# An experiment, not for main: h11-many and h11-tls-many alone, for colibri and hyper.
+inputs=(h11-many h11-tls-many)
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
-default_competitors="nginx h2o hyper httpz"
+default_competitors="hyper"
 if [ -n "$h3" ]; then default_competitors+=" quic-go"; fi
 read -r -a competitor_names <<<"${BENCH_COMPETITORS:-$default_competitors}"
 readonly competitor_names
