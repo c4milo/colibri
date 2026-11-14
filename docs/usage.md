@@ -84,7 +84,8 @@ the commit colibri pins. Its build then asks for chapulin's object file with exa
 colibri makes. Zig keys a dependency by its package and its options, so the two requests give
 one object file. A request that differs in one value fails the link with a duplicate symbol.
 
-colibri pins chapulin v0.6.0, commit `17fd1f0b`. Its request for the object file for TLS over TCP
+colibri pins chapulin at commit `72ed3509`: v0.7.0 and chapulin's decision 234, which no chapulin
+release holds yet. Its request for the object file for TLS over TCP
 names these options, and no other key. A host target is arm64 with NEON or x86-64 with SSE2.
 
 | Option | On a host target | On another target |
