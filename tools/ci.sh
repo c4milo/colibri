@@ -61,11 +61,13 @@ section() {
       echo
       echo "### Failed: ${title}"
       echo
-      # Zig names each failed test in an `error:` line, with its cause and stack after it. With
-      # --summary all, the step tree follows them, so the log's last lines lose the name.
-      if grep -qE "^error: '.*' failed:" "${log}"; then
+      # Zig names each failed or crashed test in an `error:` line, with its cause and stack after
+      # it, and a lint rule or the compiler names a file, a line and a column before `error:`.
+      # With --summary all, the step tree follows them, so the log's last lines lose them.
+      local named="^error: '.*' (failed:|terminated)|^[^ |+].*:[0-9]+:[0-9]+: error: "
+      if grep -qE "${named}" "${log}"; then
         echo '```text'
-        grep -E -A8 "^error: '.*' failed:" "${log}" | head -80
+        grep -E -A8 "${named}" "${log}" | head -80
         echo '```'
         echo
       fi
