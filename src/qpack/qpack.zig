@@ -30,7 +30,7 @@ pub const Encoder = files.encoder.Encoder;
 pub const Decoder = files.decoder.Decoder;
 
 pub const decoder_stream = struct {
-    pub const owes = files.decoder_stream.instructions_due;
+    pub const instructions_due = files.decoder_stream.instructions_due;
 };
 
 pub const instruction = struct {
@@ -53,10 +53,24 @@ test "decision 158: each type in a signature of Encoder and Decoder is a declara
         "coding",
     });
     try core.public_names.expect(Decoder, &.{
-        "Error",                "Outcome", "Settings",     "error_code",
-        "Abandoned",            "init",    "read_section", "read_encoder_stream",
-        "write_decoder_stream", "owes",    "ready_stream", "abandon_stream",
+        "Error",                "Outcome",          "Settings",     "error_code",
+        "Abandoned",            "init",             "read_section", "read_encoder_stream",
+        "write_decoder_stream", "instructions_due", "ready_stream", "abandon_stream",
     });
+}
+
+test "the tags of Decoder.Outcome and Decoder.Abandoned are the calls a caller answers" {
+    // https://github.com/c4milo/colibri/issues/134 renamed `owes_instructions` to
+    // `write_instructions_first`. The lists fail when the old tag comes back.
+    const outcome: []const []const u8 = &.{ "decoded", "blocked", "write_instructions_first", "read_ready_first" };
+    try std.testing.expectEqualDeep(outcome, std.meta.fieldNames(Decoder.Outcome));
+    const abandoned: []const []const u8 = &.{ "cancelled", "write_instructions_first" };
+    try std.testing.expectEqualDeep(abandoned, std.meta.fieldNames(Decoder.Abandoned));
+}
+
+test "decision 115: the decoder stream's namespace exports instructions_due alone" {
+    // https://github.com/c4milo/colibri/issues/134 renamed `owes` to `instructions_due`.
+    try core.public_names.expect(decoder_stream, &.{"instructions_due"});
 }
 
 test {

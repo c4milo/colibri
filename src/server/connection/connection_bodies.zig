@@ -172,7 +172,7 @@ fn start_waits(connection: *Connection, now_ns: u64) void {
 /// Whether colibri holds a WINDOW_UPDATE its h2 peer has not been handed: owed, or in the output.
 fn update_held(connection: *const Connection) bool {
     if (connection.session != .h2) return false;
-    return connection.update_held_len > 0 or connection.session.h2.owes_window_update();
+    return connection.update_held_len > 0 or connection.session.h2.window_update_due();
 }
 
 /// The soonest instant a body deadline passes, or `current` when it is sooner or none does.

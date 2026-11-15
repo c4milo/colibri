@@ -213,8 +213,8 @@ test "decision 74: a full queue of owed instructions stops the reading until it 
     for (0..constants.limits.decoder_instructions_owed_max) |_| {
         try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &section));
     }
-    try testing.expectEqual(Outcome.owes_instructions, try decode_on(stream_four, &section));
-    try testing.expectEqual(Decoder.Abandoned.owes_instructions, test_decoder.abandon_stream(stream_eight));
+    try testing.expectEqual(Outcome.write_instructions_first, try decode_on(stream_four, &section));
+    try testing.expectEqual(Decoder.Abandoned.write_instructions_first, test_decoder.abandon_stream(stream_eight));
     var writer = Writer.init(&test_octets);
     test_decoder.write_decoder_stream(&writer);
     try testing.expectEqual(constants.limits.decoder_instructions_owed_max, writer.written().len);
@@ -376,7 +376,7 @@ fn fuzz_section(_: void, smith: *testing.Smith) anyerror!void {
         // A section is read whole or not at all.
         .decoded => try testing.expectEqual(0, reader.remaining_len()),
         .blocked => try testing.expectEqual(octets.len, reader.remaining_len()),
-        .owes_instructions, .read_ready_first => return error.TestUnexpectedResult,
+        .write_instructions_first, .read_ready_first => return error.TestUnexpectedResult,
     }
     for (0..test_section.len()) |index| {
         try testing.expect(test_section.get(@intCast(index)).name.len <= core.constants.limits.field_name_len_max);

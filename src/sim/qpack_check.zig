@@ -154,7 +154,7 @@ const Run = struct {
             possible[count] = .section;
             count += 1;
         }
-        if (qpack.decoder_stream.owes(&run.storage.decoder) or run.decoder_stream.delivered < run.decoder_stream.written) {
+        if (qpack.decoder_stream.instructions_due(&run.storage.decoder) or run.decoder_stream.delivered < run.decoder_stream.written) {
             possible[count] = .decoder_stream;
             count += 1;
         }
@@ -258,7 +258,7 @@ const Run = struct {
     fn cancel(run: *Run) (Violation || sim.trace.Error)!void {
         const storage = run.storage;
         const stream_id = storage.plan.sections[run.cancellable(run.random.next()).?].stream_id;
-        if (storage.decoder.abandon_stream(stream_id) == .owes_instructions) {
+        if (storage.decoder.abandon_stream(stream_id) == .write_instructions_first) {
             try run.write_decoder_stream();
             if (storage.decoder.abandon_stream(stream_id) != .cancelled) return error.Unfinished;
         }
@@ -287,7 +287,7 @@ const Run = struct {
             var strings = Writer.init(&storage.strings);
             const outcome = storage.decoder.read_section(stream_id, &reader, &strings, &storage.decoded_section) catch
                 return error.DecoderFailed;
-            if (outcome == .owes_instructions) {
+            if (outcome == .write_instructions_first) {
                 try run.write_decoder_stream();
                 continue;
             }
@@ -322,7 +322,7 @@ const Run = struct {
         var writer = Writer.init(run.storage.decoder_octets[stream.written..]);
         run.storage.decoder.write_decoder_stream(&writer);
         stream.written += @intCast(writer.written().len);
-        if (qpack.decoder_stream.owes(&run.storage.decoder)) return error.Unfinished;
+        if (qpack.decoder_stream.instructions_due(&run.storage.decoder)) return error.Unfinished;
     }
 
     /// The `pick`-th section, counting round, that is the first undecoded section of its stream

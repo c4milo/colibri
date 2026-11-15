@@ -80,7 +80,7 @@ pub fn owed(pool: anytype) ?Event {
 pub fn owed_send(pool: anytype) ?Event {
     for (pool.tcp_links, 0..) |*link, index| {
         if (link.state != .running or link.send_outstanding or link.send_blocked) continue;
-        if (!pool.tcp[index].owes_octets()) continue;
+        if (!pool.tcp[index].should_send()) continue;
         link.send_outstanding = true;
         return .{ .send = pool_handle.handle_of(pool, @intCast(index)) };
     }

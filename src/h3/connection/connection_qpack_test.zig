@@ -89,7 +89,7 @@ test "RFC 9204 §2.2.2.2: a stream reset while its section waits is cancelled on
     // The client's decoder no longer holds the stream, and its cancellation went out.
     try testing.expectEqual(0, client.h3.decoder.blocked_len);
     try testing.expectEqual(null, try next(client));
-    try testing.expect(!client.h3.decoder.owes());
+    try testing.expect(!client.h3.decoder.instructions_due());
 }
 
 /// The response `request_and_respond` sent, once exchanged: its line decodes as a literal when

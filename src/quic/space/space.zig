@@ -193,7 +193,7 @@ pub const Space = struct {
     /// deadline under both: "ack-eliciting packets MUST be acknowledged at least once within the
     /// maximum delay an endpoint communicated using the max_ack_delay transport parameter".
     /// `max_ack_delay_ns` is what this endpoint advertised (§18.2).
-    pub fn owes_ack(space: *const Space, now_ns: u64, max_ack_delay_ns: u64) bool {
+    pub fn ack_due(space: *const Space, now_ns: u64, max_ack_delay_ns: u64) bool {
         if (space.ack_due_at_once()) return true;
         const deadline_ns = space.ack_deadline_ns(max_ack_delay_ns) orelse return false;
         return now_ns >= deadline_ns;
@@ -387,4 +387,15 @@ test {
     _ = space_received;
     _ = @import("space_test.zig");
     _ = @import("space_skip_test.zig");
+}
+
+test "decision 115: a space's public functions are the calls a program makes" {
+    // https://github.com/c4milo/colibri/issues/134 renamed `owes_ack` to `ack_due`. The list
+    // fails when the old name comes back beside the new one.
+    try core.public_names.expect(Space, &.{
+        "init",                  "peek_number", "next_number", "duplicate_verdict",
+        "receive",               "Ecn",         "ack_due",     "ack_deadline_ns",
+        "has_new_ack_eliciting", "AckPending",  "ack_pending", "restore_ack_pending",
+        "write_ack",             "on_ack",
+    });
 }

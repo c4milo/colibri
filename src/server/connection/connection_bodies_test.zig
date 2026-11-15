@@ -252,7 +252,7 @@ fn upload_until_update() !void {
     for (0..update_frames) |_| {
         _ = try receive_at(try deadline_support.data_frame(1, filler[0..h2.constants.limits.frame_size_max], false, 0), early_ns + 1);
     }
-    try testing.expect(connection.session.h2.owes_window_update());
+    try testing.expect(connection.session.h2.window_update_due());
 }
 
 test "decision 110 as amended: a body's rate waits while colibri owes a WINDOW_UPDATE, and its cap does not" {

@@ -140,7 +140,7 @@ fn read_section(storage: *Storage, written: Written, input: []const u8) Outcome 
     return switch (outcome) {
         .decoded => .taken,
         .blocked => .blocked,
-        .owes_instructions, .read_ready_first => unreachable,
+        .write_instructions_first, .read_ready_first => unreachable,
     };
 }
 

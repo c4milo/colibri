@@ -136,11 +136,11 @@ test "§6.9: a release gives the stream its credit back in one WINDOW_UPDATE" {
     try fill_stream_window();
     _ = write_queued();
     test_connection.release_stream(1, constants.protocol.initial_window_size_initial);
-    try testing.expect(test_connection.owes_window_update());
+    try testing.expect(test_connection.window_update_due());
     try testing.expectEqual(1, try updates_on(write_queued(), 1));
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(constants.protocol.initial_window_size_initial, record.receive.window.available);
-    try testing.expect(!test_connection.owes_window_update());
+    try testing.expect(!test_connection.window_update_due());
 }
 
 test "§5.1: a release on a stream the peer ended, or one the table forgot, queues nothing" {
@@ -176,11 +176,11 @@ fn fill_reply_queue() !void {
 test "a release while the reply queue is full keeps its credit until the queue empties" {
     try fill_reply_queue();
     test_connection.release_stream(1, 2 * full_payload.len);
-    try testing.expect(test_connection.owes_window_update());
+    try testing.expect(test_connection.window_update_due());
     const queued = write_queued();
     try testing.expectEqual(1, try updates_on(queued, 1));
     try testing.expectEqual(constants.limits.stream_replies_max, try updates_on(queued, 3));
-    try testing.expect(!test_connection.owes_window_update());
+    try testing.expect(!test_connection.window_update_due());
     try testing.expect(!test_connection.has_pending());
 }
 
@@ -216,7 +216,7 @@ test "§6.8: a connection that failed queues none of the credit a full queue kep
     test_connection.release_stream(1, 2 * full_payload.len);
     try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.protocol.error_internal_error));
     try testing.expectEqual(0, try updates_on(write_queued(), 1));
-    try testing.expect(!test_connection.owes_window_update());
+    try testing.expect(!test_connection.window_update_due());
 }
 
 test "§6.9: credit a full queue kept back is still owed once a reset empties the queue" {
@@ -229,7 +229,7 @@ test "§6.9: credit a full queue kept back is still owed once a reset empties th
     // RFC 9113 §5.1: the caller's reset closes stream 3, and its WINDOW_UPDATE frames go.
     try test_connection.reset_stream(3, constants.protocol.error_cancel);
     try testing.expectEqual(0, test_connection.replies.stream_reply_count);
-    try testing.expect(test_connection.owes_window_update());
+    try testing.expect(test_connection.window_update_due());
     try testing.expectEqual(1, try updates_on(write_queued(), 1));
-    try testing.expect(!test_connection.owes_window_update());
+    try testing.expect(!test_connection.window_update_due());
 }

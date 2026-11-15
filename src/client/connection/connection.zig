@@ -313,7 +313,7 @@ pub const Connection = struct {
     /// Whether `send` may write an octet now (decision 125), which a pool's `send` event reports.
     /// It writes nothing, so it can say yes when `send` then writes nothing: when a request waits
     /// for the peer or for room.
-    pub fn owes_octets(connection: *const Connection) bool {
+    pub fn should_send(connection: *const Connection) bool {
         if (connection.records_len > 0 or connection.output_len > 0) return true;
         return switch (connection.phase) {
             // A `receive`, with no octets too, stages each flight of the handshake in the records,
@@ -456,7 +456,7 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
         "init",         "request",    "write_body",       "release_body", "cancel",
-        "receive",      "send",       "owes_octets",      "shutdown",     "should_close",
+        "receive",      "send",       "should_send",      "shutdown",     "should_close",
         "deadline_ns",  "on_instant", "transport_closed", "protocol",     "take_ticket",
         "take_alt_svc",
     });

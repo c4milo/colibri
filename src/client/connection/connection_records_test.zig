@@ -77,7 +77,7 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     // RFC 9846 §4.7.3: the answer is sent "prior to sending its next Application Data record".
     // Alone it is no debt, so no `send` comes for it (decision 125): the provider writes it in
     // front of the next record of data.
-    try testing.expect(!connection.owes_octets());
+    try testing.expect(!connection.should_send());
     var second: support.Exchange = .{ .request = .{ .method = "GET", .path = "/b" }, .response = .{ .body = &bodies[1] } };
     _ = try connection.request(&second.request, &second.response);
     support.client_send();
@@ -88,7 +88,7 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     const next = plain_support.open(sent[header_len + answer.content.len ..]).?;
     try testing.expectEqual(plain_support.content_application_data, next.content_type);
     try testing.expect(std.mem.startsWith(u8, next.content, "GET /b HTTP/1.1"));
-    try testing.expect(!connection.owes_octets());
+    try testing.expect(!connection.should_send());
 }
 
 test "a record of data ends a run of KeyUpdates, so the next run has the whole limit" {

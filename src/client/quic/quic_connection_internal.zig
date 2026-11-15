@@ -28,7 +28,7 @@ pub fn fail(connection: *QuicConnection) void {
     // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
     // QUIC already owes one. The loss timer's refusals owe none, and RFC 9000 §20.1 closes
     // them with INTERNAL_ERROR.
-    if (transport.termination.state == .active and !quic.Connection.owes_close(transport)) {
+    if (transport.termination.state == .active and !quic.Connection.close_due(transport)) {
         quic.Connection.owe_close(transport, quic.ConnectionClose.transport(quic.error_code.internal_error, null));
     }
     // RFC 9000 §10.2.1: a connection that closes sends only its CONNECTION_CLOSE from here on,

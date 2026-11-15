@@ -120,10 +120,10 @@ test "decision 153: a piece handed before the head goes out after it, and the ne
     const id = try connection.request(&post.request, &post.response);
     // Nothing goes out of the body until a piece is handed, and the connection owes no octet.
     support.client_send();
-    try testing.expect(!connection.owes_octets());
+    try testing.expect(!connection.should_send());
     const head_len = support.to_peer_len;
     try connection.write_body(id, pieces[0], false);
-    try testing.expect(connection.owes_octets());
+    try testing.expect(connection.should_send());
     support.client_send();
     try testing.expect(support.to_peer_len > head_len);
     try support.client_receive();

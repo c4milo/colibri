@@ -406,7 +406,7 @@ pub const Connection = struct {
     }
 
     /// Whether colibri owes the peer a WINDOW_UPDATE it has not written (RFC 9113 §6.9).
-    pub fn owes_window_update(connection: *const Connection) bool {
+    pub fn window_update_due(connection: *const Connection) bool {
         return connection.replies.window_update_due() or connection.stream_credit_waiting;
     }
 
@@ -457,13 +457,13 @@ test "decision 115: the connection's public functions are the calls a caller out
         // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
         // Decision 158 folds the namespaces `connection` and `connection_tls` into the type, and
         // its ruling 10 adds `Options`.
-        "AltSvc",               "Data",               "DataWritten",        "Request",           "RequestError",  "RequestIndexing",
-        "RequestHead",          "Response",           "SendError",          "Sent",              "StreamReset",   "Error",
-        "Received",             "AttachError",        "RecordError",        "close_notify",      "decrypt",       "encrypt",
-        "encrypt_parts",        "writable_len",       "Options",            "init",              "receive",       "write_response",
-        "attach_tls",           "write_request",      "write_data",         "write_data_header", "sendable_len",  "write_trailers",
-        "write_alt_svc",        "limit_peer_streams", "release_stream",     "reset_stream",      "shutdown",      "write_pending",
-        "write_replies",        "has_pending",        "owes_window_update", "has_failed",        "field_section", "fail",
+        "AltSvc",               "Data",               "DataWritten",       "Request",           "RequestError",  "RequestIndexing",
+        "RequestHead",          "Response",           "SendError",         "Sent",              "StreamReset",   "Error",
+        "Received",             "AttachError",        "RecordError",       "close_notify",      "decrypt",       "encrypt",
+        "encrypt_parts",        "writable_len",       "Options",           "init",              "receive",       "write_response",
+        "attach_tls",           "write_request",      "write_data",        "write_data_header", "sendable_len",  "write_trailers",
+        "write_alt_svc",        "limit_peer_streams", "release_stream",    "reset_stream",      "shutdown",      "write_pending",
+        "write_replies",        "has_pending",        "window_update_due", "has_failed",        "field_section", "fail",
         "settings_deadline_ns", "preface_done",
     });
 }

@@ -300,7 +300,7 @@ pub fn fail(connection: *QuicConnection) void {
     const transport = &connection.transport;
     // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
     // QUIC already owes one. RFC 9000 §20.1: with no more specific code, INTERNAL_ERROR.
-    if (transport.termination.state == .active and !quic.Connection.owes_close(transport)) {
+    if (transport.termination.state == .active and !quic.Connection.close_due(transport)) {
         quic.Connection.owe_close(transport, quic.ConnectionClose.transport(quic.error_code.internal_error, null));
     }
 }

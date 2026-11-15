@@ -293,7 +293,7 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
             return .wait;
         },
         // Decision 74: the owed instructions go out first, and the section is read again.
-        .owes_instructions => {
+        .write_instructions_first => {
             try connection_local.flush_decoder(connection, transport);
             return if (connection.decoder.owed_len < connection.decoder.owed.len) .again else .wait;
         },
@@ -414,7 +414,7 @@ fn refuse_stream(connection: *Connection, transport: *QuicConnection, request: *
 /// Has the QPACK decoder cancel the references the stream's sections held (RFC 9204 §2.2.2.2),
 /// and notes a Stream Cancellation it had no room to queue.
 pub fn owe_cancel(connection: *Connection, request: *RequestStream) void {
-    request.cancel_owed = connection.decoder.abandon_stream(request.id) == .owes_instructions;
+    request.cancel_owed = connection.decoder.abandon_stream(request.id) == .write_instructions_first;
 }
 
 /// Cancels the message on `stream_id` at the caller's request (§4.1.1).

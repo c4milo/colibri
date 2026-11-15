@@ -112,7 +112,7 @@ fn write_owed_first(connection: *Connection) void {
     const session = &connection.session.h2;
     // Most calls find nothing pending, and then `write_replies` writes nothing.
     if (!session.has_pending()) return;
-    const update_owed = session.owes_window_update();
+    const update_owed = session.window_update_due();
     internal.take_owed(connection, session.write_replies(internal.room(connection)), update_owed);
 }
 

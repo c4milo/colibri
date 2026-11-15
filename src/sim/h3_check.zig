@@ -267,7 +267,7 @@ fn settled(storage: *const Storage) bool {
         for (connection.requests.slots) |slot| {
             if (slot != null) return false;
         }
-        if (connection.decoder.blocked_len != 0 or connection.decoder.owes()) return false;
+        if (connection.decoder.blocked_len != 0 or connection.decoder.instructions_due()) return false;
         if (connection.encoder.state.known_received != connection.encoder.table.insert_count()) return false;
     }
     return true;

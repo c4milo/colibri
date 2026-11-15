@@ -208,7 +208,7 @@ pub const Connection = struct {
     pub const owe_keep_alive = connection_idle.owe_keep_alive;
     pub const keep_alive_owed = connection_idle.keep_alive_owed;
     pub const owe_close = connection_close.owe;
-    pub const owes_close = connection_close.close_due;
+    pub const close_due = connection_close.close_due;
     // What a caller does with a stream: open it, supply its octets, read what arrived, and end it.
     pub const open_stream = stream_send.open;
     pub const OpenStreamError = stream_table.OpenError;
@@ -447,7 +447,7 @@ test "decision 115: the connection's public functions are the calls a program ma
         "Sent",                 "SendError",            "SendScratch",         "SendScratchOptions",
         "deadline",             "on_instant",           "resume_state",        "idle_deadline_ns",
         "idle_timeout_ns",      "probe_timeout_ns",     "owe_keep_alive",      "keep_alive_owed",
-        "owe_close",            "owes_close",           "open_stream",         "OpenStreamError",
+        "owe_close",            "close_due",            "open_stream",         "OpenStreamError",
         "supply",               "reset_stream",         "stop_sending",        "set_stream_priority",
         "write_stream_frame",   "write_stream_endings", "StreamSendError",     "read",
         "peek",                 "consume",              "reset_code",          "StreamRead",

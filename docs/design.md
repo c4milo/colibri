@@ -16177,6 +16177,13 @@ library.
       after `on_data`; no 413 mid-body for an overflow; `let_go` that tosses a stored piece, or
       that tosses nothing through a wrapper; storage that overlaps the held octets; and a bound
       one octet short.
+    - **The judge**, of 50i, 50j and step 52 together.
+      [Run 43721341820](https://github.com/c4milo/colibri/actions/runs/43721341820) compared
+      `f3e9bc09` with main `f76136ab`, at 5 rounds, in two jobs, with the h11 inputs. Each of the
+      15 inputs is within the noise in both jobs. h2-routes-many gave 13,900.0 and 13,900.1 user
+      instructions a request in job 1, and h2-routes-post-many moved by 1 to 4.
+    - **Runs.** `tools/ci.sh` on `f3e9bc09`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed. In Debug for x86-64 Linux, in an amd64 container: `server` 739 of 739.
   - **The judge of step 50 as a whole.**
     [Run 43681873844](https://github.com/c4milo/colibri/actions/runs/43681873844) compared main
     `29200af3`, after 50g, with `03d56223`, the main that 50b started from, at 5 rounds, in two
@@ -16238,6 +16245,17 @@ library.
   - **Mutations, 6 of 6 CAUGHT:** `pub const of = init;` beside each of the six constructors.
   - **Runs.** The rename landed with sub-step 50e's part 1, so the runs of that part hold for it.
     `tools/consumer_check.sh` built both dependents with the new names.
+  - **The `owes_` checks, 2026-11-15.** The owner ruled on 2026-11-11 that `owes_` is a poor name
+    for a check, and that v0.17.0 renames the seven public ones
+    ([#134](https://github.com/c4milo/colibri/issues/134)): `quic.Space.ack_due`,
+    `quic.Connection.close_due`, `h2.Connection.window_update_due`,
+    `client.Connection.should_send`, `qpack.Decoder.instructions_due`,
+    `qpack.decoder_stream.instructions_due`, and the tag `write_instructions_first` of
+    `qpack.Decoder.Outcome` and `Abandoned`. The verbs `owe` and the `_owed` suffixes stay.
+    - `quic.Space` and the namespace `qpack.decoder_stream` gained a names test, and a test lists
+      the tags of `Outcome` and `Abandoned`.
+    - **Mutations, 8 of 8 CAUGHT:** each old name added back beside its new one, and the old tag
+      added to each enum.
 
 - **Step 52 — line coverage, ruled 2026-11-15.** [Decision 164](decisions.md).
   - `zig build line-coverage` (`build/line_coverage.zig`, `tools/line_coverage.zig`) runs the

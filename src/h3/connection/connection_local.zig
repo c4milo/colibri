@@ -158,7 +158,7 @@ fn make_room(connection: *Connection, transport: *QuicConnection, buffer: anytyp
 pub fn flush_decoder(connection: *Connection, transport: *QuicConnection) Error!void {
     const local = &connection.local;
     const id = local.decoder_id orelse return;
-    if (!connection.decoder.owes()) return;
+    if (!connection.decoder.instructions_due()) return;
     const wanted = (connection.decoder.owed_len + 1) * constants.protocol.decoder_instruction_len_max;
     try make_room(connection, transport, &local.decoder, id, wanted);
     var writer = local.decoder.free();

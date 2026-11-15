@@ -250,11 +250,11 @@ test "the transport's close ends a written exchange closed and a waiting one ref
 test "RFC 9000 §10.2: an active connection that fails owes its CONNECTION_CLOSE, with INTERNAL_ERROR" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     try support.pump(support.rounds_default);
-    try testing.expect(!quic.Connection.owes_close(&connection.transport));
+    try testing.expect(!quic.Connection.close_due(&connection.transport));
     // A failure no h3 or QUIC rule closed, as the loss timer's refusals are.
     internal.fail(connection);
     try testing.expect(connection.failed);
-    try testing.expect(quic.Connection.owes_close(&connection.transport));
+    try testing.expect(quic.Connection.close_due(&connection.transport));
     try support.pump(support.rounds_default);
     try testing.expect(support.server.termination.state != .active);
 }

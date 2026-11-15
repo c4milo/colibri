@@ -176,7 +176,7 @@ pub fn room(connection: *Connection) []u8 {
 pub fn write_owed(connection: *Connection, now_ns: u64) bool {
     if (connection.phase != .open) return false;
     const free = room(connection);
-    const update_owed = connection.session == .h2 and connection.session.h2.owes_window_update();
+    const update_owed = connection.session == .h2 and connection.session.h2.window_update_due();
     const written = switch (connection.session) {
         .h2 => connection.session.h2.write_pending(free, now_ns),
         .h11 => connection.session.h11.write_pending(free) catch 0,

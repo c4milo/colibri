@@ -85,7 +85,7 @@ pub const Decoder = struct {
         blocked,
         /// The queue of owed instructions is full. Nothing is consumed, and the caller writes the
         /// decoder stream before it asks again (decision 74).
-        owes_instructions,
+        write_instructions_first,
         /// The list of blocked streams is full, and some of them can now be decoded. Nothing is
         /// consumed, and the caller reads those first, as `ready_stream` names them (decision 74).
         read_ready_first,
@@ -109,7 +109,7 @@ pub const Decoder = struct {
     }
 
     /// What `abandon_stream` did.
-    pub const Abandoned = enum { cancelled, owes_instructions };
+    pub const Abandoned = enum { cancelled, write_instructions_first };
 
     pub fn init(decoder: *Decoder, settings: Settings) void {
         assert(settings.max_table_capacity <= constants.limits.dynamic_table_capacity_max);
@@ -130,7 +130,7 @@ pub const Decoder = struct {
         strings: *Writer,
         section: *FieldSection,
     ) Error!Outcome {
-        if (decoder.owed_len == decoder.owed.len) return .owes_instructions;
+        if (decoder.owed_len == decoder.owed.len) return .write_instructions_first;
         var cursor = reader.*;
         const prefix = try representation.read_prefix(&cursor);
         const inserted = decoder.table.insert_count();
@@ -165,7 +165,7 @@ pub const Decoder = struct {
     }
 
     /// Whether `write_decoder_stream` has anything to write (RFC 9204 §4.4).
-    pub fn owes(decoder: *const Decoder) bool {
+    pub fn instructions_due(decoder: *const Decoder) bool {
         return decoder_stream.instructions_due(decoder);
     }
 
@@ -189,7 +189,7 @@ pub const Decoder = struct {
             assert(decoder.blocked_len == 0);
             return .cancelled;
         }
-        if (decoder.owed_len == decoder.owed.len) return .owes_instructions;
+        if (decoder.owed_len == decoder.owed.len) return .write_instructions_first;
         decoder.unblock(stream_id);
         decoder.owe(.{ .stream_cancellation = stream_id });
         return .cancelled;

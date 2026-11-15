@@ -23,7 +23,7 @@ test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     fixture.open_connection();
     // One ack-eliciting Initial arrived, which §13.2.1 says must be acknowledged immediately.
     _ = connection_module.space_at(&fixture.test_connection, .initial).receive(0, test_now_ns, true, .not_ect);
-    try testing.expect(connection_module.space_at(&fixture.test_connection, .initial).owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
+    try testing.expect(connection_module.space_at(&fixture.test_connection, .initial).ack_due(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
     const built = (try fixture.build_at(.initial)).?;
     // Table 3 marks ACK with N, so a packet of only ACK frames is not ack-eliciting, and
     // RFC 9002 §2 keeps it out of the bytes in flight.
@@ -82,7 +82,7 @@ test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and onl
     _ = connection_module.space_at(&fixture.peer_connection, .application).next_number() catch unreachable;
     const space = connection_module.space_at(&fixture.test_connection, .application);
     _ = space.receive(0, test_now_ns, true, .not_ect);
-    try testing.expect(!space.owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
+    try testing.expect(!space.ack_due(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
     fixture.fake = .{};
 
     // "An endpoint SHOULD send an ACK frame with other frames when there are new ack-eliciting
@@ -114,7 +114,7 @@ test "RFC 9000 §13.2.2: an ACK taken back leaves the count, so the second packe
     try testing.expectEqual(null, try fixture.build_at_instant(.application, test_now_ns));
     // §13.2.2: a receiver sends one "after receiving at least two ack-eliciting packets".
     _ = space.receive(1, test_now_ns, true, .not_ect);
-    try testing.expect(space.owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
+    try testing.expect(space.ack_due(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
 }
 
 /// Opens the fixture's pair at the application level, with `sent_at_ns` the instant the tested
