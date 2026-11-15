@@ -1184,7 +1184,9 @@ At the body's end, a `next` after a `keep` gives the kept octets once more as th
 with no new octet. A `keep` of that last piece keeps nothing. The `next` after it returns null,
 and `ended()` turns true. This holds over h11, h2 and h3, and after a trailer section. So a
 route reads a body with no length in place, as Connect's unary call sends one. It keeps each
-piece whole, and the last piece holds the whole body.
+piece whole, and the last piece holds the whole body. Every other piece holds at least one octet
+past the kept ones, so a piece whose length is the kept length is the last piece. The route reads
+it there, before the `next` that lets it go.
 
 The stream example's route reads gRPC's messages. Each one is a flag octet, the payload's length
 in four octets and the payload. Its `answer_whole` writes and flushes a reply to each whole

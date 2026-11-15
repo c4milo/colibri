@@ -4,6 +4,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
 [![release](https://img.shields.io/github/v/release/c4milo/colibri)](https://github.com/c4milo/colibri/releases/latest)
+[![line coverage](https://img.shields.io/badge/line_coverage-98.7%25-brightgreen.svg)](https://github.com/c4milo/colibri/actions/runs/43727822114)
 
 An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC underneath HTTP/3.
 It is written from the RFCs, and every check it makes on a peer's input cites the section that

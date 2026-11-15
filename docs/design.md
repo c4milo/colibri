@@ -16312,6 +16312,12 @@ library.
     190 s: 98.2% of 69,142 lines. Each module was between 96.8% (`core`) and 100% (`crypto` and
     `tls_provider`), with `quic` at 98.2% of 18,178 lines and `server` at 98.0% of 15,400. The
     README's badge takes its number from GitHub's first run of the check on main.
+  - **GitHub's first count.** The `checks` job of
+    [run 43727822114](https://github.com/c4milo/colibri/actions/runs/43727822114) ran the check on
+    `91673c6d`, x86-64 Linux, in an ubuntu:26.04 container, in 3 minutes 29 seconds: 98.7% of
+    69,583 lines. Each module was between 97.3% (`core`) and 100% (`tls_provider`, `crypto` and
+    `qlog`). The x86-64 build compiles a few more lines than the arm64 one, which counted 98.2%.
+    The README's badge shows 98.7% and links to the run.
 
 ## 9. Test-only entry points
 
