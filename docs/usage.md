@@ -1181,6 +1181,31 @@ piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later
 octets, and the router calls `on_data` again for it. A request whose head ended it gets one
 `on_data`, whose `next` finds the end.
 
+The stream example's route reads gRPC's messages. Each one is a flag octet, the payload's length
+in four octets and the payload. Its `answer_whole` writes and flushes a reply to each whole
+message of a piece, so each reply goes out before the body ends. It returns the octets of the cut
+message after them, which `keep` leaves unread:
+
+```zig
+/// Runs at each event of the request's body. It answers each message that a piece holds
+/// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
+/// again, joined with the octets that arrive later. Once the body ended, it ends the response.
+pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
+    // Bounded: each pass takes one piece, which holds one new octet at least.
+    for (0..pieces_per_event_max) |_| {
+        const piece = body.next() orelse break;
+        const cut = try answer_whole(state, piece, response);
+        state.kept = cut.len;
+        body.keep(state.kept);
+    }
+    if (!body.ended()) return;
+    // A body that ends inside a message cuts it short. The router drops the kept octets.
+    if (state.kept > 0) return error.MessageCut;
+    // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
+    try response.trailers(&grpc_ok);
+}
+```
+
 The pool entry's `body_bytes` holds the octets that `on_data` left unread or kept, because the
 engine writes its event's octets again. Kept octets and the octets of the next event that do not
 fit there get 413 (RFC 9110 §15.5.14). Through a middleware's `wrap_body`, the last wrapper's

@@ -26,6 +26,7 @@ const examples = [_]Example{
     .{ .name = "client_exchange", .tls = true },
     .{ .name = "client_pool", .tls = true },
     .{ .name = "client_stream", .tls = true },
+    .{ .name = "server_stream", .tls = true },
     .{ .name = "dnssec_check", .dnssec = true },
     .{ .name = "colibri_server", .tls = true, .colibri = true },
     .{ .name = "colibri_hosted", .tls = true, .colibri = true },

@@ -15868,9 +15868,10 @@ library.
     - `server.Response`, the new name of `server.ResponseWriter`, with the same calls: `Error`,
       `header`, `body`, `write_kept`, `end`, `trailers` and `head_sent`.
     - `server.ResponseHeader`, the new name of the engine's `server.Response`.
-    - `server.RequestStream`, the stream of a request's body, with `next(stream) ?[]const u8`
-      and `ended(stream) bool`. It holds no header.
-    - `server.ResponseStream`, with the calls of `server.Response`.
+    - `server.RequestBodyStream`, the stream of a request's body, with `next(stream) ?[]const
+      u8`, `keep(stream, len: usize)` and `ended(stream) bool`. It holds no header. The plan
+      named it `server.RequestStream`, and named a `server.ResponseStream` beside it. The owner
+      ruled one response type and this name on 2026-11-14 (decision 163 ruling 6 as amended).
     - `server.RouterOptions.header_bytes`, the octets of each entry's copy of a header. It has
       no default, and a header past it gets 431 (decision 163 ruling 5).
     - `server.Headers` keeps its calls. It holds `lines` and `first`, so that it reads the
@@ -15887,9 +15888,9 @@ library.
     - A function route: `fn (context, ctx, request: *const server.Request, response:
       *server.Response) !void`.
     - A struct route: `on_request(context, ctx, state, request: *const server.Request, response:
-      *server.ResponseStream)`, `on_data(context, ctx, state, body: *server.RequestStream,
-      response: *server.ResponseStream)`, `next(context, ctx, state, response:
-      *server.ResponseStream)` and `on_finished(context, ctx, state, result: server.Result)`.
+      *server.Response)`, `on_data(context, ctx, state, body: *server.RequestBodyStream,
+      response: *server.Response)`, `next(context, ctx, state, response: *server.Response)` and
+      `on_finished(context, ctx, state, result: server.Result)`.
     - A middleware: `on_request(context, ctx, request: *const server.Request, response:
       *server.Response) !server.middleware.Next`, `on_finished(context, ctx, result)`, and
       `wrap_body`, `wrap_response` and `finish_response` with `ctx` after the context.
@@ -16130,6 +16131,25 @@ library.
       13,899.5 and 13,899.6 user instructions a request.
     - **Runs.** `tools/ci.sh` on `0d918055`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
       checks passed. In Debug for x86-64 Linux, in an amd64 container: `server` 711 of 711.
+  - **50h, met 2026-11-15.** `examples/server_stream.zig` shows a stream route, which no example
+    had. One `server.Engine` with a `server.Router` serves a gRPC-shaped POST over h2 in
+    cleartext, over the in-memory link. `examples/server_stream_peer.zig` is its client, one
+    `client.ConnectionPool(.{ .quic = false })`.
+    - The route's `on_data` reads messages of a 5-octet prefix with `next` and `keep`. It writes
+      and flushes a reply to each whole message, so each reply goes out before the body ends.
+      Once `ended` is true, it ends with `grpc-status` in the trailers.
+    - The client hands the body in three pieces, and the first one ends inside the second
+      message. It hands each piece once the replies to the whole messages before it came back.
+    - The route has no `next` callback. Over TCP the connection copies each reply into its
+      output when it takes it, so no write of these small replies fails, and `next` would never
+      run. The file's comment says so.
+    - docs/usage.md shows the route's `on_data`, and examples/README.md lists both files. Every
+      other example, docs/usage.md and `tools/consumer/` took the new calls in the sub-step that
+      made each one.
+    - **Breaks, 8 of 8 CAUGHT** by `zig build example-server_stream`: `keep` dropped; a reply
+      written for a cut message; the trailers left out; `flush` dropped; the test of `ended`
+      removed; the trailers written at the first event; `on_finished` that counts nothing; and
+      the messages not counted.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
