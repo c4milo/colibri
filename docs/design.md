@@ -16124,6 +16124,12 @@ library.
       no default.
     - **Mutations, 2 of 2 CAUGHT:** a default of 256 for `response_bytes`, and a default of 0
       for `body_bytes`.
+    - **The judge.** [Run 43679041957](https://github.com/c4milo/colibri/actions/runs/43679041957)
+      compared `0d918055` with main `708d45c0`, at 5 rounds, in two jobs. Each of the seven
+      inputs is within the noise in both jobs. h2-routes-many gave 0.9999 in both, with
+      13,899.5 and 13,899.6 user instructions a request.
+    - **Runs.** `tools/ci.sh` on `0d918055`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed. In Debug for x86-64 Linux, in an amd64 container: `server` 711 of 711.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
