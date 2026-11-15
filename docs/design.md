@@ -1235,6 +1235,51 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 143 in the first
   job and by 142 in the second, where the disassembly gave about 185.
 
+  **The encoder finds a response line in the chain of its name, 2026-11-15.** Decision 132 puts a
+  response's lines into the dynamic table, so the encoder searched its mirror for each line, and
+  compared the name of every entry it held. It searched even for a line the static table holds
+  whole, such as `:status: 200`, whose index it then sends. `name_chains.zig` now keeps, for
+  each name of the static table and for every other name together, the mirror's entries of it,
+  newest first. A line is searched in its own chain alone, and not at all when the static table
+  holds it whole ([#57](https://github.com/c4milo/colibri/issues/57)).
+  - An entry is named by its insert number, so an insert or an eviction changes no link, and a
+    link past the table's length ends the walk. Each entry a walk finds is compared with the line,
+    name and value, so a link that a wrapped number makes look live costs a compare, and never a
+    wrong index.
+  - A table may hold many lines of one name: a server's `date` line inserts a new value each
+    second. A line then reads its own chain, newest first, and no other name's entries.
+  - Each encoder grows by 1,152 octets, and so does each h2 connection.
+
+  What each check printed:
+  - The scan of `DynamicTable.find` stays as the reference. A test requires the chains to find
+    what the scan finds, over three times the 65,536 numbers a chain's insert number holds.
+  - `zig build hpack-vectors` and `zig build golden-check` passed. A new test of the encoder
+    requires a repeated line to be one index, for the static table's first and last names.
+  - 12 mutations, each **CAUGHT**: every line inserted into chain 0; the static table's last
+    name taken as another name; every line searched in chain 0; an insert not noted; an evicted
+    entry read; the name not compared; the value not compared; the oldest name index kept; a head
+    one number off; no older link kept; the heads not emptied at `init`; and a walk that stops at
+    the head.
+  - Callgrind on a laptop's Linux VM, which publishes no number, gave h2-many 11,026 instructions
+    a request before and 10,812 after.
+
+  The judge, [run 43726635141](https://github.com/c4milo/colibri/actions/runs/43726635141),
+  measured it against `f3e9bc09`, in instructions per request, or per connection for the two
+  `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 13,480 | 13,275 | 0.9847 | 0.9847 | wins in both |
+  | h2-routes-many | 16,294 | 16,084 | 0.9871 | 0.9870 | wins in both |
+  | h2-routes-post-many | 20,345 | 20,163 | 0.9910 | 0.9900 | wins in both |
+  | h2-tls-many | 15,731 | 15,529 | 0.9872 | 0.9867 | within the noise |
+  | h2-routes-post-late-many | 37,871 | 37,675 | 0.9948 | 0.9969 | within the noise |
+  | h2-one | 150,526 | 150,971 | 1.0030 | 0.9974 | within the noise |
+  | h2-tls-one | 1,035,316 | 1,035,729 | 1.0004 | 0.9998 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 214 in the first
+  job and by 215 in the second.
+
 - **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send
   window and the retroactive settings sweep, GOAWAY, `RST_STREAM`, the field-block reassembly
