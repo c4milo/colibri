@@ -16274,6 +16274,16 @@ library.
       20,273.0. The cost grew in steps that each stayed under the floor: about 96 from step 50,
       whose own judge gave 1.0048, and about 30 from 50i and 50j. h11-many is within the noise.
       The owner accepted the loss on 2026-11-15 and ruled the tag.
+    - **After the tag, the cause.** The owner asked for it on 2026-11-15. 50e moved `find`, `get`
+      and the iterator of `http.FieldSection` behind `http.FieldSection.Slice`, in calls that the
+      compiler did not inline, and the iterator copied a `Slice`. Each h11 request pays them in
+      its host, Content-Length and transfer-coding reads: about 146 instructions under callgrind.
+      `8817617f` marks seven of them `inline`.
+      [Run 43747704561](https://github.com/c4milo/colibri/actions/runs/43747704561) compared it
+      with `cc86684c`: h11-one 0.9904 and 0.9907, 20,236 and 20,210 user instructions a
+      connection, under v0.16.3's. h2-many, h2-routes-many, h2-routes-post-many and h2-tls-many
+      win 1.3% to 2.1% too, and each other input is within the noise or wins. `tools/ci.sh`
+      passed 31 of 31 on `8817617f`.
     - h2-routes-post-late-many gives 1.0465 and 1.0438, because the two trees do different work:
       at v0.16.3 the test server's POST routes answered at the head and read no body (50b).
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
