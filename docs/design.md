@@ -13705,6 +13705,9 @@ library.
       client is as it was.
     - Each QUIC slot of an engine grows by 24 octets, the size of a `PeerAddress`.
     - The new tests pass on x86-64 Debug in an amd64 container, 687 of 687.
+    - `tools/ci.sh` on `08ccc6a4`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31 checks
+      passed. [Run 43668695539](https://github.com/c4milo/colibri/actions/runs/43668695539)
+      passed the `checks` job on x86-64 Linux and both `arm64` jobs.
     - 7 mutations, each **CAUGHT**: `put` and `drop` that name the path's address; `drop` alone
       that names it; a moved host that saves its set; a connection on the same host that saves
       none; a start that keeps no address; and in the example, a second open connection that
@@ -16100,6 +16103,15 @@ library.
       skipped, with its assertion and without; `keep(0)` ignored; a struct with `on_body` or
       `on_writable` accepted; the parameters of `on_data` and of `next` not checked; and a
       `wrap_body` that keeps the router's reader taken for a wrapper.
+    - **The judge.** [Run 43666053443](https://github.com/c4milo/colibri/actions/runs/43666053443)
+      compared `3dfa2f89` with main `41fabbff`, at 5 rounds, in two jobs. Each of the seven
+      inputs is within the noise in both jobs. h2-routes-many gave 1.0000 and 1.0001, with
+      13,901.7 user instructions a request in both trees. h2-routes-post-many gave 1.0005 and
+      1.0000. `3dfa2f89` lacks the review's fixes, which change only a stream route's code, and
+      no input runs a stream route.
+    - **Runs.** `tools/ci.sh` on `08e1b2a3`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed. `78ad4fa3` differs from it by a commit of docs/design.md alone. In Debug for
+      x86-64 Linux, in an amd64 container: `server` 711 of 711 on `78ad4fa3`.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
