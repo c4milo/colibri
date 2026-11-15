@@ -236,16 +236,17 @@ request gets the same one: each middleware, the route and the error handler. It 
   the route's function alone, or during a struct route's `on_request` alone.
 
 The program owns the router's memory. `server.RouterOptions` sizes it for the requests the server
-holds at once, and the program places it once. `header_bytes` bounds the copy of each request's
-header, and has no default: a program names it. With 0 the router copies no header. It then calls
-each function at the head, where a read of a body still to come fails. Above 0, a header past
-`header_bytes` gets 431 (RFC 6585 §5), and a body past `body_bytes` gets 413:
+holds at once, and the program places it once. `response_bytes`, `body_bytes` and `header_bytes`
+have no default, so a program names each one, 0 included. `header_bytes` bounds the copy of each
+request's header. With 0 the router copies no header. It then calls each function at the head,
+where a read of a body still to come fails. Above 0, a header past `header_bytes` gets 431 (RFC
+6585 §5), and a body past `body_bytes` gets 413:
 
 ```zig
 /// The router's pool: an entry for each request at once. Each entry holds room for its response,
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len, .header_bytes = header_bytes });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 

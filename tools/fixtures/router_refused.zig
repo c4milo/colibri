@@ -225,7 +225,7 @@ const handlers = struct {
 };
 
 comptime {
-    _ = server.Router(void, table_of(@field(tables, case)), .{ .requests = 1, .response_bytes = 0, .header_bytes = 0 });
+    _ = server.Router(void, table_of(@field(tables, case)), .{ .requests = 1, .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 });
 }
 
 /// The route table of a case: the whole route table a case holds in `whole_table`, and else a

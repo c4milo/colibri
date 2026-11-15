@@ -7017,6 +7017,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
            `h2.Connection.Options` and `h3.Connection.Options` is `.server` by default.
            `server.RouterOptions.requests` is 32 by default, one for each connection of
            `server.Engine(.{})`. `response_bytes` is 256 by default, as each example passes.
+           Decision 163 ruling 9 took that default away on 2026-11-12, and design §8 step 50g
+           removes it and `router_response_bytes_default` (the owner's ruling of 2026-11-14).
          - The two router values size the router's memory, so they are in
            `server.constants.limits`, as ruling 1 of decision 137 says. The owner ruled this on
            2026-11-08. An earlier text put them in `policy`. That was an error in the question

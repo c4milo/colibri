@@ -153,7 +153,7 @@ const routes = .{
 };
 
 /// One entry, so each request of a test holds the entry that the request before it held.
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .header_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
 
 /// Octets of the entry's response memory, and the status the error function chooses. Test-only.
 const response_bytes = 64;

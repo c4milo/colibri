@@ -16112,6 +16112,18 @@ library.
     - **Runs.** `tools/ci.sh` on `08e1b2a3`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
       checks passed. `78ad4fa3` differs from it by a commit of docs/design.md alone. In Debug for
       x86-64 Linux, in an amd64 container: `server` 711 of 711 on `78ad4fa3`.
+  - **50g, met 2026-11-14.** `server.RouterOptions.response_bytes` and `body_bytes` have no
+    default (decision 163 ruling 9). A program names both, 0 included, as it names
+    `header_bytes`. `requests` keeps its default of 32.
+    - `server.constants.limits.router_response_bytes_default` goes, with its assertion and its
+      pin, because nothing reads it (the owner's ruling of 2026-11-14).
+    - Each router of the tests, the examples, `tools/` and `bench/` names both sizes. Each one
+      keeps the value it had by default: 256 response octets and no body octets. README.md and
+      docs/usage.md say that a program names each size.
+    - The test of the options checks that `response_bytes`, `body_bytes` and `header_bytes` have
+      no default.
+    - **Mutations, 2 of 2 CAUGHT:** a default of 256 for `response_bytes`, and a default of 0
+      for `body_bytes`.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

@@ -66,7 +66,7 @@ const routes = .{
 
 /// The router's pool: an entry for each request at once, with room for its response. No route
 /// takes a request with a body, so the router keeps no copy of a header (`header_bytes`).
-const Router = server.Router(App, routes, .{ .requests = connections, .header_bytes = 0 });
+const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = .{};
 
 /// A server that holds four TCP connections and four QUIC connections, on colibri's own loop. The

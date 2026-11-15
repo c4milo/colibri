@@ -115,10 +115,6 @@ pub const tcp_connections_default: usize = 16;
 /// router's pool, so decision 137 puts it here (decision 158 ruling 16).
 pub const router_requests_default: u32 = tcp_connections_default + quic_connections_default;
 
-/// The octets of each request's response memory unless the program names another count in
-/// `RouterOptions.response_bytes`: the value each example passes (decision 158 ruling 16).
-pub const router_response_bytes_default: usize = 256;
-
 /// The requests a TCP slot of an engine holds at once: as many as an h2 connection may hold,
 /// which `Limits.requests_max` reaches at most (decision 119).
 pub const tcp_requests_max: usize = h2.constants.limits.concurrent_streams_max;
@@ -209,7 +205,7 @@ comptime {
     assert(output_len >= h2.constants.limits.send_block_len_max + frame_len_max);
     assert(done_owed_max > 0);
     assert(tcp_connections_default > 0 and tcp_requests_max >= requests_max);
-    assert(router_requests_default > 0 and router_response_bytes_default > 0);
+    assert(router_requests_default > 0);
     assert(requests_max > 0 and requests_max <= h2.constants.limits.concurrent_streams_max);
     // A response can carry one header and one run of its body at least.
     assert(response_headers_max > 0 and response_pieces_max > 0);
@@ -249,7 +245,6 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(16, quic_connections_default);
     try expectEqual(16, tcp_connections_default);
     try expectEqual(32, router_requests_default);
-    try expectEqual(256, router_response_bytes_default);
     try expectEqual(128, tcp_requests_max);
     try expectEqual(5747, tcp_events_per_poll_max);
     try expectEqual(8, quic_replies_max);

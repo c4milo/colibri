@@ -37,12 +37,13 @@ pub const Options = struct {
     /// The requests the router answers at once. One more gets 503.
     requests: u32 = constants.limits.router_requests_default,
     /// Octets of each entry's response memory: the copies of its headers and trailers, and the
-    /// bytes its body's writer writes.
-    response_bytes: usize = constants.limits.router_response_bytes_default,
+    /// bytes its body's writer writes. A program names it, 0 included, since the router cannot
+    /// know the size of its responses (decision 163 ruling 9).
+    response_bytes: usize,
     /// Octets of each entry's request body memory: the bytes that a stream route's `on_data` left
     /// unread or kept, and every byte of a function route's body. A body past it gets 413 (RFC
-    /// 9110 §15.5.14).
-    body_bytes: usize = 0,
+    /// 9110 §15.5.14). A program names it, 0 included, as it names `response_bytes`.
+    body_bytes: usize,
     /// Octets of each entry's copy of a request's header, for a function route whose request has a
     /// body (decision 163 ruling 5). A program names it, 0 included, since the router cannot know
     /// the size of its requests.

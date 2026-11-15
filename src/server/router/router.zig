@@ -142,15 +142,17 @@ fn ValueOf(comptime Entry: type, comptime Route: type) type {
 }
 
 test "decision 158: a router's type exports Route, Match, match, memory_bytes and handle" {
-    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0, .header_bytes = 0 });
+    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 });
     try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
 }
 
-test "decision 158 ruling 16: a router's options default to 32 requests of 256 response octets" {
-    const options: router_pool.Options = .{ .header_bytes = 0 };
+test "decision 163 ruling 9: a router's options default to 32 requests, and a program names each size" {
+    const options: router_pool.Options = .{ .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 };
     try std.testing.expectEqual(32, options.requests);
-    try std.testing.expectEqual(256, options.response_bytes);
-    try std.testing.expectEqual(0, options.body_bytes);
+    inline for (.{ "response_bytes", "body_bytes", "header_bytes" }) |name| {
+        const field = @typeInfo(router_pool.Options).@"struct".fields[std.meta.fieldIndex(router_pool.Options, name).?];
+        try std.testing.expect(field.default_value_ptr == null);
+    }
 }
 
 test "decision 163 ruling 5: header_bytes has no default, so a program names it" {

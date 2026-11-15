@@ -1032,11 +1032,17 @@ the type of the router the program places. `server.RouterOptions` sizes the rout
 for each request:
 
 - `requests`: the requests the router holds at once, 32 by default.
-- `response_bytes`: the response memory of each request, 256 octets by default.
-- `body_bytes`: the request body memory of each request, none by default (decision 158 ruling 16).
+- `response_bytes`: the response memory of each request: the copies of its headers and trailers,
+  and the bytes of its body that the engine has not released.
+- `body_bytes`: the request body memory of each request: a function route's whole body, and the
+  octets that a stream route's `on_data` left unread or kept. A body past it gets 413.
 - `header_bytes`: the memory of each request's copy of its header, which a function route needs
-  for a request with a body (decision 163 ruling 5). It has no default, so a program names it, 0
-  included. With 0 the router copies no header, and calls each function at the head.
+  for a request with a body (decision 163 ruling 5). With 0 the router copies no header, and calls
+  each function at the head.
+
+The last three have no default, so a program names each one, 0 included (decision 163 ruling 9).
+The router cannot know the sizes of a program's requests and responses, and a size it assumed
+would fail first in production, with an answer that names no option.
 
 ```zig
 const routes = .{
@@ -1052,7 +1058,7 @@ const routes = .{
 /// The router's pool: an entry for each request at once. Each entry holds room for its response,
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len, .header_bytes = header_bytes });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
