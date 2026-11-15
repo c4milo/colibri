@@ -80,13 +80,13 @@ pub const FieldSection = struct {
         lines: []align(1) const Line,
 
         /// Lines held.
-        pub fn len(self: *const Slice) u32 {
+        pub inline fn len(self: *const Slice) u32 {
             assert(self.lines.len <= limits.limits.field_count_max);
             return @intCast(self.lines.len);
         }
 
         /// The line at `index`, which counts from 0. The index is asserted, never checked.
-        pub fn get(self: *const Slice, index: u32) Field {
+        pub inline fn get(self: *const Slice, index: u32) Field {
             assert(index < self.lines.len);
             return self.field_at(self.lines[index]);
         }
@@ -94,7 +94,7 @@ pub const FieldSection = struct {
         /// The first line, in arrival order, whose name equals `name` the way RFC 9110 §5.1
         /// compares field names, case-insensitively; or null when no line does. It is the first
         /// because RFC 9110 §5.3 makes the order of same-name lines significant.
-        pub fn find(self: *const Slice, name: []const u8) ?Field {
+        pub inline fn find(self: *const Slice, name: []const u8) ?Field {
             assert(self.lines.len <= limits.limits.field_count_max);
             for (self.lines) |*line| {
                 // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case
@@ -128,7 +128,7 @@ pub const FieldSection = struct {
         index: u32,
 
         /// The next line, or null once every line has been returned; null again after that.
-        pub fn next(self: *Iterator) ?Field {
+        pub inline fn next(self: *Iterator) ?Field {
             assert(self.index <= self.slice.len());
             if (self.index == self.slice.len()) return null;
             const line = self.slice.get(self.index);
@@ -226,17 +226,17 @@ pub const FieldSection = struct {
 
     /// The line at `index`: 0 for the first line that arrived and `len() - 1` for the last. The
     /// index is the caller's, so it is asserted, never checked.
-    pub fn get(section: *const FieldSection, index: u32) Field {
+    pub inline fn get(section: *const FieldSection, index: u32) Field {
         return section.slice().get(index);
     }
 
     /// Walks the lines the section holds now, in arrival order. It does not read a later `append`.
-    pub fn iterator(section: *const FieldSection) Iterator {
+    pub inline fn iterator(section: *const FieldSection) Iterator {
         return section.slice().iterator();
     }
 
     /// The first line named `name`, as `Slice.find` compares names (RFC 9110 §5.1), or null.
-    pub fn find(section: *const FieldSection, name: []const u8) ?Field {
+    pub inline fn find(section: *const FieldSection, name: []const u8) ?Field {
         return section.slice().find(name);
     }
 
