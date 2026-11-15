@@ -35,9 +35,11 @@ const constants = @import("constants.zig");
 const static_table = @import("static_table.zig");
 const encoder_string = @import("encoder_string.zig");
 const dynamic_table = @import("dynamic_table.zig");
+const name_chains = @import("name_chains.zig");
 
 const Writer = core.Writer;
 const DynamicTable = dynamic_table.DynamicTable;
+const NameChains = name_chains.NameChains;
 const Match = dynamic_table.Match;
 const prefixed_integer = wire.prefixed_integer;
 const string_literal = wire.string_literal;
@@ -50,6 +52,8 @@ pub const Indexing = enum { incremental, without_indexing, never_indexed };
 
 pub const Encoder = struct {
     table: DynamicTable,
+    /// The mirror's entries by name, which `find` reads in place of a scan of the table.
+    chains: NameChains,
     /// The limit the peer set (RFC 7541 §4.2, §6.3).
     capacity_limit: u64,
     /// The capacity this encoder has chosen under the limit, declared at the next block's start.
@@ -74,6 +78,7 @@ pub const Encoder = struct {
     pub fn init(encoder: *Encoder, capacity: u64, huffman: HuffmanUse) void {
         assert(capacity <= constants.limits.dynamic_table_capacity_max);
         encoder.table.init(capacity);
+        encoder.chains.init();
         encoder.capacity_limit = capacity;
         encoder.chosen = capacity;
         encoder.declared = capacity;
@@ -177,6 +182,10 @@ pub const Encoder = struct {
         output.* = cursor;
         if (kind == .incremental) {
             encoder.table.insert(name, value);
+            // The line fits, so the table holds it as its newest entry (RFC 7541 §4.4).
+            assert(encoder.table.len() > 0);
+            // A static index names the line's chain, and a name the static table lacks has chain 0.
+            encoder.chains.insert(if (name_index <= constants.protocol.static_table_len) name_index else 0);
             encoder.inserted_uncommitted = true;
         }
     }
@@ -184,13 +193,13 @@ pub const Encoder = struct {
     /// The indices of the fused address space (RFC 7541 §2.3.3) holding the line and its name.
     /// The static table's index is preferred for both: it is the lower one, and a line the static
     /// table holds is never in the mirror, since this encoder indexes it instead of inserting it.
+    /// So a line the static table holds whole needs no search of the mirror, and any other line
+    /// is searched in the one chain of its name.
     fn find(encoder: *const Encoder, name: []const u8, value: []const u8) Match {
-        const static = find_static(name, value);
-        const dynamic = encoder.table.find(name, value);
-        var match: Match = static;
-        if (match.exact == null) {
-            if (dynamic.exact) |index| match.exact = index + constants.protocol.static_table_len;
-        }
+        var match: Match = find_static(name, value);
+        if (match.exact != null) return match;
+        const dynamic = encoder.chains.find(&encoder.table, match.name orelse 0, name, value);
+        if (dynamic.exact) |index| match.exact = index + constants.protocol.static_table_len;
         if (match.name == null) {
             if (dynamic.name) |index| match.name = index + constants.protocol.static_table_len;
         }

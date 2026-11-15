@@ -128,6 +128,18 @@ test "never-indexed and without-indexing lines leave the table alone, and keep a
     try testing.expectEqual(0, test_encoder.table.len());
 }
 
+test "a repeated line is one index, for the first and the last name of the static table" {
+    test_encoder.init(4096, .never);
+    // RFC 7541 Appendix A: :authority is index 1 and www-authenticate index 61. Each line inserts,
+    // as entry 62 (RFC 7541 §2.3.3), and its repeat in the next block is that index alone.
+    try expect_block(&.{.{ .name = ":authority", .value = "a" }}, "\x41\x01a");
+    try expect_block(&.{.{ .name = ":authority", .value = "a" }}, "\xbe");
+    try expect_block(&.{.{ .name = "www-authenticate", .value = "b" }}, "\x7d\x01b");
+    try expect_block(&.{.{ .name = "www-authenticate", .value = "b" }}, "\xbe");
+    // The older line is now entry 63.
+    try expect_block(&.{.{ .name = ":authority", .value = "a" }}, "\xbf");
+}
+
 test "a line too large for the table is sent without indexing rather than emptying it" {
     test_encoder.init(40, .never);
     var buffer: [test_block_len_max]u8 = @splat(0);
