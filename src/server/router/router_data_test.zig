@@ -1,8 +1,10 @@
 //! The tests of a stream route's `on_data` (decision 163 ruling 6, design §8 step 50f), against an
 //! engine that records each call. `on_data` reads each piece of the body through the
 //! `server.RequestBodyStream`, `keep` joins the end of a piece with the octets that arrive later, and
-//! `ended` says when the body ended. A route that answered at the head gets no `on_data`.
-//! `router_data_engine_test.zig` runs the same routes over h11, h2 and h3.
+//! `ended` says when the body ended. At the body's end, `next` gives the kept octets as the last
+//! piece. Through a wrapper, the router copies kept octets into the entry's `body_bytes`. A route
+//! that answered at the head gets no `on_data`. `router_data_engine_test.zig` runs the same routes
+//! over h11, h2 and h3.
 const std = @import("std");
 const event = @import("../event.zig");
 const support = @import("router_handle_test_support.zig");
@@ -32,6 +34,16 @@ const Fixture = struct {
     /// The first piece that call `call` of `on_data` got.
     fn first(fixture: *const Fixture, call: usize) []const u8 {
         return fixture.app.firsts[call].get();
+    }
+
+    /// Lets the app count the pieces that lie in the entry's body memory.
+    fn watch_storage(fixture: *Fixture) void {
+        fixture.app.storage = &fixture.pool.entries[0].body.held;
+    }
+
+    /// The status of the response's head.
+    fn status(fixture: *const Fixture) u16 {
+        return @intFromEnum(fixture.recorder.heads[0].status);
     }
 };
 
@@ -144,16 +156,179 @@ test "RFC 9110 §15.5.14: a tail kept past body_bytes gets 413, and one of body_
     try testing.expectEqual(1, past.app.calls);
 }
 
-test "RFC 9110 §15.5.14: kept octets that fill a wrapper's buffer get 413" {
+test "decision 163 ruling 6 as amended: kept octets that fill a wrapper's buffer join later octets" {
     var fixture: Fixture = .{};
     fixture.app.keep_len = data.small_buffer_len;
     fixture.head("/collect-wrapped", false);
-    // The wrapper's buffer holds four octets. The route keeps each octet, so the fourth fills it.
+    // The wrapper's buffer holds four octets. The route keeps the last four octets of each piece,
+    // and the router joins the fifth octet to four kept ones.
     fixture.body("abc", false);
-    try testing.expectEqual(0, fixture.recorder.head_count);
-    fixture.body("de", false);
-    try testing.expectEqual(413, @intFromEnum(fixture.recorder.heads[0].status));
+    fixture.body("de", true);
+    try testing.expectEqualStrings("abcde", fixture.app.collected.get());
+    try testing.expectEqualStrings("abcd", fixture.first(1));
+    // "abcd", "bcde", and at the end "bcde" again as the last piece.
+    try testing.expectEqual(3, fixture.app.pieces[1]);
+    try testing.expectEqual(200, fixture.status());
+}
+
+test "decision 163 ruling 6 as amended: a body with no length is kept whole and read as the last piece" {
+    var fixture: Fixture = .{};
+    fixture.head("/whole", false);
+    fixture.body("ab", false);
+    fixture.body("cd", false);
+    // Over h11 and h3 the end comes in an event with no octets.
+    fixture.body("", true);
+    try testing.expectEqualStrings("abcd", fixture.app.whole.get());
+    // The last piece holds no new octet, and its `keep` keeps nothing: `next` then returns null.
+    try testing.expectEqual(3, fixture.app.calls);
+    try testing.expectEqual(1, fixture.app.pieces[2]);
+    try testing.expect(fixture.app.ended_at[2]);
+    try testing.expectEqual(200, fixture.status());
+}
+
+test "decision 163 ruling 6 as amended: the last piece follows the last DATA frame and a trailer section" {
+    var fixture: Fixture = .{};
+    fixture.head("/whole", false);
+    fixture.body("ab", false);
+    // Over h2 the end may come with the last octets: the piece that joins them, then the last piece.
+    fixture.body("cd", true);
+    try testing.expectEqualStrings("abcd", fixture.app.whole.get());
+    try testing.expectEqual(2, fixture.app.pieces[1]);
+    try testing.expect(fixture.app.ended_at[1]);
+    var trailed: Fixture = .{};
+    trailed.head("/whole", false);
+    trailed.body("ab", false);
+    const trailers = support.request_of(1, "POST", "/whole", false).headers;
+    trailed.handle(.{ .trailers = .{ .id = @bitCast(@as(u128, 1)), .user_data = trailed.recorder.user_data, .headers = trailers } });
+    try testing.expectEqualStrings("ab", trailed.app.whole.get());
+    try testing.expectEqual(1, trailed.app.pieces[1]);
+    try testing.expect(trailed.app.ended_at[1]);
+}
+
+test "RFC 9110 §15.5.14: a last piece past body_bytes gets 413, and one of body_bytes does not" {
+    var fixture: Fixture = .{};
+    fixture.head("/whole", false);
+    // The end comes with the octets, so the router holds none of them.
+    fixture.body("0123456789abcdef!", true);
+    try testing.expectEqual(413, fixture.status());
+    try testing.expectEqual(1, fixture.app.pieces[0]);
+    var fits: Fixture = .{};
+    fits.head("/whole", false);
+    fits.body("0123456789abcdef", true);
+    try testing.expectEqualStrings("0123456789abcdef", fits.app.whole.get());
+    try testing.expectEqual(200, fits.status());
+    var held: Fixture = .{};
+    held.head("/whole", false);
+    held.body("01234567", false);
+    held.body("89abcdef!", false);
+    try testing.expectEqual(413, held.status());
+}
+
+test "decision 163 ruling 6 as amended: a long keep through a wrapper that keeps a window is read whole" {
+    // The wrapper's `rebase` asserts, as std's flate decompressor does, that it holds no more than
+    // its buffer of eight octets less its window of four. The message of seven octets is longer.
+    var fixture: Fixture = .{};
+    fixture.head("/framed-windowed", false);
+    fixture.body("\x01a\x07bcd", false);
+    fixture.body("efgh", true);
+    try testing.expectEqualStrings("abcdefgh", fixture.app.messages.get());
+    try testing.expectEqual(200, fixture.status());
+    var whole: Fixture = .{};
+    whole.head("/whole-windowed", false);
+    whole.body("abcdef", false);
+    whole.body("ghijkl", false);
+    whole.body("", true);
+    try testing.expectEqualStrings("abcdefghijkl", whole.app.whole.get());
+    try testing.expectEqual(200, whole.status());
+}
+
+test "decision 163 ruling 6 as amended: through a wrapper, the router copies a piece only after a keep" {
+    var fixture: Fixture = .{};
+    fixture.watch_storage();
+    fixture.head("/framed-wrapped", false);
+    fixture.body("\x03a", false);
+    fixture.body("bc\x01z", true);
+    try testing.expectEqualStrings("abcz", fixture.app.messages.get());
+    // "\x03", then "\x03a" joined after a keep.
+    try testing.expectEqual(2, fixture.app.pieces[0]);
+    try testing.expectEqual(1, fixture.app.copies[0]);
+    // "\x03ab" and "\x03abc" joined, "\x01" after a keep(0) with no copy, and "\x01z" joined.
+    try testing.expectEqual(4, fixture.app.pieces[1]);
+    try testing.expectEqual(3, fixture.app.copies[1]);
+    var none: Fixture = .{};
+    none.watch_storage();
+    none.head("/collect-wrapped", false);
+    none.body("abc", true);
+    try testing.expectEqualStrings("abc", none.app.collected.get());
+    try testing.expectEqual(0, none.app.copies[0]);
+}
+
+test "decision 163 ruling 6 as amended: through a wrapper, the end of a stored piece outlives on_data" {
+    // Two pieces a call: the second is "ab", joined after a keep, and the route keeps "b" of it.
+    var fixture: Fixture = .{};
+    fixture.app.keep_len = 1;
+    fixture.app.pieces_per_call = 2;
+    fixture.head("/collect-wrapped", false);
+    fixture.body("abcd", false);
+    try testing.expectEqualStrings("ab", fixture.app.collected.get());
+    // The next call starts with the kept "b", joined with "c" from the octets the router held.
+    fixture.body("ef", false);
+    try testing.expectEqualStrings("bc", fixture.first(1));
     try testing.expectEqualStrings("abcd", fixture.app.collected.get());
+}
+
+test "RFC 9110 §15.5.14: through a wrapper, kept octets past body_bytes get 413" {
+    var fixture: Fixture = .{};
+    fixture.head("/whole-windowed", false);
+    fixture.body("01234567", false);
+    try testing.expectEqual(0, fixture.recorder.head_count);
+    // Sixteen kept octets fill `body_bytes`, and the seventeenth joins none.
+    fixture.body("89abcdef!", false);
+    try testing.expectEqual(413, fixture.status());
+    var fits: Fixture = .{};
+    fits.head("/whole-windowed", false);
+    fits.body("01234567", false);
+    fits.body("89abcdef", true);
+    try testing.expectEqualStrings("0123456789abcdef", fits.app.whole.get());
+    // A wrapper that gives more octets a read than `body_bytes` holds: the route keeps seventeen.
+    var batched: Fixture = .{};
+    batched.app.keep_len = data.body_bytes + 1;
+    batched.head("/collect-batched", false);
+    batched.body("0123456789abcdefghij", false);
+    try testing.expectEqual(413, batched.status());
+}
+
+test "RFC 9110 §15.5.14: through a wrapper, kept octets and the octets the router holds share body_bytes" {
+    // One piece a call leaves the router's octets unread: they wait beside the kept ones.
+    var fixture: Fixture = .{};
+    fixture.app.keep_len = data.body_bytes;
+    fixture.app.pieces_per_call = 1;
+    fixture.head("/collect-wrapped", false);
+    fixture.body("abcd", false);
+    fixture.body("efghijklmno", false);
+    try testing.expectEqualStrings("ab", fixture.first(1));
+    try testing.expectEqual(0, fixture.recorder.head_count);
+    // Two kept octets, thirteen unread and two new pass sixteen.
+    fixture.body("pq", false);
+    try testing.expectEqual(413, fixture.status());
+    var at_once: Fixture = .{};
+    at_once.app.keep_len = data.body_bytes;
+    at_once.app.pieces_per_call = 1;
+    at_once.head("/collect-wrapped", false);
+    // One kept octet and sixteen unread pass sixteen once `on_data` returns.
+    at_once.body("0123456789abcdef!", false);
+    try testing.expectEqual(413, at_once.status());
+    // Three pieces a call: the joined piece grows toward the router's octets, and stops at them.
+    var grows: Fixture = .{};
+    grows.app.keep_len = data.body_bytes;
+    grows.app.pieces_per_call = 3;
+    grows.head("/collect-wrapped", false);
+    grows.body("abcdefgh", false);
+    try testing.expectEqual(0, grows.recorder.head_count);
+    // Five kept octets and eleven held fill sixteen, so the sixth octet joins none.
+    grows.body("ijklmn", false);
+    try testing.expectEqual(413, grows.status());
+    try testing.expectEqualStrings("abcde", grows.app.collected.get());
 }
 
 test "decision 163 ruling 6: a route that ended its response in on_request gets no on_data" {
@@ -192,4 +367,18 @@ test "decision 163 ruling 6: a stream route's response sends its status, its hea
     try testing.expectEqualStrings("stream", head.headers[1].value);
     try testing.expectEqualStrings("made", fixture.recorder.body_bytes());
     try testing.expect(fixture.recorder.ended);
+}
+
+test "decision 163 ruling 6 as amended: a route that keeps part of a piece and returns reads the rest once" {
+    // The route takes one piece a call and keeps its last octet, so each call returns before
+    // `next` gives null. The router lets go of the rest of the piece, through each kind of reader.
+    for ([_][]const u8{ "/collect-batched", "/collect-kept-reader" }) |target| {
+        var fixture: Fixture = .{};
+        fixture.app.pieces_per_call = 1;
+        fixture.app.keep_len = 1;
+        fixture.head(target, false);
+        fixture.body("abcd", false);
+        fixture.body("ef", true);
+        try testing.expectEqualStrings("abcdef", fixture.app.collected.get());
+    }
 }

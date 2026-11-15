@@ -1180,6 +1180,12 @@ piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later
 octets, and the router calls `on_data` again for it. A request whose head ended it gets one
 `on_data`, whose `next` finds the end.
 
+At the body's end, a `next` after a `keep` gives the kept octets once more as the last piece,
+with no new octet. A `keep` of that last piece keeps nothing. The `next` after it returns null,
+and `ended()` turns true. This holds over h11, h2 and h3, and after a trailer section. So a
+route reads a body with no length in place, as Connect's unary call sends one. It keeps each
+piece whole, and the last piece holds the whole body.
+
 The stream example's route reads gRPC's messages. Each one is a flag octet, the payload's length
 in four octets and the payload. Its `answer_whole` writes and flushes a reply to each whole
 message of a piece, so each reply goes out before the body ends. It returns the octets of the cut
@@ -1190,7 +1196,7 @@ message after them, which `keep` leaves unread:
 /// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
 /// again, joined with the octets that arrive later. Once the body ended, it ends the response.
 pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
-    // Bounded: each pass takes one piece, which holds one new octet at least.
+    // Bounded: each pass takes one piece.
     for (0..pieces_per_event_max) |_| {
         const piece = body.next() orelse break;
         const cut = try answer_whole(state, piece, response);
@@ -1198,7 +1204,7 @@ pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.
         body.keep(state.kept);
     }
     if (!body.ended()) return;
-    // A body that ends inside a message cuts it short. The router drops the kept octets.
+    // A body that ends inside a message cuts it short: the last piece held its octets again.
     if (state.kept > 0) return error.MessageCut;
     // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
     try response.trailers(&grpc_ok);
@@ -1207,17 +1213,24 @@ pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.
 
 The pool entry's `body_bytes` holds the octets that `on_data` left unread or kept, because the
 engine writes its event's octets again. Kept octets and the octets of the next event that do not
-fit there get 413 (RFC 9110 §15.5.14). Through a middleware's `wrap_body`, the last wrapper's
-buffer holds the kept octets: a piece holds at most that buffer, and kept octets that fill it get
-413. A wrapper's `rebase` may hold fewer octets than its buffer. std's flate decompressor keeps its
-window there, so through it a route keeps at most the buffer less the window, and a longer `keep`
-trips std's assertion. A route that reads through such a wrapper bounds what it keeps. A wrapper
-with no buffer cannot serve a stream route, and the router asserts so at the head.
+fit there get 413 (RFC 9110 §15.5.14). At the body's end, kept octets past `body_bytes` get 413
+too, over each protocol. So a body that a route keeps whole is at most `body_bytes`.
+
+Through a middleware's `wrap_body`, the router copies the kept octets into `body_bytes` too. It
+joins the octets that the last wrapper gives later to them there. So the router asks a wrapper
+for one octet past those it gave, and never more. A wrapper's `rebase` may hold fewer octets than
+its buffer, as std's flate decompressor does, which keeps its window there. A route keeps a tail
+as long as `body_bytes` through such a wrapper too. The router copies only after a `keep`. A piece
+that follows no `keep` stays in the wrapper's buffer, with no copy.
+
+Through a wrapper, the kept octets and the event's octets that the wrapper did not read yet share
+`body_bytes`. Past it, they get 413. A wrapper with no buffer cannot serve a stream route, and the
+router asserts so at the head.
 
 The router drops the body in two cases. A route with no `on_data` reads none. A route that ended
 its response gets no `on_data` after the end, so a route can refuse a request at the head. At the
-body's end, the router also drops what the last `on_data` left unread, the kept octets too. So
-`on_data` calls `next` until it returns null.
+body's end, the router also drops what the last `on_data` did not take with `next`. So `on_data`
+calls `next` until it returns null.
 
 After an error of `on_data` or `next`, `error_handler` gets a request whose method and path are
 empty and whose headers hold no line. A read of its body fails.
@@ -1377,6 +1390,10 @@ fn check_numbered() !void {
     if (values.number != 1) return error.RequestNotNumbered;
 }
 ```
+
+A test that builds a `server.Request` by hand gives its `body` a reader of its own, because `body`
+has no default. A reader over no octets ends at once, as the body of a request with no body does:
+`var reader: std.Io.Reader = .fixed(&.{});`, and then `.body = &reader`.
 
 `path(P)` and `query(Q)` answer during the route's first call alone: a function's one call, or a
 struct route's `on_request`. The router lends the two structs for that call, because every request

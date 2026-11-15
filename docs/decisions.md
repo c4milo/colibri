@@ -7982,6 +7982,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         octets of a piece unread, and the next `next` gives them joined with the octets that
         arrive later. So a route reads a message that two events cut, as gRPC and Connect frame
         theirs.
+
+        Amended again on 2026-11-15, after connect-zig moved to step 50 (design §8 step 50i):
+        - At the body's end, `next` gives the kept octets once more as a last piece, with no new
+          octet. A `keep` of that last piece keeps nothing, and the call after it returns null and
+          makes `ended` true. So a route keeps a body that has no length, as Connect's unary POST,
+          until the end, and reads it in place.
+        - Through a middleware's wrapper, the router copies kept octets into the entry's
+          `body_bytes` and joins the wrapper's later octets there. It asks a wrapper for no more
+          than one octet past what it gave out. A wrapper's `rebase` may hold less than its buffer,
+          as std's flate decompressor does, and the owner ruled that the library prevents that
+          mistake. A piece that follows no `keep` stays a slice of the wrapper's buffer.
+        - The router's held octets and the kept octets share `body_bytes`, with 413 past it, over
+          each protocol and with each kind of reader.
      7. `server.ResponseWriter` takes the name `server.Response`, and the engine's header struct
         of that name becomes `server.ResponseHeader`. No other name changes: `server.Request`
         keeps its name and gains `body`.
@@ -8026,6 +8039,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A stream route's body in `server.Request`, whose header the router would copy for each
        stream request too: about 165 instructions on a small POST (ruling 6 as amended).
      - The name `RequestStream`, which suggests a second kind of `server.Request`.
+     - Kept octets that a wrapper's own buffer holds, with a rule in docs/usage.md that a route
+       bounds its `keep` through such a wrapper. A long `keep` through std's flate decompressor
+       tripped std's assertion (ruling 6 as amended again).
      - The names `RequestHeader` for the engine's request header, and `header_sent` for
        `head_sent`. The owner refused each rename but the response's.
      - Sizes that each route states, from which the router sizes its pool. Most routes would

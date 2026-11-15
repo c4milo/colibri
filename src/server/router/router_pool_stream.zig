@@ -31,14 +31,15 @@ const next_calls_max = constants.limits.response_pieces_max;
 /// When the head ended the request, `on_data` runs once, and finds the body's end.
 pub inline fn start(comptime P: type, pool: *P, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, engine: anytype, request: *const event.Request) void {
     const handler = Parts(P).table.routes[index][router_call.handler_part];
-    const chain = comptime router_call.table_chain(Parts(P).table) ++ router_call.entry_chain(Parts(P).table.routes[index]);
     // A middleware's `wrap_body` that returns null keeps the router's reader, whose buffer holds
     // the event's octets and no kept octets of its own.
-    const wraps = comptime router_wrap.wraps_body(chain);
+    const wraps = comptime wraps_body(P, index);
     const wrapped = wraps and entry.held.reader != &entry.body.cursor.reader;
     // `next` peeks through a wrapper, which needs a buffer to peek into (std.Io.Reader).
     assert(!wrapped or entry.held.reader.buffer.len > 0);
-    entry.body_stream = .{ .reader = entry.held.reader, .wrapped = wrapped };
+    // The router's reader holds kept octets in the entry's `body_bytes` itself. `read` points the
+    // storage of a wrapper's stream at the octets past the held ones.
+    entry.body_stream = .{ .reader = entry.held.reader, .storage = &entry.body.held, .wrapped = wrapped };
     const options = comptime router_pool.route_options(Parts(P).table.routes[index]);
     const state = router_pool.state_of(P, handler, entry);
     const outcome = router_call.call_on_request(handler, options.path, options.query, context, &entry.request_context, state, request, &pool.parameters, &pool.query, &entry.response);
@@ -67,27 +68,60 @@ pub fn on_body(comptime P: type, pool: *P, comptime index: usize, entry: *Parts(
     body_ended(P, pool, index, entry, context, engine, end);
 }
 
+/// Whether a middleware of the route's chain wraps the request body's reader. Comptime-only.
+fn wraps_body(comptime P: type, comptime index: usize) bool {
+    const chain = router_call.table_chain(Parts(P).table) ++ router_call.entry_chain(Parts(P).table.routes[index]);
+    return router_wrap.wraps_body(chain);
+}
+
 /// Calls `on_data` over the octets that the entry held and `bytes`. Then it keeps the octets that
 /// the call left unread, which the engine's next event writes over, in the entry's `body_bytes`.
 fn read(comptime P: type, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, bytes: []const u8, end: bool) router_body.Error!router_call.Outcome {
     const handler = Parts(P).table.routes[index][router_call.handler_part];
+    const wraps = comptime wraps_body(P, index);
+    const stream = &entry.body_stream;
     // Held bytes come first, so the new ones go after them.
-    if (entry.body.held_len > 0) try entry.body.append(bytes);
+    if (entry.body.held_len > 0) {
+        if (comptime wraps) try hold_clear(entry, entry.body.held_len + bytes.len);
+        try entry.body.append(bytes);
+    }
     const over_bytes = entry.body.held_len == 0;
     // Design §8 step 25.6: the stream reads through the last wrapper, which reads the held bytes.
     _ = entry.body.reader_over(bytes);
-    const stream = &entry.body_stream;
     assert(stream.reader == entry.held.reader);
+    if (comptime wraps) give_storage(entry);
     const outcome = router_call.call_data(handler, context, &entry.request_context, router_pool.state_of(P, handler, entry), stream, &entry.response);
-    router_body.let_go(stream);
+    router_body.let_go(stream, wraps);
     // The router drops the rest of the body once the response ended.
-    if (end or route_ended(&entry.response)) {
-        entry.body.delivered = true;
-        return outcome;
-    }
-    // RFC 9110 §15.5.14: a kept tail that fills a wrapper's buffer joins no later octet.
-    if (router_body.kept_fills_wrapper(stream)) return error.ContentTooLarge;
+    if (end or route_ended(&entry.response)) return read_last(entry, outcome);
+    if (comptime wraps) try hold_clear(entry, entry.body.cursor.reader.bufferedLen());
     try entry.body.keep_unread(over_bytes);
+    return outcome;
+}
+
+/// Points the storage of a wrapper's stream at the entry's `body_bytes` past the octets that the
+/// router holds. The kept octets that the stream stored stay at its end.
+fn give_storage(entry: anytype) void {
+    const stream = &entry.body_stream;
+    if (stream.wrapped) stream.storage = entry.body.held[entry.body.held_len..];
+}
+
+/// Refuses `held_len` octets that the router would hold beside the octets that a wrapper's stream
+/// kept, or a stream whose kept octets did not fit its storage.
+fn hold_clear(entry: anytype, held_len: usize) router_body.Error!void {
+    const stream = &entry.body_stream;
+    // RFC 9110 §15.5.14: content larger than the server takes gets 413, kept octets too.
+    if (stream.too_large) return error.ContentTooLarge;
+    // RFC 9110 §15.5.14: the kept octets and the octets the router holds share `body_bytes`.
+    if (held_len + router_body.stored_len(stream) > entry.body.held.len) return error.ContentTooLarge;
+}
+
+/// Ends the read of the body, at its end or once the route ended its response. Kept octets that
+/// the last piece could not take get 413 when the response is still open.
+fn read_last(entry: anytype, outcome: router_call.Outcome) router_body.Error!router_call.Outcome {
+    entry.body.delivered = true;
+    // RFC 9110 §15.5.14: kept octets past the entry's `body_bytes` get 413, at the body's end too.
+    if (entry.body_stream.too_large and !route_ended(&entry.response)) return error.ContentTooLarge;
     return outcome;
 }
 

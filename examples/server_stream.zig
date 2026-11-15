@@ -148,7 +148,7 @@ const Greeter = struct {
     /// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
     /// again, joined with the octets that arrive later. Once the body ended, it ends the response.
     pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
-        // Bounded: each pass takes one piece, which holds one new octet at least.
+        // Bounded: each pass takes one piece.
         for (0..pieces_per_event_max) |_| {
             const piece = body.next() orelse break;
             const cut = try answer_whole(state, piece, response);
@@ -156,7 +156,7 @@ const Greeter = struct {
             body.keep(state.kept);
         }
         if (!body.ended()) return;
-        // A body that ends inside a message cuts it short. The router drops the kept octets.
+        // A body that ends inside a message cuts it short: the last piece held its octets again.
         if (state.kept > 0) return error.MessageCut;
         // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
         try response.trailers(&grpc_ok);

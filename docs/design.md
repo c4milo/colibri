@@ -16152,6 +16152,31 @@ library.
       the messages not counted.
     - **Runs.** `tools/ci.sh` on `a2790d1e`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
       checks passed.
+  - **50i, met 2026-11-15.** connect-zig moved `connect_colibri` to `2e07fe41`, and reported
+    what the API left out. The owner ruled two changes to `server.RequestBodyStream` (decision
+    163 ruling 6 as amended again).
+    - At the body's end, `next` gives the kept octets once more as a last piece. A unary Connect
+      call, whose body has no length, keeps it whole until the end and reads it in place, with no
+      copy into its State.
+    - Through a wrapper, the router copies kept octets into `body_bytes` and joins later octets
+      there, and asks the wrapper for one octet past what it gave out. The 413 for kept octets
+      that fill a wrapper's buffer goes. A test wrapper that keeps a window, as std's flate
+      decompressor does, asserts on a larger `rebase`, so the old code fails the new tests.
+    - docs/usage.md says that a test that builds a `server.Request` passes its own reader as
+      `body`, such as `std.Io.Reader.fixed(&.{})`. A public reader would need a mutable global,
+      which the global-state lint refuses.
+    - `RequestBodyStream` grows from 32 to 48 octets, in each entry of a table with a stream route.
+    - **A review.** A second agent drove the router with random bodies, cuts, keeps and ends over
+      eight routes, 20,000 seeds each, through five window wrappers and a chain of two. It wrote
+      junk over each event's octets and over what each wrapper dropped. It found no fault, and
+      one rule that no test guarded, which a test now guards.
+    - **Mutations, 15 of 15 CAUGHT:** no last piece at the end; a `keep` of the last piece that
+      keeps octets; no `body_bytes` bound on the last piece; no 413 at the end; `next` that asks
+      a wrapper for the kept octets and one more; a copy with no `keep`; no 413 when kept octets
+      fill the storage, or pass it through a wrapper; no clear-space check before the append, or
+      after `on_data`; no 413 mid-body for an overflow; `let_go` that tosses a stored piece, or
+      that tosses nothing through a wrapper; storage that overlaps the held octets; and a bound
+      one octet short.
   - **The judge of step 50 as a whole.**
     [Run 43681873844](https://github.com/c4milo/colibri/actions/runs/43681873844) compared main
     `29200af3`, after 50g, with `03d56223`, the main that 50b started from, at 5 rounds, in two

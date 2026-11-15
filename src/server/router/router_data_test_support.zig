@@ -1,6 +1,7 @@
 //! What the tests of a stream route's `on_data` share (decision 163 ruling 6, design §8 step 50f):
 //! routes that read each piece of a body through `server.RequestBodyStream`, keep the end of a piece,
-//! read messages that two events cut, and answer at the head. Test-only.
+//! read messages that two events cut, read a body with no length whole, and answer at the head.
+//! Test-only.
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
@@ -15,9 +16,13 @@ const Router = @import("router.zig").Router;
 pub const calls_max = 8;
 const pieces_max = 16;
 const piece_len_max = 32;
-/// Octets of the buffer of each wrapper of the request body.
+/// Octets of the buffer of each wrapper of the request body, and of the window that a wrapper
+/// like std's flate decompressor keeps in its buffer.
 pub const small_buffer_len = 4;
 const large_buffer_len = 8;
+const window_len = 4;
+/// Octets of the buffer of a wrapper that passes many octets a read: more than `body_bytes`.
+const batch_buffer_len = 32;
 
 /// A copy of a short text. Test-only.
 pub const Text = struct {
@@ -54,17 +59,33 @@ pub const App = struct {
     /// Octets of each piece that `Collect` keeps, and whether it then calls `keep(0)`.
     keep_len: usize = 0,
     keep_none: bool = false,
+    /// The pieces that `Collect` takes in one call at most.
+    pieces_per_call: usize = pieces_max,
     /// The messages `Framed` read, one after the other, and the call of `on_data` that read each.
     messages: Text = .{},
     message_calls: [calls_max]usize = @splat(0),
     message_count: usize = 0,
+    /// The last piece that `Whole` got.
+    whole: Text = .{},
+    /// The entry's body memory, which a test names, and for each call of `on_data` the pieces that
+    /// lie in it: the router copied their octets there.
+    storage: []const u8 = &.{},
+    copies: [calls_max]usize = @splat(0),
 
     /// Records that call `call` of `on_data` got `piece`, of which the first `given_again` octets
     /// came before.
     fn record(app: *App, call: usize, piece: []const u8, given_again: usize) void {
         if (app.pieces[call] == 0) app.firsts[call].set(piece);
-        app.pieces[call] += 1;
+        app.count(call, piece);
         app.collected.add(piece[given_again..]);
+    }
+
+    /// Counts a piece of call `call`, and whether it lies in `storage`.
+    fn count(app: *App, call: usize, piece: []const u8) void {
+        app.pieces[call] += 1;
+        const start = @intFromPtr(app.storage.ptr);
+        const at = @intFromPtr(piece.ptr);
+        if (at >= start and at + piece.len <= start + app.storage.len) app.copies[call] += 1;
     }
 
     /// The call that ran last.
@@ -86,7 +107,7 @@ const Collect = struct {
         const call = app.calls;
         app.calls += 1;
         // Bounded: each pass takes one piece.
-        for (0..pieces_max) |_| {
+        for (0..@min(pieces_max, app.pieces_per_call)) |_| {
             const piece = body.next() orelse break;
             app.record(call, piece, state.kept);
             state.kept = @min(app.keep_len, piece.len);
@@ -111,6 +132,7 @@ const Framed = struct {
         // Bounded: each pass takes one piece.
         for (0..pieces_max) |_| {
             const piece = body.next() orelse break;
+            app.count(call, piece);
             body.keep(read_messages(app, call, piece).len);
         }
         app.ended_at[call] = body.ended();
@@ -128,6 +150,26 @@ const Framed = struct {
             rest = rest[1 + rest[0] ..];
         }
         return rest;
+    }
+};
+
+/// Reads a body with no length whole, as Connect's unary call sends one: it keeps each piece
+/// whole, so at the body's end the last piece holds every octet. Its `keep` of that last piece
+/// keeps nothing.
+const Whole = struct {
+    pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
+
+    pub fn on_data(app: *App, _: *RequestContext, _: *void, body: *RequestBodyStream, _: *Response) !void {
+        const call = app.calls;
+        app.calls += 1;
+        // Bounded: each pass takes one piece.
+        for (0..pieces_max) |_| {
+            const piece = body.next() orelse break;
+            app.count(call, piece);
+            app.whole.set(piece);
+            body.keep(piece.len);
+        }
+        app.ended_at[call] = body.ended();
     }
 };
 
@@ -180,9 +222,11 @@ const Brand = struct {
     }
 };
 
-/// A wrapper of the request body's reader with a buffer of `buffer_len` octets, which passes each
-/// octet as it is, one octet a read.
-fn Passing(comptime buffer_len: usize) type {
+/// A wrapper of the request body's reader with a buffer of `buffer_len` octets, which passes the
+/// octets as they are, `read_max` octets a read at most. Its `rebase` asserts, as std's flate
+/// decompressor does, that it is asked for no more than the buffer less `window` octets, which
+/// flate keeps for its history. It then moves the buffered octets to the buffer's start.
+fn Passing(comptime buffer_len: usize, comptime window: usize, comptime read_max: usize) type {
     return struct {
         pub const State = struct {
             reader: std.Io.Reader = undefined,
@@ -195,13 +239,23 @@ fn Passing(comptime buffer_len: usize) type {
             return &state.reader;
         }
 
-        const vtable: std.Io.Reader.VTable = .{ .stream = stream };
+        const vtable: std.Io.Reader.VTable = .{ .stream = stream, .rebase = rebase };
 
         fn stream(reader: *std.Io.Reader, writer: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
             if (limit == .nothing) return 0;
             const state: *State = @alignCast(@fieldParentPtr("reader", reader));
-            try writer.writeByte(try state.inner.takeByte());
-            return 1;
+            const octets = try state.inner.peekGreedy(1);
+            const len = limit.minInt(@min(octets.len, read_max));
+            try writer.writeAll(octets[0..len]);
+            state.inner.toss(len);
+            return len;
+        }
+
+        /// The assertion of std.compress.flate.Decompress's `rebase`, with `window` in place of
+        /// its history.
+        fn rebase(reader: *std.Io.Reader, capacity: usize) std.Io.Reader.RebaseError!void {
+            std.debug.assert(capacity <= reader.buffer.len - window);
+            return std.Io.Reader.defaultRebase(reader, capacity);
         }
     };
 }
@@ -229,9 +283,14 @@ pub const routes = .{
     .routes = .{
         .{ .post, "/collect", Collect },
         .{ .post, "/framed", Framed },
-        .{ .post, "/framed-wrapped", Framed, .{ .middleware = .{Passing(large_buffer_len)} } },
+        .{ .post, "/framed-wrapped", Framed, .{ .middleware = .{Passing(large_buffer_len, 0, 1)} } },
         .{ .post, "/framed-kept-reader", Framed, .{ .middleware = .{Keeping} } },
-        .{ .post, "/collect-wrapped", Collect, .{ .middleware = .{Passing(small_buffer_len)} } },
+        .{ .post, "/framed-windowed", Framed, .{ .middleware = .{Passing(large_buffer_len, window_len, 1)} } },
+        .{ .post, "/collect-wrapped", Collect, .{ .middleware = .{Passing(small_buffer_len, 0, 1)} } },
+        .{ .post, "/collect-batched", Collect, .{ .middleware = .{Passing(batch_buffer_len, 0, batch_buffer_len)} } },
+        .{ .post, "/collect-kept-reader", Collect, .{ .middleware = .{Keeping} } },
+        .{ .post, "/whole", Whole },
+        .{ .post, "/whole-windowed", Whole, .{ .middleware = .{Passing(large_buffer_len, window_len, 1)} } },
         .{ .post, "/refused", Refused },
         .{ .post, "/head-only", HeadOnly },
         .{ .post, "/created", Created, .{ .middleware = .{Brand} } },

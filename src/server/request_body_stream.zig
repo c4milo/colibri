@@ -7,7 +7,14 @@
 //! no piece waits yet, so `next` returns null then. `keep` leaves the end of a piece unread. The
 //! next call of `next`, in this `on_data` or in a later one, gives those octets again, joined with
 //! the octets that arrive after them. So a route reads a message that two events cut, as Connect
-//! and gRPC frame theirs.
+//! and gRPC frame theirs. At the body's end, `next` gives the kept octets once more as the last
+//! piece, so a route reads a body with no length whole, as Connect's unary call sends it.
+//!
+//! Through a wrapper, `next` copies the kept octets into the entry's `body_bytes`, and joins the
+//! octets that the wrapper gives later there (decision 163 ruling 6 as amended). So it asks a
+//! wrapper for one octet past those it gave, never more. A wrapper's `rebase` may hold fewer
+//! octets than its buffer, as std's flate decompressor does, which keeps its window there. A
+//! piece that follows no `keep` stays in the wrapper's buffer, with no copy.
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -19,13 +26,22 @@ pub const RequestBodyStream = struct {
     /// The reader of the body: the router's, over the octets of the event and the octets it held,
     /// or the last wrapper of a middleware's `wrap_body`.
     reader: *std.Io.Reader,
-    /// Octets at the reader's seek that `next` gave last, and the octets at their end that `keep`
-    /// kept.
+    /// The octets of the entry's `body_bytes` that kept octets may take, whose length bounds them.
+    /// The router's reader holds kept octets there itself. Through a wrapper, the router points
+    /// `storage` at the octets past the ones it holds, and `next` copies kept octets to its end.
+    storage: []u8 = &.{},
+    /// Octets of the piece that `next` gave last, and the octets at its end that `keep` kept.
     given: usize = 0,
     kept: usize = 0,
-    /// Whether the reader is a middleware's wrapper. Its buffer holds the kept octets, and must
-    /// hold one more octet to join them with the octets that arrive later.
+    /// Whether the reader is a middleware's wrapper.
     wrapped: bool = false,
+    /// Whether the piece that `next` gave last lies at the end of `storage`, and not in the
+    /// reader's buffer. Only a wrapper's pieces lie there.
+    stored: bool = false,
+    /// Whether kept octets did not fit `storage`. The router then answers 413.
+    too_large: bool = false,
+    /// Whether `next` gave the kept octets once more as the body's last piece.
+    last: bool = false,
     /// Whether `next` found the body's end.
     at_end: bool = false,
 
@@ -34,34 +50,23 @@ pub const RequestBodyStream = struct {
     /// follows a `keep` starts with the kept octets. A piece stays valid until the next call of
     /// `next`, or until `on_data` returns.
     ///
-    /// Through a middleware's wrapper, a piece holds at most the octets of the wrapper's buffer.
-    /// A null at the body's end makes `ended` true.
+    /// At the body's end, a call after a `keep` gives the kept octets once more as the last piece,
+    /// with no new octet. The call after that one returns null. A null at the body's end makes
+    /// `ended` true.
     pub fn next(stream: *RequestBodyStream) ?[]const u8 {
-        const reader = stream.reader;
-        reader.toss(stream.given - stream.kept);
-        stream.given = stream.kept;
-        // A wrapper's buffer that the kept octets fill has no room for one more octet.
-        if (stream.wrapped and stream.kept >= reader.buffer.len) return null;
-        // One octet past the kept ones: a piece holds at least one octet that is new.
-        const piece = reader.peekGreedy(stream.kept + 1) catch |failure| {
-            if (failure == error.EndOfStream) stream.at_end = true;
-            return null;
-        };
-        assert(piece.len > stream.kept);
-        stream.given = piece.len;
-        stream.kept = 0;
-        return piece;
+        // Through a wrapper, kept octets join the later octets in `storage`.
+        if (stream.wrapped and (stream.kept > 0 or stream.stored)) return next_stored(stream);
+        return next_buffered(stream);
     }
 
     /// Leaves the last `len` octets of the piece that `next` gave last unread. The next call of
     /// `next`, in this `on_data` or in a later one, starts with them, joined with the octets that
     /// arrive later. A later `keep` takes the place of an earlier one, and `keep(0)` keeps none.
+    /// A `keep` of the body's last piece keeps nothing.
     ///
-    /// The router copies the kept octets into the request's entry when they outlive the engine's
-    /// event. More than `body_bytes` octets there get 413 (RFC 9110 §15.5.14). Through a
-    /// middleware's wrapper, kept octets that fill its buffer get 413 too. A wrapper's `rebase`
-    /// may hold fewer octets than its buffer, as std's flate decompressor does, which keeps its
-    /// window there. Through such a wrapper, the route keeps no more than `rebase` holds.
+    /// The kept octets take the entry's `body_bytes` when they outlive the engine's event, or
+    /// when they come through a middleware's wrapper. Kept octets that do not fit there get 413
+    /// (RFC 9110 §15.5.14), at the body's end too.
     pub fn keep(stream: *RequestBodyStream, len: usize) void {
         assert(len <= stream.given);
         stream.kept = len;
@@ -78,6 +83,98 @@ pub const RequestBodyStream = struct {
     }
 };
 
+/// The next piece in the reader's buffer, which starts with the kept octets that the reader holds:
+/// the router's reader, or a wrapper when no octet is kept.
+inline fn next_buffered(stream: *RequestBodyStream) ?[]const u8 {
+    const reader = stream.reader;
+    reader.toss(stream.given - stream.kept);
+    stream.given = stream.kept;
+    // One octet past the kept ones: a piece holds at least one octet that is new.
+    const piece = reader.peekGreedy(stream.kept + 1) catch |failure| return past_end(stream, failure);
+    assert(piece.len > stream.kept);
+    stream.given = piece.len;
+    stream.kept = 0;
+    return piece;
+}
+
+/// What `next` returns when no octet waits past the kept ones. At the body's end, it gives the
+/// kept octets once more as the last piece. A `keep` of that piece keeps nothing, so the call after
+/// it returns null.
+fn past_end(stream: *RequestBodyStream, failure: std.Io.Reader.Error) ?[]const u8 {
+    if (failure != error.EndOfStream) return null;
+    if (stream.kept == 0 or stream.last) {
+        stream.at_end = true;
+        return null;
+    }
+    // RFC 9110 §15.5.14: content larger than the server takes gets 413, a kept last piece too.
+    if (stream.kept > stream.storage.len) return mark_too_large(stream);
+    stream.last = true;
+    const piece = if (stream.stored) stream.storage[stream.storage.len - stream.kept ..] else stream.reader.buffered();
+    assert(piece.len == stream.kept);
+    stream.given = stream.kept;
+    stream.kept = 0;
+    return piece;
+}
+
+/// `next` through a wrapper after a `keep`, or after a piece that `storage` held. It copies the
+/// kept octets to the end of `storage`, and joins there the octets that the wrapper gives after
+/// them. So it asks the wrapper for one octet past those it gave, never more.
+fn next_stored(stream: *RequestBodyStream) ?[]const u8 {
+    assert(stream.wrapped);
+    const kept = stream.kept;
+    if (kept == 0) {
+        // The route kept none of the stored piece, so the wrapper's next piece needs no copy.
+        assert(stream.stored);
+        stream.stored = false;
+        stream.given = 0;
+        return next_buffered(stream);
+    }
+    if (!stream.stored) {
+        // RFC 9110 §15.5.14: kept octets past the entry's `body_bytes` get 413.
+        if (kept > stream.storage.len) return mark_too_large(stream);
+        store_kept(stream);
+    }
+    // The router keeps the octets it holds clear of the stored ones.
+    assert(kept <= stream.storage.len);
+    stream.given = kept;
+    const fresh = stream.reader.peekGreedy(1) catch |failure| return past_end(stream, failure);
+    const room = stream.storage.len - kept;
+    // RFC 9110 §15.5.14: kept octets that fill the entry's `body_bytes` join no later octet.
+    if (room == 0) return mark_too_large(stream);
+    return join(stream, fresh[0..@min(fresh.len, room)]);
+}
+
+/// Copies the kept octets at the end of the wrapper's last piece to the end of `storage`, and
+/// lets the wrapper go of them.
+fn store_kept(stream: *RequestBodyStream) void {
+    const reader = stream.reader;
+    reader.toss(stream.given - stream.kept);
+    const kept = reader.buffered()[0..stream.kept];
+    @memcpy(stream.storage[stream.storage.len - kept.len ..], kept);
+    reader.toss(kept.len);
+    stream.stored = true;
+}
+
+/// Moves the kept octets at the end of `storage` back by `fresh.len`, copies `fresh` after them,
+/// and lets the wrapper go of `fresh`. The piece ends at the end of `storage`.
+fn join(stream: *RequestBodyStream, fresh: []const u8) []const u8 {
+    const end = stream.storage.len;
+    const kept = stream.kept;
+    const start = end - kept - fresh.len;
+    std.mem.copyForwards(u8, stream.storage[start..][0..kept], stream.storage[end - kept ..]);
+    @memcpy(stream.storage[end - fresh.len ..], fresh);
+    stream.reader.toss(fresh.len);
+    stream.given = kept + fresh.len;
+    stream.kept = 0;
+    return stream.storage[start..];
+}
+
+/// Records that kept octets did not fit `storage`, and gives no piece.
+fn mark_too_large(stream: *RequestBodyStream) ?[]const u8 {
+    stream.too_large = true;
+    return null;
+}
+
 test "decision 163 ruling 6: RequestBodyStream exports next, keep and ended" {
     try @import("core").public_names.expect(RequestBodyStream, &.{ "next", "keep", "ended" });
 }
@@ -93,7 +190,12 @@ const Fixture = struct {
     const body_bytes = 16;
 
     fn start(fixture: *Fixture) void {
-        fixture.stream = .{ .reader = &fixture.body.cursor.reader };
+        fixture.stream = .{ .reader = &fixture.body.cursor.reader, .storage = &fixture.body.held };
+    }
+
+    /// Starts a stream as through a wrapper, which copies kept octets into `storage`.
+    fn start_wrapped(fixture: *Fixture, storage: []u8) void {
+        fixture.stream = .{ .reader = &fixture.body.cursor.reader, .storage = storage, .wrapped = true };
     }
 
     /// Points the reader at `bytes`, after any octets held, as the router does at a body event.
@@ -103,6 +205,12 @@ const Fixture = struct {
         _ = fixture.body.reader_over(bytes);
     }
 };
+
+/// Whether `piece` lies in `storage`.
+fn lies_in(piece: []const u8, storage: []const u8) bool {
+    const start = @intFromPtr(storage.ptr);
+    return @intFromPtr(piece.ptr) >= start and @intFromPtr(piece.ptr) + piece.len <= start + storage.len;
+}
 
 test "decision 163 ruling 6: next gives each piece once, and null when none waits" {
     var fixture: Fixture = .{};
@@ -148,13 +256,69 @@ test "decision 163 ruling 6: ended turns true only when next finds the end" {
     try testing.expect(fixture.stream.ended());
 }
 
-test "decision 163 ruling 6: a wrapper's buffer that kept octets fill gives no piece" {
-    var bytes = "abcd".*;
-    var reader: std.Io.Reader = .fixed(&bytes);
-    var stream: RequestBodyStream = .{ .reader = &reader, .wrapped = true };
-    try testing.expectEqualStrings("abcd", stream.next().?);
-    stream.keep(4);
-    // The buffer holds four octets, so it has no room to join a fifth to them.
-    try testing.expectEqual(null, stream.next());
-    try testing.expect(!stream.ended());
+test "decision 163 ruling 6 as amended: at the end, next gives the kept octets as the last piece once" {
+    var fixture: Fixture = .{};
+    fixture.start();
+    try fixture.give("abcd", true);
+    try testing.expectEqualStrings("abcd", fixture.stream.next().?);
+    fixture.stream.keep(3);
+    try testing.expectEqualStrings("bcd", fixture.stream.next().?);
+    try testing.expect(!fixture.stream.ended());
+    // A `keep` of the last piece keeps nothing.
+    fixture.stream.keep(3);
+    try testing.expectEqual(null, fixture.stream.next());
+    try testing.expect(fixture.stream.ended());
+    try testing.expectEqual(null, fixture.stream.next());
+}
+
+test "RFC 9110 §15.5.14: kept octets past storage give no last piece, and the router answers 413" {
+    var fixture: Fixture = .{};
+    fixture.start();
+    const bytes = "0123456789abcdef!";
+    try fixture.give(bytes, true);
+    try testing.expectEqualStrings(bytes, fixture.stream.next().?);
+    fixture.stream.keep(bytes.len);
+    try testing.expectEqual(null, fixture.stream.next());
+    try testing.expect(fixture.stream.too_large);
+    try testing.expect(!fixture.stream.ended());
+}
+
+test "decision 163 ruling 6 as amended: through a wrapper, kept octets join later octets in storage" {
+    var fixture: Fixture = .{};
+    var storage: [8]u8 = undefined;
+    fixture.start_wrapped(&storage);
+    var first = "abc".*;
+    try fixture.give(&first, false);
+    // A piece that follows no `keep` stays in the reader's buffer.
+    try testing.expect(lies_in(fixture.stream.next().?, &first));
+    fixture.stream.keep(2);
+    try testing.expectEqual(null, fixture.stream.next());
+    // The kept octets left the reader's buffer, which the next event writes again.
+    first = "xyz".*;
+    try fixture.give("de", false);
+    const joined = fixture.stream.next().?;
+    try testing.expectEqualStrings("bcde", joined);
+    try testing.expect(lies_in(joined, &storage));
+    fixture.stream.keep(4);
+    try fixture.give("", true);
+    const last = fixture.stream.next().?;
+    try testing.expectEqualStrings("bcde", last);
+    try testing.expect(lies_in(last, &storage));
+    fixture.stream.keep(1);
+    try testing.expectEqual(null, fixture.stream.next());
+    try testing.expect(fixture.stream.ended());
+}
+
+test "RFC 9110 §15.5.14: through a wrapper, kept octets that fill storage join no later octet" {
+    var fixture: Fixture = .{};
+    var storage: [2]u8 = undefined;
+    fixture.start_wrapped(&storage);
+    try fixture.give("ab", false);
+    try testing.expectEqualStrings("ab", fixture.stream.next().?);
+    fixture.stream.keep(2);
+    try testing.expectEqual(null, fixture.stream.next());
+    try testing.expect(!fixture.stream.too_large);
+    try fixture.give("c", false);
+    try testing.expectEqual(null, fixture.stream.next());
+    try testing.expect(fixture.stream.too_large);
 }
