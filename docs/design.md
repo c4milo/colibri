@@ -16262,6 +16262,20 @@ library.
       the request's values, or a middleware's state not reset. Runtime safety left on in
       ReleaseSafe is NOT CAUGHT by a test, since a test may not read an `undefined` field; the
       disassembly above checks it.
+  - **The release judge of v0.17.0, 2026-11-15.**
+    [Run 43734512626](https://github.com/c4milo/colibri/actions/runs/43734512626) compared main
+    `ecf7ef5a` with v0.16.3 (`6ff19aa4`), at 5 rounds, in two jobs, with the h11 inputs. Main then
+    moved to `9d17c88a`, which changes `tools/ci.sh` alone.
+    - h2-many, h2-routes-many, h2-routes-post-many and h2-tls-many win, 1.2% to 2.9%, mostly from
+      the HPACK encoder's name chains. Each other GET input, over h11 and h2, is within the noise
+      but one.
+    - h11-one loses by user instructions: 1.0074 and 1.0058, against the floor of 0.50%. It took
+      20,443.7 and 20,389.9 user instructions a connection, where v0.16.3 took 20,293.7 and
+      20,273.0. The cost grew in steps that each stayed under the floor: about 96 from step 50,
+      whose own judge gave 1.0048, and about 30 from 50i and 50j. h11-many is within the noise.
+      The owner accepted the loss on 2026-11-15 and ruled the tag.
+    - h2-routes-post-late-many gives 1.0465 and 1.0438, because the two trees do different work:
+      at v0.16.3 the test server's POST routes answered at the head and read no body (50b).
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
