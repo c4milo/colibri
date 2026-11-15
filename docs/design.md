@@ -5565,6 +5565,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           derives now computes its powers once, which costs about 2,000 user instructions.
         - h2-tls-one takes 0.9963 and 0.9965, within the noise, from v0.7.0's faster P-256 and
           ML-KEM. Every other h11, h2 and h3 input is within the noise in both jobs.
+      - Where the rest goes, from run 43604640176's profile, whose samples count cycles. Of the
+        user-space samples on h11-many, in job 1 and job 2:
+
+        | Part | colibri | hyper |
+        | --- | --- | --- |
+        | HTTP parse and write | 19.4% and 18.8%, h11 and http | 36% and 36%, hyper, http and httparse |
+        | The loop | 9.1% and 8.7%, Rotor | 25% and 26%, tokio and mio |
+        | The engine and the connection | 54.4% and 56.2% | none of its own |
+        | The test server | 11.1% and 11.1% | none of its own |
+        | Copies and scans | 5.2% and 4.5% | 6% and 6%, with malloc |
+        | System calls' wrappers and the rest | under 1% | about 30%, with libc's recv and writev |
+
+        - At about 13,300 user instructions a request for colibri and 7,200 for hyper, h11 and
+          http take about 2,500 and hyper's HTTP code about 2,600. Rotor takes about 1,200, and
+          tokio's loop about 1,800.
+        - So the gap is in the engine and the connection, about 7,300 a request, and the test
+          server, about 1,450. The session that owns the engine has these numbers.
+        - The two largest repeats in h11 are small. `method.standard` runs 4 times a request,
+          about 240 instructions to save, and the Host check runs again on each request, about
+          190. Each is below the judge's noise on h11, so this step changes neither.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
