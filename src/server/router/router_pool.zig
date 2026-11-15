@@ -225,7 +225,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             const state = state_of(P, handler, entry);
-            if (comptime router_call.State(handler) != void) state.* = .{};
+            if (comptime router_call.State(handler) != void) router_call.reset_to_defaults(router_call.State(handler), state);
             if (!run_chain(P, pool, @intFromEnum(tag), entry, context, engine, request)) return;
             if (comptime !router_call.is_struct(handler)) return router_pool_whole.start(P, pool, @intFromEnum(tag), entry, context, engine, request);
             router_pool_stream.start(P, pool, @intFromEnum(tag), entry, context, engine, request);
@@ -237,7 +237,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, reque
 fn start_context(comptime P: type, entry: *P.Entry, id: event.RequestId) void {
     entry.request_context.request_id = id;
     if (comptime @hasField(@TypeOf(P.table), router_call.values_field)) {
-        entry.values = .{};
+        router_call.reset_to_defaults(@TypeOf(entry.values), &entry.values);
         entry.request_context.values_held = .init(@TypeOf(entry.values), &entry.values);
     }
 }

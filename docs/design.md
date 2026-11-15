@@ -16165,6 +16165,26 @@ library.
     - Against 50b's start, h2-routes-post-many went from 20,200 and 20,150 instructions a
       request to 20,379 and 20,356: the copy of 50e, whose cost the owner accepted. The late
       POST went from 37,734 and 38,000 to 37,749 and 37,911, within its noise of 2.75%.
+  - **50j, met 2026-11-15.** The router resets the request's values, a route's State and each
+    middleware's state one field at a time (decision 163 ruling 2 as amended), with
+    `router_call.reset_to_defaults`.
+    - connect-zig's routed-call benchmark found the cost. `.{}` lowers to a copy of the whole
+      struct from a constant, its `undefined` buffers too. connect_colibri's State is about
+      375 KB, so a unary call took 76,902 instructions, 95.5% of them that copy.
+    - Each field takes its default through the field's default pointer, since an optional cannot
+      hold an `undefined` default at comptime. A safe build fills an `undefined` field with 0xaa
+      through `memset`, so the reset runs with runtime safety off outside Debug. A `memset` of
+      vector stores, as pepegrillo's guide gives a program and Zig after 0.16 has, still writes
+      the whole buffer: about 14 µs for 375 KB at the guide's 1.2 µs for 32 KiB on an M1 Pro.
+    - Disassembly of a State with a buffer of 64 KiB, on arm64: ReleaseSafe and ReleaseFast each
+      store the two defined fields alone. `.{}` called `memcpy` of 65,552 octets in both, and
+      the reset with safety on called `memset` of 65,536 octets in ReleaseSafe.
+    - A test checks that a route's State starts from its defaults at each request on an entry,
+      and one checks the reset itself.
+    - **Mutations, 4 of 4 CAUGHT:** the reset skips each field after the first; a route's State,
+      the request's values, or a middleware's state not reset. Runtime safety left on in
+      ReleaseSafe is NOT CAUGHT by a test, since a test may not read an `undefined` field; the
+      disassembly above checks it.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

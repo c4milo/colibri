@@ -193,6 +193,17 @@ test "decision 163 ruling 6: on_data reads what arrived, and the octets it keeps
     try testing.expectEqual(event.Result.sent, fixture.app.result.?);
 }
 
+test "a route's State starts from its defaults at each request on the entry" {
+    var fixture: Fixture = .{};
+    fixture.head("POST", "/lines", false);
+    fixture.body("ab\n", true);
+    try testing.expectEqual(3, fixture.state().len);
+    fixture.handle(.{ .finished = .{ .id = @bitCast(@as(u128, 1)), .user_data = 1, .result = .sent } });
+    fixture.recorder = .{};
+    fixture.head("POST", "/lines", false);
+    try testing.expectEqual(0, fixture.state().len);
+}
+
 test "decision 163 ruling 6: a head that ends the request still runs on_data once, at the body's end" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/lines", true);
