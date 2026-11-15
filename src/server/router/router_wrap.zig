@@ -94,7 +94,7 @@ pub fn state_at(comptime chain: anytype, comptime index: usize, states: [*]u8) S
 /// Gives each middleware of `chain` the state its fields' defaults hold.
 pub fn reset(comptime chain: anytype, states: [*]u8) void {
     inline for (0..chain.len) |index| {
-        if (comptime State(chain[index]) != void) state_at(chain, index, states).* = .{};
+        if (comptime State(chain[index]) != void) router_call.reset_to_defaults(State(chain[index]), state_at(chain, index, states));
     }
 }
 

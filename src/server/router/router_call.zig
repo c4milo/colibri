@@ -2,6 +2,7 @@
 //! query it lends the request context, and the error function it calls after an error (decision
 //! 127 rulings 2 and 4, design §8 step 25.3). The root exports none of it.
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("../event.zig");
@@ -219,6 +220,29 @@ pub fn State(comptime handler: anytype) type {
 }
 
 /// Whether a struct route declares `name`. Comptime-only.
+/// Writes each field of `value` to its default, as `value.* = .{}` does, for a route's State, a
+/// middleware's state and the request's values. `.{}` copies the whole struct from a constant,
+/// the octets of each `undefined` field too. A field whose default is `undefined` takes no store
+/// here outside Debug, so a State that holds a large buffer costs no copy of it at each request.
+pub inline fn reset_to_defaults(comptime T: type, value: *T) void {
+    // A safe build fills each `undefined` field with 0xaa, a byte at a time on Linux. Debug keeps
+    // that fill, which shows a read of a field the program never wrote; ReleaseSafe skips it.
+    @setRuntimeSafety(builtin.mode == .Debug);
+    inline for (@typeInfo(T).@"struct".fields) |field| {
+        // An optional cannot hold an `undefined` default at comptime, so the pointer is read.
+        const default: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
+        @field(value, field.name) = default.*;
+    }
+}
+
+test "reset_to_defaults writes each field's default and leaves an undefined field alone" {
+    const Sample = struct { buffer: [8]u8 = undefined, len: usize = 0, mark: u8 = 7 };
+    var sample: Sample = .{ .buffer = @splat(1), .len = 5, .mark = 9 };
+    reset_to_defaults(Sample, &sample);
+    try std.testing.expectEqual(0, sample.len);
+    try std.testing.expectEqual(7, sample.mark);
+}
+
 pub fn has(comptime handler: anytype, comptime name: []const u8) bool {
     return comptime is_struct(handler) and @hasDecl(handler, name);
 }

@@ -7922,6 +7922,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         one. Its calls are `id()`, `values(T)`, `path(P)` and `query(Q)`.
      2. The route table takes an optional `.Values = T`, a struct whose fields each have a
         default. Each request starts with `.{}`, and `values(T)` gives it for the whole request.
+
+        Amended on 2026-11-15, after connect-zig's report. The router writes each field's default
+        one field at a time, for the values, a route's State and a middleware's state. `.{}`
+        copied the whole struct, and connect_colibri's State of about 375 KB cost 95.5% of a unary
+        call. Outside Debug a field whose default is `undefined` takes no store, and Debug keeps
+        its fill of 0xaa, which shows a read of a field that the program never wrote.
      3. A route's options take `.path = P` and `.query = Q`, in place of the function's path and
         query parameters. The router checks P against the pattern at compile time, and reads Q
         before the call, with 400 or 414 as before. `path(P)` and `query(Q)` answer during the
