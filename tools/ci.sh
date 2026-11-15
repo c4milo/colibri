@@ -269,6 +269,15 @@ if command -v lake >/dev/null 2>&1 || [ -x "${HOME}/.elan/bin/lake" ]; then
 else
   lean_lines="No lake on PATH or in ~/.elan/bin, so this run built no Lean proof."
 fi
+# Each library module's share of lines that its tests run, under kcov 43, which runs on Linux alone.
+if [ "$(uname -s)" = Linux ]; then
+  section "Line coverage of the library modules" tools/line_coverage_check.sh
+  coverage_lines="$(grep -F "[coverage]" "${scratch}/last.log")"
+else
+  echo "ci.sh: line coverage skipped; kcov runs on Linux alone"
+  echo "| Line coverage of the library modules | skipped: kcov runs on Linux alone | 0:00 |" >>"${scratch}/verdicts"
+  coverage_lines="This run counted no line, because kcov runs on Linux alone and this host runs $(uname -s)."
+fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
   throughput_lines="$(tail -3 "${scratch}/last.log")"
@@ -309,6 +318,14 @@ fi
   echo "Counted cost of one request (\`src/sim/cost_check.zig\`):"
   echo
   awk '/^pub const [a-z_]+: Cost = /,/^};/' src/sim/cost_check.zig | fenced
+  echo
+  echo "## Line coverage"
+  echo
+  echo "The share of each library module's lines that the tests run, under kcov 43"
+  echo "(\`tools/line_coverage_check.sh\`). Zig compiles only the functions that code references,"
+  echo "so the share is of the lines that the tests compile."
+  echo
+  echo "${coverage_lines}" | fenced
   echo
   echo "## Conformance and interop"
   echo

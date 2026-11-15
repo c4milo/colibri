@@ -349,6 +349,12 @@ Everything below exists. Change this section when a step adds or renames a comma
 - Fuzzer: `zig build test-<module> -Dfuzz --fuzz=<runs>` runs the module's fuzz properties under
   Zig's fuzzer. `build/fuzz.zig` gives it Zig 0.16.0's test runner with one line fixed, and
   `zig build test` keeps Zig's own runner (decision 144). `tools/ci.sh` does not run it.
+- Line coverage: `tools/line_coverage_check.sh` runs `zig build line-coverage`, which builds each
+  library module's tests in Debug with LLVM and runs them under kcov 43 through pepegrillo's
+  `coverage` tool (`build/line_coverage.zig`, `tools/line_coverage.zig`). It prints each module's
+  share of lines that the tests run, and the total. kcov runs on Linux alone: the script uses the
+  host's kcov 43, or else an ubuntu:26.04 container, which needs Docker. `tools/ci.sh` runs it on
+  Linux and skips it on another host.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
 - Route tables: `zig build router-check` compiles `tools/fixtures/router_refused.zig` once for each

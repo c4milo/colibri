@@ -16239,6 +16239,17 @@ library.
   - **Runs.** The rename landed with sub-step 50e's part 1, so the runs of that part hold for it.
     `tools/consumer_check.sh` built both dependents with the new names.
 
+- **Step 52 — line coverage, ruled 2026-11-15.** [Decision 164](decisions.md).
+  - `zig build line-coverage` (`build/line_coverage.zig`, `tools/line_coverage.zig`) runs the
+    tests of the 17 library modules and of `tls-keylog` under kcov 43, through pepegrillo's
+    `coverage` tool. `tools/line_coverage_check.sh` runs it on Linux, and `tools/ci.sh` holds it.
+  - pepegrillo moves from `9ae244b` to `97e7cfd`. `580a9d1` added the tool, and `97e7cfd` raised
+    its branch quota for 17 directories, with a test that names them.
+  - **The first count**, on an Apple M1 Pro in an ubuntu:26.04 container (arm64, kcov 43), took
+    190 s: 98.2% of 69,142 lines. Each module was between 96.8% (`core`) and 100% (`crypto` and
+    `tls_provider`), with `quic` at 98.2% of 18,178 lines and `server` at 98.0% of 15,400. The
+    README's badge takes its number from GitHub's first run of the check on main.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

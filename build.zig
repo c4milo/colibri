@@ -17,6 +17,9 @@
 //!
 //! `zig build guide` installs pepegrillo's guides: its performance method and its API guide.
 //!
+//! `zig build line-coverage` counts the lines of each library module that its tests run, under
+//! kcov on Linux; build/line_coverage.zig wires it.
+//!
 //! The library has two dependencies: chapulin, its TLS stack (decision 94), and stdx, its gzip and
 //! deflate decoders (decision 90). Adding another needs the owner (CLAUDE.md, Ask before). The
 //! tools take lazy packages, pepegrillo first, which only the root build requests, so a project
@@ -39,6 +42,7 @@ const colibri_loop_check = @import("build/colibri_loop_check.zig");
 const colibri_hosted_check = @import("build/colibri_hosted_check.zig");
 const check_steps = @import("build/check_steps.zig");
 const fuzz = @import("build/fuzz.zig");
+const line_coverage = @import("build/line_coverage.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools" };
@@ -172,6 +176,7 @@ pub fn build(b: *std.Build) void {
         add_narrow_test_step(b, entry.name).dependOn(run);
         if (entry.module == graph.golden) golden_tests = run;
     }
+    line_coverage.add(b, pepegrillo, optimize, &unit_test_modules);
 
     // The tools verify the tree, so they run on the host in Debug: a tool never ships.
     const tool_test_step = add_narrow_test_step(b, "tools");
