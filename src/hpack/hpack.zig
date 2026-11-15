@@ -62,6 +62,7 @@ test {
     _ = core.public_names.reference(@This(), &.{ "core", "wire", "http" });
     _ = @import("decoder_block.zig");
     _ = @import("encoder_string.zig");
+    _ = @import("name_chains.zig");
 }
 
 test "the static table is exactly the 61 entries of RFC 7541 Appendix A, from :authority" {

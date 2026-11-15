@@ -116,8 +116,8 @@ test "a connection with nothing pending writes no reply, after each kind of repl
 /// before it reads. Test-only.
 const storage_left_by_init = [_][]const u8{
     "decoder.table.octets", "decoder.table.entries", "decoder.name_scratch", "decoder.value_scratch",
-    "encoder.table.octets", "encoder.table.entries", "streams.pool.entries", "block.buffer",
-    "block.section.octets", "block.section.lines",   "send_block",
+    "encoder.table.octets", "encoder.table.entries", "encoder.chains.next",  "streams.pool.entries",
+    "block.buffer",         "block.section.octets",  "block.section.lines",  "send_block",
 };
 
 /// Two connections `init` starts over storage filled with zeros and with ones. Test-only.
