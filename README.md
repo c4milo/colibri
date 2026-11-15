@@ -27,7 +27,7 @@ The name is Spanish for hummingbird.
 | I/O | None. colibri parses octets you already read and writes into buffers you own. A call that would block returns what it needs instead. |
 | Time | A value you pass. No source file reads a clock. |
 | TLS and packet protection | Vtables: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. The `tls` module fills all three from [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, and a program may fill them itself. |
-| Status | Before 1.0: each minor release can change the API, and its notes list each breaking change first. The latest is [0.17.0](https://github.com/c4milo/colibri/releases/tag/v0.17.0). |
+| Status | Before 1.0: each minor release can change the API. [The releases page](https://github.com/c4milo/colibri/releases) holds each release's notes, its breaking changes first. |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 
@@ -436,35 +436,6 @@ coverage, h2spec and the interop scripts in cleartext and over TLS, h3spec, the 
 against Go, and the QUIC checks against colibri and aioquic. Every push also runs the module tests
 on arm64, on Linux and on macOS. The TLA+ models and the traces run every night. The HTTP Garden
 and the QUIC Interop Runner, against quic-go, ngtcp2, neqo and quinn, run every Monday.
-
-## Releases
-
-colibri is before 1.0. Each minor release can change the API, and its release notes list each
-breaking change first. The latest release is
-[0.17.0](https://github.com/c4milo/colibri/releases/tag/v0.17.0).
-
-| Release | Date | What it added |
-| --- | --- | --- |
-| [0.17.0](https://github.com/c4milo/colibri/releases/tag/v0.17.0) | 2026-11-15 | A request context in every route callback, function routes that get the whole request, stream routes for gRPC-shaped bodies, and constructors named `init` |
-| [0.16.0](https://github.com/c4milo/colibri/releases/tag/v0.16.0) | 2026-11-11 | `colibri.Server` and `colibri.Client` on the program's own loop, Rotor fetched only when asked for, and TLS session tickets |
-| [0.15.0](https://github.com/c4milo/colibri/releases/tag/v0.15.0) | 2026-11-09 | `colibri.Client`, streamed request and response bodies, and an API that follows TigerStyle and Zig's standard library |
-| [0.14.0](https://github.com/c4milo/colibri/releases/tag/v0.14.0) | 2026-11-06 | The `colibri` module, whose `colibri.Server` binds its port and runs the loop |
-| [0.13.0](https://github.com/c4milo/colibri/releases/tag/v0.13.0) | 2026-11-05 | Careful Resume (RFC 9959) and NewReno in QUIC |
-| [0.12.0](https://github.com/c4milo/colibri/releases/tag/v0.12.0) | 2026-11-04 | The CNSA 2.0 algorithms first in the server: ML-KEM-1024, AES-256-GCM and ML-DSA-87 |
-| [0.11.0](https://github.com/c4milo/colibri/releases/tag/v0.11.0) | 2026-11-01 | BBRv3 as QUIC's default congestion controller, PEM files, and the `dnssec` module |
-| [0.10.0](https://github.com/c4milo/colibri/releases/tag/v0.10.0) | 2026-10-30 | CUBIC with HyStart++, up to 16 STREAM frames in a packet, and 100 open h3 requests |
-| [0.9.0](https://github.com/c4milo/colibri/releases/tag/v0.9.0) | 2026-10-29 | Route functions with typed path and query values, middleware, one set of HTTP names, and TLS alerts the program names |
-| [0.8.0](https://github.com/c4milo/colibri/releases/tag/v0.8.0) | 2026-10-21 | The server's router, `client.Request` and `client.Response`, deadlines over h3, and zstd and br |
-| [0.7.0](https://github.com/c4milo/colibri/releases/tag/v0.7.0) | 2026-09-30 | QUIC version 2, the program's CPU probe, and the server's deadlines and rate limits |
-| [0.6.0](https://github.com/c4milo/colibri/releases/tag/v0.6.0) | 2026-09-29 | AES-256-GCM first on CPUs with the AES instructions, and the client's own suite order |
-| [0.5.0](https://github.com/c4milo/colibri/releases/tag/v0.5.0) | 2026-09-29 | The server over QUIC, Alt-Svc, and gzip and deflate content codings |
-| [0.4.0](https://github.com/c4milo/colibri/releases/tag/v0.4.0) | 2026-09-28 | The `server` and `client` modules, and qlog |
-| [0.3.0](https://github.com/c4milo/colibri/releases/tag/v0.3.0) | 2026-09-28 | Connection errors end the connection inside colibri, and h2 trailers |
-| [0.2.0](https://github.com/c4milo/colibri/releases/tag/v0.2.0) | 2026-09-27 | A TLS session draws from the source its caller passes |
-| [0.1.0](https://github.com/c4milo/colibri/releases/tag/v0.1.0) | 2026-09-27 | h11, h2 and h3, client and server, with TLS through chapulin |
-
-[The releases page](https://github.com/c4milo/colibri/releases) has the notes of each release:
-its breaking changes, what is new, its fixes, its speed, and the checks it passed.
 
 ## Platforms
 
