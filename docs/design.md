@@ -16150,6 +16150,21 @@ library.
       written for a cut message; the trailers left out; `flush` dropped; the test of `ended`
       removed; the trailers written at the first event; `on_finished` that counts nothing; and
       the messages not counted.
+    - **Runs.** `tools/ci.sh` on `a2790d1e`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31
+      checks passed.
+  - **The judge of step 50 as a whole.**
+    [Run 43681873844](https://github.com/c4milo/colibri/actions/runs/43681873844) compared main
+    `29200af3`, after 50g, with `03d56223`, the main that 50b started from, at 5 rounds, in two
+    jobs, with the h11 inputs. Main between the two also holds chapulin v0.7.0 and step 35e.
+    - Each input of a GET, over h11 and h2, is within the noise in both jobs. h2-routes-many
+      gave 1.0014 and 1.0011: 13,877.5 and 13,899.8 user instructions a request in job 1, 22
+      more. h11-one gave 1.0048 and 1.0035 by user instructions, under the noise of 0.50%.
+      h2-tls-one won in job 2, 0.9942.
+    - The run fails on the two POST inputs, which compare different work. At `03d56223` the
+      test server's POST routes answered at the head and read no body (50b).
+    - Against 50b's start, h2-routes-post-many went from 20,200 and 20,150 instructions a
+      request to 20,379 and 20,356: the copy of 50e, whose cost the owner accepted. The late
+      POST went from 37,734 and 38,000 to 37,749 and 37,911, within its noise of 2.75%.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
