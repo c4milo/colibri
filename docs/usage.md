@@ -845,8 +845,8 @@ the engine has released the bytes there (decision 103 as amended on 2026-11-09):
 - Over h3, once the client has acknowledged the bytes (RFC 9000 §3.1).
 
 So the entry's `response_bytes` bound the body bytes in flight, not the body. `flush()` sends the
-bytes the body's writer holds. When the memory has no room, a call fails, and a struct route with
-`on_writable` tries again in its next call:
+bytes the body's writer holds. When the memory has no room, a call fails, and a stream route with
+`next` tries again in its next call:
 
 - One `writeAll` of one slice through `body()` goes into the memory whole, or fails with
   `error.WriteFailed` and writes nothing. The route writes the slice again.
@@ -875,13 +875,13 @@ bytes the body's writer holds. When the memory has no room, a call fails, and a 
   again for it is cancelled.
 
 After either error the response is open. It has no end and no trailer section, and `write_kept`
-added none of its bytes. A struct route then does two things:
+added none of its bytes. A stream route then does two things:
 
-1. It returns from `on_writable` with no error.
-2. It makes the call again in its next `on_writable`, which the router calls at the request's
-   next `writable`.
+1. It returns from `next` with no error.
+2. It makes the call again in its next `next`, which the router calls at the request's next
+   `writable`.
 
-A route that returns the error from `on_writable` has its request cancelled once the head went
+A route that returns the error from `next` has its request cancelled once the head went
 out. A route that writes through `body()` alone gets no `error.Full` over h11, h2 or h3. A route
 that calls `write_kept` can get it, and so can any route over a test's engine that holds every run
 it takes.
@@ -1135,37 +1135,74 @@ With `header_bytes` 0 the router copies no header, and calls each function at th
 request whose body is still to come, a read of `request.body` then fails with `error.ReadFailed`,
 and the router drops the body. A program whose functions read no body can choose 0.
 
-A route can be a struct instead, with `on_request` and any of `on_body`, `on_writable` and
-`on_finished`, and a `State` that the request's pool entry holds. Each callback takes the
-program's context, the request context and a `*State` first. A struct that declares no `State`
-takes a `*void` there. The other parameters follow:
+A route can be a struct instead, which is a stream ([decision 163](decisions.md) ruling 6). It
+has `on_request`, any of `on_data`, `next` and `on_finished`, and a `State` that the request's
+pool entry holds. Each callback takes the program's context, the request context and a `*State`
+first. A struct that declares no `State` takes a `*void` there. The other parameters follow:
 
-- `on_request` takes the request and the response, as a function does. Its route names
-  `.path` and `.query` in the same way.
-- `on_body` takes a `std.Io.Reader` over the request body, and the response.
-- `on_writable` takes the response.
+- `on_request` takes the request and the response, a `*server.Response`, as a function does. Its
+  route names `.path` and `.query` in the same way.
+- `on_data` takes a `*server.RequestBodyStream`, the stream of the request's body, and the
+  response.
+- `next` takes the response.
 - `on_finished` takes the request's result.
+
+A struct that declares `on_body` or `on_writable`, the callbacks before decision 163, does not
+compile.
+
+A function and each callback of a stream route write the same `server.Response`, which each
+middleware hook and `error_handler` write too. They differ in who ends the response. The router
+ends a function's response when the function returns. A stream route ends its response itself.
+Else the router ends it once the body ended and `on_data` ran with the last piece, unless the
+route declares `next`.
 
 `on_request` runs at the head, before the body. So for a request with a body, a read of
 `request.body` there fails with `error.ReadFailed`, as it does in a middleware's `on_request`. The
-route reads the body in `on_body`, as the bytes arrive. There a read past the bytes that arrived
-fails with `error.ReadFailed` while more of the request body is to come. An `on_body` that returns
-that error waits for them: the bytes it left unread come first in its next call. At the request
-body's last byte a read fails with `error.EndOfStream`.
+route reads the body in `on_data`, which runs at each body event. `server.RequestBodyStream` holds
+no header, and has three calls:
 
-The pool entry's `body_bytes` holds the bytes an `on_body` left unread, and more than fit there
-get 413. The router ends the response once `on_body` ran with the last byte, unless the route has
-`on_writable`. `on_writable` writes a response over many calls. The router calls it while the
-response is open, the engine took all it was given, and the body's writer has room. The route ends
-the response itself. `on_finished` runs at the request's `finished` event, with its result.
+- `next()` returns the next piece of the body that has arrived, a `[]const u8`, with no copy. It
+  returns null when no piece waits now. Each call first lets go of the piece it gave before. A
+  piece stays valid until the next call of `next`, or until `on_data` returns.
+- `keep(len)` leaves the last `len` octets of the last piece unread. The next `next`, in this
+  `on_data` or in a later one, starts with them, joined with the octets that arrive later. So a
+  route reads a message that two events cut, as Connect and gRPC frame theirs. A later `keep`
+  takes the place of an earlier one, and `keep(0)` keeps none.
+- `ended()` returns true when `next` returned null at the body's end.
 
-The router calls `on_writable` while the request body is still open too, so a route can answer
-while the client still sends (decision 127 as amended on 2026-11-09):
+A route never relies on `ended()` at its last piece. Over h2 the end may come with the last
+piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later event with no
+octets, and the router calls `on_data` again for it. A request whose head ended it gets one
+`on_data`, whose `next` finds the end.
+
+The pool entry's `body_bytes` holds the octets that `on_data` left unread or kept, because the
+engine writes its event's octets again. Kept octets and the octets of the next event that do not
+fit there get 413 (RFC 9110 §15.5.14). Through a middleware's `wrap_body`, the last wrapper's
+buffer holds the kept octets: a piece holds at most that buffer, and kept octets that fill it get
+413. A wrapper's `rebase` may hold fewer octets than its buffer. std's flate decompressor keeps its
+window there, so through it a route keeps at most the buffer less the window, and a longer `keep`
+trips std's assertion. A route that reads through such a wrapper bounds what it keeps. A wrapper
+with no buffer cannot serve a stream route, and the router asserts so at the head.
+
+The router drops the body in two cases. A route with no `on_data` reads none. A route that ended
+its response gets no `on_data` after the end, so a route can refuse a request at the head. At the
+body's end, the router also drops what the last `on_data` left unread, the kept octets too. So
+`on_data` calls `next` until it returns null.
+
+After an error of `on_data` or `next`, `error_handler` gets a request whose method and path are
+empty and whose headers hold no line. A read of its body fails.
+
+`next` writes a response over many calls. The router calls it while the response is open, the
+engine took all it was given, and the body's writer has room. It calls `next` while the request
+body is still open too, so a route can answer while the client still sends (decision 127 as
+amended on 2026-11-09):
 
 - A call that writes nothing while the body is open waits for the next body bytes or the next
   `writable`.
 - Once the body has ended, a route that neither ends its response nor fills the engine is
   cancelled.
+
+`on_finished` runs at the request's `finished` event, with its result.
 
 Decision 110's request body deadlines apply to such a route too. So a route that waits for a
 quiet client needs a program that sets them for its connection with `set_timeouts`.
@@ -1363,7 +1400,8 @@ request's id. `on_finished` holds what a framework whose middleware wraps the ne
 
 A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader of
 the request body and returns another, which the next middleware wraps. The route reads the last one:
-a function through `request.body`, and a struct route in `on_body`. `wrap_response` does the same
+a function through `request.body`, and a stream route through the `server.RequestBodyStream` of
+its `on_data`. `wrap_response` does the same
 for the writer that the route's `body()` returns, and may add a header, such as Content-Encoding.
 Each runs at the head, after the middleware's `on_request` returns `.next`, and null keeps the
 reader or the writer it got. A wrapper writes nothing before the route starts the body, because the

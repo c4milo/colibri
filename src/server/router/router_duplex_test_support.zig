@@ -1,11 +1,12 @@
-//! What the tests of a struct route that answers while its client still sends share (decision 127
+//! What the tests of a stream route that answers while its client still sends share (decision 127
 //! as amended, design §8 step 46). The route owes `App.reply_len` octets for each request octet,
-//! and writes them from `on_body` and `on_writable`. The route table names it beside a function
-//! route, which answers once the body ended (decision 163 ruling 4). Test-only.
+//! and writes them from `on_data` and `next`. The route table names it beside a function route,
+//! which answers once the body ended (decision 163 ruling 4). Test-only.
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
@@ -40,8 +41,8 @@ pub const App = struct {
     /// Octets the route owes for each request octet, and at the request's head.
     reply_len: usize,
     head_len: usize = 0,
-    /// Octets the route wrote through `body()`, the calls of `on_writable` while the request body
-    /// was open, and those of them that wrote nothing.
+    /// Octets the route wrote through `body()`, the calls of `next` while the request body was
+    /// open, and those of them that wrote nothing.
     written: usize = 0,
     open_calls: usize = 0,
     idle_calls: usize = 0,
@@ -63,16 +64,18 @@ pub const Duplex = struct {
         try write_owed(app, state, response);
     }
 
-    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, response: *Response) !void {
-        const bytes = reader.buffered();
-        reader.toss(bytes.len);
-        state.owed += bytes.len * app.reply_len;
-        // The body reader fails with `error.EndOfStream` at the request's last byte only.
-        if (reader.peekByte()) |_| unreachable else |failure| state.body_ended = failure == error.EndOfStream;
+    pub fn on_data(app: *App, _: *RequestContext, state: *State, body: *RequestBodyStream, response: *Response) !void {
+        // Bounded: each pass takes one piece of the octets that arrived.
+        for (0..writes_max) |_| {
+            const piece = body.next() orelse break;
+            state.owed += piece.len * app.reply_len;
+        }
+        // The stream ends once `next` found the request's end.
+        state.body_ended = body.ended();
         try write_owed(app, state, response);
     }
 
-    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
+    pub fn next(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
         if (!state.body_ended) app.open_calls += 1;
         const before = app.written;
         try write_owed(app, state, response);

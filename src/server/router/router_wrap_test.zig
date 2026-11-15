@@ -1,11 +1,13 @@
 //! The tests of a middleware's wrappers (decision 127 ruling 5, design §8 step 25.6). Each wraps
 //! what the middleware before it gave, and the route reads and writes through the last one. The
 //! router finishes them from the route's side outward before it ends the response. A function
-//! route reads its whole body through the last wrapper at its call (decision 163 ruling 4).
+//! route reads its whole body through the last wrapper at its call (decision 163 ruling 4), and a
+//! stream route reads each piece through it (ruling 6).
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -133,20 +135,19 @@ fn kept(_: *App, _: *RequestContext, _: *const event.Request, response: *Respons
     try response.trailers(&.{.{ .name = "x-sum", .value = "1" }});
 }
 
-/// A struct route that reads the whole body through `Lower`, and answers with what it read.
+/// A stream route that reads each piece of the body through `Lower`, and ends its response at
+/// the body's end.
 const Echo = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
+    pub fn on_data(app: *App, _: *RequestContext, _: *void, body: *RequestBodyStream, response: *Response) !void {
+        // Bounded: each pass takes one piece, of one octet at least.
         for (0..read_len_max) |_| {
-            const byte = reader.takeByte() catch |failure| switch (failure) {
-                error.EndOfStream => break,
-                else => |other| return other,
-            };
-            app.read[app.read_len] = byte;
-            app.read_len += 1;
+            const piece = body.next() orelse break;
+            @memcpy(app.read[app.read_len..][0..piece.len], piece);
+            app.read_len += piece.len;
         }
-        try response.end();
+        if (body.ended()) try response.end();
     }
 };
 
@@ -172,11 +173,11 @@ fn full(_: *App, _: *RequestContext, _: *const event.Request, response: *Respons
     try response.trailers(&.{.{ .name = "x-sum", .value = "1" }});
 }
 
-/// A struct route that writes its response on `writable`, and ends it.
+/// A stream route that writes its response in `next`, and ends it.
 const Late = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(_: *App, _: *RequestContext, _: *void, response: *Response) !void {
+    pub fn next(_: *App, _: *RequestContext, _: *void, response: *Response) !void {
         try response.body().writeAll("ab");
         try response.end();
     }
@@ -261,7 +262,7 @@ test "design §8 step 25.6: an error of finish_response cancels the request" {
     try testing.expect(!fixture.recorder.ended);
 }
 
-test "design §8 step 25.6: the route reads the request body through the wrapper, over two calls" {
+test "design §8 step 25.6: a stream route reads each piece through the wrapper, over two calls" {
     var fixture: Fixture = .{};
     fixture.send("POST", "/echo", false);
     fixture.body("HeL", false);
@@ -280,7 +281,7 @@ test "design §8 step 25.6: a response the route left open ends once the wrapper
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
 
-test "design §8 step 25.6: a wrapped response that on_writable ends ends once" {
+test "design §8 step 25.6: a wrapped response that next ends ends once" {
     var fixture: Fixture = .{};
     fixture.send("GET", "/late", true);
     try testing.expectEqualStrings("AB!", fixture.recorder.body_bytes());

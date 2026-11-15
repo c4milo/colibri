@@ -16064,6 +16064,42 @@ library.
       CAUGHT. Among them: the late call reads the engine's request; a bound one octet off; the
       path matched again from another request; a part read from octets that a later read writes
       again, over h11 in cleartext and over TLS; the copy of a part skipped at the same size.
+  - **50f, met 2026-11-14.** A struct route is a stream (decision 163 ruling 6 as amended on
+    2026-11-14). Its callbacks are `on_request`, `on_data`, `next` and `on_finished`, and each
+    one writes the request's one `server.Response`. `on_body` and `on_writable` go.
+    - **`server.RequestBodyStream`.** `on_data` takes the stream of the request's body. Its
+      `next` gives each piece that has arrived, with no copy, or null when no piece waits.
+      `keep(len)` leaves the last `len` octets of a piece unread, and the next `next` gives them
+      joined with later octets. `ended` turns true once `next` returns null at the body's end.
+      Over h11 and h3 that can come in a later `on_data` with no octets.
+    - **The router's rules.** The router copies a kept tail into the entry before the engine's
+      event ends, within `body_bytes`, and answers 413 past it. Through a middleware's
+      `wrap_body`, a piece holds at most the wrapper's buffer, and kept octets that fill it get
+      413. The router drops the body of a route with no `on_data`, and of a route that ended its
+      response. It ends a response that a route with no `next` left open, once the body ended.
+    - **Two rulings.** The first build made `server.ResponseStream`, a second type with the same
+      fields and calls. It copied about 1,470 octets between the two around the middleware
+      chain, and the owner ruled one type. The owner named the stream `RequestBodyStream`,
+      because it holds the request's body alone.
+    - **The cost, from the source.** A function route and a request with no body run main's
+      code. In a table with no stream route, each entry's `body_stream` is `void`. A stream
+      route's body event does a few loads, stores and branches more around `on_data`.
+    - **A review.** A second agent read the change and found three faults.
+      - A `wrap_body` that returns null keeps the router's reader, but the stream took it for a
+        wrapper. A kept tail then got 413, and an end with no octets left `ended` false. The
+        router now tells the two apart at run time.
+      - std's flate decompressor rebases fewer octets than its buffer holds, so a longer `keep`
+        trips std's assertion. docs/usage.md bounds `keep` through such a wrapper, and the
+        router asserts at the head that a wrapper has a buffer.
+      - At the body's end the router drops what `on_data` left unread, and docs/usage.md now
+        says so.
+    - **Mutations, 18 of 18 CAUGHT:** `next` gives a piece again; `keep` keeps one octet more,
+      and one less; a kept tail not joined; a tail past `body_bytes` accepted; kept octets that
+      fill a wrapper accepted; `ended` true before the end; `on_data` after the response ended;
+      `next` with no room; a stream route's response left open at the body's end; `wrap_body`
+      skipped, with its assertion and without; `keep(0)` ignored; a struct with `on_body` or
+      `on_writable` accepted; the parameters of `on_data` and of `next` not checked; and a
+      `wrap_body` that keeps the router's reader taken for a wrapper.
   - **Checks.** Tests over h11, h2 and h3 for each sub-step, with its mutations. `zig build
     router-check` gets each new refusal. `zig build colibri-loop-check` gets the halts of
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the

@@ -46,6 +46,7 @@ const files = struct {
     pub const middleware = @import("middleware.zig");
     pub const response = @import("response/response.zig");
     pub const request_context = @import("request_context.zig");
+    pub const request_body_stream = @import("request_body_stream.zig");
 };
 
 /// What a program configures a server with, once: the engine copies it at `init` (decisions 119
@@ -98,12 +99,14 @@ pub const Writable = files.event.Writable;
 pub const Ended = files.event.Ended;
 pub const ResponseHeader = files.event.ResponseHeader;
 pub const ResponseBody = files.event.ResponseBody;
-/// The response a route's function writes: a status, headers, and a body through a
-/// `std.Io.Writer` (decision 127).
+/// The response a route writes: a status, headers, and a body through a `std.Io.Writer`
+/// (decision 127). A function route and each callback of a stream route write one.
 pub const Response = files.response.Response;
 /// The request's own object, which each router callback takes after the program's context
 /// (decision 163).
 pub const RequestContext = files.request_context.RequestContext;
+/// The stream of a request's body, which a stream route's `on_data` reads (decision 163 ruling 6).
+pub const RequestBodyStream = files.request_body_stream.RequestBodyStream;
 pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
 /// A response's status code, which `ResponseHeader.status` and `Response.status` take (decision
@@ -163,21 +166,21 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // adds `Instant`, and 45i `Status`. v0.16.0 renames `Instant` to `Timestamp`
     // (https://github.com/c4milo/colibri/issues/131). 50c adds `RequestContext` (decision 163),
     // and 50d renames `Response` to `ResponseHeader` and `ResponseWriter` to `Response` (decision
-    // 163 ruling 7).
+    // 163 ruling 7). 50f adds `RequestBodyStream` (decision 163 ruling 6).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",        "Config",             "Protocols",      "Limits",       "Timeout",
-        "Timeouts",         "CloseReason",        "Limit",          "Engine",       "Capacity",
-        "Timestamp",        "Input",              "Datagram",       "StreamBytes",  "LogProvider",
-        "ResumeProvider",   "ResumeState",        "ResumeBounds",   "Sent",         "Address",
-        "Ecn",              "StartError",         "SendError",      "Header",       "RequestId",
-        "ConnectionHandle", "Version",            "Headers",        "Event",        "Request",
-        "RequestBody",      "Trailers",           "CancelReason",   "Finished",     "Result",
-        "Writable",         "Ended",              "ResponseHeader", "ResponseBody", "Response",
-        "RequestContext",   "ReceiveResult",      "Alternative",    "Status",       "Coding",
-        "EncoderPool",      "EncoderPoolOptions", "Encoders",       "DecoderPool",  "DecoderPoolOptions",
-        "Decoders",         "Features",           "PathParameters", "Handled",      "Router",
-        "RouterOptions",    "middleware",
+        "constants",          "Config",            "Protocols",          "Limits",         "Timeout",
+        "Timeouts",           "CloseReason",       "Limit",              "Engine",         "Capacity",
+        "Timestamp",          "Input",             "Datagram",           "StreamBytes",    "LogProvider",
+        "ResumeProvider",     "ResumeState",       "ResumeBounds",       "Sent",           "Address",
+        "Ecn",                "StartError",        "SendError",          "Header",         "RequestId",
+        "ConnectionHandle",   "Version",           "Headers",            "Event",          "Request",
+        "RequestBody",        "Trailers",          "CancelReason",       "Finished",       "Result",
+        "Writable",           "Ended",             "ResponseHeader",     "ResponseBody",   "Response",
+        "RequestContext",     "RequestBodyStream", "ReceiveResult",      "Alternative",    "Status",
+        "Coding",             "EncoderPool",       "EncoderPoolOptions", "Encoders",       "DecoderPool",
+        "DecoderPoolOptions", "Decoders",          "Features",           "PathParameters", "Handled",
+        "Router",             "RouterOptions",     "middleware",
     });
 }
 

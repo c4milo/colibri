@@ -76,7 +76,8 @@ fn offsets_of(comptime chain: anytype) [chain.len + 1]usize {
 }
 
 /// What a request's wrappers gave the router: the writer each middleware's `wrap_response`
-/// returned, by its place in the chain, and the reader the route's `on_body` reads.
+/// returned, by its place in the chain, and the reader that a stream route's `on_data` reads
+/// through its `server.RequestBodyStream`.
 pub fn Held(comptime chain_max: usize) type {
     return struct {
         writers: [chain_max]?*std.Io.Writer = @splat(null),

@@ -221,7 +221,9 @@ fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, resp
 A request with no body gets its call at the head, and its `request.body` ends at once. For a
 request with a body, the router copies the header and holds the body until the call. A function
 does not see a trailer section. A middleware and a struct route's `on_request` run at the head,
-before the body. So for a request with a body, a read of `request.body` there fails.
+before the body. So for a request with a body, a read of `request.body` there fails. A struct
+route is a stream: its `on_data` reads each piece of the body as it arrives, through a
+`server.RequestBodyStream`, and each of its callbacks writes the `server.Response`.
 
 The request context is a `server.RequestContext`, the request's own object. Each callback of one
 request gets the same one: each middleware, the route and the error handler. It has four calls:

@@ -1,8 +1,8 @@
-//! The tests of a struct route that answers each request octet while its client still sends, over
+//! The tests of a stream route that answers each request octet while its client still sends, over
 //! h11 and h2 (decision 127 as amended, design §8 step 46): the router runs on the engine of the
 //! TCP tests, which reports each event to it. Each reply is longer than what the engine takes at
-//! once, so the route writes most of it from `on_writable`. A router that calls `on_writable` only
-//! after the body ends holds each reply until then.
+//! once, so the route writes most of it from `next`. A router that calls `next` only after the
+//! body ends holds each reply until then.
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("../engine/engine_tcp_test_support.zig");

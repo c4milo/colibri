@@ -16,7 +16,8 @@ const valid = .{ .get, "/", route };
 const tables = struct {
     /// Each kind of method and pattern that a table accepts at design §8 step 21e.6: an enum
     /// literal, a value of `http.method.Standard`, a token, the root, literal segments,
-    /// parameters and the wildcard. One route names its `.path` and its `.query` (decision 163).
+    /// parameters and the wildcard. One route names its `.path` and its `.query` (decision 163),
+    /// and one is a stream with each of its callbacks (decision 163 ruling 6).
     pub const accepted = .{
         .{ .get, "/", route },
         .{ http.method.Standard.put, "/users/me", route },
@@ -26,6 +27,7 @@ const tables = struct {
         .{ .put, "/files/:name", route },
         .{ .get, "/static/*", route },
         .{ .get, "/users/:id", route, .{ .path = handlers.Id, .query = http.QueryParameters } },
+        .{ .post, "/streams", handlers.Stream },
     };
     pub const pattern_not_absolute = .{ valid, .{ .get, "users", route } };
     pub const segment_empty = .{ valid, .{ .get, "/a//b", route } };
@@ -76,8 +78,12 @@ const tables = struct {
     pub const query_not_type = .{ valid, .{ .get, "/a", route, .{ .query = "id" } } };
     pub const response_parameter = .{ valid, .{ .get, "/a", handlers.response } };
     pub const return_type = .{ valid, .{ .get, "/a", handlers.returns } };
-    pub const on_body_parameters = .{ valid, .{ .post, "/a", handlers.Body } };
-    pub const on_writable_parameters = .{ valid, .{ .get, "/a", handlers.Writable } };
+    pub const on_data_parameters = .{ valid, .{ .post, "/a", handlers.Data } };
+    pub const next_parameters = .{ valid, .{ .get, "/a", handlers.Next } };
+    // Decision 163 ruling 6: a stream route declares `on_data` and `next` in place of `on_body`
+    // and `on_writable`.
+    pub const stream_callbacks = .{ valid, .{ .post, "/a", handlers.Body } };
+    pub const stream_callbacks_writable = .{ valid, .{ .get, "/a", handlers.Writable } };
     pub const on_finished_parameters = .{ valid, .{ .get, "/a", handlers.Finished } };
     pub const finished_returns = .{ valid, .{ .get, "/a", handlers.FinishedReturns } };
     pub const state_defaults = .{ valid, .{ .get, "/a", handlers.Defaults } };
@@ -111,6 +117,7 @@ const tables = struct {
 const handlers = struct {
     const Request = server.Request;
     const Response = server.Response;
+    const RequestBodyStream = server.RequestBodyStream;
     const RequestContext = server.RequestContext;
     /// The `.path` of "/users/:id", which the control names.
     const Id = struct { id: []const u8 };
@@ -136,13 +143,34 @@ const handlers = struct {
         return 0;
     }
     fn plain_on_request(_: *void, _: *RequestContext, _: *void, _: *const Request, _: *Response) !void {}
+    /// A stream with each callback, which the control holds.
+    const Stream = struct {
+        pub const State = struct { pieces: u32 = 0 };
+        pub fn on_request(_: *void, _: *RequestContext, _: *State, _: *const Request, _: *Response) !void {}
+        pub fn on_data(_: *void, _: *RequestContext, state: *State, body: *RequestBodyStream, _: *Response) !void {
+            if (body.next()) |_| state.pieces += 1;
+        }
+        pub fn next(_: *void, _: *RequestContext, _: *State, written: *Response) !void {
+            try written.end();
+        }
+        pub fn on_finished(_: *void, _: *RequestContext, _: *State, _: server.Result) void {}
+    };
+    const Data = struct {
+        pub const on_request = handlers.plain_on_request;
+        pub fn on_data(_: *void, _: *RequestContext, _: *void, _: []const u8, _: *Response) !void {}
+    };
+    const Next = struct {
+        pub const on_request = handlers.plain_on_request;
+        pub fn next(_: *void, _: *RequestContext, _: *void) !void {}
+    };
+    /// The callbacks before decision 163 ruling 6, each with the parameters it took then.
     const Body = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_body(_: *void, _: *RequestContext, _: *void, _: []const u8, _: *Response) !void {}
+        pub fn on_body(_: *void, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *Response) !void {}
     };
     const Writable = struct {
         pub const on_request = handlers.plain_on_request;
-        pub fn on_writable(_: *void, _: *RequestContext, _: *void) !void {}
+        pub fn on_writable(_: *void, _: *RequestContext, _: *void, _: *Response) !void {}
     };
     const Finished = struct {
         pub const on_request = handlers.plain_on_request;

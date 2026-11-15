@@ -1,4 +1,4 @@
-//! What the tests of a long response through a struct route share (design §8 step 46): a route
+//! What the tests of a long response through a stream route share (design §8 step 46): a route
 //! that writes a response many times longer than `response_bytes` through `body()`, one message
 //! at a time, and an engine that reads each run in place until the test acknowledges it, as h3
 //! does (RFC 9000 §3.1), or copies each run at once, as h11 and h2 do. The engine records each
@@ -75,7 +75,7 @@ pub const App = struct {
     /// an end that changed nothing, and ends again in its next call.
     trailers: bool = false,
     end_again: bool = false,
-    /// The calls of `on_writable`, those that found the writer with no room, the writes that
+    /// The calls of `next`, those that found the writer with no room, the writes that
     /// failed, which the route makes again in a later call, the flushes that failed, the octets
     /// written alone after a write that failed, and the ends that changed nothing.
     calls: usize = 0,
@@ -93,7 +93,7 @@ pub const Stream = struct {
 
     pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
+    pub fn next(app: *App, _: *RequestContext, state: *State, response: *Response) !void {
         app.calls += 1;
         const writer = response.body();
         if (writer.unusedCapacityLen() == 0) app.roomless_calls += 1;

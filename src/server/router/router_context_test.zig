@@ -7,6 +7,7 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Next = @import("../middleware.zig").Next;
 const Router = @import("router.zig").Router;
@@ -111,8 +112,8 @@ fn broken(_: *App, _: *RequestContext, _: *const event.Request, _: *Response) !v
     return error.TestBroken;
 }
 
-/// A struct route. Its `on_request` copies the path's name into its state, because the context
-/// lends the path during that call alone. Its `on_body` answers from the values and the state.
+/// A stream route. Its `on_request` copies the path's name into its state, because the context
+/// lends the path during that call alone. Its `on_data` answers from the values and the state.
 const Later = struct {
     pub const State = struct { name: Text = .{} };
 
@@ -121,7 +122,7 @@ const Later = struct {
         ctx.values(Values).writes += 1;
     }
 
-    pub fn on_body(_: *App, ctx: *RequestContext, state: *State, _: *std.Io.Reader, response: *Response) !void {
+    pub fn on_data(_: *App, ctx: *RequestContext, state: *State, _: *RequestBodyStream, response: *Response) !void {
         const values = ctx.values(Values);
         values.writes += 1;
         try response.body().print("{s} {s} {d}", .{ values.user.get(), state.name.get(), values.writes });
@@ -247,13 +248,13 @@ test "decision 163 ruling 1: id is the request's id, at the head and at the end"
     try testing.expectEqual(id_of(8), fixture.app.finished_id.?);
 }
 
-test "decision 163 ruling 1: each callback of a struct route reads the same values" {
+test "decision 163 ruling 1: each callback of a stream route reads the same values" {
     var fixture: Fixture = .{};
     fixture.request(1, "POST", "/later/x", false);
     try testing.expectEqual(2, fixture.values().writes);
     const body: event.RequestBody = .{ .id = id_of(1), .user_data = fixture.recorder.user_data, .bytes = "b", .end = true };
     fixture.handle(.{ .body = body });
-    // `Identify`, `on_request` and `on_body` each wrote once.
+    // `Identify`, `on_request` and `on_data` each wrote once.
     try testing.expectEqualStrings("ada x 3", fixture.recorder.body_bytes());
     fixture.finish(1);
     try testing.expectEqual(3, fixture.app.later_writes);
