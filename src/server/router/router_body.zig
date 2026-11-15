@@ -1,14 +1,16 @@
-//! The request body a route reads through a `std.Io.Reader` (decision 127 ruling 2, design §8 step
-//! 25.3). The root exports none of it.
+//! The reader of a request body (decision 127 ruling 2, design §8 step 25.3). The root exports
+//! none of it.
 //!
-//! A route's `on_body` gets a reader over the bytes that arrived. When it has read them all and the
-//! body has not ended, a read fails with `error.ReadFailed`, and an `on_body` that returns it waits for
-//! the next bytes. At the request's last byte a read fails with `error.EndOfStream`. The bytes a
-//! call leaves unread are copied into the entry's `body_bytes`, and the next call reads them first.
-//! A function route's every byte is copied there, and the route reads them all at the body's end
-//! (decision 163 ruling 4).
+//! The router's reader reads the bytes that arrived. When they are all read and the body has not
+//! ended, a read fails with `error.ReadFailed`. At the request's last byte a read fails with
+//! `error.EndOfStream`. A stream route's `server.RequestBodyStream` reads the body through it, or
+//! through the last wrapper of a middleware's `wrap_body` (decision 163 ruling 6). The bytes that
+//! `on_data` leaves unread, those that `keep` kept among them, are copied into the entry's
+//! `body_bytes`, and the next `on_data` reads them first. A function route's every byte is copied
+//! there, and the route reads them all at the body's end (decision 163 ruling 4).
 const std = @import("std");
 const assert = std.debug.assert;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 
 /// What `append` refuses: the body does not fit the entry's `body_bytes`.
 pub const Error = error{ContentTooLarge};
@@ -18,7 +20,8 @@ pub fn Body(comptime body_bytes: usize) type {
         /// The bytes a call left unread, then the bytes that arrived after them.
         held: [body_bytes]u8 = undefined,
         held_len: usize = 0,
-        /// Whether `on_body` ran with the last byte, so it runs no more.
+        /// Whether the route got the last byte, or the router dropped the body, so no body event
+        /// calls the route again.
         delivered: bool = false,
         cursor: Cursor = .{},
 
@@ -57,6 +60,21 @@ pub fn Body(comptime body_bytes: usize) type {
             body.held_len = unread.len;
         }
     };
+}
+
+/// Lets go of the piece that `next` gave last, less the octets that `keep` kept, once `on_data`
+/// returns. The reader then holds the kept octets at its seek, and the next `on_data` starts with
+/// them.
+pub fn let_go(body_stream: *RequestBodyStream) void {
+    body_stream.reader.toss(body_stream.given - body_stream.kept);
+    body_stream.given = body_stream.kept;
+}
+
+/// Whether the octets that `keep` kept fill the buffer of a middleware's wrapper, which then has no
+/// room to join one more octet to them.
+pub fn kept_fills_wrapper(body_stream: *const RequestBodyStream) bool {
+    const kept = body_stream.kept;
+    return body_stream.wrapped and kept > 0 and kept >= body_stream.reader.buffer.len;
 }
 
 /// The reader, and whether the request's last byte arrived, which a read past the bytes reads.

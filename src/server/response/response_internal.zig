@@ -121,9 +121,9 @@ pub fn mark(response: *const Response) Mark {
     };
 }
 
-/// Whether a call of `on_writable` finds room in the body's writer (design §8 step 46). A full
-/// region sends what it holds and takes back the memory the engine released. When none is free,
-/// the response waits for the engine's `writable`.
+/// Whether a call of a stream route's `next` finds room in the body's writer (design §8 step
+/// 46). A full region sends what it holds and takes back the memory the engine released. When
+/// none is free, the response waits for the engine's `writable`.
 pub fn has_room(response: *Response) Error!bool {
     if (!response.body_started) return true;
     if (response.writer.end < response.writer.buffer.len) return true;

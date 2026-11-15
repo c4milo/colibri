@@ -1,8 +1,8 @@
-//! The test of a struct route that answers each request octet while its client still sends, over
+//! The test of a stream route that answers each request octet while its client still sends, over
 //! h3 (decision 127 as amended, design §8 step 46): the router runs on the engine that the QUIC
 //! tests drive, with an h3 client in the same process. Each reply is longer than the route's
-//! response memory, so the route writes most of it from `on_writable` once the client
-//! acknowledged the runs before it (RFC 9000 §3.1).
+//! response memory, so the route writes most of it from `next` once the client acknowledged the
+//! runs before it (RFC 9000 §3.1).
 const std = @import("std");
 const quic = @import("quic");
 const event = @import("../event.zig");

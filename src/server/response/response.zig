@@ -1,6 +1,12 @@
-//! `server.Response`: the response to one request, which a route's function writes (decision
-//! 127, design §8 step 25.2). The router places one in each request's entry, over the entry's
-//! response memory, and passes a pointer to it. A program never makes one.
+//! `server.Response`: the response to one request, which a route writes (decision 127, design §8
+//! step 25.2). The router places one in each request's entry, over the entry's response memory,
+//! and passes a pointer to it. A program never makes one.
+//!
+//! A function route and each callback of a stream route write the same type, as each middleware
+//! hook and the route table's `error_handler` do (decision 163 ruling 6). The router ends a
+//! function route's response when the function returns. A stream route ends its response itself.
+//! Else the router ends it once the request body ended and `on_data` ran with the last piece,
+//! unless the route declares `next`.
 //!
 //! A program sets `status`, adds headers with `header`, writes the body through the
 //! `std.Io.Writer` that `body` returns, and calls `end`, or `trailers` to end with a trailer
@@ -11,8 +17,8 @@
 //! again into memory whose bytes the engine released (decisions 103 and 127 as amended, design §8
 //! step 46): at once over h11 and h2, and over h3 once the peer acknowledged them. So
 //! `response_bytes` bounds the bytes in flight, not the response. One `writeAll` of one slice
-//! goes into the memory whole, or fails with `error.WriteFailed` and writes nothing, and a route
-//! writes it again in `on_writable`.
+//! goes into the memory whole, or fails with `error.WriteFailed` and writes nothing, and a stream
+//! route writes it again in `next`.
 //!
 //! A `flush` makes a run of the bytes the body's writer holds. The response has
 //! `response_pieces_max` slots for the runs the engine has not released. With a run in each slot,

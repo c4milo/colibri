@@ -7954,6 +7954,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         cannot say that no piece waits yet. `server.ResponseStream` writes each piece as
         the route gives it, and the router calls `next` when it has room. The callbacks are
         `on_request`, `on_data`, `next` and `on_finished`; `on_body` and `on_writable` go.
+
+        Amended on 2026-11-14 (design §8 step 50f). A stream route writes the one
+        `server.Response`, as a function route, each middleware hook and the `error_handler` do.
+        `server.ResponseStream` goes. It held the same fields and calls as `server.Response`, so
+        it added a name and no behaviour. The stream of the body takes the name
+        `server.RequestBodyStream`, because it holds the request's body and no part of the
+        response. Its calls are `next`, `keep` and `ended`. `keep(len)` leaves the last `len`
+        octets of a piece unread, and the next `next` gives them joined with the octets that
+        arrive later. So a route reads a message that two events cut, as gRPC and Connect frame
+        theirs.
      7. `server.ResponseWriter` takes the name `server.Response`, and the engine's header struct
         of that name becomes `server.ResponseHeader`. No other name changes: `server.Request`
         keeps its name and gains `body`.
@@ -7992,6 +8002,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `requests`.
      - A reader for a stream's body. `std.Io.Reader` reports a body that has no bytes yet as
        `error.ReadFailed`, which is what `on_body` did.
+     - A second type for a stream route's response, `server.ResponseStream`, from the same
+       definition as `server.Response`. A middleware hook takes a `server.Response`, so a stream
+       copied about 1,470 octets of state to the other type and back, ruled on 2026-11-14.
+     - A stream route's body in `server.Request`, whose header the router would copy for each
+       stream request too: about 165 instructions on a small POST (ruling 6 as amended).
+     - The name `RequestStream`, which suggests a second kind of `server.Request`.
      - The names `RequestHeader` for the engine's request header, and `header_sent` for
        `head_sent`. The owner refused each rename but the response's.
      - Sizes that each route states, from which the router sizes its pool. Most routes would

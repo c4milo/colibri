@@ -48,12 +48,18 @@ const router_handler = @import("router_handler.zig");
 /// pairs. The function reads them with `ctx.path(Name)` and `ctx.query(Mark)`. A route that names
 /// no `.path` and no `.query` reads neither.
 ///
-/// A route can be a struct instead, with `on_request`, which takes a `*State` after the request
-/// context and else the parameters of a function, and any of `on_body`, `on_writable` and
-/// `on_finished`. Each takes the context, the request context and the `*State` first. `on_body`
-/// reads the request body through a `*std.Io.Reader`, as the bytes arrive. For a request with a
-/// body, a read of `request.body` fails with `error.ReadFailed` in `on_request` and in a
-/// middleware's `on_request`. The body comes after the head.
+/// A route can be a struct instead, a stream (decision 163 ruling 6). Each callback takes the
+/// context, the request context and the `*State` first, and writes the `*server.Response`:
+///
+/// - `on_request` takes the request and the response, at the head. For a request with a body, a
+///   read of `request.body` fails with `error.ReadFailed` there and in a middleware's
+///   `on_request`. The body comes after the head.
+/// - `on_data`, which a route may leave out, takes the `*server.RequestBodyStream` of the body
+///   and the response, at each body event.
+/// - `next`, which a route may leave out, takes the response, while the response has room.
+/// - `on_finished`, which a route may leave out, takes the request's result.
+///
+/// A struct that declares `on_body` or `on_writable` does not compile.
 ///
 /// Middleware run before a route: the route table's `middleware`, then the route entry's, each a
 /// struct with `on_request`, `on_finished` or both (`server.middleware`). Each hook takes the
@@ -155,6 +161,8 @@ test "decision 163 ruling 5: header_bytes has no default, so a program names it"
 test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_struct_test.zig");
+    _ = @import("router_data_test.zig");
+    _ = @import("router_data_engine_test.zig");
     _ = @import("router_middleware_test.zig");
     _ = @import("router_context_test.zig");
     _ = @import("router_wrap_test.zig");

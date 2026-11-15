@@ -161,7 +161,7 @@ const cases = [_]Case{
     .{
         .name = "state_parameter",
         .message = "server.Router: route 1, \"/a\": state_parameter: " ++
-            "on_request, on_body, on_writable and on_finished take a *State after the request context",
+            "on_request, on_data, next and on_finished take a *State after the request context",
     },
     .{
         .name = "request_parameter",
@@ -186,7 +186,7 @@ const cases = [_]Case{
     .{
         .name = "response_parameter",
         .message = "server.Router: route 1, \"/a\": response_parameter: " ++
-            "the last parameter is *server.Response",
+            "the last parameter is *server.Response, in a function and in each callback of a struct route",
     },
     .{
         .name = "return_type",
@@ -194,14 +194,24 @@ const cases = [_]Case{
             "a route's function returns void or an error union of void",
     },
     .{
-        .name = "on_body_parameters",
-        .message = "server.Router: route 1, \"/a\": on_body_parameters: " ++
-            "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.Response",
+        .name = "on_data_parameters",
+        .message = "server.Router: route 1, \"/a\": on_data_parameters: " ++
+            "on_data takes the context, *server.RequestContext, *State, *server.RequestBodyStream and *server.Response",
     },
     .{
-        .name = "on_writable_parameters",
-        .message = "server.Router: route 1, \"/a\": on_writable_parameters: " ++
-            "writable takes the context, *server.RequestContext, *State and *server.Response",
+        .name = "next_parameters",
+        .message = "server.Router: route 1, \"/a\": next_parameters: " ++
+            "next takes the context, *server.RequestContext, *State and *server.Response",
+    },
+    .{
+        .name = "stream_callbacks",
+        .message = "server.Router: route 1, \"/a\": stream_callbacks: " ++
+            "a struct route is a stream: it declares on_data and next in place of on_body and on_writable (decision 163 ruling 6)",
+    },
+    .{
+        .name = "stream_callbacks_writable",
+        .message = "server.Router: route 1, \"/a\": stream_callbacks: " ++
+            "a struct route is a stream: it declares on_data and next in place of on_body and on_writable (decision 163 ruling 6)",
     },
     .{
         .name = "on_finished_parameters",

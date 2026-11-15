@@ -6,6 +6,7 @@ const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const router_pattern = @import("router_pattern.zig");
 const router_call = @import("router_call.zig");
@@ -15,6 +16,7 @@ const router_wrap = @import("router_wrap.zig");
 /// Why the router refuses a route's handler. Each name is the one the compile error writes.
 pub const Reason = enum {
     handler_type,
+    stream_callbacks,
     on_request_missing,
     parameters_count,
     context_parameter,
@@ -26,8 +28,8 @@ pub const Reason = enum {
     query_parameter,
     response_parameter,
     return_type,
-    on_body_parameters,
-    on_writable_parameters,
+    on_data_parameters,
+    next_parameters,
     on_finished_parameters,
     state_defaults,
     option_unknown,
@@ -44,19 +46,20 @@ pub const Reason = enum {
     pub fn sentence(reason: Reason) []const u8 {
         return switch (reason) {
             .handler_type => "a route holds a function, or a struct with on_request (decision 127)",
+            .stream_callbacks => "a struct route is a stream: it declares on_data and next in place of on_body and on_writable (decision 163 ruling 6)",
             .on_request_missing => "a struct route declares pub fn on_request (decision 127)",
             .parameters_count => "a route's function takes the context, *server.RequestContext, the request and the response, and on_request a *State after the request context (decision 163)",
             .context_parameter => "the first parameter is a pointer to the router's Context",
             .request_context_parameter => "the parameter after the context is *server.RequestContext (decision 163)",
-            .state_parameter => "on_request, on_body, on_writable and on_finished take a *State after the request context",
+            .state_parameter => "on_request, on_data, next and on_finished take a *State after the request context",
             .request_parameter => "the request parameter is *const server.Request",
             .path_parameter => "a route's .path is void, or a struct of []const u8 fields (decision 163)",
             .path_fields_differ => "the .path struct has one field for each parameter of the pattern, and rest for its \"*\"",
             .query_parameter => "a route's .query is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields (decision 163)",
-            .response_parameter => "the last parameter is *server.Response",
+            .response_parameter => "the last parameter is *server.Response, in a function and in each callback of a struct route",
             .return_type => "a route's function returns void or an error union of void",
-            .on_body_parameters => "body takes the context, *server.RequestContext, *State, *std.Io.Reader and *server.Response",
-            .on_writable_parameters => "writable takes the context, *server.RequestContext, *State and *server.Response",
+            .on_data_parameters => "on_data takes the context, *server.RequestContext, *State, *server.RequestBodyStream and *server.Response",
+            .next_parameters => "next takes the context, *server.RequestContext, *State and *server.Response",
             .on_finished_parameters => "finished takes the context, *server.RequestContext, *State and server.Result, and returns void",
             .state_defaults => "each field of State has a default value, which each request starts from",
             .option_unknown => "a route's options are path, query and middleware",
@@ -97,6 +100,8 @@ pub fn refusal_of(comptime Context: type, comptime entry: anytype) ?Reason {
         return function_refusal(Context, null, Function);
     }
     if (@typeInfo(handler) != .@"struct") return .handler_type;
+    // Decision 163 ruling 6: `on_data` and `next` take the place of `on_body` and `on_writable`.
+    if (@hasDecl(handler, "on_body") or @hasDecl(handler, "on_writable")) return .stream_callbacks;
     if (!@hasDecl(handler, "on_request")) return .on_request_missing;
     const State = router_call.State(handler);
     if (state_refusal(State)) |reason| return reason;
@@ -293,11 +298,11 @@ fn state_refusal(comptime State: type) ?Reason {
     return null;
 }
 
-/// The checks of a struct route's `on_body`, `on_writable` and `on_finished`.
+/// The checks of a struct route's `on_data`, `next` and `on_finished`.
 fn calls_refusal(comptime Context: type, comptime State: type, comptime handler: type) ?Reason {
     const Stated = if (State == void) *void else *State;
-    if (@hasDecl(handler, "on_body") and !takes(handler.on_body, &.{ *Context, *RequestContext, Stated, *std.Io.Reader, *Response })) return .on_body_parameters;
-    if (@hasDecl(handler, "on_writable") and !takes(handler.on_writable, &.{ *Context, *RequestContext, Stated, *Response })) return .on_writable_parameters;
+    if (@hasDecl(handler, "on_data") and !takes(handler.on_data, &.{ *Context, *RequestContext, Stated, *RequestBodyStream, *Response })) return .on_data_parameters;
+    if (@hasDecl(handler, "next") and !takes(handler.next, &.{ *Context, *RequestContext, Stated, *Response })) return .next_parameters;
     if (@hasDecl(handler, "on_finished")) {
         if (!takes(handler.on_finished, &.{ *Context, *RequestContext, Stated, event.Result })) return .on_finished_parameters;
         if (@typeInfo(@TypeOf(handler.on_finished)).@"fn".return_type.? != void) return .on_finished_parameters;

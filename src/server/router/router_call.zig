@@ -7,6 +7,7 @@ const http = @import("http");
 const event = @import("../event.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const request_context = @import("../request_context.zig");
 const RequestContext = request_context.RequestContext;
 const router_wrap = @import("router_wrap.zig");
@@ -92,8 +93,8 @@ pub const Outcome = union(enum) {
     /// The router answered with this status before the call: the query has more pairs than it
     /// holds, or lacks one the function requires.
     refused: http.Status,
-    /// A struct route read all the bytes that arrived and returned `error.ReadFailed`: it waits
-    /// for more.
+    /// A struct route's callback returned `error.ReadFailed`, as a read of a body still to come
+    /// gives: it waits for more.
     waiting,
 };
 
@@ -188,11 +189,27 @@ pub fn finish_chain(comptime chain: anytype, ran: u16, context: anytype, ctx: *R
     }
 }
 
-/// A route's handler: a function, or a struct of `on_request` and any of `on_body`,
-/// `on_writable` and `on_finished`, with a `State`. Comptime-only.
+/// A route's handler: a function, or a struct of `on_request` and any of `on_data`, `next` and
+/// `on_finished`, with a `State`. Comptime-only.
 pub fn is_struct(comptime handler: anytype) bool {
     return @TypeOf(handler) == type;
 }
+
+/// Whether a route of `routes` is a struct, which is a stream (decision 163 ruling 6).
+/// Comptime-only.
+pub fn has_stream(comptime routes: anytype) bool {
+    // The loop reads each route once, and the GitHub API's 203 routes pass the default budget of
+    // 1,000 branches (`src/testing/server/server_routes.zig`).
+    @setEvalBranchQuota(stream_quota_base + stream_quota_per_route * routes.len);
+    for (0..routes.len) |index| {
+        if (is_struct(routes[index][handler_part])) return true;
+    }
+    return false;
+}
+
+/// The comptime branches of `has_stream`: a base, and a share for each route.
+const stream_quota_base = 1000;
+const stream_quota_per_route = 10;
 
 /// The state a struct route keeps in its request's entry, or `void` for a route with none.
 /// Comptime-only.
@@ -244,14 +261,14 @@ pub fn call_on_request(
     return outcome_of(.fails, handler(context, ctx, request, response));
 }
 
-/// Calls a struct route's `on_body` with the reader over the bytes that arrived.
-pub fn call_body(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), reader: *std.Io.Reader, response: *Response) Outcome {
-    return outcome_of(.waits, handler.on_body(context, ctx, state, reader, response));
+/// Calls a struct route's `on_data` with the stream of the request's body.
+pub fn call_data(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), stream: *RequestBodyStream, response: *Response) Outcome {
+    return outcome_of(.waits, handler.on_data(context, ctx, state, stream, response));
 }
 
-/// Calls a struct route's `on_writable`.
-pub fn call_writable(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *Response) Outcome {
-    return outcome_of(.waits, handler.on_writable(context, ctx, state, response));
+/// Calls a struct route's `next`.
+pub fn call_next(comptime handler: anytype, context: anytype, ctx: *RequestContext, state: *State(handler), response: *Response) Outcome {
+    return outcome_of(.waits, handler.next(context, ctx, state, response));
 }
 
 /// What a call's `error.ReadFailed` means. A struct route's call `waits` for more of the body. A

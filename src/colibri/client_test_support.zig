@@ -112,7 +112,7 @@ const Stream = struct {
         try response.header("content-type", "application/octet-stream");
     }
 
-    pub fn on_writable(_: *void, _: *server.RequestContext, state: *State, response: *server.Response) !void {
+    pub fn next(_: *void, _: *server.RequestContext, state: *State, response: *server.Response) !void {
         const writer = response.body();
         var message: [message_len]u8 = undefined;
         // Bounded: each pass writes one message.

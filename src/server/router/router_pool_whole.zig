@@ -28,7 +28,7 @@ const request_header_fields_too_large = constants.protocol.request_header_fields
 /// header's storage again before the body ends.
 ///
 /// It is `inline`, with `start_ended` and `call`. The call at the head is the path of each
-/// request with no body. It stays in the pool's `start`, as a struct route's first call does.
+/// request with no body. It stays in the pool's `start`, as a stream route's first call does.
 /// Design §8 step 50e records what three calls cost a GET.
 pub inline fn start(comptime P: type, pool: *P, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, engine: anytype, request: *const event.Request) void {
     const chain = comptime router_call.table_chain(Parts(P).table) ++ router_call.entry_chain(Parts(P).table.routes[index]);

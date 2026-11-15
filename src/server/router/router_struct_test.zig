@@ -1,11 +1,12 @@
-//! The tests of `server.Router`'s struct routes (decision 127 ruling 2, design §8 step 25.3). Such
-//! a route has a state, reads the request body through a `std.Io.Reader`, and may write its
-//! response over many `writable` events. A function route beside them reads the whole body in one
-//! call (decision 163 ruling 4).
+//! The tests of `server.Router`'s stream routes (decision 127 ruling 2, decision 163 ruling 6,
+//! design §8 step 25.3). Such a route has a state, reads the request body through a
+//! `server.RequestBodyStream`, and may write its `server.Response` over many `writable` events. A
+//! function route beside them reads the whole body in one call (decision 163 ruling 4).
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const Response = @import("../response/response.zig").Response;
+const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
@@ -22,18 +23,19 @@ const App = struct {
     finished: usize = 0,
     result: ?event.Result = null,
     fail_body: bool = false,
-    /// Reads that found the body's end.
+    /// Calls of `on_data` that found the body's end.
     ends: usize = 0,
-    /// Calls of `on_writable`, and whether each writes one byte.
-    writables: usize = 0,
-    write_on_writable: bool = false,
+    /// Calls of `next`, and whether each writes one byte.
+    nexts: usize = 0,
+    write_on_next: bool = false,
     /// The lines the error function counted in its request's headers, and what a read of its
     /// request's body gave.
     error_lines: ?u32 = null,
     error_read: ?anyerror = null,
 };
 
-/// Echoes each line of the body, one call of `body` at a time.
+/// Keeps each whole line of the body, one call of `on_data` at a time. The octets after a piece's
+/// last line stay unread, and start the next piece.
 const Lines = struct {
     pub const State = struct { kept: [kept_len]u8 = undefined, len: usize = 0 };
 
@@ -41,21 +43,18 @@ const Lines = struct {
         app.heads += 1;
     }
 
-    pub fn on_body(app: *App, _: *RequestContext, state: *State, reader: *std.Io.Reader, _: *Response) !void {
+    pub fn on_data(app: *App, _: *RequestContext, state: *State, body: *RequestBodyStream, _: *Response) !void {
         app.bodies += 1;
         if (app.fail_body) return error.TestRefused;
-        // Bounded: each pass takes one line of the bytes that arrived.
+        // Bounded: each pass takes one piece of the bytes that arrived.
         for (0..kept_len) |_| {
-            const line = reader.takeDelimiterInclusive('\n') catch |failure| switch (failure) {
-                error.EndOfStream => {
-                    app.ends += 1;
-                    return;
-                },
-                else => |other| return other,
-            };
-            @memcpy(state.kept[state.len..][0..line.len], line);
-            state.len += line.len;
+            const piece = body.next() orelse break;
+            const lines_len = if (std.mem.lastIndexOfScalar(u8, piece, '\n')) |last| last + 1 else 0;
+            @memcpy(state.kept[state.len..][0..lines_len], piece[0..lines_len]);
+            state.len += lines_len;
+            body.keep(piece.len - lines_len);
         }
+        if (body.ended()) app.ends += 1;
     }
 
     pub fn on_finished(app: *App, _: *RequestContext, state: *State, result: event.Result) void {
@@ -75,48 +74,51 @@ fn whole(app: *App, _: *RequestContext, request: *const event.Request, response:
     try response.end();
 }
 
-/// Writes one byte of `digits` for each call of `writable`: more calls than the runs a response
+/// Writes one byte of `digits` for each call of `next`: more calls than the runs a response
 /// holds, so a call while the engine is full would overflow it.
 const Counter = struct {
-    pub const State = struct { next: u8 = 0 };
+    pub const State = struct { written: u8 = 0 };
     const digits = "0123456789abcdefghij";
 
     pub fn on_request(_: *App, _: *RequestContext, _: *State, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_writable(_: *App, _: *RequestContext, state: *State, response: *Response) !void {
-        if (state.next == digits.len) return response.end();
-        try response.write_kept(digits[state.next..][0..1]);
-        state.next += 1;
+    pub fn next(_: *App, _: *RequestContext, state: *State, response: *Response) !void {
+        if (state.written == digits.len) return response.end();
+        try response.write_kept(digits[state.written..][0..1]);
+        state.written += 1;
     }
 };
 
-/// Echoes each body byte from `on_body`, and counts its calls of `on_writable`, which write one byte
-/// when the test asks and nothing otherwise: a route that answers while the client still sends.
+/// Echoes each piece of the body from `on_data`, and counts its calls of `next`, which write one
+/// byte when the test asks and nothing otherwise: a route that answers while the client still
+/// sends.
 const Duplex = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, reader: *std.Io.Reader, response: *Response) !void {
+    pub fn on_data(app: *App, _: *RequestContext, _: *void, body: *RequestBodyStream, response: *Response) !void {
         app.bodies += 1;
-        const bytes = reader.buffered();
-        reader.toss(bytes.len);
-        try response.body().writeAll(bytes);
+        // Bounded: each pass writes one piece.
+        for (0..kept_len) |_| {
+            const piece = body.next() orelse break;
+            try response.body().writeAll(piece);
+        }
         try response.body().flush();
     }
 
-    pub fn on_writable(app: *App, _: *RequestContext, _: *void, response: *Response) !void {
-        app.writables += 1;
-        if (app.write_on_writable) try response.write_kept("w");
+    pub fn next(app: *App, _: *RequestContext, _: *void, response: *Response) !void {
+        app.nexts += 1;
+        if (app.write_on_next) try response.write_kept("w");
     }
 };
 
 /// The query of `Needs`, which its entry names as `.query` (decision 163 ruling 3). Test-only.
 const Id = struct { id: []const u8 };
 
-/// Requires the query pair `id`, and counts its calls of `on_body`.
+/// Requires the query pair `id`, and counts its calls of `on_data`.
 const Needs = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
-    pub fn on_body(app: *App, _: *RequestContext, _: *void, _: *std.Io.Reader, _: *Response) !void {
+    pub fn on_data(app: *App, _: *RequestContext, _: *void, _: *RequestBodyStream, _: *Response) !void {
         app.bodies += 1;
     }
 };
@@ -172,12 +174,12 @@ const Fixture = struct {
     }
 };
 
-test "decision 127: body reads what arrived, and the bytes it leaves unread come first next time" {
+test "decision 163 ruling 6: on_data reads what arrived, and the octets it keeps come first next time" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/lines", false);
     fixture.body("ab\ncd", false);
     try testing.expectEqualStrings("ab\n", fixture.state().kept[0..fixture.state().len]);
-    // The bytes that arrived ran out, and the body has not ended.
+    // The octets that arrived ran out, and the body has not ended.
     try testing.expectEqual(0, fixture.app.ends);
     fixture.body("e\nf", true);
     try testing.expectEqual(1, fixture.app.ends);
@@ -191,11 +193,12 @@ test "decision 127: body reads what arrived, and the bytes it leaves unread come
     try testing.expectEqual(event.Result.sent, fixture.app.result.?);
 }
 
-test "decision 127: a head that ends the request still runs body once, with an empty reader" {
+test "decision 163 ruling 6: a head that ends the request still runs on_data once, at the body's end" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/lines", true);
     try testing.expectEqual(1, fixture.app.heads);
     try testing.expectEqual(1, fixture.app.bodies);
+    try testing.expectEqual(1, fixture.app.ends);
     try testing.expect(fixture.recorder.ended);
 }
 
@@ -218,7 +221,7 @@ test "RFC 9110 §15.5.14: a body larger than body_bytes gets 413" {
     try testing.expectEqual(0, fixture.app.bodies);
 }
 
-test "decision 127 ruling 4: an error of body before the head goes to the error function" {
+test "decision 127 ruling 4: an error of on_data before the head goes to the error function" {
     var fixture: Fixture = .{};
     fixture.app.fail_body = true;
     fixture.head("POST", "/lines", false);
@@ -233,7 +236,7 @@ test "decision 127 ruling 4: an error of body before the head goes to the error 
     try testing.expectEqual(1, fixture.app.bodies);
 }
 
-test "decision 127: writable writes a response over many events, and ends it itself" {
+test "decision 163 ruling 6: next writes a response over many events, and ends it itself" {
     var fixture: Fixture = .{};
     fixture.recorder.room = 1;
     fixture.head("GET", "/count", true);
@@ -249,7 +252,7 @@ test "decision 127: writable writes a response over many events, and ends it its
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
 
-test "RFC 9110 §15.5.1: a struct route whose query lacks a required pair gets 400, and no on_body" {
+test "RFC 9110 §15.5.1: a stream route whose query lacks a required pair gets 400, and no on_data" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/needs", true);
     try testing.expectEqual(400, @intFromEnum(fixture.recorder.heads[0].status));
@@ -262,17 +265,17 @@ fn writable_after_room(fixture: *Fixture) void {
     fixture.handle(.{ .writable = .{ .id = @bitCast(@as(u128, 1)), .user_data = fixture.recorder.user_data } });
 }
 
-test "decision 127 as amended: on_writable runs while the request body is open" {
+test "decision 127 as amended: next runs while the request body is open" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/duplex", false);
     // The engine takes two of the four bytes, and the rest waits for `writable`.
     fixture.recorder.room = 2;
     fixture.body("abcd", false);
-    try testing.expectEqual(0, fixture.app.writables);
+    try testing.expectEqual(0, fixture.app.nexts);
     writable_after_room(&fixture);
     try testing.expectEqualStrings("abcd", fixture.recorder.body_bytes());
     // The call wrote nothing while the body is open: no second call, and no cancel.
-    try testing.expectEqual(1, fixture.app.writables);
+    try testing.expectEqual(1, fixture.app.nexts);
     try testing.expectEqual(0, fixture.recorder.cancelled);
     // Once the body ended, a route that neither ends its response nor fills the engine holds
     // the request, and the router cancels it.
@@ -285,11 +288,11 @@ test "decision 127 as amended: calls that write while the body is open do not ca
     fixture.head("POST", "/duplex", false);
     fixture.recorder.room = 2;
     fixture.body("abcd", false);
-    fixture.app.write_on_writable = true;
+    fixture.app.write_on_next = true;
     writable_after_room(&fixture);
     // Each call wrote a byte that the engine took, so the router calls the route as often as one
     // event allows, and waits for the next event with the body open.
-    try testing.expect(fixture.app.writables > 1);
+    try testing.expect(fixture.app.nexts > 1);
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
 

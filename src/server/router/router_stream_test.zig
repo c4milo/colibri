@@ -1,4 +1,4 @@
-//! The tests of a long response through a struct route's `on_writable` (design §8 step 46): the
+//! The tests of a long response through a stream route's `next` (design §8 step 46): the
 //! body's writer writes again into memory the engine released, so a response many times longer
 //! than `response_bytes` goes out whole and in order, and no run changes before its release.
 const std = @import("std");
@@ -140,7 +140,7 @@ test "design §8 step 46: over an engine that holds runs, writes wait for late a
     try testing.expectEqual(0, fixture.app.roomless_calls);
 }
 
-test "design §8 step 46: the router calls on_writable only when the writer has room" {
+test "design §8 step 46: the router calls next only when the writer has room" {
     var fixture: Fixture = .{
         .app = .{ .stream_len = stream_len, .message_len = message_len_even, .flush = true },
         .holder = .{ .holds = true },
@@ -255,7 +255,7 @@ test "decision 127: a route that flushed 20 messages ends once the engine releas
     }
 }
 
-test "decision 127: a route that returns the Full of its end from on_writable is cancelled" {
+test "decision 127: a route that returns the Full of its end from next is cancelled" {
     for ([_]bool{ false, true }) |trailers| {
         var fixture: Fixture = .{
             .app = .{ .stream_len = short_messages * short_message_len, .message_len = short_message_len, .flush = true, .trailers = trailers },

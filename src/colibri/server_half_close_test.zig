@@ -43,8 +43,9 @@ const Held = struct { finished: u32 = 0 };
 const Hold = struct {
     pub fn on_request(_: *Held, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
-    pub fn on_body(_: *Held, _: *server.RequestContext, _: *void, reader: *std.Io.Reader, _: *server.Response) !void {
-        reader.tossBuffered();
+    pub fn on_data(_: *Held, _: *server.RequestContext, _: *void, body: *server.RequestBodyStream, _: *server.Response) !void {
+        // With no wrapper, one piece holds each octet of the event.
+        _ = body.next();
     }
 
     pub fn on_finished(held_requests: *Held, _: *server.RequestContext, _: *void, _: server.Result) void {
