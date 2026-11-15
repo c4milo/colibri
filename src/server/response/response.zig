@@ -149,6 +149,10 @@ pub const Response = struct {
     pub fn trailers(response: *Response, headers: []const http.Field) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
+        // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
+        // The count comes before the cut, so a refused section leaves the body's bytes in the
+        // writer, and no run that nothing sends (https://github.com/c4milo/colibri/issues/132).
+        if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
         if (!response.body_started) internal.start_body(response);
         // Design §8 step 25.6: the trailers wait at the end of the memory while the wrappers
         // finish, since the program's slices may not live that long.

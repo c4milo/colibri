@@ -194,6 +194,20 @@ test "RFC 9110 §6.5: trailers end the response after the body, from a copy" {
     try testing.expect(internal.complete(response));
 }
 
+test "RFC 9110 §5.4: trailers past the limit leave the body's bytes in the writer, and no run" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    try response.body().writeAll("ab");
+    var lines: [constants.limits.response_headers_max + 1]http.Field = undefined;
+    for (&lines) |*line| line.* = .{ .name = "x-trailer", .value = "1" };
+    try testing.expectError(error.SectionTooLarge, response.trailers(&lines));
+    // https://github.com/c4milo/colibri/issues/132: a run cut before the count would wait unsent.
+    try testing.expectEqual(0, response.piece_count);
+    try testing.expectEqual(2, response.writer.end);
+    try response.end();
+    try testing.expect(internal.complete(response));
+}
+
 test "decision 127: no call after the end, and the engine's other errors come back" {
     var fixture: Fixture = .{};
     var response = fixture.start();
