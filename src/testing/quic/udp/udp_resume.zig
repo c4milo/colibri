@@ -9,9 +9,9 @@
 //!
 //! RFC 9959 §3.2 lets one connection at a time use a set. `server.ResumeProvider`'s calls name a
 //! host and no connection, so the table counts each host's open connections, and gives a set
-//! only to a connection that is the host's one open connection. A connection that ends on
-//! another host than it started on leaves its first host's count one too high, and that host
-//! resumes no more. The judge's loads move no connection.
+//! only to a connection that is the host's one open connection. The engine gives `put` and `drop`
+//! the address that `take` got, so a connection that moved ends the count of the host it started
+//! on.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -79,7 +79,8 @@ fn put(context: *anyopaque, peer: server.Address, observed: ?server.ResumeState,
     _ = now_ns;
     const table = table_of(context);
     const entry = table.find(&peer) orelse return;
-    // A connection that moved to this host took at another, so the count stops at zero.
+    // Each `put` names the address of its own `take`. A count that a misused provider would take
+    // past zero stops there.
     entry.open -|= 1;
     const state = observed orelse return;
     entry.saved = state;
@@ -167,7 +168,7 @@ test "a full table keeps its hosts, and a host past it resumes nothing" {
     const past = server.Address.init(&.{ 192, 0, 2, constants.quic_resume_hosts_max }, 50_001);
     try testing.expectEqual(test_set, resumes.take(kept, 2).?);
     try testing.expectEqual(null, resumes.take(past, 2));
-    // A connection that moved to a host with no open connection takes the count no lower.
+    // A `put` past the host's open connections takes the count no lower.
     resumes.put(kept, null, 3);
     resumes.put(kept, null, 3);
     try testing.expectEqual(test_set, resumes.take(kept, 4).?);

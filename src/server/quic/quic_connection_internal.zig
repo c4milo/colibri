@@ -76,6 +76,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.random = random;
     connection.spare_ids_issued = false;
     connection.route = how.route;
+    connection.started_from = how.peer;
     connection.transport.init(.{
         .role = .server,
         .version = how.version,

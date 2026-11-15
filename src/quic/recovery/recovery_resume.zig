@@ -59,13 +59,16 @@ pub const ResumeProvider = struct {
     pub const VTable = struct {
         /// The set saved for `peer`, or null for none. RFC 9959 §3.2: "Only one connection can
         /// use a specific set of saved CC parameters", so a set this returns is the connection's
-        /// until `put` comes for it, and a second `take` for `peer` meanwhile answers null.
+        /// until `put` comes for it. A second `take` for the same host meanwhile answers null, so a
+        /// provider counts each host's open connections.
         take: *const fn (context: *anyopaque, peer: PeerAddress, now_ns: u64) ?ResumeState,
-        /// Once when a connection to `peer` ends: the set it observed (§3.1), which replaces the
-        /// one held, or null for none, which keeps it. Either way the claim of `take` ends.
+        /// Once when a connection ends, with the `peer` that its `take` got, after a migration
+        /// too: the set it observed (§3.1), which replaces the one held, or null for none, which
+        /// keeps it. Either way the claim of `take` ends. A connection that moved to another host
+        /// observed no set for `peer`, so it gives null.
         put: *const fn (context: *anyopaque, peer: PeerAddress, observed: ?ResumeState, now_ns: u64) void,
-        /// §3.5: a connection to `peer` retreated, so "The set of saved CC parameters for the
-        /// path are deleted". It comes before that connection's `put`.
+        /// §3.5: the connection whose `take` got `peer` retreated, so "The set of saved CC
+        /// parameters for the path are deleted". It comes before that connection's `put`.
         drop: *const fn (context: *anyopaque, peer: PeerAddress) void,
     };
 

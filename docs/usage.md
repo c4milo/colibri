@@ -1476,21 +1476,25 @@ round trip while it is not. `Config.logs` gives each connection a qlog log
 9959's Careful Resume ([decision 149](decisions.md)). colibri keeps nothing between connections, so
 the program keeps a `server.ResumeState` for each client address and gives the engine a
 `server.ResumeProvider` over them. The engine calls `take` when a connection starts, and the set it
-returns is that connection's until `put` comes for it, once the connection ends. `put` carries what
-the connection observed, or null to keep the set held. `drop` comes first when the connection had to
+returns is that connection's until `put` comes for it, once the connection ends. `put` and `drop`
+name the address that `take` got, after a migration too. `put` carries what the connection
+observed, or null to keep the set held. A connection that moved to another host observed nothing
+for the host it started on, so it gives null. `drop` comes first when the connection had to
 retreat, and the set goes. `Config.resume_bounds` holds RFC 9959's max_jump and Lifetime, 4 MiB and
 1 hour by default. A `ResumeState` carries its version and size, so a program may store its octets.
-The provider of
-[`examples/server_resume.zig`](../examples/server_resume.zig) gives a set out once at a time:
+
+The three calls name a host and no connection. RFC 9959 §3.2 lets one connection at a time use a
+set, so a provider counts each host's open connections and gives a set only to a host's one open
+connection. The provider of [`examples/server_resume.zig`](../examples/server_resume.zig) does so:
 
 ```zig
 fn take(_: *anyopaque, address: server.Address, now_ns: u64) ?server.ResumeState {
     _ = now_ns;
     taken += 1;
-    const entry = find(address) orelse return null;
-    // RFC 9959 §3.2: a set another connection holds is not given twice.
-    if (entry.claimed) return null;
-    entry.claimed = entry.saved != null;
+    const entry = find_or_add(address) orelse return null;
+    entry.open += 1;
+    // RFC 9959 §3.2: "Only one connection can use a specific set of saved CC parameters".
+    if (entry.open > 1) return null;
     return entry.saved;
 }
 ```

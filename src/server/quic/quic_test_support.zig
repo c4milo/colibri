@@ -31,6 +31,8 @@ const loopback_first: u8 = 127;
 pub const client_port: u16 = 50_000;
 /// The port the client sends from now, which a test moves as a NAT rebinding would (RFC 9000 §9).
 pub var client_port_now: u16 = client_port;
+/// The host the client sends from now, which a test moves to another network (RFC 9000 §9).
+pub var client_octets_now: [client_octets.len]u8 = client_octets;
 
 /// The instant a test starts at, and how far each round of `pump` moves it: past each side's
 /// delayed acknowledgment (RFC 9000 §13.2.1), so every packet is acknowledged.
@@ -136,6 +138,7 @@ pub fn start() !void {
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     server_receive = receive_pool;
     client_port_now = client_port;
+    client_octets_now = client_octets;
     through_engine = false;
     served = &connection;
     var values = server_values();
@@ -394,7 +397,7 @@ fn start_server(first: []const u8) !void {
 }
 
 pub fn client_address() quic.PeerAddress {
-    return quic.PeerAddress.init(&client_octets, client_port_now);
+    return quic.PeerAddress.init(&client_octets_now, client_port_now);
 }
 
 /// Has the server send every datagram it owes, and the client take each one.

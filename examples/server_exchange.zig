@@ -170,7 +170,8 @@ var shut: bool = false;
 var engine_closed: bool = false;
 
 pub fn main() !void {
-    // The program's own resume table keys a client by its host alone (RFC 9959 §2.2).
+    // The program's own resume table keys a client by its host alone (RFC 9959 §2.2), and gives
+    // a set to one connection of a host at a time (§3.2).
     try resumes.check_another_port();
     try link.init();
     defer link.deinit();

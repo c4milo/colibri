@@ -13669,6 +13669,26 @@ library.
     - BBRv3 saves its BDP under loss too, so each connection took a set. 4 and 5 of 15
       retreated (§3.5), and the time did not change.
     - Each job took 157 and 158 minutes, against 132 for the last bulk run.
+  - **The address of `put` and `drop`, 2026-11-14.** The owner ruled on the report of the 35e
+    judge run (decision 149 as amended). A server's `put` and `drop` named the path's address
+    at the connection's end. So a connection that moved ended no claim at the host of its
+    `take`.
+    - The server's QUIC connection keeps `started_from`, the address of `Start.peer`, and
+      `close_resume` gives it to `put` and `drop`. The engine asserts that `take` gets the same
+      address.
+    - A connection that moved to another host gives `put` null. Its set is for the path to the
+      host it moved to (RFC 9959 §3.1).
+    - `examples/server_resume.zig` counts each host's open connections, as `udp_resume.zig`
+      does, and gives a set only to a host's one open connection (§3.2). Its check requires a
+      second open connection to get no set. docs/usage.md shows the new `take`.
+    - A client's `take` and `put` each name `server_address`, which does not change, so the
+      client is as it was.
+    - Each QUIC slot of an engine grows by 24 octets, the size of a `PeerAddress`.
+    - The new tests pass on x86-64 Debug in an amd64 container, 687 of 687.
+    - 7 mutations, each **CAUGHT**: `put` and `drop` that name the path's address; `drop` alone
+      that names it; a moved host that saves its set; a connection on the same host that saves
+      none; a start that keeps no address; and in the example, a second open connection that
+      gets the set, and a `put` that leaves its connection open.
 - **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md). It depends
   on a layer stdx's `json` does not have yet, which maps a Zig value to JSON and back:
   [stdx#22](https://github.com/c4milo/stdx/issues/22). colibri builds no such layer of its own.

@@ -185,6 +185,9 @@ pub const QuicConnection = struct {
     spare_ids_issued: bool,
     /// The engine's table its IDs go in, from `Start.route`.
     route: ?Route,
+    /// The client's address when the connection started, from `Start.peer`. The resume
+    /// provider's `take`, `put` and `drop` each name it, after a migration too (decision 149).
+    started_from: PeerAddress,
 
     /// Reports the next event: a request's head, its content, its trailer section, its
     /// cancellation, or that its response is done. `consumed` is always 0: the engine passed the

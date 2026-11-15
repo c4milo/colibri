@@ -252,11 +252,11 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Engine(.{})` | 52517840 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Engine(.{})` | 52518224 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
 | `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 349616 | an engine that holds one TCP connection |
-| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2956208 | an engine that holds one QUIC connection, with its receive pool |
+| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2956240 | an engine that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 333192 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1432520 | the connection each QUIC slot of an engine holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1432544 | the connection each QUIC slot of an engine holds, without its receive pool |
 | `server.EncoderPool(.{})` | 1461336 | the encoders a program gives a server's connections, at the default options |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))` | 316848 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |

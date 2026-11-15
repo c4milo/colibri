@@ -249,6 +249,8 @@ pub const Connections = struct {
         // RFC 9959 §3.2: the set the program saved for this client, claimed for this connection.
         // It is taken once the connection started, so every set taken comes back through `put`.
         if (held.config.resumes) |resumes| {
+            // `close_resume` names the same address to `put` and `drop`.
+            assert(connection.started_from.eql(&from));
             const taken = resumes.take(from, now_ns);
             connection.transport.recovery.careful_resume.init(taken, held.config.resume_bounds, now_ns);
         }
@@ -265,9 +267,14 @@ pub const Connections = struct {
     pub fn close_resume(held: *const Connections, connection: *QuicConnection, now_ns: u64) void {
         const resumes = held.config.resumes orelse return;
         const transport = &connection.transport;
-        const peer = transport.path.address;
+        // RFC 9959 §3.2: the claim of `take` ends at the host it named, after a migration too.
+        const peer = connection.started_from;
         if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
-        resumes.put(peer, quic.Connection.resume_state(transport, now_ns), now_ns);
+        // RFC 9959 §3.1: a set is "for the specific path to the current endpoint", so a
+        // connection that moved to another host observed none for the host it started on.
+        const moved = !transport.path.address.same_host(&peer);
+        const observed = if (moved) null else quic.Connection.resume_state(transport, now_ns);
+        resumes.put(peer, observed, now_ns);
     }
 
     /// Frees the table entries of the IDs the connection in `slot` issued, whose slot is released
