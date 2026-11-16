@@ -5,10 +5,12 @@
 //! of a pipelined request stay unread in the caller's buffer until then. RFC 9112 §9.3 has a
 //! server read the whole request body or close. So a response written before the request's body
 //! has all been read is followed by the `discard` phase, which reads the rest of the body and
-//! reports none of it, when the rest fits `Options.discard_len_max` (decision 160). Otherwise the
-//! connection closes after the response. A response that ends at its head says so with
-//! `Connection: close` when the rest is known not to fit (RFC 9110 §10.1.1). A response whose body
-//! is open at its head cannot know, because the program may still read the request body.
+//! reports none of it, when the rest has a known length that fits `Options.discard_len_max`
+//! (decision 160). Otherwise the connection closes after the response, and the response's head
+//! says so with `Connection: close` (RFC 9110 §10.1.1): the rest has a known length past the
+//! bound, or is chunked, whose length no head can know. The head says it whether the response
+//! ends there or its body is open, so a client never sends its next request on a connection that
+//! closes (decision 160 ruling 5 as amended).
 //!
 //! A malformed request fails the connection, and the error response colibri owes is written by
 //! `write_pending` with `Connection: close` (decision 92).
@@ -85,24 +87,14 @@ fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.C
 }
 
 /// Reads the rest of a body the response did not wait for, and reports none of it (decision 160).
-/// The body ends within `discard_left` octets, or the connection closes.
+/// The rest has a known length within the bound, so the read takes no octet past the body.
 fn discard_body(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     assert(target.phase == .discard and target.answered and target.responded);
-    // Decision 160: the body must end within the octets left, so no read takes more of them.
-    const allowed = input[0..@intCast(@min(input.len, target.discard_left))];
-    // A decoder was given back when the phase began, so the octets are read as they came.
-    const read = connection_body.read(&target.reader, .request, allowed, &target.trailers) catch |failure| {
-        return target.fail(failure, null);
-    };
-    target.discard_left -= read.consumed;
-    if (read.ended) {
-        end_discard(target);
-    } else if (read.consumed == 0 and allowed.len < input.len) {
-        // RFC 9112 §9.3: a body that does not end within the bound is not read whole, so the
-        // connection closes.
-        target.close_after = true;
-        target.phase = .closed;
-    }
+    assert(target.reader.kind == .fixed and target.reader.remaining <= target.discard_len_max);
+    // A decoder was given back when the phase began, so the octets are read as they came. A body
+    // with a known length has no framing that a read can refuse.
+    const read = connection_body.read(&target.reader, .request, input, &target.trailers) catch unreachable;
+    if (read.ended) end_discard(target);
     return .{ .consumed = read.consumed, .event = null };
 }
 
@@ -134,7 +126,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection. RFC 9112
     // §9.6: a server that sends the close option closes after this response.
     const close_after = target.close_after or writer.kind == .close_delimited or checked.close or
-        leaves_body(target, &writer);
+        leaves_body(target);
     const written = try write_final_head(close_after, output, status, reason, fields, &checked);
     // The head is written, so the response's state changes now and not on a refusal.
     target.close_after = close_after;
@@ -145,11 +137,13 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     return written;
 }
 
-/// Whether a final response that ends at its head leaves a request body that the `discard` phase
-/// cannot read, so the connection closes after it (decision 160). A response whose body is open
-/// cannot know: the program may read the request body before the response ends.
-fn leaves_body(target: *const Connection, writer: *const connection_body.Writer) bool {
-    if (writer.open() or target.phase != .body) return false;
+/// Whether a final response whose head goes out while the request body is open leaves a body
+/// that the `discard` phase cannot read, so the connection closes after it (decision 160 ruling 5
+/// as amended). The rule holds for a response whose own body is open too. Its program may still
+/// read the request body, but a head that says nothing lets a client send its next request on a
+/// connection that then closes.
+fn leaves_body(target: *const Connection) bool {
+    if (target.phase != .body) return false;
     // RFC 9110 §10.1.1: a server that answers before it reads the whole content SHOULD say
     // whether it closes, so this head carries `Connection: close` (RFC 9112 §9.6).
     return !discard_fits(target);
@@ -232,28 +226,27 @@ pub fn finish_response(target: *Connection) void {
     target.answered = false;
 }
 
-/// Starts the `discard` phase of a body the response did not wait for, or closes the connection
-/// after the response when the body's rest may not fit `discard_len_max` (decision 160).
+/// Starts the `discard` phase of a body the response did not wait for (decision 160). RFC 9112
+/// §9.3 has a server read the whole request body or close after its response: when the response's
+/// head said the close, `finish_response` closes the connection in place of the phase.
 fn start_discard(target: *Connection) void {
     assert(target.phase == .body and target.reader.open());
+    // The head went out while the body was open, and a fixed rest only shrinks. So a rest that
+    // does not fit now did not fit then, and the head said the close.
+    assert(target.close_after or discard_fits(target));
     // Decision 160: nothing reads what the body decodes to, so its decoder goes back now.
     connection.release_decoding(target);
-    // RFC 9112 §9.3: a server MUST read the whole request body or close after its response.
-    if (target.close_after or !discard_fits(target)) {
-        target.close_after = true;
-        return;
-    }
     target.phase = .discard;
-    target.discard_left = target.discard_len_max;
 }
 
-/// Whether the rest of the body may end within `discard_len_max` octets.
+/// Whether the rest of the body has a known length of `discard_len_max` octets at most.
 fn discard_fits(target: *const Connection) bool {
     return switch (target.reader.kind) {
         // RFC 9112 §6.2: the Content-Length says how many octets are left.
         .fixed => target.reader.remaining <= target.discard_len_max,
-        // RFC 9112 §7.1: a chunked body says where it ends only as it arrives, so the read judges.
-        .chunked => target.discard_len_max > 0,
+        // RFC 9112 §7.1: a chunked body says where it ends only as it arrives, so no head knows
+        // whether it fits.
+        .chunked => false,
         // RFC 9112 §6.3: a request body has a length or is chunked, and a tunnel is no body.
         .none, .close_delimited, .tunnel => false,
     };

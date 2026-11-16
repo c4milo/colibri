@@ -145,9 +145,10 @@ test "decision 153: a piece handed before the head goes out after it, and the ne
     try testing.expectEqual(1, read_ends);
 }
 
-/// A bound for the `discard` phase of the test's peer (decision 160). Any bound above 0 lets the
-/// peer read the rest of a chunked body.
-const peer_discard_len_max: u64 = 1024;
+/// The head of a server that answers before the request body ended, and says no close. colibri's
+/// own h11 server says the close for a chunked body (decision 160 ruling 5 as amended), so the
+/// test writes this head itself.
+const early_head_without_close = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
 
 test "RFC 9112 §9.5: a final response that ends while a streamed body is open fails the connection" {
     try support.start_cleartext(.h11);
@@ -158,10 +159,10 @@ test "RFC 9112 §9.5: a final response that ends while a streamed body is open f
     try support.client_receive();
     // Decision 124 ruling 2: the response ends before the body does.
     try h11_server_read(support.to_peer[0..support.to_peer_len]);
-    // Decision 160: a server that reads the rest of the body keeps the connection, so its response
-    // carries no close option. With the option, the client closes and does not fail (RFC 9112 §9.6).
-    support.peer_h11.discard_len_max = peer_discard_len_max;
-    try support.peer_h11_answer(ok, empty_length, "");
+    // A server that keeps the connection sends no close option. With the option, the client
+    // closes and does not fail (RFC 9112 §9.6).
+    @memcpy(support.to_client[support.to_client_len..][0..early_head_without_close.len], early_head_without_close);
+    support.to_client_len += early_head_without_close.len;
     try support.client_receive();
     // The response arrived whole, and the rest of the body is not written.
     try testing.expectEqual(.response, post.response.result);

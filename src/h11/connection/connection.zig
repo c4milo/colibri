@@ -81,10 +81,9 @@ pub const Connection = struct {
     end_owed: bool,
     /// The connection closes after the current exchange (RFC 9112 §9.3, §9.6).
     close_after: bool,
-    /// A server: `Options.discard_len_max`, and the octets of the current request's body it may
-    /// still read in the `discard` phase (decision 160).
+    /// A server: `Options.discard_len_max`, the most octets of a request's body that the
+    /// `discard` phase reads (decision 160).
     discard_len_max: u64,
-    discard_left: u64,
     /// Why the connection failed, once it has.
     failure: ?Failure,
     /// The status of the error response a server owes until `write_pending` writes it.
@@ -138,8 +137,8 @@ pub const Connection = struct {
         decoders: ?coding.Storage = null,
         /// A server: the most octets of a request body it reads and discards after its final
         /// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A
-        /// body that does not end within them closes the connection after the response, as one
-        /// does at 0.
+        /// body whose rest has a known length past them, or is chunked, closes the connection
+        /// after the response, whose head says so. Each body does at 0.
         discard_len_max: u64 = 0,
     };
 
@@ -245,7 +244,6 @@ pub const Connection = struct {
         connection.end_owed = false;
         connection.close_after = false;
         connection.discard_len_max = options.discard_len_max;
-        connection.discard_left = 0;
         connection.failure = null;
         connection.reply_status = null;
         connection.asked = .other;

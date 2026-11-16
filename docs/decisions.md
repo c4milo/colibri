@@ -7773,6 +7773,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           Only the read finds where a chunked body ends.
 
         After each of the two, the half-close tells the client that the connection closes.
+
+        Amended on 2026-11-16, after connect-zig's report from connectrpc's conformance suite.
+        The half-close loses a race: Go's client finished its request, got the response with
+        no close option, and sent its next request on the connection, which then gave it
+        end-of-file. So the head says the close in both cases, as Go's server does:
+        - A final response head that goes out while the request body is open carries
+          `Connection: close` when the rest has a known length past the bound, or is chunked.
+          It does so whether the response ends at its head or its body is open.
+        - The `discard` phase reads only a rest whose known length fits the bound. A chunked
+          rest is never discarded, since no head knows where it ends.
+        - The cost: a route that answers before the body ended, to a request whose rest is
+          past the bound or chunked, loses keep-alive on that connection, even when it later
+          reads the whole body.
      6. Amended by decision 159 on 2026-11-10, for item 4 (decision 159's ruling 9 of that day).
         In the `colibri` module, the driver writes the host operation `shutdown_send` for
         `half_close`. On `.hosted` the program's host shuts down the write side. On `.private`
@@ -7785,6 +7798,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        server knows that it closes, and RFC 9110 §10.1.1 has it say so.
      - The close option in each response that goes out before the body is read. The connection
        then closes after a body that the `discard` phase can read.
+     - A discard limit that a program names, in place of the close option in the head, which
+       connect-zig proposed on 2026-11-16. A chunked body past the limit still closes with no
+       word to the client.
      - Read the whole body, with no bound. A peer with a large Content-Length holds the connection
        for as long as it sends.
      - A staged close with no event: the engine waits with the socket open, and then reports

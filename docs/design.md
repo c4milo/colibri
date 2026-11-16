@@ -15733,6 +15733,27 @@ library.
   - **Checked on macOS 26.6.2 arm64 on 2026-11-10:** 20 runs of `tools/h11_server_interop.sh curl`
     passed, and 10 more passed with two busy processes on each of the 10 cores. With the test
     server's half-close made a full close, the script failed in 3 runs of 3.
+  - **The close in the head, 2026-11-16.** Decision 160 ruling 5 as amended, for v0.17.2.
+    connectrpc's conformance suite v1.0.7 reuses its connections, and 1 to 4 of its 2,852 server
+    cases over h11 failed in each of connect-zig's runs with "unexpected EOF". The server
+    answered a message past its limit before the body ended, with a response that has a body.
+    The head said nothing, the server closed, and Go's client sent its next request on that
+    connection.
+    - `leaves_body` in `h11/connection/connection_server.zig` no longer excuses a response
+      whose body is open, and `discard_fits` is false for a chunked rest. So the head carries
+      `Connection: close` for a rest past the bound and for a chunked rest.
+    - The `discard` phase reads a fixed rest alone. `discard_left` goes, and `start_discard`
+      asserts that a rest that does not fit had its close said at the head. Each h11 connection
+      shrinks by 8 octets.
+    - A chunked body answered early now gets the staged close at once. The engine reads none of
+      what follows the response, so a malformed chunk there fails nothing, and the test of that
+      failure goes.
+    - A client test used colibri's h11 server as the peer that answers a chunked upload early
+      with no close option. That peer now says the close, so the test writes the head itself.
+    - **Mutations, 6 of 6 CAUGHT:** a response whose body is open says no close; a chunked rest
+      fits when the bound is above 0; a fixed rest at the bound does not fit; a request with no
+      open body says the close; the `discard` phase never starts; and a discarded body's end
+      starts no next request.
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.

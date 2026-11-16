@@ -479,7 +479,10 @@ The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `
 - A `connect` opens a TCP socket of the address's family, sets TCP_NODELAY and connects it.
 - A `shutdown_send` closes the write side of a TCP socket, as shutdown(2) with `SHUT_WR` does,
   and completes with `.shut_down`. The receive on the socket goes on, and a `close` follows. A
-  server closes an h11 connection in stages with it ([decision 160](decisions.md)).
+  server closes an h11 connection in stages with it ([decision 160](decisions.md)). It does so
+  after a response that it wrote before the request body ended, when the rest of that body is
+  longer than `server.constants.limits.discard_len_max`, 256 KiB, or is chunked. The response's
+  head then carries `Connection: close`, so a client sends no next request on that connection.
 - A `cancel` names its target and gets no completion of its own: the target gets its final
   completion, with `.canceled`.
 - Map your loop's errors onto `colibri.Failure`.

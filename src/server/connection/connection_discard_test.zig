@@ -3,6 +3,7 @@
 //! connection for the next request (RFC 9112 §9.3), under decision 110's deadlines.
 const std = @import("std");
 const http = @import("http");
+const connection_close = @import("connection_close.zig");
 const support = @import("connection_test_support.zig");
 const deadline_support = @import("connection_deadline_test_support.zig");
 
@@ -78,44 +79,56 @@ fn answer_early(head: []const u8) ![]const u8 {
 }
 
 test "decision 160: a 405 to a POST with a 10 KiB body keeps the connection, which serves the next request" {
-    for ([_]bool{ false, true }) |chunked| {
-        try support.start_cleartext(.h11);
-        const head = post_head(chunked);
-        const sent = try answer_early(head);
-        try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 405 Method Not Allowed\r\n"));
-        // RFC 9112 §9.6: the connection stays open, so the head carries no close option.
-        try testing.expect(std.mem.indexOf(u8, sent, "Connection: close") == null);
-        const end = post_body(head.len, chunked);
-        @memcpy(wire[end..][0..next_request.len], next_request);
-        // RFC 9112 §9.3: the body's rest is read and reported to no one, and the next request
-        // follows it on the same connection.
-        const read = try receive_until_event(wire[head.len .. end + next_request.len], early_ns);
-        try testing.expectEqual(end + next_request.len - head.len, read.consumed);
-        const next = read.event.?.event.?.request;
-        try testing.expectEqual(2, next.id.number);
-        try testing.expectEqualStrings("/b", next.path.?);
-        try testing.expect(!connection.should_close());
-        // Decision 110: the discarded body's deadlines ended with it, and the next request has none.
-        try testing.expectEqual(0, connection.bodies.used);
-    }
+    try support.start_cleartext(.h11);
+    const head = post_head(false);
+    const sent = try answer_early(head);
+    try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 405 Method Not Allowed\r\n"));
+    // RFC 9112 §9.6: the connection stays open, so the head carries no close option.
+    try testing.expect(std.mem.indexOf(u8, sent, "Connection: close") == null);
+    const end = post_body(head.len, false);
+    @memcpy(wire[end..][0..next_request.len], next_request);
+    // RFC 9112 §9.3: the body's rest is read and reported to no one, and the next request
+    // follows it on the same connection.
+    const read = try receive_until_event(wire[head.len .. end + next_request.len], early_ns);
+    try testing.expectEqual(end + next_request.len - head.len, read.consumed);
+    const next = read.event.?.event.?.request;
+    try testing.expectEqual(2, next.id.number);
+    try testing.expectEqualStrings("/b", next.path.?);
+    try testing.expect(!connection.should_close());
+    // Decision 110: the discarded body's deadlines ended with it, and the next request has none.
+    try testing.expectEqual(0, connection.bodies.used);
+}
+
+test "decision 160 ruling 5 as amended: a 405 to a chunked POST says the close, and the connection ends" {
+    try support.start_cleartext(.h11);
+    const head = post_head(true);
+    const sent = try answer_early(head);
+    try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 405 Method Not Allowed\r\n"));
+    // RFC 9110 §10.1.1: no head knows where a chunked body ends, so the 405 says the close.
+    try testing.expect(std.mem.indexOf(u8, sent, "Connection: close\r\n") != null);
+    // RFC 9112 §9.3: h11 closes after the response, and reads none of the body.
+    try testing.expectEqual(.closed, connection.session.h11.phase);
+    // RFC 9112 §9.6: the close comes in stages, so the half-close is next, and no close yet.
+    try testing.expect(connection_close.should_half_close(connection));
+    try testing.expect(!connection.should_close());
+    // Decision 110: no body is read, so no deadline of a body runs.
+    try testing.expectEqual(null, connection.deadline_ns());
 }
 
 test "decision 160: a peer that drips the discarded body is cut by decision 110's body deadline" {
-    for ([_]bool{ false, true }) |chunked| {
-        try support.start_cleartext(.h11);
-        const head = post_head(chunked);
-        _ = try answer_early(head);
-        _ = try deadline_support.receive_at(wire[head.len .. head.len + 3], early_ns);
-        // Decision 110: the body still waits on its peer, so its rate deadline runs.
-        const cut_ns = connection.deadline_ns().?;
-        connection.on_instant(cut_ns - 1);
-        try testing.expect(!connection.should_close());
-        connection.on_instant(cut_ns);
-        try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
-        // RFC 9110 §15.5.9: the request was answered, so no 408 follows the 405.
-        try testing.expectEqual(0, send_at(cut_ns).len);
-        try testing.expect(connection.should_close());
-    }
+    try support.start_cleartext(.h11);
+    const head = post_head(false);
+    _ = try answer_early(head);
+    _ = try deadline_support.receive_at(wire[head.len .. head.len + 3], early_ns);
+    // Decision 110: the body still waits on its peer, so its rate deadline runs.
+    const cut_ns = connection.deadline_ns().?;
+    connection.on_instant(cut_ns - 1);
+    try testing.expect(!connection.should_close());
+    connection.on_instant(cut_ns);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
+    // RFC 9110 §15.5.9: the request was answered, so no 408 follows the 405.
+    try testing.expectEqual(0, send_at(cut_ns).len);
+    try testing.expect(connection.should_close());
 }
 
 test "decision 160: the octets of a discarded body count for decision 110's rate, so a fair peer is not cut" {

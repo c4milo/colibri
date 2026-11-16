@@ -47,7 +47,7 @@ fn make_h2_session(connection: *Connection) void {
 }
 
 /// Makes h11 the session's protocol and leaves its payload's octets as they are, as
-/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,056 octets of `h11.Connection`
+/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,048 octets of `h11.Connection`
 /// with 0xAA on every connection. `h11.Connection.init` then writes every field that code reads.
 /// h11's `connection_init_test.zig` and `connection_internal_test.zig` check it.
 fn make_h11_session(connection: *Connection) void {

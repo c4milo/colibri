@@ -74,18 +74,22 @@ test "decision 160: a peer that closes after half_close ends the connection, wit
     try testing.expect(!support.nth(.ended, 0).?.failed);
 }
 
-test "decision 160: a chunked body that passes the bound gets the staged close" {
+test "decision 160 ruling 5 as amended: a chunked body gets the close option and the staged close at once" {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
-    // A chunk of 1 MiB, longer than the bound.
-    _ = support.give(handle, "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n100000\r\n");
+    // A chunk of 5 octets, far under the bound: no head knows where a chunked body ends.
+    _ = support.give(handle, "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n");
     const request = support.nth(.request, 0).?;
     try engine.respond(support.id_of(handle, request.number), .{ .status = method_not_allowed, .end = true });
     support.collect();
-    // The rest of the body is discarded until it passes the bound.
-    const parts = server_constants.limits.discard_len_max / body_part.len + 1;
-    for (0..parts) |_| _ = support.give(handle, &body_part);
+    // RFC 9110 §10.1.1: the 405 says the close, so the client sends no next request here.
+    try testing.expect(std.mem.indexOf(u8, support.sent_of(handle.slot), "Connection: close\r\n") != null);
+    // RFC 9112 §9.6: the close comes in stages, once the response is out.
     try testing.expect(support.nth(.half_close, 0) != null);
+    try testing.expectEqual(null, support.nth(.close, 0));
+    // The engine discards what the peer sends after it and parses none of it, so a chunk size
+    // that is no hexadecimal number fails nothing.
+    _ = support.give(handle, "zz\r\n");
     try testing.expectEqual(null, support.nth(.close, 0));
 }
 
@@ -167,22 +171,4 @@ test "decision 160: over TLS, records past the plaintext buffer are discarded af
     const parts = server_constants.limits.plaintext_in_len / body_part_len + 1;
     for (0..parts) |_| try testing.expectEqual(0, try support.give_sealed(handle, &body_part));
     try testing.expectEqual(null, support.nth(.close, 0));
-}
-
-test "decision 160: a malformed chunk in a discarded body closes at once, with no half_close" {
-    try support.start(null, .{});
-    const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
-    _ = support.give(handle, "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n");
-    const request = support.nth(.request, 0).?;
-    try engine.respond(support.id_of(handle, request.number), .{ .status = method_not_allowed, .end = true });
-    support.collect();
-    // The rest of a chunked body may end within the bound, so the connection reads it.
-    try testing.expectEqual(null, support.nth(.half_close, 0));
-    try testing.expectEqual(null, support.nth(.close, 0));
-    // RFC 9112 §7.1: a chunk size is hexadecimal digits, so "zz" fails the connection.
-    _ = support.give(handle, "zz\r\n");
-    // A failure ends the connection at once, and does not wait half_close_ns.
-    try testing.expect(support.nth(.close, 0) != null);
-    try testing.expectEqual(null, support.nth(.half_close, 0));
-    try testing.expectEqual(null, engine.deadline_ns());
 }

@@ -1,6 +1,7 @@
 //! The tests of the `discard` phase of a server's h11 connection (decision 160): the rest of a
-//! request body that the final response did not wait for is read and reported to no one, to a
-//! bound, so the connection serves the next request (RFC 9112 §9.3).
+//! request body that the final response did not wait for is read and reported to no one, when its
+//! known length fits a bound, so the connection serves the next request (RFC 9112 §9.3). A rest
+//! past the bound, and a chunked one, closes the connection, and the response's head says so.
 const std = @import("std");
 const http = @import("http");
 const connection = @import("connection.zig");
@@ -101,39 +102,29 @@ test "decision 160: a Content-Length at the bound is read, and one octet past it
     }
 }
 
-test "decision 160: a chunked body that ends within the bound is read, with its trailers" {
-    const target = server(test_bound);
-    const body = "5\r\nhello\r\n0\r\nx-t: 1\r\n\r\n";
+test "decision 160 ruling 5 as amended: a chunked body closes after the response, and the head says so" {
+    const body = "5\r\nhello\r\n0\r\n\r\n";
     const input = chunked_head ++ body ++ next_request;
-    const at = try read_head(target, input);
-    _ = try answer_early(target);
-    const rest = try receive_until_event(target, input[at..]);
-    try testing.expectEqualStrings("/b", rest.event.?.request.line.target);
-    // RFC 9112 §7.1.2: the next request's trailers are its own.
-    try testing.expectEqual(0, target.trailers.len());
-}
-
-test "decision 160: a chunked body that does not end within the bound closes the connection" {
-    const target = server(test_bound);
-    // The chunk's data ends at the bound, and its CRLF and the last chunk lie past it.
-    const data_len = test_bound - "40\r\n".len;
-    var buffer: [256]u8 = undefined;
-    const chunk = std.fmt.bufPrint(&buffer, "{x}\r\n", .{data_len}) catch unreachable;
-    @memcpy(test_input[0..chunked_head.len], chunked_head);
-    var length = chunked_head.len;
-    @memcpy(test_input[length..][0..chunk.len], chunk);
-    length += chunk.len;
-    @memset(test_input[length..][0..data_len], 'y');
-    length += data_len;
-    @memcpy(test_input[length..][0.."\r\n0\r\n\r\n".len], "\r\n0\r\n\r\n");
-    length += "\r\n0\r\n\r\n".len;
-    const at = try read_head(target, test_input[0..length]);
-    _ = try answer_early(target);
-    const rest = try receive_until_event(target, test_input[at..length]);
-    try testing.expectEqual(null, rest.event);
-    // The body took every octet the bound allowed, and no more.
-    try testing.expectEqual(test_bound, rest.consumed);
-    try testing.expect(target.should_close());
+    for ([_]bool{ false, true }) |content_open| {
+        const target = server(test_bound);
+        const at = try read_head(target, input);
+        // RFC 9110 §10.1.1: no head knows where a chunked body ends, so the head says the close,
+        // whether the response ends at its head or its content is open.
+        if (content_open) {
+            const written = try target.write_response(&test_output, @intFromEnum(http.Status.ok), "OK", &.{.{ .name = "Content-Length", .value = "2" }});
+            try testing.expect(says_close(test_output[0..written]));
+            _ = try target.write_body(&test_output, "ok");
+            _ = try target.write_end(&test_output, &.{});
+        } else {
+            try testing.expect(says_close(try answer_early(target)));
+        }
+        // RFC 9112 §9.3: the connection closes with the body unread, and reads no next request.
+        try testing.expectEqual(connection.Phase.closed, target.phase);
+        try testing.expect(target.should_close());
+        const rest = try receive_until_event(target, input[at..]);
+        try testing.expectEqual(null, rest.event);
+        try testing.expectEqual(0, rest.consumed);
+    }
 }
 
 test "decision 160: a request that carries the close option is not read past its response" {
@@ -156,15 +147,15 @@ test "decision 160: with no bound, a body a response did not wait for closes the
     }
 }
 
-test "decision 160: a response whose content is open says nothing at its head, and its end decides" {
+test "decision 160 ruling 5 as amended: a response whose content is open says the close at its head when the rest does not fit" {
     var head_buffer: [128]u8 = undefined;
     const past_len = 8;
     for ([_]bool{ false, true }) |reads_past| {
         const target = server(test_bound);
         _ = try read_head(target, post_head(&head_buffer, test_bound + past_len));
         const written = try target.write_response(&test_output, @intFromEnum(http.Status.ok), "OK", &.{.{ .name = "Content-Length", .value = "2" }});
-        // RFC 9110 §10.1.1: the program can still read the body, so the head cannot say.
-        try testing.expect(!says_close(test_output[0..written]));
+        // RFC 9110 §10.1.1: the rest is past the bound at the head, so the head says the close.
+        try testing.expect(says_close(test_output[0..written]));
         if (reads_past) {
             @memset(test_input[0..past_len], 'x');
             const received = try target.receive(test_input[0..past_len], &.{});
@@ -172,20 +163,33 @@ test "decision 160: a response whose content is open says nothing at its head, a
         }
         _ = try target.write_body(&test_output, "ok");
         _ = try target.write_end(&test_output, &.{});
-        // RFC 9112 §9.3: the rest fits the bound only when the program read the octets past it.
-        try testing.expectEqual(reads_past, target.phase == .discard);
-        try testing.expectEqual(!reads_past, target.should_close());
+        // RFC 9112 §9.6: the head said the close, so the connection closes whatever the program
+        // read after it.
+        try testing.expectEqual(connection.Phase.closed, target.phase);
+        try testing.expect(target.should_close());
     }
 }
 
-test "decision 160: a malformed chunk in a discarded body fails the connection, which owes no second response" {
+test "decision 160: a response whose content is open says nothing at its head when the rest fits, and its end starts the discard" {
+    var head_buffer: [128]u8 = undefined;
     const target = server(test_bound);
-    const input = chunked_head ++ "zz\r\n";
-    const at = try read_head(target, input);
-    _ = try answer_early(target);
-    try testing.expectError(error.ConnectionFailed, target.receive(input[at..], &.{}));
-    try testing.expect(!target.has_pending());
-    try testing.expect(target.should_close());
+    const head = post_head(&head_buffer, test_bound);
+    @memcpy(test_input[0..head.len], head);
+    @memset(test_input[head.len..][0..test_bound], 'x');
+    @memcpy(test_input[head.len + test_bound ..][0..next_request.len], next_request);
+    const input = test_input[0 .. head.len + test_bound + next_request.len];
+    const at = try read_head(target, input[0..head.len]);
+    const written = try target.write_response(&test_output, @intFromEnum(http.Status.ok), "OK", &.{.{ .name = "Content-Length", .value = "2" }});
+    // RFC 9112 §9.6: the rest fits the bound, so the connection stays open and the head says so.
+    try testing.expect(!says_close(test_output[0..written]));
+    _ = try target.write_body(&test_output, "ok");
+    _ = try target.write_end(&test_output, &.{});
+    try testing.expectEqual(connection.Phase.discard, target.phase);
+    // RFC 9112 §9.3: the rest of the body is read and reported to no one, and the next request
+    // follows it.
+    const rest = try receive_until_event(target, input[at..]);
+    try testing.expectEqualStrings("/b", rest.event.?.request.line.target);
+    try testing.expectEqual(input.len - at, rest.consumed);
 }
 
 test "decision 160: a response's head is refused while its request's body is discarded" {
