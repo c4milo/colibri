@@ -1284,9 +1284,13 @@ fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: any
 
 The router answers a request with no call of a function in four cases: 404 when no route names
 the path, 405 with an Allow field when no route of the path names the method, 501 when no route
-of the route table names the method, and 503 when the pool has no free entry. A program that dispatches
-a request itself calls `match`, with the request's method and path. Its `found` gives the route's
-`Route` tag, named by its method and its pattern, such as `.@"GET /greetings/:name"`.
+of the route table names the method, and 503 when the pool has no free entry. When the engine
+has no room for such a head, the head waits for the request's `writable`, as a route's response
+does. The router holds as many of them as its `requests`, and cancels a request past that.
+
+A program that dispatches a request itself calls `match`, with the request's method and path.
+Its `found` gives the route's `Route` tag, named by its method and its pattern, such as
+`.@"GET /greetings/:name"`.
 
 `match` follows these rules:
 

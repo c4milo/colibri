@@ -30,6 +30,7 @@ const router_body = @import("router_body.zig");
 const router_copy = @import("router_copy.zig");
 const router_pool_whole = @import("router_pool_whole.zig");
 const router_pool_stream = @import("router_pool_stream.zig");
+const router_pool_answer = @import("router_pool_answer.zig");
 const router_wrap = @import("router_wrap.zig");
 
 /// The sizes of a router's pool.
@@ -119,6 +120,8 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
     }
     return struct {
         entries: [options_of.requests]EntryOf = @splat(.{}),
+        /// The answers with no entry that wait for room in the engine (design §8 step 53).
+        answers: router_pool_answer.Answers(options_of.requests) = .{},
         parameters: PathParameters = .{},
         query: router_call.QueryMemory = .{},
         /// The reader at which `no_request_error` points the body of its request, whose every
@@ -144,7 +147,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
 
         /// Takes one event of `engine`, an `*Engine(capacity)`. It answers a request's head
         /// with the route's function, or with 404, 405, 501 or 503, passes its body to a stream
-        /// route, sends what waits on `writable`, and frees the request's entry on `finished`.
+        /// route, sends what waits on `writable`, and frees the request's entry on `finished`. A
+        /// 404, 405, 501 or 503 that the engine has no room for waits for its `writable` too, as
+        /// long as fewer than `requests` of them wait.
         ///
         /// A function route of a request with a body gets its call at the head when
         /// `header_bytes` is 0. With `header_bytes` above 0, the router copies the request's
@@ -156,8 +161,8 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
                 .body => |body| if (entry_of(Self, pool, body.user_data)) |entry| on_body(Self, pool, entry, context, engine, body.bytes, body.end),
                 // A trailer section ends the body (RFC 9110 §6.5).
                 .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, pool, entry, context, engine, "", true),
-                .writable => |writable| if (entry_of(Self, pool, writable.user_data)) |entry| on_writable(Self, pool, entry, context, engine),
-                .finished => |finished| if (entry_of(Self, pool, finished.user_data)) |entry| on_finished(Self, entry, context, finished),
+                .writable => |writable| writable_event(Self, pool, context, engine, writable),
+                .finished => |finished| finished_event(Self, pool, context, finished),
                 .send, .half_close, .close, .ended, .closed => return .{ .event = received },
             }
             return .taken;
@@ -197,20 +202,20 @@ pub fn Parts(comptime P: type) type {
 
 fn on_request(comptime P: type, pool: *P, context: *P.Context, engine: anytype, request: *const event.Request) void {
     // RFC 9110 §9.3.6: a CONNECT request has no path, and no route names CONNECT.
-    const path = request.path orelse return answer(engine, request.id, not_implemented, &.{});
+    const path = request.path orelse return router_pool_answer.answer(&pool.answers, engine, request.id, not_implemented, "");
     switch ((P.Table{}).match(request.method, path, &pool.parameters)) {
         .found => |route| start(P, pool, context, engine, request, route),
         // RFC 9110 §15.5.6: a 405 carries Allow.
-        .method_not_allowed => |allow| answer(engine, request.id, method_not_allowed, &.{.{ .name = "allow", .value = allow }}),
-        .not_found => answer(engine, request.id, not_found, &.{}),
-        .not_implemented => answer(engine, request.id, not_implemented, &.{}),
+        .method_not_allowed => |allow| router_pool_answer.answer(&pool.answers, engine, request.id, method_not_allowed, allow),
+        .not_found => router_pool_answer.answer(&pool.answers, engine, request.id, not_found, ""),
+        .not_implemented => router_pool_answer.answer(&pool.answers, engine, request.id, not_implemented, ""),
     }
 }
 
 fn start(comptime P: type, pool: *P, context: *P.Context, engine: anytype, request: *const event.Request, route: P.Route) void {
     @setEvalBranchQuota(P.branch_quota);
     // RFC 9110 §15.6.4: a server that cannot take the request now answers 503.
-    const index = free_index(P, pool) orelse return answer(engine, request.id, service_unavailable, &.{});
+    const index = free_index(P, pool) orelse return router_pool_answer.answer(&pool.answers, engine, request.id, service_unavailable, "");
     const entry = &pool.entries[index];
     engine.set_user_data(request.id, index + 1) catch return engine.cancel(request.id);
     entry.used = true;
@@ -268,6 +273,19 @@ fn on_body(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, eng
             router_pool_stream.on_body(P, pool, @intFromEnum(tag), entry, context, engine, bytes, end);
         },
     }
+}
+
+/// Sends what waits for the request of `writable`: its entry's response, or its answer with no
+/// entry. Inline, so `handle` runs an entry's `writable` as it did before the answers waited.
+inline fn writable_event(comptime P: type, pool: *P, context: *P.Context, engine: anytype, writable: event.Writable) void {
+    if (entry_of(P, pool, writable.user_data)) |entry| return on_writable(P, pool, entry, context, engine);
+    router_pool_answer.on_writable(&pool.answers, engine, writable.id);
+}
+
+/// Frees what the request of `finished` held: its entry, or the slot of its answer with no entry.
+inline fn finished_event(comptime P: type, pool: *P, context: *P.Context, finished: event.Finished) void {
+    if (entry_of(P, pool, finished.user_data)) |entry| return on_finished(P, entry, context, finished);
+    router_pool_answer.on_finished(&pool.answers, finished.id);
 }
 
 fn on_writable(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype) void {
@@ -428,10 +446,4 @@ pub fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, engine: an
 fn cancel_wrapped(engine: anytype, response: *Response) void {
     response.ended = true;
     engine.cancel(response.id);
-}
-
-/// Answers a request with no entry: a head with `status`, `headers` and no content. A head the
-/// engine has no room for cancels the request, since no entry holds it.
-fn answer(engine: anytype, id: event.RequestId, status: http.Status, headers: []const http.Field) void {
-    engine.respond(id, .{ .status = status, .headers = headers, .end = true }) catch engine.cancel(id);
 }

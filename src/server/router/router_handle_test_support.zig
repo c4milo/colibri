@@ -24,8 +24,13 @@ pub const Recorder = struct {
     trailer_name: []const u8 = "",
     trailer_value: []const u8 = "",
     room: usize = std.math.maxInt(usize),
+    /// Whether `respond` finds no room for a head, and the error it returns in place of that.
+    head_blocked: bool = false,
+    head_failure: ?connection_errors.SendError = null,
 
     pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.ResponseHeader) connection_errors.SendError!void {
+        if (recorder.head_failure) |failure| return failure;
+        if (recorder.head_blocked) return error.NoSpaceLeft;
         recorder.heads[recorder.head_count] = response;
         recorder.allow[recorder.head_count] = if (response.headers.len > 0) response.headers[0].value else "";
         recorder.head_count += 1;
