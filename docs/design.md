@@ -15754,6 +15754,19 @@ library.
       fits when the bound is above 0; a fixed rest at the bound does not fit; a request with no
       open body says the close; the `discard` phase never starts; and a discarded body's end
       starts no next request.
+    - **Checked, 2026-11-16,** on `c1b59ce0`, which v0.17.2 names:
+      - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. It ran
+        no TLA+ model and no line coverage, which GitHub's jobs run.
+      - The judge measured it against `967bd100` in two jobs, with the h11 inputs. Each of the 15
+        inputs was within the noise
+        ([run 43888582882](https://github.com/c4milo/colibri/actions/runs/43888582882)). h11-one
+        took 20,204 and 20,188 user instructions a connection, against 20,179 and 20,206.
+      - The h11 tests, 178 of 178, and the server tests, 740 of 740, passed on x86-64 Debug in an
+        amd64 container.
+      - GitHub's run passed: the `checks` job on x86-64 Linux, with the line coverage check, and
+        the `arm64` jobs on Linux and macOS
+        ([run 43909610813](https://github.com/c4milo/colibri/actions/runs/43909610813)). GitHub
+        gave the macOS job a runner only in its second attempt.
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.
