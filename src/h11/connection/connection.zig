@@ -36,6 +36,16 @@ const connection_tls = @import("connection_tls.zig");
 
 pub const Role = enum { server, client };
 
+/// What a server's program does with the rest of a request's body after the final response head
+/// that it writes while that body is open (RFC 9110 §10.1.1).
+pub const RequestBody = enum {
+    /// The program reads no more of it. The connection reads and discards a rest whose known
+    /// length fits `Options.discard_len_max`, and else the head carries `Connection: close`.
+    discard,
+    /// The program keeps reading it, so the head says nothing on account of the body.
+    keep_reading,
+};
+
 /// A response head a client read. Its field lines are in `Connection.section` until the next call.
 pub const Response = struct {
     line: message.StatusLine,
@@ -81,9 +91,14 @@ pub const Connection = struct {
     end_owed: bool,
     /// The connection closes after the current exchange (RFC 9112 §9.3, §9.6).
     close_after: bool,
-    /// A server: `Options.discard_len_max`, the most octets of a request's body that the
-    /// `discard` phase reads (decision 160).
+    /// A server: `Options.discard_len_max`, and the octets of the current request's body it may
+    /// still read in the `discard` phase (decision 160).
     discard_len_max: u64,
+    discard_left: u64,
+    /// A server: what its program does with the rest of the current request's body after the
+    /// final response head (decision 160 ruling 5 as amended). The program sets `.keep_reading`
+    /// before `write_response`, and each request starts at `.discard`.
+    request_body: RequestBody,
     /// Why the connection failed, once it has.
     failure: ?Failure,
     /// The status of the error response a server owes until `write_pending` writes it.
@@ -138,7 +153,9 @@ pub const Connection = struct {
         /// A server: the most octets of a request body it reads and discards after its final
         /// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A
         /// body whose rest has a known length past them, or is chunked, closes the connection
-        /// after the response, whose head says so. Each body does at 0.
+        /// after the response, whose head says so, unless the program set `request_body` to
+        /// `.keep_reading`. A body that such a program left unread closes the connection when it
+        /// does not end within them. Each body does at 0.
         discard_len_max: u64 = 0,
     };
 
@@ -244,6 +261,8 @@ pub const Connection = struct {
         connection.end_owed = false;
         connection.close_after = false;
         connection.discard_len_max = options.discard_len_max;
+        connection.discard_left = 0;
+        connection.request_body = .discard;
         connection.failure = null;
         connection.reply_status = null;
         connection.asked = .other;

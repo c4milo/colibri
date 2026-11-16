@@ -480,9 +480,10 @@ The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `
 - A `shutdown_send` closes the write side of a TCP socket, as shutdown(2) with `SHUT_WR` does,
   and completes with `.shut_down`. The receive on the socket goes on, and a `close` follows. A
   server closes an h11 connection in stages with it ([decision 160](decisions.md)). It does so
-  after a response that it wrote before the request body ended, when the rest of that body is
-  longer than `server.constants.limits.discard_len_max`, 256 KiB, or is chunked. The response's
-  head then carries `Connection: close`, so a client sends no next request on that connection.
+  after a response that left a request body unread, when the rest of that body is longer than
+  `server.constants.limits.discard_len_max`, 256 KiB, or is chunked. A response that was whole
+  when its head went out then carries `Connection: close`, so a client sends no next request on
+  that connection.
 - A `cancel` names its target and gets no completion of its own: the target gets its final
   completion, with `.canceled`.
 - Map your loop's errors onto `colibri.Failure`.
@@ -1236,6 +1237,21 @@ The router drops the body in two cases. A route with no `on_data` reads none. A 
 its response gets no `on_data` after the end, so a route can refuse a request at the head. At the
 body's end, the router also drops what the last `on_data` did not take with `next`. So `on_data`
 calls `next` until it returns null.
+
+Over h11 the next request follows the body on the connection (RFC 9112 §9.3), so a response that
+ends before the body does has a cost there ([decision 160](decisions.md)):
+
+- A route that ended its response when its head went out reads no more of the body. The server
+  reads and drops a rest whose known length is 256 KiB at most. For a longer rest and for a
+  chunked one, the head carries `Connection: close`.
+- A route whose head went out while its response was open said nothing in that head. When its
+  response then ends first, the server reads up to 256 KiB of the rest. It closes the connection
+  when the body does not end within them.
+
+A route that answers while it reads, and ends its response after the body's end, keeps the
+connection. A program that calls `server.Engine.respond` itself names its case in
+`server.ResponseHeader.request_body`: `.keep_reading` when it still reads the body, and
+`.discard`, the default, when it does not.
 
 After an error of `on_data` or `next`, `error_handler` gets a request whose method and path are
 empty and whose headers hold no line. A read of its body fails.

@@ -7786,6 +7786,29 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - The cost: a route that answers before the body ended, to a request whose rest is
           past the bound or chunked, loses keep-alive on that connection, even when it later
           reads the whole body.
+
+        Amended again on 2026-11-16, after connect-zig's test of v0.17.2, which holds the
+        amendment above. A stream route answers before its request body ends, and still reads
+        that body: each Connect, gRPC and gRPC-Web stream over h11 does. Its chunked request
+        made each head say the close, so each stream cost its connection. colibri's client
+        pool then ended a call that waited behind two such streams as `refused` (decision
+        124). RFC 9110 §10.1.1 names two things that a server may say: that it closes, or that
+        it continues to read the content. So the program says which, and the owner ruled the
+        name:
+        - `server.ResponseHeader.request_body` is `.discard` or `.keep_reading`, and
+          `.discard` is the default. With `.discard` the head follows the amendment above.
+          With `.keep_reading` the head says nothing on account of the request body.
+        - `server.Router` sets the field for each route. A response that is open when its
+          head goes out gets `.keep_reading`, because its route still gets the body. A
+          response that its route ended gets `.discard`.
+        - When a response with `.keep_reading` ends before the request body does, the
+          `discard` phase reads the rest: a known length that fits the bound, or a chunked
+          rest up to the bound. Past the bound the connection closes, and no head said so. No
+          head can, because it went out before the program stopped.
+        - `h11.Connection` holds the field `request_body` with the same two values. A
+          server's program sets it before `write_response`, and each request starts at
+          `.discard`.
+        - The owner chose the two names on 2026-11-16, in place of `.drop` and `.read`.
      6. Amended by decision 159 on 2026-11-10, for item 4 (decision 159's ruling 9 of that day).
         In the `colibri` module, the driver writes the host operation `shutdown_send` for
         `half_close`. On `.hosted` the program's host shuts down the write side. On `.private`
@@ -7801,6 +7824,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A discard limit that a program names, in place of the close option in the head, which
        connect-zig proposed on 2026-11-16. A chunked body past the limit still closes with no
        word to the client.
+     - The close option in each head that goes out while a chunked body is open, which v0.17.2
+       shipped. Each stream over h11 that answers before its request ends then costs its
+       connection.
+     - A stream library that holds its head until the request body ends, which connect-zig
+       offered to build on 2026-11-16. Each library on colibri must then do the same.
+     - No close option while the response's body is open, which v0.17.1 had. A response that
+       its route wrote whole in one call then closed the connection with no word to the
+       client.
      - Read the whole body, with no bound. A peer with a large Content-Length holds the connection
        for as long as it sends.
      - A staged close with no event: the engine waits with the socket open, and then reports

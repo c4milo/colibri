@@ -112,17 +112,17 @@ fn release(connection: *Connection, entry: *Entry) void {
 /// final one, and takes an encoder when its content is to be coded.
 pub fn respond(connection: *Connection, id: Number, response: event.ResponseHeader) SendError!void {
     const status = @intFromEnum(response.status);
-    const entry = connection.coding.find(id) orelse return write_head(connection, id, status, response.headers, response.end);
+    const entry = connection.coding.find(id) orelse return write_head(connection, id, status, response.headers, response.end, response.request_body);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.
-    if (is_interim(status)) return write_head(connection, id, status, response.headers, response.end);
+    if (is_interim(status)) return write_head(connection, id, status, response.headers, response.end, response.request_body);
     const encoders = connection.config.encoders orelse {
-        try write_head(connection, id, status, response.headers, response.end);
+        try write_head(connection, id, status, response.headers, response.end, response.request_body);
         return keep_or_release(connection, entry, response.end);
     };
     var rewritten: coding_fields.Rewritten = undefined;
     const head = try coding_response.plan_head(encoders, entry.asked, response, &rewritten);
     errdefer if (head.slot) |index| encoders.give_back(index);
-    try write_head(connection, id, status, head.fields, response.end);
+    try write_head(connection, id, status, head.fields, response.end, response.request_body);
     if (head.slot) |index| {
         entry.coded = .{ .slot = index };
     } else {
@@ -295,10 +295,22 @@ fn is_interim(status: u16) bool {
     return status < @intFromEnum(http.Status.ok);
 }
 
-fn write_head(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {
+/// What `event.ResponseHeader.request_body` holds.
+const RequestBody = @FieldType(event.ResponseHeader, "request_body");
+
+fn write_head(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool, request_body: RequestBody) SendError!void {
     switch (connection.session) {
+        // RFC 9113 §8.1: an h2 stream ends alone, so nothing reads `request_body`.
         .h2 => try connection_h2.respond(connection, id, status, fields, end),
-        .h11 => try connection_h11.respond(connection, id, status, fields, end),
+        .h11 => {
+            // Decision 160 ruling 5 as amended: h11's final head says the close for a request
+            // body that the program reads no more of.
+            connection.session.h11.request_body = switch (request_body) {
+                .discard => .discard,
+                .keep_reading => .keep_reading,
+            };
+            try connection_h11.respond(connection, id, status, fields, end);
+        },
         // RFC 9110 §3.4: a response answers a request, and none arrives before the handshake
         // completes.
         .none => return error.RequestUnknown,

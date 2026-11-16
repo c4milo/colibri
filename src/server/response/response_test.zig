@@ -44,6 +44,23 @@ test "decision 127: end sends the head with the whole body and its Content-Lengt
     try testing.expect(ended);
 }
 
+test "decision 160 ruling 5 as amended: a head says whether its route reads the request body on" {
+    // A response that ended when its head goes out: with content, and with none.
+    for ([_]bool{ true, false }) |with_content| {
+        var fixture: Fixture = .{};
+        const response = fixture.start();
+        if (with_content) try response.body().writeAll("no");
+        try response.end();
+        try testing.expectEqual(.discard, fixture.recorder.calls[0].head.request_body);
+    }
+    // A response that a flush sends while it is open: its route still gets the request body.
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    try response.body().writeAll("first");
+    try response.body().flush();
+    try testing.expectEqual(.keep_reading, fixture.recorder.calls[0].head.request_body);
+}
+
 test "RFC 9110 §8.6: end adds no Content-Length to a 204 or past the program's own" {
     var fixture: Fixture = .{};
     var response = fixture.start();

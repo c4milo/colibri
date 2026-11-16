@@ -66,6 +66,20 @@ pub const ResponseHeader = struct {
     /// carries a field computed over the uncoded octets, such as a digest of them. A coded
     /// response gains Content-Encoding and loses Content-Length, and a strong ETag becomes weak.
     codable: bool = false,
+    /// What the program does with the rest of the request's body, when this final head goes out
+    /// before that body ended (decision 160 ruling 5 as amended). Only h11 reads it, whose next
+    /// request follows this body on the connection (RFC 9112 §9.3). `server.Router` sets it for
+    /// each route.
+    request_body: enum {
+        /// The program reads no more of it. The server reads and discards a rest whose known
+        /// length is at most `constants.limits.discard_len_max`. For a longer rest and for a
+        /// chunked one, the head carries `Connection: close` (RFC 9110 §10.1.1).
+        discard,
+        /// The program keeps reading it, so the head says nothing on account of the body. When
+        /// the response then ends before the body, the server reads a rest that ends within
+        /// `discard_len_max` octets, and else closes the connection.
+        keep_reading,
+    } = .discard,
 };
 
 /// Octets of a response's content, which `write_body` writes, and whether the content ends with

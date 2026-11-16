@@ -15767,6 +15767,37 @@ library.
         the `arm64` jobs on Linux and macOS
         ([run 43909610813](https://github.com/c4milo/colibri/actions/runs/43909610813)). GitHub
         gave the macOS job a runner only in its second attempt.
+  - **The program that reads on, 2026-11-16.** Decision 160 ruling 5 as amended again, for
+    v0.17.3. connect-zig built against v0.17.2, and its `streaming` example failed. Each stream
+    route that answered a chunked request before its end got the close option. So a round of
+    three calls over one connection ended its third call `refused` (decision 124).
+    - **The public name** is the field `server.ResponseHeader.request_body`: `.discard`, the
+      default, or `.keep_reading`. The owner ruled the field and its two values. connect-zig's
+      stream routes need it, through `server.Router`, which sets it. A program that calls
+      `server.Engine.respond` sets it itself.
+    - `push_head` in `server/response/response_internal.zig` gives `.keep_reading` when the
+      response is open and its route asked for no end, and `.discard` otherwise.
+    - `write_head` in `server/connection/connection_coding.zig` copies the field into
+      `h11.Connection.request_body` before each h11 head. h2 and h3 read it nowhere, because a
+      stream ends alone (RFC 9113 §8.1).
+    - In `h11/connection/connection_server.zig`, `leaves_body` returns false for
+      `.keep_reading`.
+      `start_discard` starts the phase for a chunked rest again, and `discard_left` bounds its
+      read, as before v0.17.2. `rest_fits` judges a head, and `rest_may_fit` judges the end of a
+      response. Each h11 connection is 35,056 octets again.
+    - **The tests:**
+      - Six in `h11/connection/connection_discard_test.zig`: a program that reads on, and each
+        rest that it can leave.
+      - Two in `server/connection/connection_discard_test.zig`, and two restored in
+        `server/engine/engine_staged_close_test.zig`.
+      - One of `push_head` in `server/response/response_test.zig`.
+      - One in `server/router/router_duplex_test.zig`: a struct route answers a chunked body
+        before its end, and the connection serves the next request.
+    - **Mutations, 7 of 7 CAUGHT:** `leaves_body` gives the close to a program that keeps
+      reading; a chunked rest never starts the `discard` phase; the `discard` phase reads past
+      the bound; a request keeps the `.keep_reading` of the request before it; the server does
+      not copy the field to h11; `push_head` gives each head `.discard`; and `push_head` gives
+      each head `.keep_reading`.
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.

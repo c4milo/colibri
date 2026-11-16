@@ -166,3 +166,62 @@ test "decision 160: a Content-Length at discard_len_max is discarded, and one oc
         try testing.expectEqual(content_len > bound, says_close);
     }
 }
+
+/// Reads the POST's head at `early_ns`, and answers it 200 with content that stays open, as a
+/// program that reads the rest of the request body. Returns the request's number and what was
+/// sent.
+fn answer_reading(head: []const u8) !struct { id: u64, sent: []const u8 } {
+    const received = try deadline_support.receive_at(head, early_ns);
+    const request = received.event.?.request;
+    try testing.expect(!request.end);
+    try connection.respond(request.id.number, .{ .status = .ok, .end = false, .request_body = .keep_reading });
+    return .{ .id = request.id.number, .sent = send_at(early_ns) };
+}
+
+test "decision 160 ruling 5 as amended: a program that reads on answers a chunked POST with no close, and the next request follows" {
+    try support.start_cleartext(.h11);
+    const head = post_head(true);
+    const answer = try answer_reading(head);
+    try testing.expect(std.mem.startsWith(u8, answer.sent, "HTTP/1.1 200 OK\r\n"));
+    // RFC 9110 §10.1.1: the program continues to read the content, so the head says no close.
+    try testing.expect(std.mem.indexOf(u8, answer.sent, "Connection: close") == null);
+    const end = post_body(head.len, true);
+    @memcpy(wire[end..][0..next_request.len], next_request);
+    // The program reads the body to its end while its response is open.
+    var at = head.len;
+    var ended = false;
+    // Bounded: each pass reports an event or reads an octet at least.
+    for (0..end) |_| {
+        const read = try deadline_support.receive_at(wire[at..end], early_ns);
+        at += read.consumed;
+        if (read.event) |reported| ended = reported == .body and reported.body.end;
+        if (ended) break;
+    }
+    try testing.expect(ended);
+    try testing.expectEqual(end, at);
+    _ = try connection.write_body(answer.id, .{ .bytes = "ok", .end = true });
+    _ = send_at(early_ns);
+    try support.expect_done(answer.id);
+    // RFC 9112 §9.3: the body was read whole, so the next request follows on the connection.
+    const next = try receive_until_event(wire[end .. end + next_request.len], early_ns);
+    try testing.expectEqualStrings("/b", next.event.?.event.?.request.path.?);
+    try testing.expect(!connection.should_close());
+}
+
+test "decision 160: a response that reads on and ends before a chunked body has the body's rest discarded" {
+    try support.start_cleartext(.h11);
+    const head = post_head(true);
+    const answer = try answer_reading(head);
+    try testing.expect(std.mem.indexOf(u8, answer.sent, "Connection: close") == null);
+    // The response ends with the body unread, so the `discard` phase reads the rest.
+    _ = try connection.write_body(answer.id, .{ .bytes = "ok", .end = true });
+    _ = send_at(early_ns);
+    try support.expect_done(answer.id);
+    try testing.expectEqual(.discard, connection.session.h11.phase);
+    const end = post_body(head.len, true);
+    @memcpy(wire[end..][0..next_request.len], next_request);
+    const read = try receive_until_event(wire[head.len .. end + next_request.len], early_ns);
+    try testing.expectEqual(end + next_request.len - head.len, read.consumed);
+    try testing.expectEqualStrings("/b", read.event.?.event.?.request.path.?);
+    try testing.expect(!connection.should_close());
+}

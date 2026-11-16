@@ -80,6 +80,34 @@ test "decision 127 as amended: a struct route answers each octet before the body
     try testing.expectEqual(null, support.nth(.cancelled, 0));
 }
 
+test "decision 160 ruling 5 as amended: a struct route that answers a chunked body before it ends keeps the h11 connection" {
+    const handle = try start(.{ .reply_len = h2_reply_len });
+    const head = "POST /duplex HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n";
+    _ = support.give(handle, head ++ "1\r\na\r\n");
+    drain_h11(handle, h2_reply_len);
+    // The route answered the first octet, so its head went out while the request body was open.
+    // RFC 9110 §10.1.1: the route still reads the body, so the head says no close.
+    const sent = support.sent_of(handle.slot);
+    try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 200 OK\r\n"));
+    try testing.expect(std.mem.indexOf(u8, sent, "Connection: close") == null);
+    _ = support.give(handle, "1\r\nb\r\n0\r\n\r\n");
+    drain_h11(handle, pieces_chunked * h2_reply_len);
+    try testing.expect(app.ended);
+    try testing.expect(support.nth(.done, 0) != null);
+    // RFC 9112 §9.3: the route read the body whole, so the connection serves the next request.
+    // The fixture's route ends one response for each `ended` that a test clears.
+    app.ended = false;
+    _ = support.give(handle, head ++ "1\r\nc\r\n0\r\n\r\n");
+    drain_h11(handle, (pieces_chunked + 1) * h2_reply_len);
+    try testing.expect(support.nth(.done, 1) != null);
+    try testing.expectEqual(null, support.nth(.cancelled, 0));
+    try testing.expectEqual(null, support.nth(.half_close, 0));
+    try testing.expectEqual(null, support.nth(.close, 0));
+}
+
+/// The octets of the chunked body of the test above.
+const pieces_chunked = 2;
+
 /// Passes a WINDOW_UPDATE frame that opens the stream's window by `small_window` (RFC 9113
 /// §6.9).
 fn open_window(handle: event.ConnectionHandle) !void {

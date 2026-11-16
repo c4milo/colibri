@@ -352,7 +352,15 @@ pub fn push(response: *Response) Error!void {
 
 fn push_head(response: *Response) Error!bool {
     const ends = response.ended and response.piece_count == 0 and !response.trailers_owed;
-    const head: event.ResponseHeader = .{ .status = response.status, .headers = response.lines[0..response.header_count], .end = ends };
+    // Decision 160 ruling 5 as amended: a route whose response is open when its head goes out
+    // still gets the request body, and one that ended its response reads no more of it.
+    const reads_on = !response.ended and response.end_asked == .none;
+    const head: event.ResponseHeader = .{
+        .status = response.status,
+        .headers = response.lines[0..response.header_count],
+        .end = ends,
+        .request_body = if (reads_on) .keep_reading else .discard,
+    };
     response.sink.respond(response.sink.context, response.id, head) catch |failure| return wait_or(failure);
     response.head_out = true;
     response.complete = ends;
