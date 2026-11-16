@@ -36,7 +36,7 @@ The name is Spanish for hummingbird.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.17.1
+zig fetch --save git+https://github.com/c4milo/colibri#v0.17.2
 ```
 
 Then import the modules you use. Each of the seventeen library modules is exported by name:
