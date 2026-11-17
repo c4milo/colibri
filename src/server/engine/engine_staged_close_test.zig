@@ -64,6 +64,18 @@ test "decision 160: a body past the bound gets the 405 whole, then half_close, t
     try testing.expectEqual(1, count_of(.half_close));
 }
 
+test "decision 160: a read with no octets at the bound of a staged close reports close" {
+    try support.start(null, .{});
+    const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
+    try answer_early(handle, false);
+    try testing.expectEqual(null, support.nth(.close, 0));
+    // Design §8 step 57: the bound passes, and the program reads with no octets and calls no
+    // `on_instant`. The read passes the bound, so the engine reports `close`.
+    support.instant_ns += server_constants.limits.half_close_ns;
+    _ = support.give(handle, "");
+    try testing.expect(support.index_of(.half_close).? < support.index_of(.close).?);
+}
+
 test "decision 160: a peer that closes after half_close ends the connection, with no close" {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;

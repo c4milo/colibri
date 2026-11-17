@@ -115,6 +115,27 @@ test "decision 110: a read with no octets at a later instant asks the connection
     try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 408"));
 }
 
+test "decision 110: a read with no octets at the instant a linger passes reports close" {
+    try support.start(null, .{});
+    support.flushing = false;
+    const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
+    _ = support.give(handle, get_h11[0.."GET / HT".len]);
+    support.instant_ns = support.now_ns + server_constants.policy.head_timeout_ns;
+    _ = support.give(handle, "");
+    try testing.expect(support.nth(.send, 0) != null);
+    // The program's socket takes 4 octets of the 408, so the rest waits in the output, and the
+    // linger starts.
+    var small: [4]u8 = undefined;
+    try testing.expectEqual(small.len, engine.send_stream(handle, &small, support.instant_ns));
+    support.collect();
+    try testing.expectEqual(null, support.nth(.close, 0));
+    // Design §8 step 57: the linger passes, and the program reads with no octets and calls no
+    // `on_instant`. The read ends the linger, so the engine reports `close`.
+    support.instant_ns += server_constants.policy.close_linger_ns;
+    _ = support.give(handle, "");
+    try testing.expect(support.nth(.close, 0) != null);
+}
+
 test "decision 119: the handle of a connection that ended names nothing once its slot is reused" {
     try support.start(null, .{});
     const first = engine.accept(.{ .tls = false }, support.now_ns).?;
