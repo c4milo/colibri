@@ -12,6 +12,10 @@
 //! An encoder that writes a structure in several writes copies the writer, writes through the
 //! copy, and assigns the copy back only when the whole structure fit. Octets past the committed
 //! cursor are scratch: nothing reads them as output.
+//!
+//! A decoder that writes octets one at a time in a loop asks for the free octets once, with
+//! `writable_slice_greedy`, writes into them, and then moves the cursor past what it wrote with
+//! `advance`. These are the names `std.Io.Writer` gives the same two calls.
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -54,6 +58,24 @@ pub const Writer = struct {
         const end = self.offset + bytes.len;
         @memcpy(self.buffer[self.offset..end], bytes);
         self.offset = end;
+        assert(self.offset <= self.buffer.len);
+    }
+
+    /// Every free octet past the cursor, when at least `minimum_len` are free. The cursor does not
+    /// move: a caller that writes into the octets calls `advance` with how many it wrote, and the
+    /// octets it does not advance past stay scratch.
+    pub fn writable_slice_greedy(self: *const Writer, minimum_len: usize) Error![]u8 {
+        if (minimum_len > self.remaining_len()) return error.NoSpaceLeft;
+        const free = self.buffer[self.offset..];
+        assert(free.len >= minimum_len);
+        return free;
+    }
+
+    /// Moves the cursor past `len` octets the caller wrote into the slice `writable_slice_greedy`
+    /// gave. A count past the free octets is a programmer error.
+    pub fn advance(self: *Writer, len: usize) void {
+        assert(len <= self.remaining_len());
+        self.offset += len;
         assert(self.offset <= self.buffer.len);
     }
 
@@ -132,6 +154,30 @@ test "formatted text lands whole or not at all" {
     try writer.print("len={d}", .{42});
     try testing.expectError(error.NoSpaceLeft, writer.print(" crc={x}", .{0xdeadbeef}));
     try testing.expectEqualStrings("len=42", writer.written());
+}
+
+test "writable_slice_greedy gives the free octets, and advance moves the cursor past those written" {
+    var buffer: [6]u8 = @splat(untouched);
+    var writer = Writer.init(&buffer);
+    try writer.write_byte(0x01);
+    const free = try writer.writable_slice_greedy(3);
+    try testing.expectEqual(5, free.len);
+    try testing.expectEqual(1, writer.offset);
+    free[0] = 0x02;
+    free[1] = 0x03;
+    free[2] = 0x04;
+    writer.advance(2);
+    try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03 }, writer.written());
+    // The octet written past the advance is scratch: the next write takes its place.
+    try writer.write_byte(0x05);
+    try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03, 0x05 }, writer.written());
+    try testing.expectEqual(2, (try writer.writable_slice_greedy(2)).len);
+    try testing.expectError(error.NoSpaceLeft, writer.writable_slice_greedy(3));
+    try testing.expectEqual(4, writer.offset);
+    writer.advance(0);
+    writer.advance(2);
+    try testing.expectEqual(0, (try writer.writable_slice_greedy(0)).len);
+    try testing.expectError(error.NoSpaceLeft, writer.writable_slice_greedy(1));
 }
 
 test "an empty buffer takes an empty write and refuses a byte" {

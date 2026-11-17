@@ -59,7 +59,9 @@ test "decision 158: a read that consumes is take_*, and an integer codec names i
         "take_int_big",
     });
     try files.public_names.expect(Writer, &.{
-        "Error", "init", "remaining_len", "written", "write_byte", "write_bytes", "print", "write_int_big",
+        "Error",      "init",          "remaining_len",         "written",
+        "write_byte", "write_bytes",   "writable_slice_greedy", "advance",
+        "print",      "write_int_big",
     });
 }
 
