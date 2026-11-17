@@ -16618,6 +16618,27 @@ library.
     - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS.
     - `zig build test` passed. The step adds no test, so no run on x86-64 Debug preceded the
       push; GitHub's `tools/ci.sh (x86-64 Linux)` job runs every test there.
+  - **The published numbers, by connect-zig's CI, 2026-11-17.** Run 169 pins v0.18.1, on an Intel
+    Xeon Platinum 8370C with 4 vCPUs and Linux 7.0.0-1017-azure, and runs the OpenTelemetry
+    Collector on the same load as a control. The median of 3 rounds:
+
+    | Export | connect-zig on colibri | The Collector |
+    | --- | ---: | ---: |
+    | 16 spans, 6,271 octets | 40,753 calls a second, 24.5 µs a call | 13,042, 76.5 µs |
+    | 512 spans, 192,397 octets | 1,271 calls a second, 782.5 µs a call | 706, 1,412.5 µs |
+
+    - Run 168 pinned v0.17.3 on an AMD EPYC 9V45, so the two runs' times do not compare. Their
+      ratio to the Collector does: from 2.23 to 3.12 times at 16 spans, and from 1.26 to 1.80
+      times at 512 spans.
+    - [Run 169](https://github.com/c4milo/connect-zig/actions/runs/44076765191) and
+      [run 168](https://github.com/c4milo/connect-zig/actions/runs/44024752259).
+    - connect-zig's own judge counts 13 instructions more for each routed call on v0.18.1 than on
+      v0.17.3, 0.3%, under callgrind on x86-64-v3, and 23 more for its medium call. Its engine
+      there runs no TLS and no h2 framing. Nobody traced the 13 yet. colibri's judge found no
+      input that lost.
+  - **The tests, the simulator and the examples,** commit `ef53f2af`: their 40 calls of
+    `std.mem.copyForwards` and `std.mem.copyBackwards` became `@memmove` too, so the tree holds
+    none. `tools/ci.sh` passed 31 sections.
   - **The plan of a rule.** The owner asked pepegrillo for a lint rule that refuses the standard
     library's calls known to be slow where a better call exists. pepegrillo's session writes it,
     and colibri adopts it in a later step.
