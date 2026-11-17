@@ -164,6 +164,7 @@ test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_pool_answer_test.zig");
     _ = @import("router_pool_answer_engine_test.zig");
+    _ = @import("router_pool_quota_test.zig");
     _ = @import("router_struct_test.zig");
     _ = @import("router_data_test.zig");
     _ = @import("router_data_engine_test.zig");

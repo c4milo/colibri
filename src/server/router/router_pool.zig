@@ -168,9 +168,11 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
             return .taken;
         }
 
-        /// The comptime branches a switch over every route takes in `start` and `on_finished`: an
-        /// `inline else` makes one prong for each route, and the default budget of 1,000 does not
-        /// hold the GitHub API's 203 routes there (`src/testing/server/server_routes.zig`).
+        /// The comptime branches a switch over every route takes, in each function that has one:
+        /// `start`, `on_body`, `on_writable`, `on_finished` and `finish`. An `inline else` makes
+        /// one prong for each route, and the default budget of 1,000 does not hold the GitHub
+        /// API's 203 routes in `start` (`src/testing/server/server_routes.zig`), nor a table of
+        /// 256 struct routes in `on_body` (`router_pool_quota_test.zig`).
         const branch_quota = branch_quota_base + branch_quota_per_route * table_of.routes.len;
 
         // What the free functions below read of the pool's type.
@@ -264,6 +266,7 @@ fn entry_of(comptime P: type, pool: *P, user_data: usize) ?*P.Entry {
 
 /// Passes body bytes to a function route, which holds them, or to a stream route's `on_data`.
 fn on_body(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype, bytes: []const u8, end: bool) void {
+    @setEvalBranchQuota(P.branch_quota);
     if (entry.body.delivered) return;
     entry.body.cursor.ended = end;
     switch (entry.route) {
@@ -289,6 +292,7 @@ inline fn finished_event(comptime P: type, pool: *P, context: *P.Context, finish
 }
 
 fn on_writable(comptime P: type, pool: *P, entry: *P.Entry, context: *P.Context, engine: anytype) void {
+    @setEvalBranchQuota(P.branch_quota);
     const whole = response_internal.resume_writes(&entry.response) catch return engine.cancel(entry.response.id);
     if (whole or entry.response.ended) return;
     switch (entry.route) {
