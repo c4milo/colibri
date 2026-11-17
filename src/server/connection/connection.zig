@@ -46,6 +46,7 @@ const connection_config = @import("connection_config.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const connection_continue = @import("connection_continue.zig");
 const connection_deadline = @import("connection_deadline.zig");
+const connection_owed = @import("connection_owed.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
@@ -222,12 +223,20 @@ pub const Connection = struct {
     /// has passed at `now_ns` ends the connection first (decision 110).
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
         _ = connection_deadline.fire(connection, now_ns);
-        const received = try connection.receive_event(input, now_ns);
+        // Design §8 step 56: a call with no octets reads the protocol only where an event can
+        // wait. The deadlines fire and are observed either way (decision 110).
+        const received: ConnectionResult = if (input.len == 0 and !connection_owed.reads_with_no_input(connection))
+            .{ .consumed = 0, .event = null }
+        else
+            try connection.receive_event(input, now_ns);
         connection_deadline.observe(connection, now_ns);
         return received;
     }
 
-    fn receive_event(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
+    /// Inline, so `receive` holds the read as it did before its test of a call that can report
+    /// nothing: LLVM made a call of it then, which cost h2-many about 50 instructions a request
+    /// (design §8 step 56).
+    inline fn receive_event(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
         // RFC 9110 §10.1.1: the 100 goes out before the server waits for the content.
         if (!connection_continue.write(connection)) return .{ .consumed = 0, .event = null };
         // Decision 103: a response made whole since the last call is reported before anything

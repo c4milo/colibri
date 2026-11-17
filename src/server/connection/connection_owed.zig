@@ -3,6 +3,9 @@
 //! `send`, `close` and `writable` and to end the requests a connection stopped serving (decision
 //! 119). Split out of `connection.zig` for length;
 //! `server.zig` does not export this file.
+const std = @import("std");
+const assert = std.debug.assert;
+const h11 = @import("h11");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
@@ -37,6 +40,38 @@ pub fn should_send(connection: *Connection) bool {
 pub fn reads_no_input(connection: *const Connection) bool {
     if (stops_requests(connection) or connection.peer_closed) return true;
     return connection.session == .h11 and connection.session.h11.phase == .closed;
+}
+
+/// Whether a `receive` with no octets can report an event or change the connection beyond its
+/// deadlines (design §8 step 56). The engine polls a connection after each call that may have
+/// changed it, and most such polls find nothing. Each source of an event that `receive_event`
+/// reads without octets says true here. Only an open h11 connection in cleartext can say false;
+/// every other connection reads as before.
+pub fn reads_with_no_input(connection: *const Connection) bool {
+    // h2, a connection with no protocol yet, and TLS's records and plaintext read from what
+    // earlier calls left, so they read again. The test comes first, so h2 pays one compare.
+    if (connection.session != .h11 or connection.config.tls != null) return true;
+    // RFC 9110 §10.1.1: the 100 a request expects goes out on a call.
+    if (connection.continue_owed != null) return true;
+    // Decision 103: a response made whole since the last call is reported first.
+    if (connection.done_owed.len > 0) return true;
+    return h11_reads_with_no_input(connection, &connection.session.h11);
+}
+
+/// `reads_with_no_input` for h11 in cleartext, whose `receive` reads only the octets it is given.
+/// With none, a head, a body, a discarded body and a tunnel read nothing: a body's decoder takes
+/// only the octets of the call, and gives back what it could not decode, which then waits unread.
+fn h11_reads_with_no_input(connection: *const Connection, session: *const h11.Connection) bool {
+    // Decision 110: h2 alone ends a request on a body or send deadline and owes its `cancelled`
+    // (`connection_bodies.cancel_stream`, `connection_sends.cancel_stream`).
+    assert(connection.bodies.cancelled_len == 0);
+    // A cleartext connection names h11 once its first octets chose it, and a closed one reads
+    // nothing past the 100 and the `done` that the caller tested.
+    assert(connection.phase == .open or connection.phase == .closed);
+    // Decision 119 as amended: while octets wait unread, a call with none reads nothing.
+    if (connection.unread_len > 0) return false;
+    // The `end` of a body h11 read whole is owed with no octet.
+    return session.end_owed;
 }
 
 /// Whether the connection serves no more of its requests: it stopped or closed. A peer that
