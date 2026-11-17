@@ -1,6 +1,6 @@
-//! The tests that hold `huffman_decode.zig`'s machine to `huffman.decode_by_bits`, the decoder it
-//! replaced: for each input and each room, both return the same error, or both write the same
-//! octets.
+//! The tests that hold `huffman_decode.zig`'s decoder to `huffman.decode_by_bits`: for each input
+//! and each room, both return the same error, or both write the same octets. Neither writes past
+//! the writer's buffer.
 const std = @import("std");
 const core = @import("core");
 const huffman = @import("huffman.zig");
@@ -14,29 +14,39 @@ const testing = std.testing;
 /// Room for what the longest input decodes to, and a room too small for most. Test-only.
 const room_max: usize = 64;
 const room_small: usize = 2;
+/// What the octets past the writer's buffer hold before a decode, and after it. Test-only.
+const untouched: u8 = 0xee;
 
 /// Decodes `encoded` both ways into `room` octets, and requires the same result. Test-only.
 fn expect_same(encoded: []const u8, room: usize) !void {
     var by_bits: [room_max]u8 = undefined;
-    var by_steps: [room_max]u8 = undefined;
+    var by_window: [room_max + 1]u8 = @splat(untouched);
     var bits_writer = Writer.init(by_bits[0..room]);
-    var steps_writer = Writer.init(by_steps[0..room]);
+    var window_writer = Writer.init(by_window[0..room]);
     const bits_result = huffman.decode_by_bits(encoded, &bits_writer);
-    const steps_result = huffman_decode.decode(encoded, &steps_writer);
+    const window_result = huffman_decode.decode(encoded, &window_writer);
     if (bits_result) |_| {
-        _ = try steps_result;
-        try testing.expectEqualSlices(u8, bits_writer.written(), steps_writer.written());
+        _ = try window_result;
+        try testing.expectEqualSlices(u8, bits_writer.written(), window_writer.written());
     } else |failure| {
-        try testing.expectError(failure, steps_result);
+        try testing.expectError(failure, window_result);
         // Neither moves its cursor on an error.
-        try testing.expectEqual(0, steps_writer.written().len);
+        try testing.expectEqual(0, window_writer.written().len);
     }
+    for (by_window[room..]) |octet| try testing.expectEqual(untouched, octet);
 }
 
-test "decision 11: the machine decodes every input of one and two octets as the bit decoder does" {
+/// Decodes `encoded` into each room from none to one octet past what `decode` asks for, so each
+/// input runs both of its paths. Test-only.
+fn expect_same_in_each_room(encoded: []const u8) !void {
+    const room_asked = huffman.decoded_len_max(encoded.len) + 1;
+    for (0..@min(room_asked + 1, room_max) + 1) |room| try expect_same(encoded, room);
+}
+
+test "decision 11: the decoder decodes every input of one and two octets as the bit decoder does" {
     for (0..1 << @bitSizeOf(u8)) |first| {
         const one = [_]u8{@intCast(first)};
-        try expect_same(&one, room_max);
+        try expect_same_in_each_room(&one);
         for (0..1 << @bitSizeOf(u8)) |second| {
             const two = [_]u8{ @intCast(first), @intCast(second) };
             try expect_same(&two, room_max);
@@ -52,7 +62,7 @@ const long_len_max: usize = 24;
 const sequence_multiplier: u64 = 6364136223846793005;
 const sequence_increment: u64 = 1442695040888963407;
 
-test "decision 11: the machine decodes longer inputs, and encoded strings, as the bit decoder does" {
+test "decision 11: the decoder decodes longer inputs, and encoded strings, as the bit decoder does" {
     var state: u64 = 0;
     var input: [long_len_max]u8 = undefined;
     var encoded: [huffman.encoded_len_max(long_len_max)]u8 = undefined;
@@ -66,8 +76,7 @@ test "decision 11: the machine decodes longer inputs, and encoded strings, as th
         try expect_same(input[0..len], room_small);
         var writer = Writer.init(&encoded);
         try huffman.encode(input[0..len], &writer);
-        try expect_same(writer.written(), room_max);
-        try expect_same(writer.written(), room_small);
+        try expect_same_in_each_room(writer.written());
     }
 }
 

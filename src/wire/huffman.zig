@@ -11,11 +11,11 @@
 //! ones (invariant 12). A run of thirty ones is legal without EOS: symbol 204 ends in five ones and
 //! symbol 22 begins with twenty-nine, so the octets 204 and 22 encode to a run of thirty-four.
 //!
-//! `decode` reads four bits a step through a machine built from the table, in `huffman_decode.zig`.
-//! `decode_by_bits` reads the code bit by bit using the table's canonical order, which the comptime
-//! block below proves rather than assumes: at each length, the codes of that length are one
-//! contiguous range, so a partial code is a complete symbol exactly when it falls inside its
-//! length's range. It is the reference the machine's tests compare with.
+//! `decode` reads twelve bits at a time through a table built from the code, in
+//! `huffman_decode.zig`. `decode_by_bits` reads the code bit by bit using the table's canonical
+//! order, which the comptime block below proves rather than assumes: at each length, the codes of
+//! that length are one contiguous range, so a partial code is a complete symbol exactly when it
+//! falls inside its length's range. It is the reference the decoder's tests compare with.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -133,13 +133,14 @@ pub fn encoded_len(bytes: []const u8) usize {
     return std.math.divCeil(usize, bit_total, @bitSizeOf(u8)) catch unreachable;
 }
 
-/// The code being assembled, one bit at a time.
-const Partial = struct {
+/// The code being assembled, one bit at a time. `huffman_decode.zig` reads a code longer than its
+/// window through it, and builds its window with it.
+pub const Partial = struct {
     code: u32 = 0,
     bit_count: u8 = 0,
 
     /// Appends one bit, and returns the symbol when the bits so far are a complete code.
-    fn push(self: *Partial, bit: u1) ?u16 {
+    pub fn push(self: *Partial, bit: u1) ?u16 {
         self.code = (self.code << 1) | bit;
         // Kraft equality, pinned at comptime above, makes the code complete: every run of thirty
         // bits holds a symbol, so no partial code is longer than the longest code. The check is
