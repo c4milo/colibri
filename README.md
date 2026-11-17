@@ -1,6 +1,6 @@
 # colibri
 
-[![main](https://github.com/c4milo/colibri/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/c4milo/colibri/actions/workflows/main.yml?query=branch%3Amain)
+[![CI](https://github.com/c4milo/colibri/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/c4milo/colibri/actions/workflows/ci.yml?query=branch%3Amain)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
 [![release](https://img.shields.io/github/v/release/c4milo/colibri)](https://github.com/c4milo/colibri/releases/latest)

@@ -18,7 +18,7 @@
 # `profile`, perf record samples colibri's server and its call stacks under each input, and the
 # artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
 # Linux with perf runs for the same answer; this file only installs what it needs.
-name: bench
+name: Bench
 on:
   workflow_dispatch:
     inputs:
@@ -76,7 +76,7 @@ env:
   ZIG_HTTPZ_SHA256: 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
 jobs:
   bench:
-    name: bench (job ${{ matrix.job }})
+    name: bench/run.sh (arm64 Linux, runner ${{ matrix.job }} of 2)
     strategy:
       fail-fast: false
       matrix:
@@ -156,7 +156,8 @@ jobs:
       - name: Build h2load with HTTP/3
         if: env.H3 == 'true'
         run: docker build -q -t colibri-h3load:latest tools/h3load
-      # The arm64 job's caches in main.yml, under its keys: this job restores them and saves none.
+      # The caches of ci.yml's job `zig build test (arm64 Linux)`, under its keys: this job restores
+      # them and saves none.
       - name: Restore the Zig caches
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

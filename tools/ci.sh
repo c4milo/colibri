@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Every check of this repository in one run, with a report: what .github/workflows/main.yml runs
+# Every check of this repository in one run, with a report: what .github/workflows/ci.yml runs
 # on each push to main (docs/decisions.md entry 47), and what a person runs by hand to get the
 # same answer. It runs every section even after one fails, so the report is whole, and exits
 # non-zero when any section failed. The HTTP Garden and the QUIC Interop Runner run outside it,
@@ -226,12 +226,12 @@ else
 fi
 # Decision 67 as amended on 2026-11-05: the TLA+ specifications of spec/tla/, model-checked by TLC
 # through pepegrillo, and the seven trace checks, only with CI_TLA=all. The nightly job of
-# .github/workflows/main.yml runs them every night.
+# .github/workflows/ci.yml runs them every night.
 if [ "${CI_TLA:-}" != "all" ]; then
   echo "ci.sh: TLA+ models and trace checks skipped; the nightly job runs them"
   echo "| TLA+ models and trace checks | skipped: the nightly job runs them | 0:00 |" >>"${scratch}/verdicts"
   tla_lines="This run checked no TLA+ model and ran no trace check, because CI_TLA is not all."
-  tla_lines="${tla_lines}"$'\n'"The nightly job of .github/workflows/main.yml runs them every night."
+  tla_lines="${tla_lines}"$'\n'"The nightly job of .github/workflows/ci.yml runs them every night."
 elif command -v java >/dev/null 2>&1; then
   section "TLA+ models" zig build tla
   tla_lines="$(grep -E "\[tla\]" "${scratch}/last.log")"

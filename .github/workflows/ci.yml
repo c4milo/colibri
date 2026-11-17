@@ -3,8 +3,10 @@
 # by hand and every night, and the HTTP Garden and the QUIC Interop Runner by hand and every
 # Monday. Each job's work is one script or one zig build step, which a person can run by hand for
 # the same answer; this file only installs what that work needs, each download pinned by checksum
-# or commit.
-name: main
+# or commit. Each job is named `<command> (<machine>[, <schedule>])`: what it runs, on which
+# machine, and when, for a job that does not run on each push. So a push's run page also says why
+# it skips a job. The workflow's name is its file's.
+name: CI
 on:
   push:
     branches: [main]
@@ -28,6 +30,7 @@ env:
   ZIG_CACHE_MEGABYTES_MAX: 2048
 jobs:
   checks:
+    name: tools/ci.sh (x86-64 Linux)
     # The scheduled runs are the Garden's, the runner's and the TLA+ job's alone.
     if: github.event_name != 'schedule'
     # tools/tls_openssl.sh needs an OpenSSL that offers ML-KEM-1024 and speaks QUIC, 3.5 or newer.
@@ -154,16 +157,18 @@ jobs:
   # Rotor's kqueue backend. The work is `zig build test`, which a person on either machine runs
   # for the same answer.
   arm64:
-    name: arm64 (${{ matrix.runner }})
+    name: zig build test (arm64 ${{ matrix.system }})
     if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-26.04-arm
+            system: Linux
             zig_target: aarch64-linux
             zig_sha256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
           - runner: macos-26
+            system: macOS
             zig_target: aarch64-macos
             zig_sha256: b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489
     runs-on: ${{ matrix.runner }}
@@ -207,6 +212,7 @@ jobs:
   # source, which takes hours and tens of GB (decision 47 as amended). The work is
   # tools/http_garden.sh, which a person on Linux runs for the same answer.
   http-garden:
+    name: tools/http_garden.sh (x86-64 Linux, weekly)
     if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 360
@@ -273,6 +279,7 @@ jobs:
   # because each pairing of a server and a client takes about 7 minutes and the push job already
   # takes 30 of its 60. The work is tools/interop.sh, which a person runs for the same answer.
   quic-interop-runner:
+    name: tools/interop.sh (x86-64 Linux, weekly)
     if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
     # The runner reads its packet captures with tshark 4.5.0 or newer. Ubuntu 26.04 packages 4.6;
     # Ubuntu 24.04 packages 4.2.
@@ -343,6 +350,7 @@ jobs:
   # CI_TLA=all, so the checks job runs no TLC. The work is `zig build tla` and the seven trace
   # scripts, which a person runs for the same answer.
   tla:
+    name: zig build tla and tools/*_trace.sh (x86-64 Linux, nightly)
     if: github.event.schedule == '0 4 * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     # The TLA+ models took 51 minutes of the checks job before they moved here.

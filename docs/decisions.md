@@ -995,7 +995,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 47. **Every check runs on each push to main, and the run leaves a report.** Ruled by the owner on
     2026-09-19, to spot regressions in interoperability and performance. This amends the premise
-    of entry 34, "there is no CI here"; its two layers stay. `.github/workflows/main.yml` installs
+    of entry 34, "there is no CI here"; its two layers stay. `.github/workflows/ci.yml` installs
     Zig, h2spec and h2load, each pinned by checksum, and runs `tools/ci.sh`, which a person can run
     by hand for the same answer. The script runs the format check, `zig build test`, the three
     simulator checks in Debug and ReleaseSafe, `tools/h2spec.sh` and `tools/h2_interop.sh`, and it
