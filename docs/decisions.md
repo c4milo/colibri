@@ -3684,6 +3684,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - **One control.** A caller may change one connection's limits at any time. Null turns a
        deadline off, and 0 is refused.
 
+     The idle default stays at 30 s, ruled by the owner on 2026-11-16, and docs/usage.md tells a
+     program to set `idle_ns` above its h11 clients' idle time. connect-zig's conformance server
+     set 1 s, and Go's client, which keeps an idle connection for 90 s, sent a request on a
+     connection at the instant the server closed it and read end-of-file. With 50 ms each run
+     failed about 200 cases, and with 120 s none failed. The alternative refused: a default of
+     120 s, above Go's 90 s, which holds each idle connection's slot up to four times longer.
+
      The alternatives refused:
      - For Rapid Reset: a limit on the share of its opened streams the peer resets, and building
        it together with the deadlines.

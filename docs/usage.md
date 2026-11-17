@@ -967,6 +967,15 @@ limits, and `Engine.init` refuses limits a connection would refuse, with
 `error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
 `note_request` does above. A program that wakes only when octets arrive never ends a silent peer.
 
+Set `idle_ns` above the idle time of your h11 clients. The idle deadline closes a kept-alive
+connection that holds no request, 30 s after its last response by default. An h11 client that
+keeps its idle connections longer can send its next request on a connection at the instant the
+server closes it. That client then reads end-of-file and does not resend a request that is not
+idempotent (RFC 9112 §9.3.1). Go's client keeps idle connections for 90 s by default. Over h2 the
+server sends GOAWAY before the close, so a client knows which requests the server did not process
+(RFC 9113 §6.8). A longer `idle_ns` holds each idle connection's slot for longer
+([decision 110](decisions.md)).
+
 A TCP connection's socket closes in one of two ways. The engine reports `close` once the
 connection has finished and `send_stream` has written every octet it owed, the TLS close_notify
 too, or once the `linger_ns` deadline passes with octets still owed. The program closes the socket
