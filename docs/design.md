@@ -15798,6 +15798,20 @@ library.
       the bound; a request keeps the `.keep_reading` of the request before it; the server does
       not copy the field to h11; `push_head` gives each head `.discard`; and `push_head` gives
       each head `.keep_reading`.
+    - **Checked, 2026-11-16,** on `2c2144db`, which v0.17.3 names with step 53 and stdx v0.1.2:
+      - The h11 tests, 183 of 183, and the server tests, 754 of 754, passed on x86-64 Debug in an
+        amd64 container.
+      - The judge measured it against `f8db00c4` in two jobs, with the h11 inputs. Each of the 15
+        inputs was within the noise
+        ([run 43982890851](https://github.com/c4milo/colibri/actions/runs/43982890851)).
+      - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. The first
+        run on that commit failed its section "Lint and tests". Its report named no test and no
+        compile error, and `tools/ci.sh` deletes the section's whole output at its end, so the
+        cause is not known. `zig build test` then passed twice on the same tree, and so did a
+        whole run, which kept each section's output.
+      - GitHub's run passed: the `checks` job on x86-64 Linux, with the line coverage check, and
+        the `arm64` jobs on Linux and macOS
+        ([run 43993121130](https://github.com/c4milo/colibri/actions/runs/43993121130)).
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.
@@ -16457,6 +16471,9 @@ library.
     error of the engine on a `writable` cancels nothing; a request past the slots is not
     cancelled; a slot answers the `writable` of each request; a kept answer is not counted; and
     a freed slot is not counted down.
+  - **Checked, 2026-11-16,** on `2c2144db`, with step 47's record: the judge found each input
+    within the noise, h2-routes-many at 1.0004 and 1.0005, and every other check of step 47's
+    record passed.
 
 ## 9. Test-only entry points
 
