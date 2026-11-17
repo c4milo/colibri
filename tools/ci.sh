@@ -63,11 +63,22 @@ section() {
       echo
       # Zig names each failed or crashed test in an `error:` line, with its cause and stack after
       # it, and a lint rule or the compiler names a file, a line and a column before `error:`.
-      # With --summary all, the step tree follows them, so the log's last lines lose them.
-      local named="^error: '.*' (failed:|terminated)|^[^ |+].*:[0-9]+:[0-9]+: error: "
-      if grep -qE "${named}" "${log}"; then
+      # Zig indents the line of a failed test under its step, so the search allows leading space,
+      # and a failed command or a check program writes `error:` with no test's name. With
+      # --summary all, the step tree follows them, so the log's last lines lose them.
+      local errors="^[[:space:]]*error: |^[[:space:]]*[^[:space:]|+][^:]*:[0-9]+:[0-9]+: error: "
+      if grep -qE "${errors}" "${log}"; then
         echo '```text'
-        grep -E -A8 "${named}" "${log}" | head -80
+        grep -E -A8 "${errors}" "${log}" | head -120
+        echo '```'
+        echo
+      fi
+      # The step tree names each step that failed or crashed, and each command that failed. A
+      # step that failed only because a step under it did says `transitive failure`.
+      local steps="[0-9]+ (fail|crash)[,)]|[^e] failure$|^[[:space:]]*failed command: |Build Summary: "
+      if grep -E "${steps}" "${log}" | grep -qv "transitive failure"; then
+        echo '```text'
+        grep -E "${steps}" "${log}" | grep -v "transitive failure" | head -40
         echo '```'
         echo
       fi
