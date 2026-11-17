@@ -16588,6 +16588,36 @@ library.
       slices of equal length that it requires. The tests and the simulator keep theirs.
   - **What no test catches.** The skip of the copy changes no octet, so no test fails without it.
     Its proof is the measurement below.
+  - **The measurement, by connect-zig, 2026-11-17.** Its OTLP sink reads each export through a
+    stream route on `colibri.Server`, in ReleaseSafe, over h2 with TLS, and h2load sends the
+    exports. The median of 5 rounds, the three builds in turns:
+
+    | Export | Build | Calls a second | CPU µs a call |
+    | --- | --- | ---: | ---: |
+    | 16 spans, 6,271 octets | v0.17.3 | 35,857 | 28 |
+    | 16 spans, 6,271 octets | `d9f3dd34`, v0.18.0's tree | 36,152 | 27 |
+    | 16 spans, 6,271 octets | `ed40807b`, this step | 62,102 | 16 |
+    | 512 spans, 192,397 octets | v0.17.3 | 817 | 1,222 |
+    | 512 spans, 192,397 octets | `d9f3dd34` | 819 | 1,220 |
+    | 512 spans, 192,397 octets | `ed40807b` | 1,997 | 495 |
+
+    - The machine: an Apple M1 Pro, in an OrbStack Linux VM, kernel 7.2.12, aarch64. Other
+      builds ran on the host, so the builds ran in turns. Decision 32 publishes no number of a
+      laptop, so these numbers order the builds and are not a published claim.
+    - The command: the sink `taskset -c 1 otlp-sink 14317`, built from connect-zig `8cf269e` with
+      `zig build otlp-sink -Drelease -Dtarget=aarch64-linux`. A warm run of a tenth of the calls,
+      then `taskset -c 2,3 h2load -n <40000 or 4000> -c 16 -m 4 -t 2
+      --tls13-ciphers=TLS_AES_128_GCM_SHA256 -d <export>` to its gRPC method. The CPU time is the
+      server's utime and stime from `/proc/<pid>/stat` over the measured calls.
+    - Every call of every round succeeded.
+  - **Checked, 2026-11-17,** on `ed40807b`:
+    - The judge measured it against `d9f3dd34` in two jobs, with the h11 inputs
+      ([run 44026995045](https://github.com/c4milo/colibri/actions/runs/44026995045)). h2-tls-many
+      wins in both jobs, 0.9819 and 0.9825, from the shift of the TLS plaintext buffer, and
+      h11-tls-many in one, 0.9899. Each other input is within the noise, and none loses.
+    - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS.
+    - `zig build test` passed. The step adds no test, so no run on x86-64 Debug preceded the
+      push; GitHub's `tools/ci.sh (x86-64 Linux)` job runs every test there.
   - **The plan of a rule.** The owner asked pepegrillo for a lint rule that refuses the standard
     library's calls known to be slow where a better call exists. pepegrillo's session writes it,
     and colibri adopts it in a later step.
