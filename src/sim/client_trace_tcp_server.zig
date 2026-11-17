@@ -187,7 +187,7 @@ pub const TcpServer = struct {
                 if (server.request_of(stream_id)) |request| server.mark_ended(request, got == .trailers, ledger);
             }
         }
-        std.mem.copyForwards(u8, &server.plain, server.plain[consumed..server.plain_used]);
+        @memmove(server.plain[0 .. server.plain_used - consumed], server.plain[consumed..server.plain_used]);
         server.plain_used -= consumed;
     }
 
@@ -257,7 +257,7 @@ pub const TcpServer = struct {
     }
 
     fn consume_input(server: *TcpServer, len: usize) void {
-        std.mem.copyForwards(u8, &server.input, server.input[len..server.input_used]);
+        @memmove(server.input[0 .. server.input_used - len], server.input[len..server.input_used]);
         server.input_used -= len;
     }
 

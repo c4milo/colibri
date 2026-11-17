@@ -257,7 +257,7 @@ pub fn run_handshake() !void {
             to_server_len += progress.written;
         }
         const received = connection.receive(input[0..to_server_len], now_ns) catch return error.TestUnexpectedResult;
-        std.mem.copyForwards(u8, &input, input[received.consumed..to_server_len]);
+        @memmove(input[0 .. to_server_len - received.consumed], input[received.consumed..to_server_len]);
         to_server_len -= received.consumed;
         to_client_len += connection.send(to_client[to_client_len..], now_ns);
         if (client.state.completed and connection.protocol() != null) return;
@@ -267,7 +267,7 @@ pub fn run_handshake() !void {
 
 /// Drops the first `consumed` octets of what the client has not read.
 pub fn take_to_client(consumed: usize) void {
-    std.mem.copyForwards(u8, &to_client, to_client[consumed..to_client_len]);
+    @memmove(to_client[0 .. to_client_len - consumed], to_client[consumed..to_client_len]);
     to_client_len -= consumed;
 }
 

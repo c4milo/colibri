@@ -81,7 +81,7 @@ fn read_encoder_stream(octets: []const u8) Error!void {
     try decoder.read_encoder_stream(&reader);
     // A partial instruction moves to the front, to wait for the next block.
     const rest = reader.take_rest();
-    std.mem.copyForwards(u8, &unread, rest);
+    @memmove(unread[0..rest.len], rest);
     unread_len = rest.len;
 }
 
@@ -93,7 +93,7 @@ fn decode_ready(output: *Writer, counts: *Counts) Error!void {
             if (block.stream_id == stream_id) break index;
         } else unreachable;
         const block = held[index];
-        std.mem.copyForwards(qif_block.Block, held[index .. held_len - 1], held[index + 1 .. held_len]);
+        @memmove(held[index .. held_len - 1], held[index + 1 .. held_len]);
         held_len -= 1;
         if (!try decode_section(block, output, counts)) return error.StillBlocked;
     }

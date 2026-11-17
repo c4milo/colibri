@@ -57,7 +57,7 @@ pub const Pipe = struct {
 
     fn take(pipe: *Pipe, consumed: usize) void {
         assert(consumed <= pipe.len);
-        std.mem.copyForwards(u8, &pipe.octets, pipe.octets[consumed..pipe.len]);
+        @memmove(pipe.octets[0 .. pipe.len - consumed], pipe.octets[consumed..pipe.len]);
         pipe.len -= consumed;
     }
 

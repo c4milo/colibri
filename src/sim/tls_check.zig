@@ -189,8 +189,7 @@ fn open_records(storage: *Storage, pending_len_in: usize, held_len_in: usize) Vi
         if (opened.consumed == 0) break;
         @memcpy(storage.held[held_len .. held_len + opened.plaintext_len], storage.plaintext[0..opened.plaintext_len]);
         held_len += opened.plaintext_len;
-        std.mem.copyForwards(
-            u8,
+        @memmove(
             storage.pending[0 .. pending_len - opened.consumed],
             storage.pending[opened.consumed..pending_len],
         );
@@ -213,7 +212,7 @@ fn drain(storage: *Storage, held_len_in: usize) Violation!usize {
         const received = storage.connection.receive(storage.held[0..held_len], 0) catch
             return error.OutcomeUnexpected;
         if (received.consumed == 0) return held_len;
-        std.mem.copyForwards(u8, storage.held[0 .. held_len - received.consumed], storage.held[received.consumed..held_len]);
+        @memmove(storage.held[0 .. held_len - received.consumed], storage.held[received.consumed..held_len]);
         held_len -= received.consumed;
         if (storage.invariants.read(&storage.connection)) |broken| return broken;
         if (received.event) |event| storage.events.push(event);

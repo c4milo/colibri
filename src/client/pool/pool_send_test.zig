@@ -57,7 +57,7 @@ fn collect() !void {
         const octets = support.to_client[0..support.to_client_len];
         const input: pool_module.Input = if (octets.len > 0) .{ .stream = .{ .connection = connection, .bytes = octets } } else .none;
         const received = pool.receive(input, support.now_ns);
-        std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
+        @memmove(support.to_client[0 .. support.to_client_len - received.consumed], support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

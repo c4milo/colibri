@@ -312,7 +312,7 @@ pub const NullQuicProvider = struct {
         const held = self.pending_len[index];
         assert(taken > 0 and taken <= held);
         const rest = self.pending[index][taken..held];
-        std.mem.copyForwards(u8, self.pending[index][0..rest.len], rest);
+        @memmove(self.pending[index][0..rest.len], rest);
         self.pending_len[index] = held - taken;
     }
 

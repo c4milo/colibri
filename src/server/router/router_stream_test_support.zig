@@ -225,8 +225,8 @@ pub const Holder = struct {
             dropped += 1;
         }
         const rest = holder.runs_len - dropped;
-        std.mem.copyForwards([]const u8, holder.runs[0..rest], holder.runs[dropped..holder.runs_len]);
-        std.mem.copyForwards(usize, holder.run_offsets[0..rest], holder.run_offsets[dropped..holder.runs_len]);
+        @memmove(holder.runs[0..rest], holder.runs[dropped..holder.runs_len]);
+        @memmove(holder.run_offsets[0..rest], holder.run_offsets[dropped..holder.runs_len]);
         holder.runs_len = rest;
     }
 

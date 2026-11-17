@@ -164,7 +164,7 @@ pub const Link = struct {
         const queue = &link.queues[@intFromEnum(side)];
         const queue_len = &link.queue_lens[@intFromEnum(side)];
         assert(len <= queue_len.*);
-        std.mem.copyForwards(u8, queue[0 .. queue_len.* - len], queue[len..queue_len.*]);
+        @memmove(queue[0 .. queue_len.* - len], queue[len..queue_len.*]);
         queue_len.* -= len;
     }
 

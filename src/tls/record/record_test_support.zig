@@ -103,7 +103,7 @@ pub const Wire = struct {
     }
 
     pub fn take(wire: *Wire, consumed: usize) void {
-        std.mem.copyForwards(u8, &wire.octets, wire.octets[consumed..wire.len]);
+        @memmove(wire.octets[0 .. wire.len - consumed], wire.octets[consumed..wire.len]);
         wire.len -= consumed;
     }
 };

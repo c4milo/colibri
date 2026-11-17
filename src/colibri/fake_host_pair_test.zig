@@ -211,7 +211,7 @@ const Pair = struct {
         const buffer = receive.kind.receive.buffer;
         const count = @min(pipe.len, buffer.len);
         @memcpy(buffer[0..count], pipe.bytes[0..count]);
-        std.mem.copyForwards(u8, &pipe.bytes, pipe.bytes[count..pipe.len]);
+        @memmove(pipe.bytes[0 .. pipe.len - count], pipe.bytes[count..pipe.len]);
         pipe.len -= count;
         pipe.receive = null;
         // A read of 0 octets means that the peer closed its side.

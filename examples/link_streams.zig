@@ -74,7 +74,7 @@ pub const StreamsLink = struct {
         const queue_len = &held.queue_lens[@intFromEnum(side)];
         assert(len <= queue_len.*);
         const octets = &held.queues[@intFromEnum(side)];
-        std.mem.copyForwards(u8, octets[0 .. queue_len.* - len], octets[len..queue_len.*]);
+        @memmove(octets[0 .. queue_len.* - len], octets[len..queue_len.*]);
         queue_len.* -= len;
     }
 

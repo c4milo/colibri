@@ -44,7 +44,7 @@ fn collect(pool: anytype) !void {
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
-        std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
+        @memmove(support.to_client[0 .. support.to_client_len - received.consumed], support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

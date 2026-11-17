@@ -37,12 +37,12 @@ fn apply(random: *Random, input: []u8, len: usize, at: usize, kind: Edit) usize 
             input[at] = @truncate(random.next());
         },
         .insert => if (len < input.len) {
-            std.mem.copyBackwards(u8, input[at + 1 .. len + 1], input[at..len]);
+            @memmove(input[at + 1 .. len + 1], input[at..len]);
             input[at] = @truncate(random.next());
             return len + 1;
         },
         .remove => if (at < len) {
-            std.mem.copyForwards(u8, input[at .. len - 1], input[at + 1 .. len]);
+            @memmove(input[at .. len - 1], input[at + 1 .. len]);
             return len - 1;
         },
         .cut => return at,

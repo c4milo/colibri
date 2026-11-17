@@ -235,13 +235,13 @@ pub const Plan = struct {
     fn insert(plan: *Plan, at: u32, octets: []const u8) void {
         assert(plan.stream_len + octets.len <= plan.stream.len);
         const tail = plan.stream[at..plan.stream_len];
-        std.mem.copyBackwards(u8, plan.stream[at + octets.len ..][0..tail.len], tail);
+        @memmove(plan.stream[at + octets.len ..][0..tail.len], tail);
         @memcpy(plan.stream[at..][0..octets.len], octets);
         plan.stream_len += @intCast(octets.len);
     }
 
     fn remove(plan: *Plan, at: u32) void {
-        std.mem.copyForwards(u8, plan.stream[at .. plan.stream_len - 1], plan.stream[at + 1 .. plan.stream_len]);
+        @memmove(plan.stream[at .. plan.stream_len - 1], plan.stream[at + 1 .. plan.stream_len]);
         plan.stream_len -= 1;
     }
 };

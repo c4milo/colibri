@@ -68,7 +68,7 @@ test "RFC 9113 §3.4: the SETTINGS goes first when a request comes in the flight
         to_server_len += progress.written;
         if (support.client.state.completed) break;
         const received = try connection.receive(support.input[0..to_server_len], support.now_ns);
-        std.mem.copyForwards(u8, &support.input, support.input[received.consumed..to_server_len]);
+        @memmove(support.input[0 .. to_server_len - received.consumed], support.input[received.consumed..to_server_len]);
         to_server_len -= received.consumed;
         support.to_client_len += connection.send(support.to_client[support.to_client_len..], support.now_ns);
     }

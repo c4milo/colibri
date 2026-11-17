@@ -46,7 +46,7 @@ pub const Input = struct {
     /// Drops the `consumed` octets taken, keeping what follows at the front.
     pub fn take(input: *Input, consumed: usize) void {
         assert(consumed <= input.len);
-        std.mem.copyForwards(u8, &input.octets, input.octets[consumed..input.len]);
+        @memmove(input.octets[0 .. input.len - consumed], input.octets[consumed..input.len]);
         input.len -= consumed;
     }
 };

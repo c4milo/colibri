@@ -67,7 +67,7 @@ fn collect(pool: anytype) !void {
 
 /// Drops the first `consumed` octets the peer sent, which the pool took.
 fn take(consumed: usize) void {
-    std.mem.copyForwards(u8, &support.to_client, support.to_client[consumed..support.to_client_len]);
+    @memmove(support.to_client[0 .. support.to_client_len - consumed], support.to_client[consumed..support.to_client_len]);
     support.to_client_len -= consumed;
 }
 

@@ -94,7 +94,7 @@ pub fn server_flight() ?bool {
 
 /// Drops the first `consumed` octets the client sent, which the server has read.
 pub fn take_to_peer(consumed: usize) void {
-    std.mem.copyForwards(u8, &support.to_peer, support.to_peer[consumed..support.to_peer_len]);
+    @memmove(support.to_peer[0 .. support.to_peer_len - consumed], support.to_peer[consumed..support.to_peer_len]);
     support.to_peer_len -= consumed;
 }
 

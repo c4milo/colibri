@@ -81,7 +81,7 @@ const Queue = struct {
 
     fn take(queue: *Queue, consumed: usize) void {
         assert(consumed <= queue.len);
-        std.mem.copyForwards(u8, &queue.octets, queue.octets[consumed..queue.len]);
+        @memmove(queue.octets[0 .. queue.len - consumed], queue.octets[consumed..queue.len]);
         queue.len -= @intCast(consumed);
     }
 };

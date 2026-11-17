@@ -217,7 +217,7 @@ pub const Socket = struct {
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         const rest = socket.input_len - consumed;
-        std.mem.copyForwards(u8, socket.input[0..rest], socket.input[consumed..socket.input_len]);
+        @memmove(socket.input[0..rest], socket.input[consumed..socket.input_len]);
         socket.input_len = rest;
     }
 

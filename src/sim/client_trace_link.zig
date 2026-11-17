@@ -57,7 +57,7 @@ pub const Direction = struct {
     pub fn consume(direction: *Direction, len: usize) void {
         if (len == 0) return;
         assert(len <= direction.len);
-        std.mem.copyForwards(u8, &direction.octets, direction.octets[len..direction.len]);
+        @memmove(direction.octets[0 .. direction.len - len], direction.octets[len..direction.len]);
         direction.len -= len;
         var kept: usize = 0;
         for (direction.chunks[0..direction.chunks_len]) |chunk| {

@@ -175,7 +175,7 @@ pub fn client_receive() !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..buffer_len + events_max) |_| {
         const received = connection.receive(to_client[0..to_client_len], now_ns);
-        std.mem.copyForwards(u8, &to_client, to_client[received.consumed..to_client_len]);
+        @memmove(to_client[0 .. to_client_len - received.consumed], to_client[received.consumed..to_client_len]);
         to_client_len -= received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;
@@ -224,7 +224,7 @@ pub fn peer_h2_read() !void {
             peer_events_len += 1;
         }
     }
-    std.mem.copyForwards(u8, &to_peer, to_peer[consumed..to_peer_len]);
+    @memmove(to_peer[0 .. to_peer_len - consumed], to_peer[consumed..to_peer_len]);
     to_peer_len -= consumed;
     peer_h2_owe();
 }
@@ -291,7 +291,7 @@ pub fn peer_h11_read() !void {
         const peer_event = received.event orelse break;
         if (peer_event == .request) peer_requests += 1;
     }
-    std.mem.copyForwards(u8, &to_peer, to_peer[consumed..to_peer_len]);
+    @memmove(to_peer[0 .. to_peer_len - consumed], to_peer[consumed..to_peer_len]);
     to_peer_len -= consumed;
 }
 

@@ -270,7 +270,7 @@ var test_server_now_ns: u64 = 0;
 var test_close_written: ?usize = null;
 
 fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
-    std.mem.copyForwards(u8, buffer[0 .. len - consumed], buffer[consumed..len]);
+    @memmove(buffer[0 .. len - consumed], buffer[consumed..len]);
     return len - consumed;
 }
 
