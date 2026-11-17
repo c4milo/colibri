@@ -16733,6 +16733,38 @@ library.
     mutant that ignored the linger or the staged close was NOT CAUGHT. Main passes both, and a
     later change of the ready ring must too.
 
+- **Step 58 — no copies of the server's events, planned 2026-11-17.** [Decision 165](decisions.md),
+  for [#133](https://github.com/c4milo/colibri/issues/133).
+  - **The cost.** `server.Event` holds 160 octets, and `server.ReceiveResult` 192. A request on
+    h11-many takes 8 calls of the engine's `receive`, and 6 of them report nothing. Each layer of
+    the engine returns the result by value, and a `server.Router` takes the event by value. The
+    laptop profile of 2026-11-14 put about 640 of the 1,710 instructions a request of
+    `State.receive` in the lines that build and return the result. Steps 56 and 57 did not
+    change that cost.
+  - **The price, 2026-11-17.** callgrind with `--dump-instr=yes` on `db8817d6` counted each
+    instruction of h11-many. The loads and stores of 16 octets took 537 of 14,402 instructions a
+    request. The copies of 8 octets come on top, so this is a lower bound.
+    - `State.receive`, with what LLVM inlined into it: 189 of 1,903.
+    - The connection's `receive`: 138 of 594. Each of its 4.9 calls a request copies its whole
+      result, about 220 octets, also when it reports nothing. Decision 121 took `Connection`
+      out of the root, so this copy is internal.
+    - The test server's handler, which copies each event as a program does: 88.
+    - `send_first`: 44, and `engine_state_events.pass`: 16.
+    - The native counters of steps 56 and 57 give the same calls a request on io_uring as on
+      epoll, so the price a call holds on the judge. The laptop's callgrind decides nothing
+      (step 57).
+  - **58a, internal.** The engine's layers build each event once, in storage that the engine
+    holds, and pass a pointer to it. `Engine.receive` copies the event into its result once. No
+    public name or signature changes, so it can land before v0.19.0.
+  - **58b, public, in v0.19.0.** Two signatures change:
+    - `server.Engine(capacity).receive` takes `result: *server.ReceiveResult` and returns nothing.
+    - A `server.Router`'s `handle` takes `received: *const server.Event`.
+    - `colibri.Server`'s loop, each example that calls them, docs/usage.md and `tools/consumer/`
+      change with them. No public name is added or removed, so no names list changes.
+    - The judge measures 58b against 58a. A change that breaks every program's loop must win
+      past the noise.
+  - **What stays.** The client keeps its own form, because #133 measured the server.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
