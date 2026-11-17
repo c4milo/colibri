@@ -16563,6 +16563,13 @@ library.
   - **Mutations, 2 of 2 CAUGHT:** `on_body` raises no quota, and `on_writable` raises no quota.
     Each fails the compile of the `server` tests with "evaluation exceeded 1000 backwards
     branches". Without `next` in the test's routes, the second was NOT CAUGHT.
+  - **Checked, 2026-11-17,** on `d922736c`:
+    - The judge measured it against `c6ff7c94` in two jobs, with the h11 inputs. Each of the 15
+      inputs was within the noise
+      ([run 44015514012](https://github.com/c4milo/colibri/actions/runs/44015514012)).
+    - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS.
+    - The server tests, 755 of 755, passed on x86-64 Debug in an amd64 container, the new test
+      among them.
 
 ## 9. Test-only entry points
 
