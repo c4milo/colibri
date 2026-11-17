@@ -1034,6 +1034,76 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 91 in both jobs,
   where the disassembly gave about 160.
 
+  **The Huffman decoder reads twelve bits at a time, 2026-11-16.** For
+  [#57](https://github.com/c4milo/colibri/issues/57), `huffman.decode` holds the next bits of its
+  input in a 64-bit buffer, and moves up to eight octets into it at a time. A comptime table of
+  4,096 entries, read by the buffer's top twelve bits, gives the codes those bits hold whole and the
+  bits they take. The shortest code is five bits, so twelve bits hold two codes at most. One read
+  of 11 instructions writes up to two symbols, where the machine of four bits a step took about 19
+  instructions a symbol. The table is 16 KB, the size of the machine's.
+  - A code longer than twelve bits is read one bit at a time through `huffman.Partial`. EOS is
+    thirty bits, so this read finds it when its last bit is read (invariants 7 and 12).
+  - A read writes two octets, and the second is scratch when one code is whole. When the output
+    has room for `decoded_len_max` octets and one more, the reads write into that room after one
+    check for the string. Otherwise each symbol goes through `write_byte`, as before.
+  - `core.Writer` gains `writable_slice_greedy` and `advance`, the names `std.Io.Writer` gives the
+    two calls. `wire.huffman.decode` is the program that needs them. The owner chose them on
+    2026-11-16 over a decoder that slices the writer's buffer itself.
+  - Step 29d.14 records why main kept the machine on 2026-11-05. The other decoder measured then,
+    a machine of eight bits a step, needed a table of 256 KB and a build of three minutes. This
+    table is 16 KB, and the probe's build took no longer.
+
+  What each check printed:
+  - The tests compare `decode` with `decode_by_bits` on every input of one and two octets, and on
+    4,096 longer inputs. The encoding of each longer input is decoded in every room from none to
+    one octet past what `decode` asks for. No octet past the writer's buffer changes. A test
+    requires the table to hold both codes of every pair whose codes fit in twelve bits, and none
+    for a longer first code.
+  - A probe compared the decoder with main's on two million random inputs, raw and coded. Some
+    were cut short, and some had a padding bit changed. Each gave the same octets or the same error.
+  - The tests of `wire`, `core`, `hpack` and `qpack` pass in Debug on x86-64, under Zig's own
+    backend, which GitHub's `checks` job uses.
+  - Zig's fuzzer, `zig build test-wire -Dfuzz --fuzz=1000000`, exited 0 three times.
+  - 21 mutations, each **CAUGHT**:
+    - the room: no octet for the scratch, a read that counts one symbol, the count not advanced,
+      and a write one octet off;
+    - the checked path: a second symbol that it never writes;
+    - the reads: a long code read as a short one, one bit short or without a refill, and a last
+      code that fills the bits refused;
+    - the refill: one after the input ends, one past the input, one a bit low, and the last word
+      or a short word an octet off;
+    - the end: seven bits of padding refused, padding of zeros taken, and EOS taken;
+    - the table's second symbol dropped. It gives the same octets, and it was **NOT CAUGHT**
+      until the table's test;
+    - `Writer`: an exact fit refused, a slice from the buffer's start, and an advance one octet
+      past.
+  - Callgrind on a laptop's Linux VM, never published (decision 32), counted the three strings of
+    an h2load request over h3. They are 35 coded octets and 48 symbols. The count fell from 1,151
+    instructions to 718. In the probe, windows of 10, 11, 12 and 13 bits took 818, 653, 627 and
+    627. Of the 91 from 627 to 718, the two calls of `Writer` with their assertions cost about 30,
+    and the bound on the loop's slow passes about 34.
+  - `tools/ci.sh` passed on the tree of this record.
+
+  The judge, [run 43994485300](https://github.com/c4milo/colibri/actions/runs/43994485300),
+  measured it against `f8db00c4` with the h3 inputs, at 10 rounds. It counts instructions per
+  request, or per connection for the `one` inputs. The base and the change are the first job's
+  medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-routes-many | 15,879 | 15,698 | 0.9886 | 0.9884 | wins in both |
+  | h3-many | 28,077 | 27,879 | 0.9930 | 0.9863 | within the noise |
+  | h3-bbr-many | 28,314 | 27,923 | 0.9862 | 0.9962 | within the noise |
+  | h3-one | 1,314,510 | 1,313,596 | 0.9993 | 0.9983 | within the noise |
+  | h3-bbr-one | 1,317,118 | 1,318,015 | 1.0007 | 0.9991 | within the noise |
+  | h2-many | 13,088 | 13,083 | 0.9996 | 1.0003 | within the noise |
+  | h2-one | 149,694 | 149,771 | 1.0005 | 0.9964 | within the noise |
+
+  The other four h2 inputs stay within the noise in both jobs, and no input loses. Each request of
+  h2-routes-many names a new path, which h2load codes in Huffman. On it the server's user
+  instructions fell by about 181 a request in both jobs. On h3-many they fell by 279 and 375,
+  inside the h3 inputs' spread of 1.8% to 3.3%. The probe on the laptop gave 433.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
