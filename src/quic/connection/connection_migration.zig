@@ -166,7 +166,7 @@ fn resend_if_due(connection: *Connection, now_ns: u64) bool {
     if (now_ns < due_ns) return false;
     const state = &connection.migration;
     connection.path.owe_challenge(state.resends[0]);
-    std.mem.copyForwards([constants.protocol.path_challenge_len]u8, state.resends[0 .. state.resends_len - 1], state.resends[1..state.resends_len]);
+    @memmove(state.resends[0 .. state.resends_len - 1], state.resends[1..state.resends_len]);
     state.resends_len -= 1;
     return true;
 }

@@ -79,7 +79,7 @@ fn store(block: *FieldBlock, line: hpack.FieldLine) void {
 pub fn keep_tail(block: *FieldBlock, consumed: usize) void {
     assert(consumed <= block.buffer_len);
     const tail_len: usize = block.buffer_len - consumed;
-    std.mem.copyForwards(u8, block.buffer[0..tail_len], block.buffer[consumed..block.buffer_len]);
+    @memmove(block.buffer[0..tail_len], block.buffer[consumed..block.buffer_len]);
     block.buffer_len = @intCast(tail_len);
     block.octets_decoded += consumed;
     // Invariant 10: every octet fed was consumed by the decoder or is kept for the next fragment.

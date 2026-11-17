@@ -25,7 +25,7 @@ pub fn write(decoder: *Decoder, writer: *Writer) void {
         written += 1;
     }
     const kept = decoder.owed_len - written;
-    std.mem.copyForwards(Owed, decoder.owed[0..kept], decoder.owed[written..decoder.owed_len]);
+    @memmove(decoder.owed[0..kept], decoder.owed[written..decoder.owed_len]);
     decoder.owed_len = kept;
     // The increment waits for every queued acknowledgment, since each may raise the count.
     if (kept > 0) return;

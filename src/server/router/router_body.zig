@@ -58,7 +58,10 @@ pub fn Body(comptime body_bytes: usize) type {
                 assert(body.held_len == 0);
                 return body.append(unread);
             }
-            std.mem.copyForwards(u8, body.held[0..unread.len], unread);
+            // A route that read none of the held octets leaves them at the start of `held`, so
+            // nothing moves. A copy there cost each event every octet held, which grew with the
+            // square of a body that a route keeps whole (design §8 step 55).
+            if (@intFromPtr(unread.ptr) != @intFromPtr(&body.held)) @memmove(body.held[0..unread.len], unread);
             body.held_len = unread.len;
         }
     };

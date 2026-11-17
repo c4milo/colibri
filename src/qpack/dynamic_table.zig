@@ -230,7 +230,7 @@ pub const DynamicTable = struct {
     fn make_room(table: *DynamicTable, len: u32) void {
         if (table.octets_end + len <= constants.limits.dynamic_table_capacity_max) return;
         const live = table.octets_end - table.octets_start;
-        std.mem.copyForwards(u8, table.octets[0..live], table.octets[table.octets_start..table.octets_end]);
+        @memmove(table.octets[0..live], table.octets[table.octets_start..table.octets_end]);
         // Bounded by the entry count, which is a named limit.
         for (0..table.count) |step| {
             const slot = (table.first + step) % constants.limits.dynamic_table_entries_max;

@@ -146,7 +146,7 @@ pub fn should_send_when_open(connection: *const Connection) bool {
 /// Drops the first `written` octets of `output`, which `send` has taken.
 pub fn take_output(connection: *Connection, written: usize) void {
     assert(written <= connection.output_len);
-    std.mem.copyForwards(u8, &connection.output, connection.output[written..connection.output_len]);
+    @memmove(connection.output[0 .. connection.output_len - written], connection.output[written..connection.output_len]);
     connection.output_len -= written;
     connection.records_len -= @min(connection.records_len, written);
 }
@@ -154,7 +154,7 @@ pub fn take_output(connection: *Connection, written: usize) void {
 /// Drops the first `read` octets of the protocol's plaintext, which the protocol has taken.
 pub fn take_plaintext(connection: *Connection, read: usize) void {
     assert(read <= connection.plain_in_len);
-    std.mem.copyForwards(u8, &connection.plain_in, connection.plain_in[read..connection.plain_in_len]);
+    @memmove(connection.plain_in[0 .. connection.plain_in_len - read], connection.plain_in[read..connection.plain_in_len]);
     connection.plain_in_len -= read;
 }
 

@@ -229,7 +229,7 @@ pub const Decoder = struct {
     fn unblock(decoder: *Decoder, stream_id: u64) void {
         for (decoder.blocked[0..decoder.blocked_len], 0..) |held, index| {
             if (held.stream_id != stream_id) continue;
-            std.mem.copyForwards(Section, decoder.blocked[index .. decoder.blocked_len - 1], decoder.blocked[index + 1 .. decoder.blocked_len]);
+            @memmove(decoder.blocked[index .. decoder.blocked_len - 1], decoder.blocked[index + 1 .. decoder.blocked_len]);
             decoder.blocked_len -= 1;
             return;
         }

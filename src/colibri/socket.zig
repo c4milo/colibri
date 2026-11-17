@@ -141,7 +141,7 @@ pub const Socket = struct {
     fn append(socket: *Socket, arrived: []const u8) void {
         const input = &socket.buffers[socket.input_at];
         if (socket.input_start + socket.input_len + arrived.len > input.len) {
-            std.mem.copyForwards(u8, input, input[socket.input_start..][0..socket.input_len]);
+            @memmove(input[0..socket.input_len], input[socket.input_start..][0..socket.input_len]);
             socket.input_start = 0;
         }
         @memcpy(input[socket.input_start + socket.input_len ..][0..arrived.len], arrived);

@@ -48,7 +48,7 @@ pub const Tuples = struct {
     /// Holds `known`, and lets the oldest go when every entry is taken.
     fn remember(tuples: *Tuples, known: Known) void {
         if (tuples.len == tuples.known.len) {
-            std.mem.copyForwards(Known, tuples.known[0 .. tuples.known.len - 1], tuples.known[1..]);
+            @memmove(tuples.known[0 .. tuples.known.len - 1], tuples.known[1..]);
             tuples.len -= 1;
         }
         tuples.known[tuples.len] = known;

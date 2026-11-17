@@ -281,7 +281,7 @@ fn decode_in_pieces(input: []const u8, split: usize, data: []u8) ![]const u8 {
         const decoded = try decoder.decode(.request, held[0..held_len], &test_trailers);
         @memcpy(data[written..][0..decoded.data.len], decoded.data);
         written += decoded.data.len;
-        std.mem.copyForwards(u8, held[0 .. held_len - decoded.consumed], held[decoded.consumed..held_len]);
+        @memmove(held[0 .. held_len - decoded.consumed], held[decoded.consumed..held_len]);
         held_len -= decoded.consumed;
         if (decoded.done) return data[0..written];
     }

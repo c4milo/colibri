@@ -166,7 +166,7 @@ pub const CryptoStream = struct {
         const forget: usize = @intCast(keep_from - stream.send_base);
         if (forget == 0) return;
         const kept: usize = @intCast(stream.produced_len - keep_from);
-        std.mem.copyForwards(u8, stream.send_buffer[0..kept], stream.send_buffer[forget..][0..kept]);
+        @memmove(stream.send_buffer[0..kept], stream.send_buffer[forget..][0..kept]);
         stream.send_base = keep_from;
         assert(stream.produced_len - stream.send_base == kept);
         assert(stream.sent_len >= stream.send_base);
@@ -197,7 +197,7 @@ pub const CryptoStream = struct {
         assert(stream.head > 0);
         const held_end = bit_runs.end_of_set(&stream.present, stream.head);
         const held = held_end - stream.head;
-        std.mem.copyForwards(u8, stream.buffer[0..held], stream.buffer[stream.head..held_end]);
+        @memmove(stream.buffer[0..held], stream.buffer[stream.head..held_end]);
         bit_runs.shift_down(&stream.present, stream.head);
         stream.head = 0;
         assert(stream.readable().len == stream.contiguous);

@@ -45,7 +45,7 @@ pub fn SendBuffer(comptime capacity: usize) type {
             assert(acknowledged_end <= buffer.end_offset());
             if (acknowledged_end <= buffer.start_offset) return;
             const dropped: usize = @intCast(acknowledged_end - buffer.start_offset);
-            std.mem.copyForwards(u8, buffer.octets[0 .. buffer.len - dropped], buffer.octets[dropped..buffer.len]);
+            @memmove(buffer.octets[0 .. buffer.len - dropped], buffer.octets[dropped..buffer.len]);
             buffer.start_offset = acknowledged_end;
             buffer.len -= dropped;
         }

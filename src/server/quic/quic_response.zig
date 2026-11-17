@@ -95,9 +95,9 @@ pub const Pieces = struct {
         }
         if (dropped == 0) return 0;
         const rest = pieces.runs_len - dropped;
-        std.mem.copyForwards(Piece, pieces.runs[0..rest], pieces.runs[dropped..pieces.runs_len]);
+        @memmove(pieces.runs[0..rest], pieces.runs[dropped..pieces.runs_len]);
         pieces.runs_len = rest;
-        std.mem.copyForwards(u8, pieces.kept[0 .. pieces.kept_len - kept_dropped], pieces.kept[kept_dropped..pieces.kept_len]);
+        @memmove(pieces.kept[0 .. pieces.kept_len - kept_dropped], pieces.kept[kept_dropped..pieces.kept_len]);
         pieces.kept_len -= kept_dropped;
         for (pieces.runs[0..rest]) |*run| {
             if (run.caller == null) run.kept_start -= kept_dropped;

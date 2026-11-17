@@ -41,7 +41,7 @@ pub fn free_pieces(response: *Response) void {
     const released = response.piece_released;
     if (released == 0) return;
     const rest = response.piece_count - released;
-    std.mem.copyForwards([]const u8, response.pieces[0..rest], response.pieces[released..response.piece_count]);
+    @memmove(response.pieces[0..rest], response.pieces[released..response.piece_count]);
     response.piece_count = rest;
     response.piece_sent -= released;
     response.piece_released = 0;

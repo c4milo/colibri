@@ -16571,6 +16571,27 @@ library.
     - The server tests, 755 of 755, passed on x86-64 Debug in an amd64 container, the new test
       among them.
 
+- **Step 55 — no byte-loop copy in the library, 2026-11-17.** A cost that connect-zig found with
+  its benchmark of a full stack, for v0.18.1. The owner ruled the scope: every copy of the library.
+  - **The cost.** connect-zig's sink reads a gRPC export of 192,397 octets through a stream route
+    that keeps every octet unread until the body's last piece. After each piece, `keep_unread` in
+    `server/router/router_body.zig` copied the held octets onto themselves at offset 0, with
+    `std.mem.copyForwards`. In Zig 0.16 that function is a loop of one octet a step, and its doc
+    comment says to use `@memmove`. callgrind counted about 27 instructions an octet, and 43% of
+    the instructions of 200 calls. The copy of each piece grows with the octets held, so a body's
+    cost grew with its square. `drop_read_plaintext` and `take_output` in the server's
+    `connection_internal.zig` cost another 7.8% in the same loop.
+  - **The change.**
+    - `keep_unread` copies nothing when the unread octets already start `held`, which they do
+      when the route read none of them.
+    - Each of the library's 21 calls of `std.mem.copyForwards` becomes `@memmove`, with the two
+      slices of equal length that it requires. The tests and the simulator keep theirs.
+  - **What no test catches.** The skip of the copy changes no octet, so no test fails without it.
+    Its proof is the measurement below.
+  - **The plan of a rule.** The owner asked pepegrillo for a lint rule that refuses the standard
+    library's calls known to be slow where a better call exists. pepegrillo's session writes it,
+    and colibri adopts it in a later step.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

@@ -161,7 +161,7 @@ fn join(stream: *RequestBodyStream, fresh: []const u8) []const u8 {
     const end = stream.storage.len;
     const kept = stream.kept;
     const start = end - kept - fresh.len;
-    std.mem.copyForwards(u8, stream.storage[start..][0..kept], stream.storage[end - kept ..]);
+    @memmove(stream.storage[start..][0..kept], stream.storage[end - kept ..][0..kept]);
     @memcpy(stream.storage[end - fresh.len ..], fresh);
     stream.reader.toss(fresh.len);
     stream.given = kept + fresh.len;
