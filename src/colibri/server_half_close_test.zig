@@ -102,7 +102,7 @@ fn turn_for(operations: []host.Operation, comptime kind: std.meta.Tag(host.Opera
 /// is the peer's close.
 fn deliver(octets: []const u8) void {
     const socket = &test_server.sockets[0];
-    @memcpy(socket.receive_buffer()[0..octets.len], octets);
+    @memcpy(socket.receive_target()[0..octets.len], octets);
     const id = test_server.operations.id(socket_module.slot_of(0, .receive));
     test_server.complete(&.{ .id = id, .result = .{ .received = @intCast(octets.len) } }, now_ns);
 }

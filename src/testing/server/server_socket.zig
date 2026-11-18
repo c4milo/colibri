@@ -4,12 +4,12 @@
 //! to the one it names, and passes the octets between a socket and its connection in the
 //! worker's session (`server_session.zig`).
 //!
-//! A socket has two receive buffers. A receive writes into the one that holds no unread octets,
-//! because Rotor owns a receive's buffer until its final event (its rule 3). When its event
-//! arrives and nothing was left unread, that buffer becomes the input, and no octet moves. Only
-//! octets left unread, such as half a frame, take a copy: the new ones are appended to them. The
-//! session consumes the input from the front by moving `input_start`.
-//! A send reads `output[output_sent..output_len]`, and the session only appends after that.
+//! A socket has one input buffer, as `colibri.Server`'s has (design §8 step 60). A receive writes
+//! into the octets free after the unread ones, and Rotor owns them until its final event (its rule
+//! 3). The session consumes the input from the front by moving `input_start`, also while a receive
+//! is in flight, so what arrives always follows the unread octets. Octets left unread, such as half
+//! a frame, move to the front only before the next receive is submitted, when no receive owns the
+//! buffer. A send reads `output[output_sent..output_len]`, and the session only appends after that.
 //!
 //! A socket outlives its connection. The engine frees a connection's slot as soon as it has
 //! reported its `close`, while the socket still sends the last octets and waits for the final
@@ -33,18 +33,15 @@ pub fn user_data(index: usize, kind: Kind) u64 {
     return (@as(u64, index) << kind_bits) | @intFromEnum(kind);
 }
 
-/// The unread octets a socket holds at most: one receive buffer's.
+/// The unread octets a socket holds at most: its input buffer's.
 const input_capacity = constants.wire_read_len;
-/// A socket's receive buffers: the input, and the one the receive in flight writes.
-const receive_buffers = 2;
 
 /// One socket a worker holds. Over TLS, `input` and `output` hold records.
 pub const Socket = struct {
     descriptor: rotor.Descriptor,
-    /// The two receive buffers (see the header). `buffers[input_at]` holds the input, and a
-    /// receive writes into the other one.
-    buffers: [receive_buffers][constants.wire_read_len]u8,
-    input_at: u1,
+    /// The input buffer (see the header): the unread octets, and after them the octets a receive
+    /// writes.
+    input: [constants.wire_read_len]u8,
     /// Where the unread octets start in the input, and how many there are.
     input_start: usize,
     input_len: usize,
@@ -74,7 +71,6 @@ pub const Socket = struct {
     /// Takes the socket `descriptor` names, with nothing read, written or in flight.
     pub fn open(socket: *Socket, descriptor: rotor.Descriptor) void {
         socket.descriptor = descriptor;
-        socket.input_at = 0;
         socket.input_start = 0;
         socket.input_len = 0;
         socket.output_len = 0;
@@ -100,33 +96,27 @@ pub const Socket = struct {
             socket.failed = true;
             return;
         }
-        assert(read <= input_capacity - socket.input_len);
-        const arrived = socket.receive_buffer()[0..read];
-        // Nothing was left unread, so the buffer the receive wrote is the input now.
-        if (socket.input_len == 0) {
-            socket.input_at = ~socket.input_at;
-            socket.input_start = 0;
-            socket.input_len = read;
-            return;
-        }
-        socket.append(arrived);
+        // The receive wrote right after the unread octets: a consume moves their start and
+        // their count together, so their end stayed where the receive began.
+        assert(socket.input_start + socket.input_len + read <= input_capacity);
+        socket.input_len += read;
     }
 
-    /// Appends `arrived` to the unread octets, which first move to the front of the input when
-    /// they leave too little room after them.
-    fn append(socket: *Socket, arrived: []const u8) void {
-        const input = &socket.buffers[socket.input_at];
-        if (socket.input_start + socket.input_len + arrived.len > input.len) {
-            @memmove(input[0..socket.input_len], input[socket.input_start..][0..socket.input_len]);
+    /// Where the next receive writes: the octets free after the unread ones, which first move to
+    /// the front of the input. No receive is in flight, so no octet Rotor owns moves.
+    pub fn receive_buffer(socket: *Socket) []u8 {
+        assert(!socket.receiving);
+        if (socket.input_start > 0) {
+            @memmove(socket.input[0..socket.input_len], socket.input[socket.input_start..][0..socket.input_len]);
             socket.input_start = 0;
         }
-        @memcpy(input[socket.input_start + socket.input_len ..][0..arrived.len], arrived);
-        socket.input_len += arrived.len;
+        return socket.input[socket.input_len..];
     }
 
-    /// Where the next receive writes: the buffer that is not the input.
-    pub fn receive_buffer(socket: *Socket) *[constants.wire_read_len]u8 {
-        return &socket.buffers[~socket.input_at];
+    /// The octets the receive in flight writes: those free after the unread ones.
+    pub fn receive_target(socket: *Socket) []u8 {
+        assert(socket.receiving);
+        return socket.input[socket.input_start + socket.input_len ..];
     }
 
     /// Counts what a send took. A send that failed leaves the socket `failed`.
@@ -166,11 +156,11 @@ pub const Socket = struct {
 
     /// The octets read and not yet consumed.
     pub fn unread(socket: *Socket) []u8 {
-        return socket.buffers[socket.input_at][socket.input_start..][0..socket.input_len];
+        return socket.input[socket.input_start..][0..socket.input_len];
     }
 
-    /// Drops the `consumed` octets the connection took. No octet moves. When none is left, the
-    /// next receive's buffer becomes the input, which starts `input_start` again.
+    /// Drops the `consumed` octets the connection took. No octet moves, so a receive in flight
+    /// still writes right after the octets left.
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         socket.input_start += consumed;
@@ -206,9 +196,10 @@ pub const Socket = struct {
     fn submit(socket: *Socket, loop: *rotor.Loop, index: usize, kind: Kind) void {
         const operation = switch (kind) {
             .receive => blk: {
-                const free = input_capacity - socket.input_len;
+                const buffer = socket.receive_buffer();
+                assert(buffer.len == input_capacity - socket.input_len);
                 socket.receiving = true;
-                break :blk rotor.Operation.receive(user_data(index, kind), socket.descriptor, socket.receive_buffer()[0..free]);
+                break :blk rotor.Operation.receive(user_data(index, kind), socket.descriptor, buffer);
             },
             .send => blk: {
                 socket.sending = true;
@@ -242,36 +233,47 @@ fn test_receive(octets: []const u8) void {
     test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(octets.len)));
 }
 
-test "a receive read into the empty side becomes the input, and the next one writes the other side" {
+test "design §8 step 60: a receive writes after the unread octets, which move only before the next receive" {
     test_socket.open(0);
-    const first = test_socket.receive_buffer();
+    const front = test_socket.receive_buffer().ptr;
     test_receive("GET / HTTP/1.1\r\n");
     try testing.expectEqualStrings("GET / HTTP/1.1\r\n", test_socket.unread());
     // The octets stayed where the receive wrote them.
-    try testing.expectEqual(@intFromPtr(first), @intFromPtr(test_socket.unread().ptr));
-    try testing.expect(test_socket.receive_buffer() != first);
+    try testing.expectEqual(@intFromPtr(front), @intFromPtr(test_socket.unread().ptr));
     test_socket.consume(4);
+    try testing.expectEqual(@intFromPtr(front) + 4, @intFromPtr(test_socket.unread().ptr));
+    // The next receive's buffer moves the unread octets to the front, and follows them.
+    const next = test_socket.receive_buffer();
+    try testing.expectEqual(@intFromPtr(front), @intFromPtr(test_socket.unread().ptr));
+    try testing.expectEqual(@intFromPtr(front) + 12, @intFromPtr(next.ptr));
+    try testing.expectEqual(input_capacity - 12, next.len);
     try testing.expectEqualStrings("/ HTTP/1.1\r\n", test_socket.unread());
-    test_socket.consume(test_socket.unread().len);
-    try testing.expectEqual(0, test_socket.unread().len);
 }
 
-test "octets left unread take the next receive after them, moved to the front when they must" {
+test "design §8 step 60: octets consumed while a receive is in flight leave the arrival after the rest" {
     test_socket.open(0);
     test_receive("abcdef");
+    const target = test_socket.receive_buffer();
+    test_socket.receiving = true;
+    // The session reads while Rotor owns `target`, and no octet moves.
     test_socket.consume(4);
-    // "ef" is left unread, so the next receive is appended to it.
-    test_receive("gh");
+    // The receive in flight still owns the octets it was given, right after the unread ones.
+    try testing.expectEqual(@intFromPtr(target.ptr), @intFromPtr(test_socket.receive_target().ptr));
+    @memcpy(target[0..2], "gh");
+    test_socket.on_received(rotor.Event.success(user_data(0, .receive), 2));
     try testing.expectEqualStrings("efgh", test_socket.unread());
     // A receive that fills what is left of the input moves the unread octets to its front first.
-    const fill_len = input_capacity - test_socket.input_len;
-    @memset(test_socket.receive_buffer()[0..fill_len], 'z');
-    test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(fill_len)));
+    const fill = test_socket.receive_buffer();
+    try testing.expectEqual(input_capacity - 4, fill.len);
+    @memset(fill, 'z');
+    test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(fill.len)));
     try testing.expectEqual(input_capacity, test_socket.unread().len);
     try testing.expectEqualStrings("efghz", test_socket.unread()[0..5]);
     try testing.expectEqual('z', test_socket.unread()[input_capacity - 1]);
 }
 
+/// The bit of a receive step's kind octet that consumes while the receive is in flight. Test-only.
+const consume_in_flight_bit: u8 = 0b10;
 /// One step of the fuzz script: a kind octet and two octets of a count. Test-only.
 const step_octets = 3;
 const steps_max = 32;
@@ -291,15 +293,7 @@ fn fuzz_input(_: void, smith: *std.testing.Smith) anyerror!void {
     while (index + step_octets <= len) : (index += step_octets) {
         const amount: usize = std.mem.readInt(u16, input[index + 1 ..][0 .. step_octets - 1], .little);
         if (input[index] & 1 == 0) {
-            const read = amount % (input_capacity - test_socket.input_len + 1);
-            if (read == 0) continue;
-            const was_empty = test_socket.input_len == 0;
-            const target = test_socket.receive_buffer();
-            for (target[0..read], 0..) |*octet, at| octet.* = @truncate(received + at);
-            test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(read)));
-            received += read;
-            // Nothing was left unread, so the octets stay where the receive wrote them.
-            if (was_empty) try testing.expectEqual(@intFromPtr(target), @intFromPtr(test_socket.unread().ptr));
+            try fuzz_receive(input[index] & consume_in_flight_bit != 0, amount, &received, &consumed);
         } else {
             const taken = amount % (test_socket.input_len + 1);
             test_socket.consume(taken);
@@ -311,6 +305,26 @@ fn fuzz_input(_: void, smith: *std.testing.Smith) anyerror!void {
     }
 }
 
+/// One receive of the fuzz script, of up to `amount` octets. With `consume_in_flight`, the
+/// session consumes some octets while the receive is in flight (design §8 step 60). Test-only.
+fn fuzz_receive(consume_in_flight: bool, amount: usize, received: *usize, consumed: *usize) !void {
+    const read = amount % (input_capacity - test_socket.input_len + 1);
+    if (read == 0) return;
+    const was_empty = test_socket.input_len == 0;
+    const target = test_socket.receive_buffer();
+    if (consume_in_flight) {
+        test_socket.receiving = true;
+        const taken = amount % (test_socket.input_len + 1);
+        test_socket.consume(taken);
+        consumed.* += taken;
+    }
+    for (target[0..read], 0..) |*octet, at| octet.* = @truncate(received.* + at);
+    test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(read)));
+    received.* += read;
+    // Nothing was left unread, so the octets stay where the receive wrote them.
+    if (was_empty) try testing.expectEqual(@intFromPtr(target.ptr), @intFromPtr(test_socket.unread().ptr));
+}
+
 test "fuzz: a socket's unread octets are the flow's, whatever the receives and the consumes" {
     try testing.fuzz({}, fuzz_input, .{
         .corpus = &.{
@@ -318,6 +332,8 @@ test "fuzz: a socket's unread octets are the flow's, whatever the receives and t
             @import("core").fuzz.input("\x00\x10\x00" ++ "\x01\x0c\x00" ++ "\x00\x08\x00" ++ "\x01\xff\xff"),
             // A receive that fills the input behind octets left unread, which moves them first.
             @import("core").fuzz.input("\x00\x20\x00" ++ "\x01\x1c\x00" ++ "\x00\xff\xff" ++ "\x01\x03\x00"),
+            // A consume while a receive is in flight, then the rest read.
+            @import("core").fuzz.input("\x00\x20\x00" ++ "\x02\x10\x00" ++ "\x01\xff\xff"),
         },
     });
     try @import("core").fuzz.sweep(fuzz_input, null);

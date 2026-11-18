@@ -18,9 +18,10 @@ pub const chain_certificates_max: usize = tls.constants.limits.certificate_chain
 /// The octets a TCP socket reads and holds unread: whatever a connection holds before it consumes
 /// a whole record, frame or head (`server.constants.limits.plaintext_in_len`).
 pub const socket_input_len: usize = server.constants.limits.plaintext_in_len;
-/// The octets a TCP socket holds to send: two of what a connection writes before `send` takes it,
-/// so one send is in flight while the next is written.
-pub const socket_output_len: usize = 2 * server.constants.limits.output_len;
+/// The octets a TCP socket holds to send: what a connection writes before `send` takes it. While a
+/// send is in flight, the connection writes after the octets it sends, and it waits for the send
+/// once the output is full (design §8 step 60).
+pub const socket_output_len: usize = server.constants.limits.output_len;
 /// The connections the kernel holds for `accept` before the server takes them.
 pub const listen_backlog: u31 = 1024;
 /// The longest a tick waits, so a `shutdown` from another thread takes effect within it.
@@ -49,7 +50,7 @@ pub const bind_tries_max: u32 = 16;
 
 comptime {
     assert(udp_datagram_len_max <= udp_receive_buffer_len and udp_datagram_len_max <= udp_segmented_bytes_max);
-    assert(socket_input_len > 0 and socket_output_len > server.constants.limits.output_len);
+    assert(socket_input_len > 0 and socket_output_len >= server.constants.limits.output_len);
     assert(listen_backlog > 0 and events_per_step_max > 0 and stop_wait_ns_max > 0);
     assert(chain_der_len_max > 0 and chain_der_len_max < chain_pem_len_max);
     assert(chain_certificates_max > 0);
