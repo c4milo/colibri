@@ -16860,6 +16860,47 @@ library.
       past the noise.
   - **What stays.** The client keeps its own form, because #133 measured the server.
 
+- **Step 59 — fewer deadline checks on a TCP connection, planned 2026-11-18.**
+  [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled on 2026-11-18 to plan
+  it. No public name changes, and the deadlines pass at the same instants (decision 110).
+  - **The cost.** The judge's profile of main at `3d29359a`
+    ([run 44315900856](https://github.com/c4milo/colibri/actions/runs/44315900856)) put about
+    10% of the server's user samples on h11-many in deadline work, in both jobs:
+    - the heap's flush, which reads each changed slot's deadline again: about 5%, and
+      `State.deadline_of` alone 2.1%;
+    - `fire_at_new_instant`, which checks every deadline at each new instant: 2.7% to 3.2%;
+    - `observe`: 2.2% to 2.5%.
+
+    The same work took 7.9% on h11-tls-many, 6.6% on h11-one, and 3% to 4% on the h2 inputs.
+  - **59a, a bound for `fire`.** `Clock` holds `quiet_until_ns`, an instant before which `fire`
+    changes nothing. A call before it sets `checked_ns` and returns, as a call at the instant of
+    the last does now.
+    - The bound is the soonest of every deadline and of every running meter's window end. A
+      meter's window end counts, not the instant of its verdict (`Meter.check_ns`): a window that
+      brought its quota must roll at its end, before more octets count, or a peer that keeps its
+      rate is cut.
+    - A full `fire` that finds nothing computes the bound again. Nothing else raises it.
+    - Each place that starts a deadline or a window lowers the bound to that instant with one
+      `@min`: `init` for the first request; `observe` for the head, the idle wait, the drain, the
+      linger and h2's SETTINGS deadline, which starts in the call that writes h2's preface and
+      again at the end of each pause; `connection_bodies.observe` for each body's wait and meter
+      and for the meter of all bodies; `connection_sends.observe` for each send meter; and
+      `connection_close.half_close` for the staged close. `set_timeouts` sets the bound to 0, so
+      the next call checks again.
+    - A stop moves a deadline later, so it leaves the bound where it is. The next full `fire`
+      raises it.
+  - **59b, the heap's flush, after 59a's verdict.** A slot whose deadline did not change keeps
+    the one the heap holds, with no new `deadline_of` and no move in the heap. It needs each
+    change of `soonest` in both directions, the protocol's own changes included (`running`), so
+    its design waits for 59a's numbers.
+  - **The checks.** For each place that lowers the bound, a test in which a full `fire` raised
+    the bound past the new deadline, then the start, then a call at that deadline's instant, which
+    must end the connection there. A mutation removes each `@min`, and each must be CAUGHT. The
+    simulator's deadline checks, `tools/deadlines.sh` and the deadline trace run against
+    `spec/tla/server_deadlines` must pass as they do now.
+  - **The verdict.** The judge measures 59a against main. On h11-one, whose user instructions
+    vary by 0.5%, the expected gain is about 2%. The QUIC connection keeps its own deadlines.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
