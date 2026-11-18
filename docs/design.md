@@ -5305,6 +5305,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         octet at a time.
     - The owner then stopped the router's work. A generated matcher, which writes one function for
       each node, is the one change left that this record does not price.
+    - On 2026-11-17 connect-zig reported the match's cost on its tables of Connect methods: 4,237
+      instructions a call with 1 route and 4,460 with 256. The owner asked for the published
+      methods for a static set of short keys. They were compile-time hashing of switch labels
+      (Neumann and Göbbert), gperf, prefix B-trees, ART, Khuong and Morin's array layouts,
+      PATRICIA and HOT, and PTHash and PHOBIC.
+      - A hash of each node's literal edges was measured again, and gave the result above. This
+        record held that result, and the prototype should have started from it. At 256 edges of 4
+        octets it took 543 instructions a match, against 621, 492 and 608 for the first, middle
+        and last edge. At 16 edges it lost in the middle by 66.
+      - The cost left was the compare past a segment's first 8 octets, which read one octet at a
+        time. Each edge now keeps its last 8 octets as one integer, in `layout.tails`, beside
+        `layout.edges`, so a step over a short segment reads what it read before. A longer segment
+        compares its words between, 8 octets at a time, then the last word. The order and the
+        search stay as decision 122 has them, and each edge costs 8 octets more.
+      - Callgrind on a laptop, one match over each route of a table: GitHub 1,314 to 1,297,
+        Stripe 1,523 to 1,482 and Kubernetes 2,179 to 2,092. connect-zig's call at 256 routes
+        went from 1,046 to 1,003. Decision 122's cases of 1 to 256 edges of 4 octets cost 0 to 4
+        fewer, except a miss at 16 edges, 2 more.
+      - The checks: a test requires the words to order as `std.mem.order` orders the octets, for
+        segments of 9 to 40 octets that differ at each octet. The test of the binary search
+        against a scan of each edge gains a table of long segments of one length and one head.
+      - 8 mutations, each **CAUGHT**: a middle word skipped, or its order reversed, by the tests;
+        the last word's order reversed, each tail written as the head, a tail read from the first
+        octets, a node's tails taken from the table's first, a word read one octet late, and two
+        equal segments never equal, by the build, whose check of hidden routes searches each table
+        and finds routes that no request reaches.
+      - The tests of `server` pass in Debug on x86-64 under Zig's own backend, 758 of 758, and
+        those of `testing` 59 of 60. The one that fails is decision 160's test of a half-closed
+        socket, which the emulation cannot run (`Unsupported`).
+      - The judge, [run 44231007789](https://github.com/c4milo/colibri/actions/runs/44231007789),
+        against step 13l's commit at 10 rounds: h2-k8s-routes-many wins at 0.9950 and 0.9948,
+        and the server's user instructions fell from 14,731 to 14,643 a request in both jobs.
+        h2-routes-many stays within the noise at 0.9991 and 0.9989, 17 fewer, and no input loses.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
@@ -5751,6 +5784,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       longer than 16. Of the GitHub API's 120, 32 are longer than 8, and none is longer than 16.
     - A tree whose server names no such table, one from before this step, does not run the
       input: `serves` reads the server's usage. The report then gives the input without a verdict.
+    - The judge first ran it in
+      [run 44231007789](https://github.com/c4milo/colibri/actions/runs/44231007789), with this
+      step's commit as the base, at 10 rounds. Both trees served the input, and every request was
+      answered. The base counted 17,136 and 17,139 instructions a request in the two jobs, against
+      15,801 and 15,802 on h2-routes-many, with spreads of 0.15% or less.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
