@@ -47,41 +47,50 @@ pub fn take_datagram(state: *State, datagram: Datagram, now_ns: u64) usize {
     return datagram.bytes.len;
 }
 
-/// The next event QUIC slot `slot` owes the program: the program's own cancels first, then what
-/// its connection reports, then a `cancelled` for each request a stopped connection left open,
-/// then a `writable`, and last its `ended`.
-pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
+/// Writes the next event QUIC slot `slot` owes the program into the engine's `event`, and returns
+/// whether it owes one: the program's own cancels first, then what its connection reports, then a
+/// `cancelled` for each request a stopped connection left open, then a `writable`, and last its
+/// `ended`.
+pub fn poll(state: *State, slot: u32, now_ns: u64) bool {
     // INV-31: the connection's `receive` fires and observes its deadlines (decision 110), which
     // can move them, and a read can owe the peer more credit.
     engine_state.changed(state, slot);
     const handle = state.slots.handle_of(slot);
     const table = table_of(state, slot);
-    if (engine_state_events.owed_cancel(table)) |number| return engine_state_events.ending(handle, table, number, .program);
+    if (engine_state_events.owed_cancel(table)) |number| {
+        state.event = engine_state_events.ending(handle, table, number, .program);
+        return true;
+    }
     const connection = state.connections.at(slot);
-    if (connection_event(state, slot, connection, table, now_ns)) |reported| return reported;
+    if (connection_event(state, slot, connection, table, now_ns)) return true;
     if (connection.stopped) {
         // INV-30: a request the connection ended without an ending of its own ends here.
-        if (table.first()) |entry| return engine_state_events.ending(handle, table, entry.number, .closed);
+        if (table.first()) |entry| {
+            state.event = engine_state_events.ending(handle, table, entry.number, .closed);
+            return true;
+        }
     }
-    if (engine_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
-    if (internal.ended(connection)) return end(state, slot, connection, now_ns);
-    return null;
+    if (engine_state_events.writable_of(state, slot, table, @This())) return true;
+    if (!internal.ended(connection)) return false;
+    state.event = end(state, slot, connection, now_ns);
+    return true;
 }
 
-/// The next event of the connection in `slot` that a request of its table owns.
-fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table: *QuicTable, now_ns: u64) ?Event {
+/// Writes the next event of the connection in `slot` that a request of its table owns into the
+/// engine's `event`, and returns whether one came.
+fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table: *QuicTable, now_ns: u64) bool {
     // Bounded: every event reads an octet the pool holds, or ends a request.
     for (0..constants.limits.quic_events_per_read_max) |_| {
         const received = connection.receive(now_ns) catch {
             state.failed[slot] = true;
             continue;
         };
-        const reported = received.event orelse return null;
-        if (engine_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
+        const reported = if (received.event) |*reported| reported else return false;
+        if (engine_state_events.pass(state, slot, table, reported, @This())) return true;
     }
     // More events than one call reads: the slot comes back for the rest.
     state.ready.touch(slot);
-    return null;
+    return false;
 }
 
 /// Ends the connection in `slot`, whose requests have all ended: its secrets are wiped, its log

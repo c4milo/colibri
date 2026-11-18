@@ -223,14 +223,16 @@ pub const Connection = struct {
     /// has passed at `now_ns` ends the connection first (decision 110).
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
         _ = connection_deadline.fire(connection, now_ns);
+        // Decision 110: the deadlines are observed after a read that did not fail. A `defer`
+        // runs once the result is in the caller's location, so the result is not copied there
+        // from a local (design §8 step 58).
+        var failed = false;
+        defer if (!failed) connection_deadline.observe(connection, now_ns);
+        errdefer failed = true;
         // Design §8 step 56: a call with no octets reads the protocol only where an event can
-        // wait. The deadlines fire and are observed either way (decision 110).
-        const received: ConnectionResult = if (input.len == 0 and !connection_owed.reads_with_no_input(connection))
-            .{ .consumed = 0, .event = null }
-        else
-            try connection.receive_event(input, now_ns);
-        connection_deadline.observe(connection, now_ns);
-        return received;
+        // wait.
+        if (input.len == 0 and !connection_owed.reads_with_no_input(connection)) return .{ .consumed = 0, .event = null };
+        return connection.receive_event(input, now_ns);
     }
 
     /// Inline, so `receive` holds the read as it did before its test of a call that can report

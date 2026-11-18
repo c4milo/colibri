@@ -13,49 +13,51 @@ const ConnectionEvent = event.ConnectionEvent;
 const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 
-/// `reported`, as the program reads it, or null for an event of no request `table` holds. A
-/// connection's `done` and `cancelled` each become the request's one `finished` (decision 126).
-pub fn pass(state: *State, slot: u32, table: anytype, reported: ConnectionEvent, comptime Side: type) ?Event {
+/// Writes `reported`, as the program reads it, into the engine's `event`, and returns false for
+/// an event of no request `table` holds. A connection's `done` and `cancelled` each become the
+/// request's one `finished` (decision 126).
+pub fn pass(state: *State, slot: u32, table: anytype, reported: *const ConnectionEvent, comptime Side: type) bool {
     const handle = state.slots.handle_of(slot);
-    switch (reported) {
-        .request => |request| {
-            var head = request;
-            head.id.connection = handle;
-            if (table.find(request.id.number) != null) return null;
+    switch (reported.*) {
+        .request => |*request| {
+            if (table.find(request.id.number) != null) return false;
             _ = table.add(request.id.number) orelse {
                 // The table holds as many requests as the connection, so this fails closed for a
                 // connection that held more: the request is refused, and never reported.
                 Side.refuse(state, slot, request.id.number);
-                return null;
+                return false;
             };
-            return .{ .request = head };
+            state.event = .{ .request = request.* };
+            state.event.request.id.connection = handle;
         },
-        .body => |body| {
-            const entry = table.find(body.id.number) orelse return null;
-            return .{ .body = .{ .id = id_on(handle, body.id), .user_data = entry.user_data, .bytes = body.bytes, .end = body.end } };
+        .body => |*body| {
+            const entry = table.find(body.id.number) orelse return false;
+            state.event = .{ .body = .{ .id = id_on(handle, body.id), .user_data = entry.user_data, .bytes = body.bytes, .end = body.end } };
         },
-        .trailers => |trailers| {
-            const entry = table.find(trailers.id.number) orelse return null;
-            return .{ .trailers = .{ .id = id_on(handle, trailers.id), .user_data = entry.user_data, .headers = trailers.headers } };
+        .trailers => |*trailers| {
+            const entry = table.find(trailers.id.number) orelse return false;
+            state.event = .{ .trailers = .{ .id = id_on(handle, trailers.id), .user_data = entry.user_data, .headers = trailers.headers } };
         },
-        .done => |done| {
-            const entry = table.find(done.id.number) orelse return null;
+        .done => |*done| {
+            const entry = table.find(done.id.number) orelse return false;
             const user_data = entry.user_data;
             table.remove(done.id.number);
-            return .{ .finished = .{ .id = id_on(handle, done.id), .user_data = user_data, .result = .sent } };
+            state.event = .{ .finished = .{ .id = id_on(handle, done.id), .user_data = user_data, .result = .sent } };
         },
-        .cancelled => |cancelled| {
-            if (table.find(cancelled.id.number) == null) return null;
-            return ending(handle, table, cancelled.id.number, cancelled.reason);
+        .cancelled => |*cancelled| {
+            if (table.find(cancelled.id.number) == null) return false;
+            state.event = ending(handle, table, cancelled.id.number, cancelled.reason);
         },
     }
+    return true;
 }
 
-/// The `writable` of the first request of `slot` whose wait the connection now takes, which waits
-/// no more. A request whose room counter moved and which the connection still cannot take waits for
-/// the next move, so `writable` comes once for each move of room at most.
-pub fn writable_of(state: *State, slot: u32, table: anytype, comptime Side: type) ?Event {
-    if (table.waiting == 0) return null;
+/// Writes the `writable` of the first request of `slot` whose wait the connection now takes, which
+/// waits no more, into the engine's `event`, and returns whether one did. A request whose room
+/// counter moved and which the connection still cannot take waits for the next move, so
+/// `writable` comes once for each move of room at most.
+pub fn writable_of(state: *State, slot: u32, table: anytype, comptime Side: type) bool {
+    if (table.waiting == 0) return false;
     const room = state.room[slot];
     var open = table.in_use.iterator(.{});
     // Bounded by the table's capacity.
@@ -69,9 +71,10 @@ pub fn writable_of(state: *State, slot: u32, table: anytype, comptime Side: type
         }
         table.stop_waiting(entry);
         const id: RequestId = .{ .connection = state.slots.handle_of(slot), .number = entry.number };
-        return .{ .writable = .{ .id = id, .user_data = entry.user_data } };
+        state.event = .{ .writable = .{ .id = id, .user_data = entry.user_data } };
+        return true;
     }
-    return null;
+    return false;
 }
 
 /// The number of a request whose cancelled `finished` the program's own `cancel` owes, or null.

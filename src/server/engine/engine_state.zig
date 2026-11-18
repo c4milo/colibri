@@ -117,6 +117,9 @@ pub const State = struct {
     shutting_down: bool,
     /// `closed` was reported once every connection had ended.
     closed_reported: bool,
+    /// The event the last call found, which `receive` reports. The engine's layers write it here
+    /// once, and pass no copy of it to each other (design §8 step 58).
+    event: Event,
 
     /// Holds no connection. The engine stays where it is: the slots' table and the connections
     /// hold pointers into it.
@@ -146,6 +149,7 @@ pub const State = struct {
         @memset(storage.room, 0);
         state.shutting_down = false;
         state.closed_reported = false;
+        state.event = .closed;
         @memset(storage.failed, false);
     }
 
@@ -156,12 +160,13 @@ pub const State = struct {
             // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
             .stream => |octets| taken: {
                 const taken = engine_state_tcp.take_stream(state, octets, now_ns);
-                if (taken.event != null) return taken;
+                if (taken.reported) return .{ .consumed = taken.consumed, .event = state.event };
                 break :taken taken.consumed;
             },
             .datagram => |datagram| engine_state_quic.take_datagram(state, datagram, now_ns),
         };
-        return .{ .consumed = consumed, .event = state.next_event(now_ns) };
+        if (!state.next_event(now_ns)) return .{ .consumed = consumed, .event = null };
+        return .{ .consumed = consumed, .event = state.event };
     }
 
     /// Starts a connection on a TCP socket the program accepted, or returns null.
@@ -179,30 +184,33 @@ pub const State = struct {
         engine_state_tcp.transport_closed(state, connection);
     }
 
-    /// Asks each slot in the ready ring for an event, the front first, and reports the first one
-    /// a slot gives. A slot that gives one goes to the back; one that gives none leaves the ring.
-    fn next_event(state: *State, now_ns: u64) ?Event {
+    /// Asks each slot in the ready ring for an event, the front first, writes the first one a
+    /// slot gives into `event`, and returns whether one did. A slot that gives one goes to the
+    /// back; one that gives none leaves the ring.
+    fn next_event(state: *State, now_ns: u64) bool {
         const queued = state.ready.len;
         // Bounded: each slot queued now is asked once.
         for (0..queued) |_| {
             const slot = state.ready.take() orelse break;
-            const reported = state.poll(slot, now_ns) orelse continue;
+            if (!state.poll(slot, now_ns)) continue;
             if (state.slots.live[slot]) state.ready.touch(slot);
-            return reported;
+            return true;
         }
         return state.closed_event();
     }
 
     /// `closed`, once, when the program shut the engine down and no connection is left.
-    fn closed_event(state: *State) ?Event {
-        if (!state.shutting_down or state.closed_reported) return null;
-        if (state.slots.holding() > 0) return null;
+    fn closed_event(state: *State) bool {
+        if (!state.shutting_down or state.closed_reported) return false;
+        if (state.slots.holding() > 0) return false;
         state.closed_reported = true;
-        return .closed;
+        state.event = .closed;
+        return true;
     }
 
-    /// The next event slot `slot` owes the program, asked of its kind of slot.
-    fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
+    /// Writes the next event slot `slot` owes the program into `event`, asked of its kind of
+    /// slot, and returns whether it owes one.
+    fn poll(state: *State, slot: u32, now_ns: u64) bool {
         assert(state.slots.live[slot]);
         if (state.is_tcp(slot)) return engine_state_tcp.poll(state, slot, now_ns);
         // Design §8 step 29d.7: a QUIC poll inlined here changed how LLVM laid out the TCP path

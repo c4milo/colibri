@@ -255,9 +255,9 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Engine(.{})` | 52536656 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 350768 | an engine that holds one TCP connection |
-| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2956240 | an engine that holds one QUIC connection, with its receive pool |
+| `server.Engine(.{})` | 52536816 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 350928 | an engine that holds one TCP connection |
+| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2956400 | an engine that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 334344 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1432544 | the connection each QUIC slot of an engine holds, without its receive pool |
 | `server.EncoderPool(.{})` | 1461336 | the encoders a program gives a server's connections, at the default options |

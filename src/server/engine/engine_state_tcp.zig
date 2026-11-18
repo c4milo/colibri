@@ -29,6 +29,10 @@ pub const Accepted = struct { tls: bool = true };
 /// Bytes a TCP connection's socket read, which chapulin may open in place.
 pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
 
+/// What `take_stream` took of its octets, and whether it wrote an event into the engine's
+/// `event` (design §8 step 58).
+pub const Taken = struct { consumed: usize, reported: bool };
+
 /// A TCP slot's open requests: as many as an h2 connection holds at once.
 pub const TcpTable = engine_requests.Table(constants.limits.tcp_requests_max, constants.protocol.tcp_request_number_step);
 
@@ -64,14 +68,14 @@ pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     return handle;
 }
 
-/// Hands octets a socket read to the slot's connection, and returns what it consumed with the
-/// event it reported, if any. The program's own cancels, then the `send` of octets the output
-/// holds, come first, with nothing consumed. Octets of a handle that names no connection, or of a
-/// connection that reads no more, are consumed and dropped, as a read that finished after `close`
-/// is.
-pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.ReceiveResult {
+/// Hands octets a socket read to the slot's connection, and returns what it consumed and whether
+/// it wrote an event into the engine's `event`. The program's own cancels, then the `send` of
+/// octets the output holds, come first, with nothing consumed. Octets of a handle that names no
+/// connection, or of a connection that reads no more, are consumed and dropped, as a read that
+/// finished after `close` is.
+pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) Taken {
     assert(input.connection.slot < state.slots.tcp_count);
-    const dropped: event.ReceiveResult = .{ .consumed = input.bytes.len, .event = null };
+    const dropped: Taken = .{ .consumed = input.bytes.len, .reported = false };
     const slot = state.slots.resolve(input.connection) orelse return dropped;
     if (state.transports[slot] != .open) return dropped;
     const table = table_of(state, slot);
@@ -79,12 +83,13 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.Receive
     // again, and the input waits for the next call.
     if (engine_state_events.owed_cancel(table)) |number| {
         engine_state.touch(state, slot);
-        return .{ .consumed = 0, .event = engine_state_events.ending(input.connection, table, number, .program) };
+        state.event = engine_state_events.ending(input.connection, table, number, .program);
+        return .{ .consumed = 0, .reported = true };
     }
-    if (send_first(state, slot)) |reported| return .{ .consumed = 0, .event = reported };
+    if (send_first(state, slot)) return .{ .consumed = 0, .reported = true };
     // No octets, and nothing changed the connection since it read nothing at this instant: the
     // call would read nothing again, and the slot's last poll asked it everything else.
-    if (input.bytes.len == 0 and reads_nothing(state, slot, now_ns)) return .{ .consumed = 0, .event = null };
+    if (input.bytes.len == 0 and reads_nothing(state, slot, now_ns)) return .{ .consumed = 0, .reported = false };
     const connection = &state.tcp[slot];
     engine_state.touch(state, slot);
     const received = connection.receive(input.bytes, now_ns) catch {
@@ -92,53 +97,60 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.Receive
         state.failed[slot] = true;
         return dropped;
     };
-    note_read(state, slot, received, now_ns);
+    note_read(state, slot, &received, now_ns);
     // A read may carry the peer's WINDOW_UPDATE, which gives a waiting response room.
     if (received.consumed > 0 or connection.plain_in_read > 0) state.room[slot] +%= 1;
     const consumed = if (connection_owed.reads_no_input(connection)) input.bytes.len else received.consumed;
-    const reported = received.event orelse return .{ .consumed = consumed, .event = null };
-    return .{ .consumed = consumed, .event = engine_state_events.pass(state, slot, table, reported, @This()) };
+    const reported = if (received.event) |*reported| reported else return .{ .consumed = consumed, .reported = false };
+    return .{ .consumed = consumed, .reported = engine_state_events.pass(state, slot, table, reported, @This()) };
 }
 
-/// The next event TCP slot `slot` owes the program: the program's own cancels first, then the
-/// `send` of octets its output holds, then what its connection reports, then a `cancelled` for each
-/// request a stopped connection left open, then a `writable`, then `send` or `close`, and last its
-/// `ended`.
-pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
+/// Writes the next event TCP slot `slot` owes the program into the engine's `event`, and returns
+/// whether it owes one: the program's own cancels first, then the `send` of octets its output
+/// holds, then what its connection reports, then a `cancelled` for each request a stopped
+/// connection left open, then a `writable`, then `send` or `close`, and last its `ended`.
+pub fn poll(state: *State, slot: u32, now_ns: u64) bool {
     // INV-31: the connection's `receive` fires and observes its deadlines (decision 110).
     engine_state.changed(state, slot);
     const handle = state.slots.handle_of(slot);
     const table = table_of(state, slot);
-    if (engine_state_events.owed_cancel(table)) |number| return engine_state_events.ending(handle, table, number, .program);
-    if (send_first(state, slot)) |reported| return reported;
+    if (engine_state_events.owed_cancel(table)) |number| {
+        state.event = engine_state_events.ending(handle, table, number, .program);
+        return true;
+    }
+    if (send_first(state, slot)) return true;
     const connection = &state.tcp[slot];
-    if (connection_event(state, slot, connection, table, now_ns)) |reported| return reported;
+    if (connection_event(state, slot, connection, table, now_ns)) return true;
     if (connection_owed.stops_requests(connection)) {
         // INV-30: a request the connection ended without an ending of its own ends here.
-        if (table.first()) |entry| return engine_state_events.ending(handle, table, entry.number, .closed);
+        if (table.first()) |entry| {
+            state.event = engine_state_events.ending(handle, table, entry.number, .closed);
+            return true;
+        }
     }
-    if (engine_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
+    if (engine_state_events.writable_of(state, slot, table, @This())) return true;
     return transport_event(state, slot, connection, now_ns);
 }
 
-/// The next event of the connection in `slot` that a request of its table owns. A connection
-/// whose transport closed still reports the `done` of each response it wrote whole.
-fn connection_event(state: *State, slot: u32, connection: *Connection, table: *TcpTable, now_ns: u64) ?Event {
+/// Writes the next event of the connection in `slot` that a request of its table owns into the
+/// engine's `event`, and returns whether one came. A connection whose transport closed still
+/// reports the `done` of each response it wrote whole.
+fn connection_event(state: *State, slot: u32, connection: *Connection, table: *TcpTable, now_ns: u64) bool {
     // Bounded: every event ends a request, or reads a frame the plaintext holds.
     for (0..constants.limits.tcp_events_per_poll_max) |_| {
-        if (reads_nothing(state, slot, now_ns)) return null;
+        if (reads_nothing(state, slot, now_ns)) return false;
         const received = connection.receive(&.{}, now_ns) catch {
             state.failed[slot] = true;
             continue;
         };
-        note_read(state, slot, received, now_ns);
+        note_read(state, slot, &received, now_ns);
         if (connection.plain_in_read > 0) state.room[slot] +%= 1;
-        const reported = received.event orelse return null;
-        if (engine_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
+        const reported = if (received.event) |*reported| reported else return false;
+        if (engine_state_events.pass(state, slot, table, reported, @This())) return true;
     }
     // More events than one call reads: the slot comes back for the rest.
     state.ready.touch(slot);
-    return null;
+    return false;
 }
 
 /// The `send` of octets the output of the connection in `slot` holds, which the engine reports
@@ -146,34 +158,41 @@ fn connection_event(state: *State, slot: u32, connection: *Connection, table: *T
 /// send meter waits while the output holds octets (decision 110 as amended), so octets a write left
 /// there for the program would pause the meter after each write, which then starts again with a
 /// grace period, and a peer that opens its window an octet at a time would never be cut.
-fn send_first(state: *State, slot: u32) ?Event {
-    if (state.transports[slot] != .open or state.send_outstanding[slot]) return null;
-    if (state.tcp[slot].output_len == 0) return null;
+fn send_first(state: *State, slot: u32) bool {
+    if (state.transports[slot] != .open or state.send_outstanding[slot]) return false;
+    if (state.tcp[slot].output_len == 0) return false;
     state.send_outstanding[slot] = true;
-    return .{ .send = state.slots.handle_of(slot) };
+    state.event = .{ .send = state.slots.handle_of(slot) };
+    return true;
 }
 
 /// The slot's `send`, once for each debt, while the socket is open; its `half_close` at `now_ns`
 /// once the response of a staged close is out; its `close` once the connection has finished; and
 /// its `ended` once the socket closed and every request ended.
-fn transport_event(state: *State, slot: u32, connection: *Connection, now_ns: u64) ?Event {
+fn transport_event(state: *State, slot: u32, connection: *Connection, now_ns: u64) bool {
     const handle = state.slots.handle_of(slot);
-    if (state.transports[slot] != .open) return end(state, slot, connection);
+    if (state.transports[slot] != .open) {
+        state.event = end(state, slot, connection);
+        return true;
+    }
     if (!state.send_outstanding[slot] and connection_owed.should_send(connection)) {
         state.send_outstanding[slot] = true;
-        return .{ .send = handle };
+        state.event = .{ .send = handle };
+        return true;
     }
     // RFC 9112 §9.6: the write side closes first, and the bound runs from the event.
     if (connection_close.should_half_close(connection)) {
         connection_close.half_close(connection, now_ns);
-        return .{ .half_close = handle };
+        state.event = .{ .half_close = handle };
+        return true;
     }
-    if (!connection.should_close()) return null;
+    if (!connection.should_close()) return false;
     state.transports[slot] = .closed_by_engine;
     connection_internal.close_transport(connection);
     // A connection whose transport closed reports each response it wrote whole.
     state.empty_read_ns[slot] = null;
-    return .{ .close = handle };
+    state.event = .{ .close = handle };
+    return true;
 }
 
 /// Ends the connection in `slot`, whose socket closed and whose requests have all ended: the slot
@@ -253,7 +272,7 @@ fn reads_nothing(state: *const State, slot: u32, now_ns: u64) bool {
 /// Notes whether the `receive` the connection in `slot` just made read nothing: it took no octet,
 /// reported no event, and its protocol read none of the plaintext the connection holds. A call
 /// that read something may leave more to read, such as h2 frames past `frames_per_receive_max`.
-fn note_read(state: *State, slot: u32, received: event.ConnectionResult, now_ns: u64) void {
+fn note_read(state: *State, slot: u32, received: *const event.ConnectionResult, now_ns: u64) void {
     const read_nothing = received.consumed == 0 and received.event == null and state.tcp[slot].plain_in_read == 0;
     state.empty_read_ns[slot] = if (read_nothing) now_ns else null;
 }
