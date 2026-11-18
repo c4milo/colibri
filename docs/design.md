@@ -16806,9 +16806,51 @@ library.
     - The native counters of steps 56 and 57 give the same calls a request on io_uring as on
       epoll, so the price a call holds on the judge. The laptop's callgrind decides nothing
       (step 57).
-  - **58a, internal.** The engine's layers build each event once, in storage that the engine
-    holds, and pass a pointer to it. `Engine.receive` copies the event into its result once. No
-    public name or signature changes, so it can land before v0.19.0.
+  - **58a, internal.** The engine's layers build each event once, in a field that the engine
+    holds, and return whether they wrote it. `Engine.receive` copies the event into its result
+    once. No public name or signature changes, so it can land before v0.19.0.
+  - **58a, done 2026-11-17.** The engine builds each event once.
+    - `State` holds one `event`. `take_stream` returns how much it consumed and whether it wrote
+      the event, and `next_event`, each kind of slot's `poll`, `send_first`, `connection_event`,
+      `transport_event`, `engine_state_events.pass` and `writable_of` write `state.event` and
+      return a `bool`. `State.receive` copies the event into its result once, or stores null.
+    - `pass` and `note_read` take their argument by `*const`, because each is over 16 octets.
+    - The connection's `receive` observes the deadlines in a `defer`, and an `errdefer` keeps a
+      failed read from being observed, as before. Its result is written in place, not copied there
+      from a local.
+    - The same profile as the price above: the loads and stores of 16 octets fell from 537 to 297
+      a request on h11-many, and from 384 to 290 on h2-many.
+    - What 58a leaves: the null result stored whole and the copy into the public result in
+      `State.receive`, about 51 a request on h11-many, which 58b removes. The connection's
+      `receive` keeps about 50, its null result and the request's event copied out of the read,
+      because its result is still a value; its tests call it about 60 times.
+    - **Mutations, 2 of 3 CAUGHT,** against the tests of `server`, `sim`, `sim-run`, `colibri`
+      and `testing`:
+      - CAUGHT: a passed request keeps the connection's own handle, and an event that
+        `take_stream` wrote is not reported. Under the second, the `colibri` tests wait forever,
+        and the run was stopped.
+      - NOT CAUGHT: a read that fails is observed too. A failed connection's octets reach its
+        output only in `send`, so the observation starts no clock that a deadline reads. The
+        `errdefer` stays, so the connection behaves as before.
+    - **Checked, 2026-11-17 and 2026-11-18:**
+      - The judge measured `8fac6e7b` against `3d2a738d` in two jobs, with the h11 inputs
+        ([run 44204557947](https://github.com/c4milo/colibri/actions/runs/44204557947)). In user
+        instructions h11-many won in both jobs, 0.9540 and 0.9585, h11-one 0.9597 and 0.9589, and
+        h11-tls-many 0.9771 and 0.9701. h2-many won in both, 0.9849 and 0.9844, h2-routes-many
+        0.9870 and 0.9874, h2-routes-post-many 0.9886 and 0.9894, and h2-one 0.9919 and 0.9915.
+        No input lost.
+      - Replayed onto `d767731f`, which added the input h2-k8s-routes-many, the judge measured
+        the same change against `d767731f`
+        ([run 44242526127](https://github.com/c4milo/colibri/actions/runs/44242526127)). In user
+        instructions h11-many won in both jobs, 0.9518 and 0.9437, and h11-one 0.9607 and 0.9579.
+        h2-many won in both, 0.9856 and 0.9854, h2-routes-many 0.9875 and 0.9876,
+        h2-k8s-routes-many 0.9882 and 0.9886, h2-routes-post-many 0.9893 and 0.9883, and
+        h2-tls-many 0.9907 and 0.9875. No input lost.
+      - Each engine grows by 160 octets, the one `event`, and docs/performance.md's memory table
+        says so.
+      - The server tests, 757 of 757, passed on x86-64 Debug in an amd64 container.
+      - `tools/ci.sh` passed 31 sections on `6b636d09`, with Zig 0.16.0 on an Apple M1 Pro with
+        macOS.
   - **58b, public, in v0.19.0.** Two signatures change:
     - `server.Engine(capacity).receive` takes `result: *server.ReceiveResult` and returns nothing.
     - A `server.Router`'s `handle` takes `received: *const server.Event`.
