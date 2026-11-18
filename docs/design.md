@@ -16900,6 +16900,22 @@ library.
     `spec/tla/server_deadlines` must pass as they do now.
   - **The verdict.** The judge measures 59a against main. On h11-one, whose user instructions
     vary by 0.5%, the expected gain is about 2%. The QUIC connection keeps its own deadlines.
+  - **59a, refused, 2026-11-18.** The bound was built as planned, at `7b75a98b`.
+    - Laptop callgrind on h11-many counted the deadline functions at 1,240 instructions a
+      request, against 1,503 on main, and `fire_at_new_instant` no longer ran. On h2-many the
+      server took about 58 instructions a request more: `observe` grew by 48, because its new
+      branches keep more values live and its prologue saves more registers. A version that moved
+      the lowering into a cold function cost h2-many 18 more again.
+    - The judge measured `7b75a98b` against `29ecebca` in two jobs, with the h11 inputs
+      ([run 44323413950](https://github.com/c4milo/colibri/actions/runs/44323413950)). In user
+      instructions h11-one lost in both jobs, 1.0166 and 1.0150: each of its connections serves
+      one request, so it computes the bound once and skips no check. h11-many gave 0.9977 and
+      1.0010, and h2-routes-post-many lost in one job, 1.0086. No input won, so 59a did not land.
+    - Mutations, of 9 run before the verdict: 7 CAUGHT; NOT CAUGHT, h2's SETTINGS deadline and a
+      body's wait lowering nothing. The run stopped at the verdict.
+    - **What it shows.** On the judge, a check skipped at a new instant saves about what the
+      bookkeeping for the skip costs in `observe`, which runs at every `receive` and `send`. 59b
+      would need the same bookkeeping for each change of `soonest`, so it is not planned.
 
 ## 9. Test-only entry points
 
