@@ -249,11 +249,22 @@ test "a socket Rotor has closed keeps its entry until its connection has ended" 
 }
 
 test "design §8 step 13f: the --routes mode answers through the worker's router" {
-    server_mode.routes_mode = true;
-    defer server_mode.routes_mode = false;
+    server_mode.routes_mode = .github;
+    defer server_mode.routes_mode = .none;
     const worker = try fresh_worker();
     const index = accept(worker, 0);
     deliver(worker, index, "GET /users/colibri/repos HTTP/1.1\r\nHost: a\r\n\r\n", constants.tick_ns);
+    try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\nok\n"));
+}
+
+test "design §8 step 13l: the --routes kubernetes mode answers through its own router" {
+    server_mode.routes_mode = .kubernetes;
+    defer server_mode.routes_mode = .none;
+    const worker = try fresh_worker();
+    const index = accept(worker, 0);
+    // A route of the Kubernetes sample, which the GitHub API's routes do not hold.
+    const request = "GET /apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations/x HTTP/1.1\r\nHost: a\r\n\r\n";
+    deliver(worker, index, request, constants.tick_ns);
     try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\nok\n"));
 }
 
@@ -271,8 +282,8 @@ test "design §8 step 13f: an accepted socket sends at once, with Nagle's algori
 }
 
 test "decision 160: a 405 before a body past the bound goes out whole, then the socket half-closes and reads on" {
-    server_mode.routes_mode = true;
-    defer server_mode.routes_mode = false;
+    server_mode.routes_mode = .github;
+    defer server_mode.routes_mode = .none;
     const worker = try fresh_worker();
     const index = accept(worker, 0);
     const socket = &worker.sockets[index];
@@ -347,8 +358,8 @@ fn end_loop(worker: *Worker) void {
 }
 
 test "decision 160: after the half-close the socket receives again, and the peer's close ends the connection" {
-    server_mode.routes_mode = true;
-    defer server_mode.routes_mode = false;
+    server_mode.routes_mode = .github;
+    defer server_mode.routes_mode = .none;
     const worker = try fresh_worker();
     const port = try server_worker.bind_listeners(0, 1);
     defer rotor.sync.close_now(worker.listener);

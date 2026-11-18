@@ -22,6 +22,7 @@ pub fn add(
     const testing_udp = create(b, "src/testing/quic_udp.zig", target, optimize);
     // Design §8 step 13f: `routes=github` builds the route table of the TCP server's `--routes`.
     testing_udp.addAnonymousImport("github_routes", .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") });
+    testing_udp.addAnonymousImport("kubernetes_sample_routes", .{ .root_source_file = b.path("bench/router/competitors/kubernetes_sample_routes.txt") });
     testing_udp.addImport("h2", graph.h2);
     testing_udp.addImport("quic", graph.quic);
     // The h3 server and client of design §9, ruled by the owner on 2026-09-24.

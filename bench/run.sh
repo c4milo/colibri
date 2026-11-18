@@ -10,6 +10,9 @@
 # http.zig, in Zig, answer too (design §8 step 13g); BENCH_COMPETITORS names a part of the list.
 # Two inputs send a POST to a route of that table, whose route reads the whole body: one with a
 # body that arrives with its header, and one with a body that arrives later (design §8 step 50b).
+# h2-k8s-routes-many sends the GET routes of a sample of the Kubernetes API's routes to the server
+# with `--routes kubernetes`, whose segments are longer than the GitHub API's (design §8 step 13l).
+# A tree whose server names no such table, one from before that step, does not run it.
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
@@ -85,7 +88,7 @@ readonly warm_requests=2000
 # h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
 readonly ready_seconds=1
-inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-routes-post-many h2-routes-post-late-many)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
@@ -136,7 +139,8 @@ url() {  # url <variant> <input>
     h3-*) echo "https://127.0.0.1:${at}/${h3_file}" ;;
     *-tls-*) echo "https://127.0.0.1:${at}/" ;;
     *-routes-post-*) echo "http://127.0.0.1:${at}${post_path}" ;;
-    # A route of the GitHub API's, since `/` names none of them.
+    # A route of the Kubernetes API's or of the GitHub API's, since `/` names none of them.
+    *-k8s-routes-*) echo "http://127.0.0.1:${at}$(head -1 "$scratch/paths_kubernetes.txt")" ;;
     *-routes-*) echo "http://127.0.0.1:${at}$(head -1 "$scratch/paths.txt")" ;;
     *) echo "http://127.0.0.1:${at}/" ;;
   esac
@@ -154,11 +158,14 @@ offer_of() {  # offer_of <input>
   esac
 }
 
-# Whether <variant> serves <input>. A build of colibri serves every input. http.zig has no TLS and
-# speaks h11 alone, nginx, h2o and hyper serve no h3 input, and quic-go serves h3-many and h3-one
-# alone, because its controller is its own.
+# Whether <variant> serves <input>. A build of colibri serves every input whose route table its
+# server names (design §8 step 13l). http.zig has no TLS and speaks h11 alone, nginx, h2o and
+# hyper serve no h3 input, and quic-go serves h3-many and h3-one alone, because its controller is
+# its own.
 serves() {  # serves <variant> <input>
   case "$1" in
+    change) [[ "$2" != *-k8s-routes-* ]] || names_routes "$change_server" kubernetes ;;
+    base) [[ "$2" != *-k8s-routes-* ]] || names_routes "$base_server" kubernetes ;;
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
     nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* ]] ;;
     quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
@@ -209,6 +216,10 @@ case "\$1" in
   # A POST route of the GitHub API's, whose route reads its whole body (design §8 step 50b).
   *-routes-post-late-many) h2load -d ${scratch}/post_late.bin -n ${many_requests} -c ${many_clients} -m ${many_streams} "\${target%/}${post_path}" ;;
   *-routes-post-many) h2load -d ${scratch}/post_small.bin -n ${many_requests} -c ${many_clients} -m ${many_streams} "\${target%/}${post_path}" ;;
+  # The sampled Kubernetes API's GET routes in turn, each parameter given a value (design §8 step
+  # 13l).
+  *-k8s-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths_kubernetes.txt >${scratch}/urls_kubernetes.txt
+    h2load -i ${scratch}/urls_kubernetes.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
   # The GitHub API's GET routes in turn, each parameter given a value (design §8 step 13h).
   *-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths.txt >${scratch}/urls.txt
     h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
@@ -439,6 +450,8 @@ prepare_h3
 # them.
 awk '$1 == "GET" { print $2 }' "$repository_root/bench/router/competitors/github_routes.txt" |
   sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
+awk '$1 == "GET" { print $2 }' "$repository_root/bench/router/competitors/kubernetes_sample_routes.txt" |
+  sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths_kubernetes.txt"
 # The bodies of the two POST inputs.
 head -c "$post_small_len" /dev/zero | tr '\0' 'x' >"$scratch/post_small.bin"
 head -c "$post_late_len" /dev/zero | tr '\0' 'x' >"$scratch/post_late.bin"

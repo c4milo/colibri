@@ -1,14 +1,19 @@
-//! The `--routes github` mode of the test-only server (design §8 step 13f): the GitHub API's 203
-//! routes of `bench/router/competitors/github_routes.txt`, which the compiler builds into a route
-//! table through `server.Router`, and one answer for every route, 200 with `ok\n`. Step 13f's
-//! competitors serve the same routes with the same answer. Split off `server_session.zig`.
+//! The `--routes` mode of the test-only server: a route table of `bench/router/competitors/`,
+//! which the compiler builds through `server.Router`, and one answer for every route, 200 with
+//! `ok\n`. `github` holds the GitHub API's 203 routes (design §8 step 13f), whose answer step 13f's
+//! competitors give too. `kubernetes` holds 463 of the Kubernetes API's 1,172 routes, every method
+//! of 235 of its 587 paths, whose segments are longer (design §8 step 13l). Split off
+//! `server_session.zig`.
 const std = @import("std");
 const server = @import("server");
 const http = @import("h2").http;
 const constants = @import("../constants.zig");
 
-/// The routes, one "METHOD /path" on each line, which the build hands this module.
-const lines = @embedFile("github_routes");
+/// The GitHub API's routes, one "METHOD /path" on each line, which the build hands this module.
+pub const github = Table(@embedFile("github_routes"));
+/// A sample of the Kubernetes API's routes, in the same form
+/// (`bench/router/competitors/kubernetes_sample_routes.LICENSE` names how it was taken).
+pub const kubernetes = Table(@embedFile("kubernetes_sample_routes"));
 
 /// The answer of every route, and its media type (RFC 9110 §8.3).
 pub const answer_body = "ok\n";
@@ -37,59 +42,79 @@ fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: an
     response.status = .internal_server_error;
 }
 
-/// A route that answers at the header, and a POST route, which reads its whole body first.
-const Entry = struct { http.method.Standard, []const u8, *const @TypeOf(answer) };
-const BodyEntry = struct { http.method.Standard, []const u8, *const @TypeOf(read_and_answer) };
+/// The token of the one method whose routes read their whole body first.
+const post_token = "POST";
 
-const route_count = count: {
-    @setEvalBranchQuota(constants.routes_quota);
-    break :count std.mem.count(u8, lines, "\n");
-};
-
-/// The method of a line, "METHOD /path".
-fn method_of(comptime line: []const u8) http.method.Standard {
-    const space = std.mem.indexOfScalar(u8, line, ' ').?;
-    var method: [space]u8 = undefined;
-    _ = std.ascii.lowerString(&method, line[0..space]);
-    return @field(http.method.Standard, &method);
+/// The method of a line, "METHOD /path", as its token.
+fn token_of(comptime line: []const u8) []const u8 {
+    return line[0..std.mem.indexOfScalar(u8, line, ' ').?];
 }
 
-/// The type of each line's entry, in the lines' order.
-const entry_types: [route_count]type = build: {
-    @setEvalBranchQuota(constants.routes_quota);
-    var held: [route_count]type = undefined;
-    var iterator = std.mem.tokenizeScalar(u8, lines, '\n');
-    var index: usize = 0;
-    while (iterator.next()) |line| : (index += 1) {
-        held[index] = if (method_of(line) == .post) BodyEntry else Entry;
-    }
-    break :build held;
-};
+/// The type a route table takes a method as: one of RFC 9110's eight as `http.method.Standard`, and
+/// any other, such as PATCH, as its token (decision 122 ruling 4).
+fn MethodOf(comptime token: []const u8) type {
+    var lower: [token.len]u8 = undefined;
+    _ = std.ascii.lowerString(&lower, token);
+    return if (@hasField(http.method.Standard, &lower)) http.method.Standard else []const u8;
+}
 
-const entries: std.meta.Tuple(&entry_types) = build: {
-    @setEvalBranchQuota(constants.routes_quota);
-    var held: std.meta.Tuple(&entry_types) = undefined;
-    var iterator = std.mem.tokenizeScalar(u8, lines, '\n');
-    var index: usize = 0;
-    while (iterator.next()) |line| : (index += 1) {
-        const path = line[std.mem.indexOfScalar(u8, line, ' ').? + 1 ..];
-        held[index] = if (method_of(line) == .post)
-            BodyEntry{ .post, path, &read_and_answer }
-        else
-            Entry{ method_of(line), path, &answer };
-    }
-    break :build held;
-};
+fn method_of(comptime token: []const u8) MethodOf(token) {
+    var lower: [token.len]u8 = undefined;
+    _ = std.ascii.lowerString(&lower, token);
+    if (comptime MethodOf(token) == http.method.Standard) return @field(http.method.Standard, &lower);
+    return token;
+}
 
-pub const routes = .{ .error_handler = on_error, .routes = entries };
+/// The entry of a line: its method, its path, and the function that answers it.
+fn EntryOf(comptime token: []const u8) type {
+    const Function = if (std.mem.eql(u8, token, post_token)) @TypeOf(read_and_answer) else @TypeOf(answer);
+    return struct { MethodOf(token), []const u8, *const Function };
+}
 
-/// One worker's pool of request entries.
-pub const Pool = server.Router(void, routes, .{
-    .requests = constants.routes_requests_max,
-    .response_bytes = constants.routes_response_bytes,
-    .body_bytes = constants.routes_body_bytes,
-    .header_bytes = constants.routes_header_bytes,
-});
+/// The router of the routes of `lines`, one "METHOD /path" on each line, and its pool of request
+/// entries for one worker.
+fn Table(comptime lines: []const u8) type {
+    return struct {
+        pub const route_count = count: {
+            @setEvalBranchQuota(constants.routes_quota);
+            break :count std.mem.count(u8, lines, "\n");
+        };
+
+        /// The type of each line's entry, in the lines' order.
+        const entry_types: [route_count]type = build: {
+            @setEvalBranchQuota(constants.routes_quota);
+            var held: [route_count]type = undefined;
+            var iterator = std.mem.tokenizeScalar(u8, lines, '\n');
+            var index: usize = 0;
+            while (iterator.next()) |line| : (index += 1) held[index] = EntryOf(token_of(line));
+            break :build held;
+        };
+
+        const entries: std.meta.Tuple(&entry_types) = build: {
+            @setEvalBranchQuota(constants.routes_quota);
+            var held: std.meta.Tuple(&entry_types) = undefined;
+            var iterator = std.mem.tokenizeScalar(u8, lines, '\n');
+            var index: usize = 0;
+            while (iterator.next()) |line| : (index += 1) {
+                const token = token_of(line);
+                const path = line[token.len + 1 ..];
+                const function = if (std.mem.eql(u8, token, post_token)) &read_and_answer else &answer;
+                held[index] = .{ method_of(token), path, function };
+            }
+            break :build held;
+        };
+
+        pub const routes = .{ .error_handler = on_error, .routes = entries };
+
+        /// One worker's pool of request entries.
+        pub const Pool = server.Router(void, routes, .{
+            .requests = constants.routes_requests_max,
+            .response_bytes = constants.routes_response_bytes,
+            .body_bytes = constants.routes_body_bytes,
+            .header_bytes = constants.routes_header_bytes,
+        });
+    };
+}
 
 const testing = std.testing;
 
@@ -97,11 +122,22 @@ const testing = std.testing;
 const no_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} };
 
 test "design §8 step 13f: the GitHub API's routes build, and a GET route matches" {
-    try testing.expectEqual(203, route_count);
+    try testing.expectEqual(203, github.route_count);
     var parameters: server.PathParameters = .{};
-    const found = Pool.match("GET", "/repos/colibri/hummingbird/events", &parameters);
+    const found = github.Pool.match("GET", "/repos/colibri/hummingbird/events", &parameters);
     try testing.expectEqualStrings("GET /repos/:owner/:repo/events", @tagName(found.found));
     try testing.expectEqualStrings("hummingbird", parameters.get("repo").?);
+}
+
+test "design §8 step 13l: the Kubernetes API's sampled routes build, and a GET and a PATCH route match" {
+    try testing.expectEqual(463, kubernetes.route_count);
+    var parameters: server.PathParameters = .{};
+    const path = "/apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations/colibri";
+    const found = kubernetes.Pool.match("GET", path, &parameters);
+    try testing.expectEqualStrings("GET /apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations/:name", @tagName(found.found));
+    try testing.expectEqualStrings("colibri", parameters.get("name").?);
+    const patched = kubernetes.Pool.match("PATCH", path, &parameters);
+    try testing.expectEqualStrings("PATCH /apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations/:name", @tagName(patched.found));
 }
 
 /// An engine that takes every call and records the status of the head. Test-only.
@@ -127,7 +163,7 @@ const Engine = struct {
 };
 
 test "design §8 step 13f: the router's handle compiles over the 203 routes, and answers one" {
-    const pool = try testing.allocator.create(Pool);
+    const pool = try testing.allocator.create(github.Pool);
     defer testing.allocator.destroy(pool);
     pool.* = .{};
     var engine: Engine = .{};
@@ -155,7 +191,7 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
 }
 
 test "design §8 step 50b: a POST route answers once its whole body arrived" {
-    const pool = try testing.allocator.create(Pool);
+    const pool = try testing.allocator.create(github.Pool);
     defer testing.allocator.destroy(pool);
     pool.* = .{};
     var engine: Engine = .{};

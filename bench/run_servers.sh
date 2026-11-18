@@ -27,6 +27,14 @@ takes_seconds() {  # takes_seconds <path>
   grep -q -- '--seconds' <<<"$usage"
 }
 
+# Whether colibri's test-only server at <path> names the route table <table> in its usage (design
+# §8 step 13l). A base tree from before that step names github alone.
+names_routes() {  # names_routes <path> <table>
+  local usage
+  usage="$("$1" --help 2>&1 || true)"
+  grep -q -- "$2" <<<"$usage"
+}
+
 # The command that serves <input> as <variant>, into the array `command`: colibri's server built
 # from the change or from the base, or a competitor configured for cleartext or for TLS.
 server_command() {  # server_command <variant> <input>
@@ -65,7 +73,10 @@ server_command() {  # server_command <variant> <input>
       # Decision 161: with the Unix time the server issues session tickets, which a client such as
       # wrk resumes with, as it does with hyper's.
       if [ -n "$tls" ] && takes_seconds "${command[0]}"; then command+=(--seconds "$(date +%s)"); fi
-      if [[ "$2" == *-routes-* ]]; then command+=(--routes github); fi
+      case "$2" in
+        *-k8s-routes-*) command+=(--routes kubernetes) ;;
+        *-routes-*) command+=(--routes github) ;;
+      esac
       ;;
   esac
 }

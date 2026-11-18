@@ -71,9 +71,11 @@ pub const Worker = struct {
 /// The workers, in static storage: each is large, and there is one per core at most.
 pub var workers: [constants.workers_max]Worker align(@alignOf(Worker)) = undefined;
 
-/// Each worker's router pool in the `--routes github` mode, which `start` prepares in that mode
+/// Each worker's router pool in the `--routes github` mode, which `begin` prepares in that mode
 /// alone (design §8 step 13f).
-var route_pools: [constants.workers_max]server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
+var github_pools: [constants.workers_max]server_routes.github.Pool align(@alignOf(server_routes.github.Pool)) = undefined;
+/// Each worker's router pool in the `--routes kubernetes` mode (design §8 step 13l).
+var kubernetes_pools: [constants.workers_max]server_routes.kubernetes.Pool align(@alignOf(server_routes.kubernetes.Pool)) = undefined;
 
 comptime {
     // The loop's memory leads the struct, so its alignment is the struct's, and every worker
@@ -135,15 +137,22 @@ pub fn start(index: usize) server.StartError!void {
     try begin(worker, .{ .unix_seconds = 0, .monotonic_ns = 0 });
 }
 
-/// Starts the worker's engine at `now`, with the router's pool in the `--routes github` mode. The
+/// Starts the worker's engine at `now`, with the router's pool in the `--routes` mode. The
 /// engine holds no connection yet.
 fn begin(worker: *Worker, now: server.Timestamp) server.StartError!void {
     // A Unix time pairs with an instant a tick read: the monotonic clock is past 0 by then.
     assert(now.unix_seconds == 0 or now.monotonic_ns > 0);
     try worker.session.init(&worker.config, entropy.random(), now);
-    if (server_mode.routes_mode) {
-        route_pools[worker.index] = .{};
-        worker.session.routes = &route_pools[worker.index];
+    switch (server_mode.routes_mode) {
+        .none => {},
+        .github => {
+            github_pools[worker.index] = .{};
+            worker.session.routes = .{ .github = &github_pools[worker.index] };
+        },
+        .kubernetes => {
+            kubernetes_pools[worker.index] = .{};
+            worker.session.routes = .{ .kubernetes = &kubernetes_pools[worker.index] };
+        },
     }
 }
 

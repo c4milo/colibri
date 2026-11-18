@@ -13,13 +13,16 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  seven inputs, four more with `--h11`, and two more with `--h3`:
+  eight inputs, four more with `--h11`, and two more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
   - `h2-routes-many`: h2-many against the server with `--routes github`, whose router answers
     the GitHub API's 131 GET routes, which h2load sends in turn. It is the one input that counts
     `server.Router`'s cost, which the owner asked for on 2026-10-28 (design §8 step 13h).
+  - `h2-k8s-routes-many`: h2-routes-many over 463 of the Kubernetes API's routes with `--routes
+    kubernetes`, which h2load sends 228 GET routes of. Its segments are longer than the GitHub
+    API's: 220 of its 352 literal edges have more than 8 octets (design §8 step 13l).
   - `h2-routes-post-many` and `h2-routes-post-late-many`: h2-many as a POST to a route of that
     route table, whose route reads its whole body (design §8 step 50b). The first body has 128
     octets, and arrives with its header. The second has 8,192 octets. The streams of a connection

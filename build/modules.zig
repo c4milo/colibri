@@ -289,9 +289,10 @@ pub fn add(
 
     // Design §9: the test-only endpoints. Nothing imports this module, so the library never
     // uses the socket it opens, and decision 10 links chapulin here alone when step 5 lands.
-    // Design §8 step 13f: the routes the `--routes github` mode builds its route table from, the
+    // Design §8 steps 13f and 13l: the routes the `--routes` mode builds its route tables from, the
     // routes the router benchmark matches. The client's tests run the server, so it reads them too.
     const github_routes: std.Build.Module.CreateOptions = .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") };
+    const kubernetes_sample_routes: std.Build.Module.CreateOptions = .{ .root_source_file = b.path("bench/router/competitors/kubernetes_sample_routes.txt") };
     const testing = create(b, "src/testing/testing.zig", target, optimize);
     testing.addImport("core", core);
     testing.addImport("h2", h2);
@@ -305,11 +306,13 @@ pub fn add(
     // Decision 97 as amended: each program probes its CPU once, in src/testing/cpu.zig.
     testing.addImport("platform", stdx.module("platform"));
     testing.addAnonymousImport("github_routes", github_routes);
+    testing.addAnonymousImport("kubernetes_sample_routes", kubernetes_sample_routes);
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
     testing.link_libc = true;
 
     const testing_client = create(b, "src/testing/client.zig", target, optimize);
     testing_client.addAnonymousImport("github_routes", github_routes);
+    testing_client.addAnonymousImport("kubernetes_sample_routes", kubernetes_sample_routes);
     testing_client.addImport("core", core);
     testing_client.addImport("h2", h2);
     testing_client.addImport("h11", h11);

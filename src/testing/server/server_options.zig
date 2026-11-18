@@ -3,6 +3,7 @@
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
 //!         [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>]
+//!         [--routes github | kubernetes]
 //!
 //! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
 //! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--h2`, `--echo` and `--coded` take no
@@ -15,7 +16,9 @@
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
 //! final h11 response, and one ALTSVC frame per h2 connection. `--seconds` gives a TLS server
 //! the Unix time it starts at: the server then draws a ticket key and issues session tickets
-//! (RFC 9846 §4.7.1, decision 161). Without it the server issues none.
+//! (RFC 9846 §4.7.1, decision 161). Without it the server issues none. `--routes` names the route
+//! table that `server.Router` answers every request through: the GitHub API's 203 routes (design §8
+//! step 13f), or 463 of the Kubernetes API's (design §8 step 13l).
 const std = @import("std");
 const constants = @import("../constants.zig");
 const alpn = @import("../alpn.zig");
@@ -43,8 +46,8 @@ const seconds_option = "--seconds";
 
 /// The base the Unix seconds are written in on the command line.
 const decimal: u8 = 10;
-/// The one route table `--routes` names.
-const github_routes = "github";
+/// The route tables `--routes` names, or none.
+pub const Routes = enum { none, github, kubernetes };
 
 /// What the command line asked for.
 pub const Options = struct {
@@ -61,9 +64,9 @@ pub const Options = struct {
     coded: bool = false,
     /// The UDP port each TLS connection advertises h3 on, or null for none.
     h3_port: ?u16 = null,
-    /// Whether the server routes through `server.Router` the GitHub API's routes (`--routes
-    /// github`, design §8 step 13f).
-    routes: bool = false,
+    /// The route table the server routes every request through with `server.Router`
+    /// (`--routes`), or none.
+    routes: Routes = .none,
     /// The Unix seconds the server starts at, which its session tickets carry, or null to issue
     /// none (decision 161).
     unix_seconds: ?u64 = null,
@@ -85,7 +88,7 @@ pub fn read(arguments: anytype) ?Options {
     const echo_ok = !options.echo or (options.alone == .h11 and options.identity_prefix == null);
     // The router answers every request itself, so no other mode answers too, and it codes no
     // response until design §8 step 25.6.
-    const routes_ok = !options.routes or (!options.echo and !options.coded);
+    const routes_ok = options.routes == .none or (!options.echo and !options.coded);
     // A ticket is a TLS message (RFC 9846 §4.7.1), so the time serves the TLS mode alone.
     const seconds_ok = options.unix_seconds == null or options.identity_prefix != null;
     return if (echo_ok and routes_ok and seconds_ok) options else null;
@@ -130,9 +133,10 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
     } else return null;
 }
 
-/// Whether `--routes` names the one route table there is, or null for any other name.
-fn parse_routes(value: []const u8) ?bool {
-    return if (std.mem.eql(u8, value, github_routes)) true else null;
+/// The route table `--routes` names, or null for a name that is no table's.
+fn parse_routes(value: []const u8) ?Routes {
+    const routes = std.meta.stringToEnum(Routes, value) orelse return null;
+    return if (routes == .none) null else routes;
 }
 
 /// The Unix seconds of `--seconds`, or null for a value that is not a count, or for 0, which
@@ -142,7 +146,7 @@ fn parse_seconds(value: []const u8) ?u64 {
     return if (seconds == 0) null else seconds;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>] [--routes github]\n";
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>] [--routes github | kubernetes]\n";
 
 const testing = std.testing;
 
@@ -197,11 +201,14 @@ test "the echo is h11's, in cleartext" {
     try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--tls", "id" }));
 }
 
-test "design §8 step 13f: --routes takes github alone, and no other mode that answers or codes" {
-    try testing.expect(test_read(&.{ "--routes", "github" }).?.routes);
-    try testing.expect(test_read(&.{ "--h2", "--routes", "github" }).?.routes);
-    try testing.expect(!test_read(&.{}).?.routes);
+test "design §8 step 13f: --routes takes github or kubernetes, and no other mode that answers or codes" {
+    try testing.expectEqual(Routes.github, test_read(&.{ "--routes", "github" }).?.routes);
+    try testing.expectEqual(Routes.github, test_read(&.{ "--h2", "--routes", "github" }).?.routes);
+    try testing.expectEqual(Routes.kubernetes, test_read(&.{ "--routes", "kubernetes" }).?.routes);
+    try testing.expectEqual(Routes.none, test_read(&.{}).?.routes);
     try testing.expectEqual(null, test_read(&.{ "--routes", "gitlab" }));
+    try testing.expectEqual(null, test_read(&.{ "--routes", "none" }));
+    try testing.expectEqual(null, test_read(&.{ "--coded", "--routes", "kubernetes" }));
     try testing.expectEqual(null, test_read(&.{"--routes"}));
     try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--routes", "github" }));
     try testing.expectEqual(null, test_read(&.{ "--coded", "--routes", "github" }));

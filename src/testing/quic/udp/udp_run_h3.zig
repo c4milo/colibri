@@ -60,7 +60,7 @@ var qlog_directory: ?[]const u8 = null;
 var log_context: u8 = 0;
 /// The router of `routes=github`, which answers every request in place of `files` (design §8 step
 /// 13f).
-var route_pool: server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
+var route_pool: server_routes.github.Pool align(@alignOf(server_routes.github.Pool)) = undefined;
 /// The sets of `careful-resume`, which each client host's connections save and take (RFC 9959,
 /// design §8 step 35e).
 var resumes: udp_resume.Table align(@alignOf(udp_resume.Table)) = .{};

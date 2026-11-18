@@ -5736,6 +5736,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Step 29 adds a run where a colibri server with CUBIC and one with BBRv3 share the
       bottleneck, each with 2 connections. The report gives each one's goodput and Jain's index
       of the two.
+  - **13l**, the Kubernetes API's routes, which the owner ruled on 2026-11-17. connect-zig asked
+    for a cheaper match on route tables of its size, and the GitHub API's routes cannot show
+    a change to the compare of long segments.
+    - `h2-k8s-routes-many`: h2-many against the server with `--routes kubernetes`. Its router
+      holds the 463 routes of `bench/router/competitors/kubernetes_sample_routes.txt`, and h2load
+      sends the table's 228 GET routes in turn, each parameter given a value.
+    - The sample holds 235 of the API's 587 paths, each with every method it has: the paths at
+      places 0 and 2 of each 5, in the file's order. The owner asked on 2026-11-17 for about 500
+      routes of mixed methods and paths. A cold Debug build and run of the `testing` module takes
+      30 s on main. All 1,172 routes added 42 s to it, and the sample adds 10 s.
+    - The sample keeps the API's mix of methods within 1 point, all 24 of its API groups, and its
+      largest node, of 23 edges. 220 of its 352 literal edges are longer than 8 octets, and 88 are
+      longer than 16. Of the GitHub API's 120, 32 are longer than 8, and none is longer than 16.
+    - A tree whose server names no such table, one from before this step, does not run the
+      input: `serves` reads the server's usage. The report then gives the input without a verdict.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

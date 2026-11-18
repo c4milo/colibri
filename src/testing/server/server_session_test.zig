@@ -74,12 +74,12 @@ fn owed_count(index: usize) u32 {
 var test_now_ns: u64 = 0;
 
 /// The router pool of the `--routes` mode's test. Test-only.
-var test_routes: server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
+var test_routes: server_routes.github.Pool align(@alignOf(server_routes.github.Pool)) = undefined;
 
 test "design §8 step 13f: in the --routes mode the router answers each h11 request by its route" {
     const session = try fresh_session(.h11, null);
     test_routes = .{};
-    session.routes = &test_routes;
+    session.routes = .{ .github = &test_routes };
     const input = "GET /repos/a/b/events HTTP/1.1\r\nHost: a\r\n\r\nGET /nothing HTTP/1.1\r\nHost: a\r\n\r\n";
     const first = step(input, &test_output);
     const routed = "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 3\r\n\r\n" ++ server_routes.answer_body;
