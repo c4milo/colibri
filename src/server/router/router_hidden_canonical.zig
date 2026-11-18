@@ -44,6 +44,7 @@ pub fn View(comptime Layout: type) type {
     return struct {
         nodes: *const @FieldType(Layout, "nodes"),
         edges: *const @FieldType(Layout, "edges"),
+        tails: *const @FieldType(Layout, "tails"),
         leaves: *const @FieldType(Layout, "leaves"),
         entries: *const @FieldType(Layout, "entries"),
         methods: *const @FieldType(Layout, "methods"),
@@ -59,6 +60,7 @@ pub fn view_of(copy: anytype) View(@TypeOf(copy.*)) {
     return .{
         .nodes = &copy.nodes,
         .edges = &copy.edges,
+        .tails = &copy.tails,
         .leaves = &copy.leaves,
         .entries = &copy.entries,
         .methods = &copy.methods,

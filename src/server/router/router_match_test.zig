@@ -1,9 +1,11 @@
 //! The tests of `router_match.zig`'s search of a node's literal edges: the binary search finds
-//! the edge that a scan of each edge finds (decision 122). Split out for length. Test-only.
+//! the edge that a scan of each edge finds (decision 122), and a segment longer than eight octets
+//! orders a word at a time as its octets order. Split out for length. Test-only.
 const std = @import("std");
 const router_trie = @import("router_trie.zig");
 const router_trie_layout = @import("router_trie_layout.zig");
-const literal_child = @import("router_match.zig").literal_child;
+const router_match = @import("router_match.zig");
+const literal_child = router_match.literal_child;
 
 fn text_of(comptime layout: anytype, range: anytype) []const u8 {
     return layout.text[range.offset..][0..range.len];
@@ -50,6 +52,18 @@ const search_tables = .{
         .{ .get, "/aaaaaaaabbbbb", 0 }, .{ .get, "/aaaaaaabbbbbb", 0 }, .{ .get, "/zaaaaaaaaaaaa", 0 },
         .{ .get, "/abcdefgh", 0 },      .{ .get, "/abcdefgi", 0 },      .{ .get, "/bbcdefgh", 0 },
     },
+    // Literals past 16 octets, of one length and one head, as API groups and services are: they
+    // differ in a word between the first and the last, in the last word, or in one octet that two
+    // words share.
+    .{
+        .{ .get, "/admissionregistration.k8s.io", 0 }, .{ .get, "/admissionregistrationXk8s.io", 0 },
+        .{ .get, "/admissionregistratiom.k8s.io", 0 }, .{ .get, "/admissionregistration.k8s.ip", 0 },
+        .{ .get, "/admissionrfgistration.k8s.io", 0 }, .{ .get, "/bench.v1.Filler03", 0 },
+        .{ .get, "/bench.v1.Filler13", 0 },            .{ .get, "/bench.v1.Filler04", 0 },
+        .{ .get, "/bench.v1.Fillfr03", 0 },            .{ .get, "/aaaaaaaabbbbbbbbc", 0 },
+        .{ .get, "/aaaaaaaabbbbbbbbcccccccc", 0 },     .{ .get, "/aaaaaaaabbbbbbbccccccccc", 0 },
+        .{ .get, "/aaaaaaaabbbbbbbbccccccccd", 0 },    .{ .get, "/aaaaaaaabbbbbbbbdccccccccc", 0 },
+    },
 };
 
 /// Segments beside the edges of each node: shorter and longer than each edge, before the first
@@ -57,7 +71,7 @@ const search_tables = .{
 const outside_segments = [_][]const u8{ "", "!", "~", "!!", "~~", "~~~~~~~~", "aaaaaaaaaaaa" };
 
 /// The octets of a segment that the test builds from an edge, at most.
-const probe_len_max = 16;
+const probe_len_max = 40;
 
 /// Whether the two searches differ on `segment` at `node`. It prints the first difference.
 fn searches_differ(comptime layout: anytype, node: usize, segment: []const u8) bool {
@@ -109,6 +123,26 @@ fn search_tables_quota() u32 {
     var quota: u32 = 0;
     inline for (search_tables) |table| quota += router_trie.quota_of(table);
     return quota;
+}
+
+/// Segments of 9 to 40 octets with one head, and the octet that each differs in. Test-only.
+const order_len_max = 40;
+
+test "a segment past eight octets orders a word at a time as its octets order" {
+    var left: [order_len_max]u8 = undefined;
+    var right: [order_len_max]u8 = undefined;
+    for (router_trie_layout.head_len + 1..order_len_max + 1) |len| {
+        for (router_trie_layout.head_len..len) |at| {
+            for ([_]u8{ 'a', 'm', 'z' }) |octet| {
+                @memset(left[0..len], 'm');
+                @memset(right[0..len], 'm');
+                right[at] = octet;
+                const expected = std.mem.order(u8, left[router_trie_layout.head_len..len], right[router_trie_layout.head_len..len]);
+                const found = router_match.rest_order(left[0..len], router_trie_layout.tail_of(left[0..len]), right[0..len]);
+                try testing.expectEqual(expected, found);
+            }
+        }
+    }
 }
 
 test "decision 122: the binary search finds the literal edge that the scan of each edge finds" {

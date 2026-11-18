@@ -351,6 +351,7 @@ fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []co
 pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {
     const at = layout.nodes[node];
     const edges = layout.edges[at.edges_first..][0..at.edges_count];
+    const tails = layout.tails[at.edges_first..][0..at.edges_count];
     const head = router_trie_layout.head_of(segment);
     var low: usize = 0;
     var high: usize = edges.len;
@@ -358,7 +359,7 @@ pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8)
         if (low >= high) return null;
         const middle = low + ((high - low) >> 1);
         // RFC 9110 §4.2.3: a path compares case-sensitively, octet for octet.
-        switch (edge_order(layout, edges[middle], segment, head)) {
+        switch (edge_order(layout, edges[middle], tails[middle], segment, head)) {
             .eq => return edges[middle].child,
             .lt => low = middle + 1,
             .gt => high = middle,
@@ -379,12 +380,29 @@ const search_passes_past_log = 2;
 
 /// The order of `edge` and `segment` in the order of `router_trie_layout.segment_less`: the
 /// shorter first, then by octets. The first octets compare as one integer, `head`, which the
-/// build wrote for each edge, so a segment of `head_len` octets or fewer compares no octet.
-fn edge_order(comptime layout: anytype, edge: anytype, segment: []const u8, head: u64) std.math.Order {
+/// build wrote for each edge, so a segment of `head_len` octets or fewer compares no octet. A
+/// longer one compares a word at a time (`rest_order`), the last word being the edge's `tail`.
+fn edge_order(comptime layout: anytype, edge: anytype, tail: u64, segment: []const u8, head: u64) std.math.Order {
     if (edge.segment.len != segment.len) return std.math.order(edge.segment.len, segment.len);
     if (edge.head != head) return std.math.order(edge.head, head);
     if (segment.len <= router_trie_layout.head_len) return .eq;
-    return std.mem.order(u8, text_of(layout, edge.segment)[router_trie_layout.head_len..], segment[router_trie_layout.head_len..]);
+    return rest_order(text_of(layout, edge.segment), tail, segment);
+}
+
+/// The order of an edge's text and `segment`, of one length past `head_len` octets, whose first
+/// `head_len` octets are equal. It compares the words between, eight octets at a time, then the
+/// last eight octets, which `edge_tail` holds for the edge. The last word overlaps the word
+/// before only where the two are equal, so the order is the order of the octets.
+pub fn rest_order(edge_text: []const u8, edge_tail: u64, segment: []const u8) std.math.Order {
+    const word = router_trie_layout.head_len;
+    assert(edge_text.len == segment.len and segment.len > word);
+    // The full words after the first and before the last eight octets: a segment bounds them.
+    for (1..(segment.len - 1) / word) |index| {
+        const edge_word = std.mem.readInt(u64, edge_text[index * word ..][0..word], .big);
+        const segment_word = std.mem.readInt(u64, segment[index * word ..][0..word], .big);
+        if (edge_word != segment_word) return std.math.order(edge_word, segment_word);
+    }
+    return std.math.order(edge_tail, router_trie_layout.tail_of(segment));
 }
 
 /// The result of `method` at `leaf`: `found` or `method_not_allowed`. The check of hidden routes

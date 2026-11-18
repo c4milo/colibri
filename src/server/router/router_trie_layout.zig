@@ -106,6 +106,10 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     return struct {
         nodes: [sizes.nodes]Node,
         edges: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]Edge,
+        /// The last octets of each edge's segment as `tail_of` gives them, in the order of
+        /// `edges`. They sit apart from `edges`, so a step of the search over short segments
+        /// reads what it read before.
+        tails: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]u64,
         leaves: [sizes.leaves]Leaf,
         entries: [sizes.routes]Entry,
         /// The table's set of methods: one run of `text` for each distinct method token.
@@ -238,6 +242,7 @@ fn add_edges(builder: anytype, trie: anytype, node: usize) void {
             .head = head_of(segment),
             .child = @intCast(index),
         };
+        builder.layout.tails[builder.edges_count] = tail_of(segment);
         builder.edges_count += 1;
     }
     builder.layout.nodes[node].edges_count = @intCast(count);
@@ -276,6 +281,14 @@ pub fn head_of(segment: []const u8) u64 {
     for (segment) |octet| head = (head << @bitSizeOf(u8)) | octet;
     // The octets past the end are 0, below the last one.
     return head << @intCast((head_len - segment.len) * @bitSizeOf(u8));
+}
+
+/// The last `head_len` octets of `segment` as one integer, the first octet highest. A segment of
+/// fewer octets gives `head_of`. `router_match.literal_child` compares a segment longer than
+/// `head_len` octets a word at a time, and this word is the last.
+pub fn tail_of(segment: []const u8) u64 {
+    if (segment.len < head_len) return head_of(segment);
+    return std.mem.readInt(u64, segment[segment.len - head_len ..][0..head_len], .big);
 }
 
 /// The order of the edges of a node, which `router_match.literal_child` searches in: the shorter
