@@ -5925,6 +5925,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       succeeded. The judge's three runs at `70f186c1` passed in both jobs. In job 1, axum on quinn
       took 11.5 µs a request over h3, 2.85 times colibri's, and served 118,520 requests a second, a
       core busy 0.98 of the time.
+  - **13s**, which side sets the latency, which the owner asked on 2026-11-19. Over h3, oha reached
+    about 57,000 requests a second against colibri and 55,000 against axum. Under h2load the two
+    serve 263,237 and 118,520 on one core, and their p99s rose together from 20,000 on. So the h3
+    panel of the latency chart may measure oha and not the servers.
+    - The owner chose to measure it. In each load of `--latency`, `run_latency.sh` reads each thread
+      of the server and of oha from its schedstat, 1 s after the load starts and 1 s before it ends.
+      It also reads the UDP datagrams the kernel dropped from `/proc/net/snmp` before and after the
+      load. `bench/run_latency_busy.sh` holds the two reads, since `run_latency.sh` passes 500 lines
+      with them.
+    - `report_latency.py` gives four figures for each load: the share of that time the server's
+      threads ran, the cores oha's threads ran together, the share its busiest thread ran, and the
+      drops. `bench/chart.py` reads the wider rows.
+    - **Check:** `python3 bench/report_latency.py --test` reads synthetic loads. Seven mutations,
+      each CAUGHT: the counts before the middle ignored, the busiest thread taken as the sum, the
+      length of the middle ignored, the drops ignored, a thread that started inside the middle left
+      out, the warm-up's figures read, and no figures read. `bench/chart.py --test` draws the same
+      chart from the wider rows, and a parser that drops them is CAUGHT.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

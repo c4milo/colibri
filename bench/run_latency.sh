@@ -84,6 +84,12 @@ seconds=5
 readonly p99_bound_ms=10
 # The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
 readonly ready_tries=100
+# The middle of each load, in which the script counts how long the server's threads and oha's ran:
+# from this many seconds after the load starts to as many before it ends, so that neither oha's
+# start nor its end falls inside it (design §8 step 13s).
+readonly busy_delay_seconds=1
+# shellcheck source-path=SCRIPTDIR source=run_latency_busy.sh
+source "$repository_root/bench/run_latency_busy.sh"
 # oha's release, and the commit its tag names, which cargo builds with its Cargo.lock.
 readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
@@ -278,8 +284,10 @@ stop_server() {
   server_pid=""
 }
 
-# oha's load at <rate> for <protocol>, into <out>, as JSON.
-load() {  # load <protocol> <rate> <out>
+# oha's load at <rate> for <protocol>, into <out.json>, as JSON. <out>.busy holds the length of
+# the middle of the load in nanoseconds, each thread of the server and of oha before and after it,
+# and the UDP datagrams the kernel dropped during the whole load. bench/report_latency.py reads it.
+load() {  # load <protocol> <rate> <out.json>
   local shape=(-c "$h11_connections")
   local h2_parallel="$h2_streams" h3_parallel="$h3_streams"
   if [ "$network" = true ]; then h2_parallel="$network_streams" h3_parallel="$network_streams"; fi
@@ -289,8 +297,25 @@ load() {  # load <protocol> <rate> <out>
     # The servers present a test identity, which oha does not verify.
     h3) shape=(--http-version 3 --insecure -c "$h3_connections" -p "$h3_parallel") ;;
   esac
+  local busy="${3%.json}.busy" drops oha_pid wall
+  drops="$(udp_drops)"
   taskset -c "$load_cores" "$oha" --no-tui --urls-from-file "$scratch/urls.txt" -z "${seconds}s" \
-    -q "$2" --latency-correction "${shape[@]}" --output-format json >"$3"
+    -q "$2" --latency-correction "${shape[@]}" --output-format json >"$3" &
+  oha_pid=$!
+  sleep "$busy_delay_seconds"
+  wall="$(date +%s%N)"
+  {
+    thread_nanoseconds "$server_pid" | sed 's/^/server_before /'
+    thread_nanoseconds "$oha_pid" | sed 's/^/oha_before /'
+  } >"$busy"
+  sleep "$((seconds - 2 * busy_delay_seconds))"
+  {
+    thread_nanoseconds "$server_pid" | sed 's/^/server_after /'
+    thread_nanoseconds "$oha_pid" | sed 's/^/oha_after /'
+    echo "window $(($(date +%s%N) - wall))"
+  } >>"$busy"
+  wait "$oha_pid"
+  echo "udp_drops $(($(udp_drops) - drops))" >>"$busy"
 }
 
 machine() {
@@ -308,6 +333,7 @@ machine() {
   echo "h3=$(awk '$0 == "name = \"h3\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), quinn $(awk '$0 == "name = \"quinn\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock")"
   echo "oha=${oha_version} ${oha_commit}, with h3"
   echo "rounds=$rounds seconds=$seconds p99_bound_ms=$p99_bound_ms"
+  echo "busy=the threads' run time from ${busy_delay_seconds} s after each load starts to ${busy_delay_seconds} s before it ends, with oha on cores ${load_cores}"
   if [ "$network" = false ]; then
     echo "load=h11 ${h11_connections} connections, h2 and h2-tls ${h2_connections} connections of ${h2_streams} streams, h3 ${h3_connections} connections of ${h3_streams} streams"
   fi

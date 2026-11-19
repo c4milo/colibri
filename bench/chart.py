@@ -292,8 +292,9 @@ def read_latency(text):
         if not line.startswith("|") or protocol not in dict(LATENCY_PROTOCOLS):
             continue
         cells = cells_of(line)
-        # | server | rate | reached | p50 | p99 | p99.9 | all 200 |
-        if len(cells) != 7 or not cells[1].isdigit():
+        # | server | rate | reached | p50 | p99 | p99.9 | all 200 |, and since design §8 step 13s the
+        # busy shares, which a point does not need.
+        if len(cells) < 7 or not cells[1].isdigit():
             continue
         rate, reached = int(cells[1]), number(cells[2])
         low, high = (float(value) for value in re.search(r"\(([0-9.]+)–([0-9.]+)\)", cells[2]).groups())
@@ -535,6 +536,9 @@ def test_latency():
                                  "| axum | 3 | 50,000.0 (2.00%) | 0.99 | server |\n", "79")
     assert ">Over h3, axum serves through quinn and the h3 crate.<" in with_axum and "colibri 5.60×" in with_axum, with_axum
     latency = latency_chart(LATENCY_REPORT, "78")
+    # A report with the busy shares of design §8 step 13s draws the same chart.
+    wider = re.sub(r"^(\|.*\| (yes|no) \|)$", r"\1 0.10 | 1.20 | 0.70 | 0 |", LATENCY_REPORT, flags=re.M)
+    assert wider != LATENCY_REPORT and latency_chart(wider, "78") == latency, wider
     assert "h2: colibri sustains 2,000 req/s, net/http + chi sustains 1,000 req/s" in latency, latency
     # chi's 2,000 and 4,000 in h2, its 1,000 in h3, which reached 900 in a round, and colibri's 4,000,
     # whose p99 passed the bound.

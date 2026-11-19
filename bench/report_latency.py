@@ -6,6 +6,12 @@ requests per second oha reached, and the p50, p99 and p99.9 latency. A rate is s
 median p99 stays under the bound, every request was answered 200, and oha reached 95% of the rate
 in every round. The summary gives each server's highest sustained rate.
 
+Each run may have a <rate>.busy beside its JSON (design §8 step 13s): the threads of the server
+and of oha, each with the nanoseconds it had run at the start and at the end of the middle of the
+load, the length of that middle, and the UDP datagrams the kernel dropped during the load. The
+report then gives the median share of the middle that the server's threads ran, the cores oha's
+threads ran together, the share its busiest thread ran, and the drops.
+
 With --network the runs are named <protocol>@<profile>, one for each network profile of step 13i.
 The report then gives no sustained rate, since a round trip of 100 ms passes any bound a clean
 path sets. In its place it gives, for each profile, server and rate, the median p99 over h3
@@ -61,8 +67,37 @@ def read_runs(scratch):
         }
         for name in PERCENTILES:
             measurement[name] = data["latencyPercentiles"][name] * MS
+        busy = path.with_suffix(".busy")
+        if busy.exists():
+            measurement.update(read_busy(busy.read_text()))
         runs.setdefault((protocol, server, rate), []).append(measurement)
     return runs
+
+
+# The figures of a <rate>.busy that the report gives, each by its column's name, and how each is
+# written.
+BUSY_FIGURES = (("Server busy", "{:.2f}"), ("oha cores", "{:.2f}"), ("oha's busiest thread", "{:.2f}"),
+                ("UDP drops", "{:.0f}"))
+
+
+def read_busy(text):
+    """The figures of BUSY_FIGURES from a <rate>.busy of bench/run_latency.sh."""
+    before, after, window, drops = {}, {}, None, 0
+    for line in text.splitlines():
+        words = line.split()
+        if words[0] == "window":
+            window = int(words[1])
+        elif words[0] == "udp_drops":
+            drops = int(words[1])
+        else:
+            side, moment = words[0].rsplit("_", 1)
+            (before if moment == "before" else after).setdefault(side, {})[words[1]] = int(words[2])
+    # A thread that started inside the middle ran only inside it.
+    ran = {side: [ns - before.get(side, {}).get(thread, 0) for thread, ns in threads.items()]
+           for side, threads in after.items()}
+    server, oha = ran.get("server", [0]), ran.get("oha", [0])
+    return {"Server busy": sum(server) / window, "oha cores": sum(oha) / window,
+            "oha's busiest thread": max(oha) / window, "UDP drops": drops}
 
 
 def spread(values):
@@ -105,17 +140,26 @@ def details(runs, protocols, servers):
     """The table of each protocol: the medians and the spread of every server at every rate."""
     lines = []
     for protocol in protocols:
+        columns = ["Server", "Rate", "Reached req/s", "p50", "p99", "p99.9", "All 200"] + [
+            name for name, _ in BUSY_FIGURES]
         lines += ["", f"## {protocol}", "",
                   "Medians, with the lowest and the highest round in parentheses. Latency in milliseconds.", "",
-                  "| Server | Rate | Reached req/s | p50 | p99 | p99.9 | All 200 |", "|---|---|---|---|---|---|---|"]
+                  "| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
         for server in servers:
             for rate in sorted(rate for (p, s, rate) in runs if p == protocol and s == server):
                 measurements = runs[(protocol, server, rate)]
                 cells = [spread([m["rps"] for m in measurements])]
                 cells += [spread([m[name] for m in measurements]) for name in PERCENTILES]
                 cells.append("yes" if all(m["ok"] for m in measurements) else "no")
+                cells += [busy_cell(measurements, name, form) for name, form in BUSY_FIGURES]
                 lines.append(f"| {server} | {rate} | " + " | ".join(cells) + " |")
     return lines
+
+
+def busy_cell(measurements, name, form):
+    """The median of a figure of BUSY_FIGURES over the rounds that counted it, or a dash."""
+    values = [m[name] for m in measurements if name in m]
+    return form.format(statistics.median(values)) if values else "—"
 
 
 def median_p99(runs, key):
@@ -459,7 +503,40 @@ def write_run(scratch, round_, protocol, server, rate, rps, p99, codes):
     path.write_text(json.dumps(data))
 
 
+def write_busy(scratch, round_, protocol, server, rate, server_ran, oha_ran, drops):
+    """A <rate>.busy whose middle lasts 2 s, in which the server's one thread ran server_ran
+    nanoseconds and oha's threads oha_ran; oha's last thread starts inside the middle."""
+    path = pathlib.Path(scratch, "runs", str(round_), protocol, server, f"{rate}.busy")
+    start = 300_000_000
+    lines = [f"server_before 7 {start}", f"server_after 7 {start + server_ran}"]
+    for thread, ran in enumerate(oha_ran):
+        began = start if thread < len(oha_ran) - 1 else 0
+        if began:
+            lines.append(f"oha_before {thread} {began}")
+        lines.append(f"oha_after {thread} {began + ran}")
+    path.write_text("\n".join(lines + ["window 2000000000", f"udp_drops {drops}"]) + "\n")
+
+
+def test_busy():
+    with tempfile.TemporaryDirectory() as scratch:
+        pathlib.Path(scratch, "machine.txt").write_text("rounds=2\n")
+        # The warm-up's figures are wrong on purpose: the report must discard them.
+        server_ran = {0: 1_990_000_000, 1: 400_000_000, 2: 600_000_000}
+        for round_ in (0, 1, 2):
+            write_run(scratch, round_, "h3", "a", 1000, 1000, 1, {"200": 10})
+            write_run(scratch, round_, "h3", "b", 1000, 1000, 1, {"200": 10})
+            oha_ran = (1_800_000_000, 800_000_000, 400_000_000)
+            write_busy(scratch, round_, "h3", "a", 1000, server_ran[round_], oha_ran, 2 * round_)
+        text = report(scratch, 10)
+        # The server ran a quarter of the middle, oha's three threads 1.5 cores, the busiest 0.9 of
+        # the middle, and the kernel dropped 3 datagrams, the median of 2 and 4.
+        assert "| yes | 0.25 | 1.50 | 0.90 | 3 |" in text, text
+        assert "| Server busy | oha cores | oha's busiest thread | UDP drops |" in text, text
+        assert "| b | 1000 |" in text and "| yes | — | — | — | — |" in text, text
+
+
 def test():
+    test_busy()
     with tempfile.TemporaryDirectory() as scratch:
         pathlib.Path(scratch, "machine.txt").write_text("rounds=2\n")
         for round_ in (0, 1, 2):
