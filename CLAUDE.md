@@ -512,9 +512,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   to chi, axum, http.zig and Fastify from `bench/competitors/`, over h11 and h2, over h2 with TLS
   to all but http.zig, and over h3 to the UDP server with `h3 routes=github`, chi and axum. The report gives p50, p99 and p99.9 at each
   rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). For each
-  load it also gives the share of the server's core and the cores of oha's threads that ran, and the
-  UDP datagrams the kernel dropped, which say whether the server or oha was the limit (design §8
-  step 13s). It needs
+  load it also gives the share of the server's core and the cores of oha's threads that ran, which
+  say whether the server or oha was the limit, and the UDP datagrams taken in, sent and dropped
+  (design §8 step 13s). It needs
   Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
   `bench/run.sh --latency --network [--rounds <n>] [report.md]` measures colibri, chi and axum

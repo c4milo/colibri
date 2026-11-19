@@ -229,10 +229,12 @@ baseline. It measured main at `29c407a4` on the judge, `ubuntu-24.04-arm` with L
 Linux 6.17.0-1022-azure. Every server reached a lower rate at 80,000 req/s on Linux 7.0, so
 compare servers inside one run alone.
 
-Since design §8 step 13s, the report also gives four figures for each load, from 1 s after it
-starts to 1 s before it ends. They are the share of that time the server's threads ran, the cores
-oha's threads ran together, the share its busiest thread ran, and the UDP datagrams the kernel
-dropped. oha runs on two cores. So a server that ran a small share of its core while oha's threads
+Since design §8 step 13s, the report also gives three figures for each load, from 1 s after it
+starts to 1 s before it ends: the share of that time the server's threads ran, the cores oha's
+threads ran together, and the share its busiest thread ran. For the whole load it gives the UDP
+datagrams the kernel took in and sent for each answered request, and those it dropped. Those count
+every socket, so the server's and oha's together, and a send of segments counts once. oha runs
+on two cores. So a server that ran a small share of its core while oha's threads
 ran near two cores, or one of them near the whole time, measures oha.
 
 This table gives each server's highest rate whose median p99 stays under 10 ms. At that rate,

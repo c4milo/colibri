@@ -5952,6 +5952,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - So no point of the chart needs a mark for oha, and the chart has none. With 160 requests in
       flight, colibri's h3 costs 4.0 µs a request: an h3 request at 32 in flight costs almost four
       times as much. https://github.com/c4milo/colibri/issues/139 tracks that cost.
+    - For that issue the owner asked on 2026-11-19 for the datagrams of each request. The report
+      now gives the UDP datagrams the kernel took in and sent for each answered request, from
+      `/proc/net/snmp`. They count every socket, the server's and oha's together, and a send of
+      segments counts once, so they compare servers under the same oha and the same protocol.
+      Three mutations, each CAUGHT: the two counts swapped, a count not divided by the answers,
+      and the counts not read.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

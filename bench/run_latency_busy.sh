@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 #
 # The counts of bench/run_latency.sh that say which side of a load was the limit (design §8 step
-# 13s): how long the threads of a process ran, and the UDP datagrams the kernel dropped.
+# 13s): how long the threads of a process ran, and the UDP datagrams the kernel took in, sent and
+# dropped.
 # run_latency.sh sources this file. Check the two files with `shellcheck -x bench/run_latency.sh`.
 
 # Each thread of <pid>, one line each: its number and the nanoseconds it has run, from the first
@@ -15,9 +16,10 @@ thread_nanoseconds() {  # thread_nanoseconds <pid>
   done
 }
 
-# The UDP datagrams the kernel dropped since it started, from /proc/net/snmp: InErrors, which
-# counts the drops of a full receive buffer, and SndbufErrors.
-udp_drops() {
+# The UDP datagrams of every socket since the kernel started, from /proc/net/snmp, on one line:
+# those it took in, those it sent, and those it dropped. The drops are InErrors, which counts the
+# drops of a full receive buffer, and SndbufErrors. A send of segments counts once, as one send.
+udp_counts() {
   awk '$1 == "Udp:" && !named { for (i = 2; i <= NF; i++) column[$i] = i; named = 1; next }
-    $1 == "Udp:" { print $column["InErrors"] + $column["SndbufErrors"] }' /proc/net/snmp
+    $1 == "Udp:" { print $column["InDatagrams"], $column["OutDatagrams"], $column["InErrors"] + $column["SndbufErrors"] }' /proc/net/snmp
 }

@@ -8,9 +8,10 @@ in every round. The summary gives each server's highest sustained rate.
 
 Each run may have a <rate>.busy beside its JSON (design §8 step 13s): the threads of the server
 and of oha, each with the nanoseconds it had run at the start and at the end of the middle of the
-load, the length of that middle, and the UDP datagrams the kernel dropped during the load. The
-report then gives the median share of the middle that the server's threads ran, the cores oha's
-threads ran together, the share its busiest thread ran, and the drops.
+load, the length of that middle, and the UDP datagrams of every socket that the kernel took in,
+sent and dropped during the load. The report then gives the median share of the middle that the
+server's threads ran, the cores oha's threads ran together, the share its busiest thread ran, the
+datagrams taken in and sent for each answered request, both sides together, and the drops.
 
 With --network the runs are named <protocol>@<profile>, one for each network profile of step 13i.
 The report then gives no sustained rate, since a round trip of 100 ms passes any bound a clean
@@ -69,7 +70,7 @@ def read_runs(scratch):
             measurement[name] = data["latencyPercentiles"][name] * MS
         busy = path.with_suffix(".busy")
         if busy.exists():
-            measurement.update(read_busy(busy.read_text()))
+            measurement.update(read_busy(busy.read_text(), answered))
         runs.setdefault((protocol, server, rate), []).append(measurement)
     return runs
 
@@ -77,18 +78,19 @@ def read_runs(scratch):
 # The figures of a <rate>.busy that the report gives, each by its column's name, and how each is
 # written.
 BUSY_FIGURES = (("Server busy", "{:.2f}"), ("oha cores", "{:.2f}"), ("oha's busiest thread", "{:.2f}"),
-                ("UDP drops", "{:.0f}"))
+                ("UDP in a request", "{:.2f}"), ("UDP out a request", "{:.2f}"), ("UDP drops", "{:.0f}"))
 
 
-def read_busy(text):
-    """The figures of BUSY_FIGURES from a <rate>.busy of bench/run_latency.sh."""
-    before, after, window, drops = {}, {}, None, 0
+def read_busy(text, answered):
+    """The figures of BUSY_FIGURES from a <rate>.busy of bench/run_latency.sh, whose load got
+    `answered` answers."""
+    before, after, window, udp = {}, {}, None, {"udp_in": 0, "udp_out": 0, "udp_drops": 0}
     for line in text.splitlines():
         words = line.split()
         if words[0] == "window":
             window = int(words[1])
-        elif words[0] == "udp_drops":
-            drops = int(words[1])
+        elif words[0] in udp:
+            udp[words[0]] = int(words[1])
         else:
             side, moment = words[0].rsplit("_", 1)
             (before if moment == "before" else after).setdefault(side, {})[words[1]] = int(words[2])
@@ -97,7 +99,8 @@ def read_busy(text):
            for side, threads in after.items()}
     server, oha = ran.get("server", [0]), ran.get("oha", [0])
     return {"Server busy": sum(server) / window, "oha cores": sum(oha) / window,
-            "oha's busiest thread": max(oha) / window, "UDP drops": drops}
+            "oha's busiest thread": max(oha) / window, "UDP in a request": udp["udp_in"] / max(answered, 1),
+            "UDP out a request": udp["udp_out"] / max(answered, 1), "UDP drops": udp["udp_drops"]}
 
 
 def spread(values):
@@ -503,7 +506,7 @@ def write_run(scratch, round_, protocol, server, rate, rps, p99, codes):
     path.write_text(json.dumps(data))
 
 
-def write_busy(scratch, round_, protocol, server, rate, server_ran, oha_ran, drops):
+def write_busy(scratch, round_, protocol, server, rate, server_ran, oha_ran, drops, sent=(0, 0)):
     """A <rate>.busy whose middle lasts 2 s, in which the server's one thread ran server_ran
     nanoseconds and oha's threads oha_ran; oha's last thread starts inside the middle."""
     path = pathlib.Path(scratch, "runs", str(round_), protocol, server, f"{rate}.busy")
@@ -514,7 +517,8 @@ def write_busy(scratch, round_, protocol, server, rate, server_ran, oha_ran, dro
         if began:
             lines.append(f"oha_before {thread} {began}")
         lines.append(f"oha_after {thread} {began + ran}")
-    path.write_text("\n".join(lines + ["window 2000000000", f"udp_drops {drops}"]) + "\n")
+    udp = [f"udp_in {sent[0]}", f"udp_out {sent[1]}", f"udp_drops {drops}"]
+    path.write_text("\n".join(lines + ["window 2000000000"] + udp) + "\n")
 
 
 def test_busy():
@@ -526,13 +530,14 @@ def test_busy():
             write_run(scratch, round_, "h3", "a", 1000, 1000, 1, {"200": 10})
             write_run(scratch, round_, "h3", "b", 1000, 1000, 1, {"200": 10})
             oha_ran = (1_800_000_000, 800_000_000, 400_000_000)
-            write_busy(scratch, round_, "h3", "a", 1000, server_ran[round_], oha_ran, 2 * round_)
+            write_busy(scratch, round_, "h3", "a", 1000, server_ran[round_], oha_ran, 2 * round_, (25, 30))
         text = report(scratch, 10)
         # The server ran a quarter of the middle, oha's three threads 1.5 cores, the busiest 0.9 of
-        # the middle, and the kernel dropped 3 datagrams, the median of 2 and 4.
-        assert "| yes | 0.25 | 1.50 | 0.90 | 3 |" in text, text
-        assert "| Server busy | oha cores | oha's busiest thread | UDP drops |" in text, text
-        assert "| b | 1000 |" in text and "| yes | — | — | — | — |" in text, text
+        # the middle; the 10 answers took 25 datagrams in and 30 out; the kernel dropped 3
+        # datagrams, the median of 2 and 4.
+        assert "| yes | 0.25 | 1.50 | 0.90 | 2.50 | 3.00 | 3 |" in text, text
+        assert "| Server busy | oha cores | oha's busiest thread | UDP in a request | UDP out a request | UDP drops |" in text, text
+        assert "| b | 1000 |" in text and "| yes | — | — | — | — | — | — |" in text, text
 
 
 def test():

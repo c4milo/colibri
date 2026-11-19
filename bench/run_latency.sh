@@ -286,7 +286,8 @@ stop_server() {
 
 # oha's load at <rate> for <protocol>, into <out.json>, as JSON. <out>.busy holds the length of
 # the middle of the load in nanoseconds, each thread of the server and of oha before and after it,
-# and the UDP datagrams the kernel dropped during the whole load. bench/report_latency.py reads it.
+# and the UDP datagrams of every socket the kernel took in, sent and dropped during the whole load.
+# bench/report_latency.py reads it.
 load() {  # load <protocol> <rate> <out.json>
   local shape=(-c "$h11_connections")
   local h2_parallel="$h2_streams" h3_parallel="$h3_streams"
@@ -297,8 +298,8 @@ load() {  # load <protocol> <rate> <out.json>
     # The servers present a test identity, which oha does not verify.
     h3) shape=(--http-version 3 --insecure -c "$h3_connections" -p "$h3_parallel") ;;
   esac
-  local busy="${3%.json}.busy" drops oha_pid wall
-  drops="$(udp_drops)"
+  local busy="${3%.json}.busy" udp oha_pid wall
+  read -r -a udp <<<"$(udp_counts)"
   taskset -c "$load_cores" "$oha" --no-tui --urls-from-file "$scratch/urls.txt" -z "${seconds}s" \
     -q "$2" --latency-correction "${shape[@]}" --output-format json >"$3" &
   oha_pid=$!
@@ -315,7 +316,13 @@ load() {  # load <protocol> <rate> <out.json>
     echo "window $(($(date +%s%N) - wall))"
   } >>"$busy"
   wait "$oha_pid"
-  echo "udp_drops $(($(udp_drops) - drops))" >>"$busy"
+  local after
+  read -r -a after <<<"$(udp_counts)"
+  {
+    echo "udp_in $((after[0] - udp[0]))"
+    echo "udp_out $((after[1] - udp[1]))"
+    echo "udp_drops $((after[2] - udp[2]))"
+  } >>"$busy"
 }
 
 machine() {
