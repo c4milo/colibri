@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 620" width="840" height="620" role="img" aria-labelledby="t d">
 <title id="t">The p99 latency of each server at fixed rates, colibri against other servers</title>
-<desc id="d">p99 latency at each rate oha offers, with the bound of 10 ms. h11: colibri sustains 40,000 req/s, chi sustains 40,000 req/s, axum sustains 40,000 req/s, http.zig sustains 40,000 req/s, Fastify sustains 10,000 req/s; h2: colibri sustains 40,000 req/s, chi sustains 20,000 req/s, axum sustains 40,000 req/s, Fastify sustains 10,000 req/s; h2 over TLS: colibri sustains 40,000 req/s, chi sustains 10,000 req/s, axum sustains 40,000 req/s, Fastify sustains no rate; h3: colibri sustains 20,000 req/s, chi sustains 10,000 req/s, axum sustains 20,000 req/s.</desc>
+<desc id="d">p99 latency at each rate oha offers, with the bound of 10 ms. h11: colibri sustains 40,000 req/s, net/http + chi sustains 40,000 req/s, axum sustains 40,000 req/s, http.zig sustains 40,000 req/s, Fastify sustains 10,000 req/s; h2: colibri sustains 40,000 req/s, net/http + chi sustains 20,000 req/s, axum sustains 40,000 req/s, Fastify sustains 10,000 req/s; h2 over TLS: colibri sustains 40,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 40,000 req/s, Fastify sustains no rate; h3: colibri sustains 20,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 20,000 req/s.</desc>
 <style>
 svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --other:#a3a29c;
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; }
@@ -20,19 +20,19 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <rect width="840" height="620" rx="8" fill="var(--surface)"/>
 <text class="title" x="24" y="34">p99 latency at each rate oha offers, with the bound of 10 ms</text>
 <text class="sub" x="24" y="56">oha sends GET requests over the GitHub API's routes at fixed rates, with its latency correction. A filled point is a rate</text>
-<text class="sub" x="24" y="74">the server sustained: every answer 200, 95% of the rate reached, and p99 under 10 ms. Over h3, chi runs on quic-go,</text>
-<text class="sub" x="24" y="92">and axum on quinn. Each server runs on a core of its own. One run of bench.yml measured all: run 44445591237, commit 89045d95,</text>
-<text class="sub" x="24" y="110">Neoverse-N2, Linux 7.0.0-1017-azure.</text>
+<text class="sub" x="24" y="74">the server sustained: every answer 200, 95% of the rate reached, and p99 under 10 ms. chi is a router on Go's</text>
+<text class="sub" x="24" y="92">net/http, and over h3 runs on quic-go, and axum on quinn. Each server runs on a core of its own. One run of bench.yml</text>
+<text class="sub" x="24" y="110">measured all: run 44445591237, commit 89045d95, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
 <rect x="24" y="132" width="12" height="12" rx="2" fill="var(--s1)"/>
 <text class="legend" x="42" y="142">colibri</text>
 <rect x="115" y="132" width="12" height="12" rx="2" fill="var(--s2)"/>
-<text class="legend" x="133" y="142">chi</text>
-<rect x="178" y="132" width="12" height="12" rx="2" fill="var(--s3)"/>
-<text class="legend" x="196" y="142">axum</text>
-<rect x="248" y="132" width="12" height="12" rx="2" fill="var(--s4)"/>
-<text class="legend" x="266" y="142">http.zig</text>
-<rect x="346" y="132" width="12" height="12" rx="2" fill="var(--s5)"/>
-<text class="legend" x="364" y="142">Fastify</text>
+<text class="legend" x="133" y="142">net/http + chi</text>
+<rect x="255" y="132" width="12" height="12" rx="2" fill="var(--s3)"/>
+<text class="legend" x="273" y="142">axum</text>
+<rect x="325" y="132" width="12" height="12" rx="2" fill="var(--s4)"/>
+<text class="legend" x="343" y="142">http.zig</text>
+<rect x="423" y="132" width="12" height="12" rx="2" fill="var(--s5)"/>
+<text class="legend" x="441" y="142">Fastify</text>
 <text class="panel" x="24" y="178">h11</text>
 <line x1="64" y1="342.0" x2="396" y2="342.0" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="58" y="346.0" text-anchor="end">0.1 ms</text>

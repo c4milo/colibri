@@ -5839,6 +5839,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `content-length`; and in `report.py`, the large input planned as h2-many, both ways.
     - The judge's first run, 44530085526, measured both inputs and then failed in `report.py`,
       which planned 20,000 requests for them. That run is why the count is an argument.
+  - **13o**, Go's servers among the competitors, which the owner asked for on 2026-11-19: Go's
+    net/http and fasthttp, since the CPU chart of the README had no Go server but quic-go's.
+    - `bench/competitors/nethttp/` is Go's own net/http server. It serves h11, h2 in cleartext with
+      prior knowledge, and h2 or h11 by ALPN over TLS. `bench/competitors/fasthttp/` is fasthttp,
+      pinned at v1.79.0 by its `go.mod` and `go.sum`, which serves h11 alone, in cleartext and over
+      TLS. Each answers every request with 200, `text/plain; charset=utf-8` and `colibri\n`, as
+      the other competitors do, with `GOMAXPROCS=1`.
+    - `run_competitors.sh` builds each with `go build -trimpath`, and names the Go release and
+      fasthttp's version in the report. Neither serves an h3 input, a route table's input or a
+      large body's, and fasthttp serves the h11 inputs alone.
+    - The README's charts call Go's servers `net/http` and `fasthttp`, and the latency run's chi
+      `net/http + chi`, and `quic-go + chi` over h3: chi is a router on Go's net/http.
+    - **Check:** each server answered curl with 200 and `colibri\n` over h11, over h2 in cleartext
+      where it speaks h2, and over TLS, on macOS arm64 with Go 1.27.3.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

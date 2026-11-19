@@ -42,9 +42,11 @@ CPU_INPUTS = (
 LATENCY_PROTOCOLS = (("h11", "h11"), ("h2", "h2"), ("h2-tls", "h2 over TLS"), ("h3", "h3"))
 # Each server's name in a report, and its name in a chart. The judge's report names colibri
 # `change`.
-NAMES = {"change": "colibri", "httpz": "http.zig", "fastify": "Fastify"}
-# Over h3, the QUIC library each server of the latency report runs on (bench/run_latency.sh).
-H3_STACKS = {"chi": "chi on quic-go", "axum": "axum on quinn"}
+NAMES = {"change": "colibri", "httpz": "http.zig", "fastify": "Fastify", "nethttp": "net/http",
+         "chi": "net/http + chi"}
+# Over h3, the QUIC library each server of the latency report runs on (bench/run_latency.sh): chi
+# is a router on Go's net/http, which serves h3 through quic-go.
+H3_STACKS = {"net/http + chi": "quic-go + chi", "axum": "axum on quinn"}
 # The CPU parts the latency report names by their MIDR part number.
 CPU_PARTS = {"0xd49": "Neoverse-N2"}
 # The share of a rate that oha must reach for the rate to count as sustained, as
@@ -53,7 +55,7 @@ REACHED_SHARE = 0.95
 # The color of each server in the latency chart, one categorical slot each, in a fixed order:
 # blue, orange, aqua, yellow and magenta. The bar charts draw colibri in blue and every other
 # server in gray.
-SLOTS = {"colibri": "--s1", "chi": "--s2", "axum": "--s3", "http.zig": "--s4", "Fastify": "--s5"}
+SLOTS = {"colibri": "--s1", "net/http + chi": "--s2", "axum": "--s3", "http.zig": "--s4", "Fastify": "--s5"}
 NANOSECONDS_PER_MICROSECOND = 1000.0
 # The longest title line the charts' width holds at the title's font.
 TITLE_LEN_MAX = 88
@@ -324,9 +326,9 @@ def latency_chart(text, run):
     title = f"p99 latency at each rate oha offers, with the bound of {bound:g} ms"
     head, top = heading(title, [
         "oha sends GET requests over the GitHub API's routes at fixed rates, with its latency correction. A filled point is a rate",
-        f"the server sustained: every answer 200, 95% of the rate reached, and p99 under {bound:g} ms. Over h3, chi runs on quic-go,",
-        f"and axum on quinn. Each server runs on a core of its own. One run of bench.yml measured all: run {run}, commit {commit},",
-        f"{machine}."])
+        f"the server sustained: every answer 200, 95% of the rate reached, and p99 under {bound:g} ms. chi is a router on Go's",
+        f"net/http, and over h3 runs on quic-go, and axum on quinn. Each server runs on a core of its own. One run of bench.yml",
+        f"measured all: run {run}, commit {commit}, {machine}."])
     plot_h, columns, panel_w, gap_x = 150, 2, 372, 48
     legend_y, top = top + 4, top + 40
     height = top + math.ceil(len(panels) / columns) * (plot_h + 72) + 8
@@ -459,12 +461,12 @@ def test_latency():
     # chi's 4,000 req/s were not all answered 200, so its most is 1,500. In h3 the two tie.
     assert ">colibri answers the most requests a second in h2, and ties for it in h3<" in throughput, throughput
     assert ">4,000 req/s<" in throughput and "1,500 req/s, 0.38× colibri<" in throughput, throughput
-    assert ">chi on quic-go<" in throughput and "run 78, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
+    assert ">quic-go + chi<" in throughput and "run 78, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
     latency = latency_chart(LATENCY_REPORT, "78")
-    assert "h2: colibri sustains 2,000 req/s, chi sustains 1,000 req/s" in latency, latency
+    assert "h2: colibri sustains 2,000 req/s, net/http + chi sustains 1,000 req/s" in latency, latency
     # chi's 2,000 and 4,000 in h2, its 1,000 in h3, which reached 900 in a round, and colibri's 4,000,
     # whose p99 passed the bound.
-    assert latency.count('fill="var(--surface)" stroke') == 4 and "chi sustains no rate" in latency, latency
+    assert latency.count('fill="var(--surface)" stroke') == 4 and "net/http + chi sustains no rate" in latency, latency
     assert ">10 ms<" in latency and "stroke-dasharray" in latency and "commit 0123abcd," in latency, latency
 
 

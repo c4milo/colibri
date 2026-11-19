@@ -143,8 +143,9 @@ measures it (decision 32).
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
 baseline's binary is sampled by function names to split its time, and its source is not read.
 
-`bench/run.sh --competitors` measures nginx, h2o, hyper and http.zig in turns with colibri's
-server, over the same inputs (design §8 steps 13c and 13g), and `bench.yml` does so when its
+`bench/run.sh --competitors` measures nginx, h2o, hyper, http.zig, Go's net/http and fasthttp in
+turns with colibri's server, over the same inputs (design §8 steps 13c, 13g and 13o), and
+`bench.yml` does so when its
 `competitors` input is set. With `--h11`, and `bench.yml`'s `h11` input, four h11 inputs join the
 four h2 ones. Each competitor is set up so that all of them do the same work:
 
@@ -154,6 +155,10 @@ four h2 ones. Each competitor is set up so that all of them do the same work:
   single-thread runtime, with rustls over aws-lc-rs for TLS. http.zig is a program of
   `bench/competitors/httpz/`, built in ReleaseFast with Zig 0.17.0, the release its master
   targets. The report names each crate's version, the Rust release and http.zig's commit.
+  net/http and fasthttp are the programs of `bench/competitors/nethttp/` and
+  `bench/competitors/fasthttp/`, built with `go build` and the runner's stable Go: net/http serves
+  h11 and h2, in cleartext and over TLS, and fasthttp serves h11 alone. Each runs with
+  `GOMAXPROCS=1`. The report names the Go release and the fasthttp version that `go.mod` pins.
 - Each answers every request as colibri's test-only server does, from memory: status 200,
   `text/plain; charset=utf-8` and the eight octets `colibri\n`. nginx answers with `return`, and
   h2o 2.2 through its mruby handler. `bench/competitors/` holds every configuration and program.
