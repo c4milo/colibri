@@ -1,5 +1,5 @@
 # The Rust release that builds hyper (design §8 step 13g), which rustup installs on the first cargo
-# call: 1.99.0, of 2026-10-01.
+# call: 1.100.0, of 2026-11-09.
 [toolchain]
-channel = "1.99.0"
+channel = "1.100.0"
 profile = "minimal"

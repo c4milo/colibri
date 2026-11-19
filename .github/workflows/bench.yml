@@ -2,9 +2,10 @@
 # ubuntu-24.04-arm runner, a Neoverse N2, started by a person and never by a push (decision 47 as
 # amended). With `base`, each job builds that commit beside the change and measures the two in
 # turns, so that a ratio compares two builds on one machine. The two jobs run on two runners, and
-# a change stays only when it wins past the noise in both. With `competitors`, nginx and h2o from
-# Ubuntu's packages, hyper and http.zig answer the same requests in the same job (design §8 steps
-# 13c and 13g), and with `h11` four h11 inputs join the four h2 ones, which wrk sends. With `h3`,
+# a change stays only when it wins past the noise in both. With `competitors`, nginx's mainline,
+# h2o built from its master, hyper, http.zig, Go's net/http, fasthttp and Fastify answer the same
+# requests in the same job (design §8 steps 13c, 13g, 13o and 13p), and with `h11` four h11
+# inputs join the four h2 ones, which wrk sends. With `h3`,
 # the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
 # server from its image (design §8 step 13d). With `latency`, bench/run.sh --latency measures the
 # throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
@@ -31,7 +32,7 @@ on:
         type: string
         default: "5"
       competitors:
-        description: "Measure nginx, h2o, hyper and http.zig too, and quic-go with h3, in turns with colibri's servers"
+        description: "Measure nginx, h2o, hyper, http.zig, Go's net/http, fasthttp and Fastify too, and quic-go with h3, in turns with colibri's servers"
         type: boolean
         default: false
       h11:
@@ -71,9 +72,14 @@ permissions:
 env:
   ZIG_VERSION: 0.16.0
   ZIG_SHA256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
-  # The Zig that builds http.zig alone (design §8 step 13g): its master targets 0.17.0.
-  ZIG_HTTPZ_VERSION: 0.17.0
-  ZIG_HTTPZ_SHA256: 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
+  # The Zig that builds http.zig alone (design §8 step 13g): its master targets 0.17.
+  ZIG_HTTPZ_VERSION: 0.17.1
+  # h2o publishes no releases now, so the competitor run builds this commit of its master (design §8
+  # step 13p).
+  H2O_COMMIT: d3e43fcf00c3e6b17826b95d2d362d646185918a
+  # The fingerprint of the key nginx.org signs its packages with.
+  NGINX_KEY_FINGERPRINT: 573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62
+  ZIG_HTTPZ_SHA256: a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795
 jobs:
   bench:
     name: bench/run.sh (arm64 Linux, runner ${{ matrix.job }} of 2)
@@ -125,17 +131,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nghttp2-client wrk tcpdump linux-tools-common "linux-tools-$(uname -r)"
           echo "PERF=/usr/lib/linux-tools/$(uname -r)/perf" >>"${GITHUB_ENV}"
-      # Each package starts its own service, which run.sh never measures and which would hold a
-      # core, so the step stops both. bench/run.sh starts each from bench/competitors/.
-      - name: Install nginx and h2o
+      # nginx's own mainline packages, since Ubuntu's are 1.24 (design §8 step 13p). The package
+      # starts its own service, which run.sh never measures and which would hold a core, so the
+      # step stops it. bench/run.sh starts nginx from bench/competitors/.
+      - name: Install nginx mainline
         if: env.COMPETITORS == 'true'
         run: |
-          sudo apt-get install -y --no-install-recommends nginx h2o
-          sudo systemctl stop nginx h2o || true
+          curl -sSf https://nginx.org/keys/nginx_signing.key | gpg --dearmor >nginx.gpg
+          gpg --show-keys --with-colons nginx.gpg | grep -q "^fpr:::::::::${NGINX_KEY_FINGERPRINT}:"
+          sudo install -m 644 nginx.gpg /usr/share/keyrings/nginx-archive-keyring.gpg && rm nginx.gpg
+          echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/ubuntu $(lsb_release -cs) nginx" |
+            sudo tee /etc/apt/sources.list.d/nginx.list >/dev/null
+          printf 'Package: *\nPin: origin nginx.org\nPin-Priority: 900\n' | sudo tee /etc/apt/preferences.d/99nginx >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nginx
+          sudo systemctl stop nginx || true
+      # h2o from H2O_COMMIT, with mruby, whose handler bench/competitors/h2o.conf answers with. The
+      # build is cached under the commit, so a run rebuilds it only when the commit changes.
+      - name: Restore h2o
+        if: env.COMPETITORS == 'true'
+        id: h2o
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/h2o
+          key: h2o-${{ runner.os }}-${{ runner.arch }}-${{ env.H2O_COMMIT }}
+      - name: Build h2o
+        if: env.COMPETITORS == 'true' && steps.h2o.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends cmake bison ruby libssl-dev zlib1g-dev
+          git init -q h2o-source && git -C h2o-source fetch -q --depth 1 https://github.com/h2o/h2o.git "${H2O_COMMIT}"
+          git -C h2o-source checkout -q FETCH_HEAD
+          cmake -S h2o-source -B h2o-build -DCMAKE_BUILD_TYPE=Release -DWITH_MRUBY=ON -DCMAKE_INSTALL_PREFIX="${HOME}/h2o"
+          cmake --build h2o-build -j "$(nproc)" && cmake --install h2o-build
+          rm -rf h2o-source h2o-build
+      - name: Put h2o on the path
+        if: env.COMPETITORS == 'true'
+        run: echo "${HOME}/h2o/bin" >>"${GITHUB_PATH}"
       # bench/run.sh builds hyper with cargo, and rustup installs the release that
       # bench/competitors/hyper/rust-toolchain.toml names on the first call. It builds http.zig
-      # with Zig 0.17.0, which no other step uses.
-      - name: Install Rust and Zig 0.17.0
+      # with Zig 0.17.1, which no other step uses.
+      - name: Install Rust and Zig 0.17.1
         if: env.COMPETITORS == 'true' || env.LATENCY == 'true' || env.NETWORK == 'true' || env.BULK == 'true'
         run: |
           command -v rustup >/dev/null ||
@@ -146,11 +181,12 @@ jobs:
           mkdir -p "${HOME}/zig-httpz" && tar -xJf zig-httpz.tar.xz -C "${HOME}/zig-httpz" --strip-components=1
           rm zig-httpz.tar.xz
           echo "BENCH_ZIG_HTTPZ=${HOME}/zig-httpz/zig" >>"${GITHUB_ENV}"
-      # Fastify, a server of the latency inputs, needs Node 20 or later.
+      # Fastify, a server of the latency inputs and a competitor (design §8 step 13p), on Node's
+      # latest LTS release.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: env.LATENCY == 'true'
+        if: env.LATENCY == 'true' || env.COMPETITORS == 'true'
         with:
-          node-version: 24
+          node-version: 26
       # Ubuntu's h2load has no HTTP/3, so the h3 inputs run the one tools/h3load/Dockerfile builds
       # from pinned release tags.
       - name: Build h2load with HTTP/3

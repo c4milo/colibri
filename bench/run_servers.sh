@@ -76,6 +76,12 @@ server_command() {  # server_command <variant> <input>
     httpz)
       command=("$httpz_server" --port "$port")
       ;;
+    fastify)
+      # A Fastify server speaks h11 or h2 alone, so an h2 input starts one that speaks h2.
+      command=(node "$scratch/fastify/main.js" --port "$port")
+      case "$2" in h2-*) command+=(--h2) ;; esac
+      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
+      ;;
     nethttp | fasthttp)
       if [ "$1" = nethttp ]; then command=("$nethttp_server"); else command=("$fasthttp_server"); fi
       command+=(--port "$port")

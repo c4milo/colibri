@@ -489,9 +489,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   builds a second tree, measures the two in turns, and fails when an input loses past the noise.
   `.github/workflows/bench.yml` runs it on the `ubuntu-24.04-arm` runner, the judge, in two jobs
   when a person starts it (decision 33 as amended). `--competitors` measures nginx, h2o, hyper,
-  http.zig, Go's net/http and fasthttp in turns with it, from `bench/competitors/` (design §8 steps
-  13c, 13g and 13o). It needs nginx and h2o on the PATH, cargo to build hyper, Go to build net/http's
-  and fasthttp's servers, and `BENCH_ZIG_HTTPZ` naming the Zig 0.17.0 that builds http.zig;
+  http.zig, Go's net/http, fasthttp and Fastify in turns with it, from `bench/competitors/` (design
+  §8 steps 13c, 13g, 13o and 13p). It needs nginx and h2o on the PATH, cargo to build hyper, Go to
+  build net/http's and fasthttp's servers, Node and npm for Fastify, and `BENCH_ZIG_HTTPZ` naming the Zig 0.17.1 that builds http.zig;
   `BENCH_COMPETITORS` names a part of the list. `--h11` adds four h11 inputs,
   which wrk sends and which http.zig serves in cleartext alone; it needs wrk and curl. `--h3` adds
   four inputs that measure the test-only UDP server over h3, under the h2load
