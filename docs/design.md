@@ -5821,6 +5821,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       the competitors; [44580833490](https://github.com/c4milo/colibri/actions/runs/44580833490),
       the throughput; and [44580848285](https://github.com/c4milo/colibri/actions/runs/44580848285),
       the latency.
+    - The owner ruled on 2026-11-19 that each new release tag gets the charts drawn again, from
+      three runs of `bench.yml` on the tag. For v0.19.0, on `4c41e44a`, they come from job 1 of
+      [44625801787](https://github.com/c4milo/colibri/actions/runs/44625801787), the competitors;
+      [44625817873](https://github.com/c4milo/colibri/actions/runs/44625817873), the throughput;
+      and [44625833094](https://github.com/c4milo/colibri/actions/runs/44625833094), the latency.
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
       synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
       ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
