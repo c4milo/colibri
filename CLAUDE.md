@@ -547,10 +547,17 @@ Everything below exists. Change this section when a step adds or renames a comma
   input's folded stacks for a flame graph. The workflow's `profile` input runs it on the judge, and
   no document publishes its numbers. `python3 bench/report_profile.py --test` checks its report,
   and `tools/ci.sh` runs it.
+  `bench/run.sh --throughput [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]` loads each
+  server with h2load, or wrk for h11, at full speed for 10 s from the load cores, in place of the
+  counts (`bench/run_throughput.sh`, design §8 step 13q). The report gives the requests a second
+  each load tool counted, and how busy the server's core was: under 0.95 the load tool was the
+  limit, and the server serves at least that rate. The workflow's `throughput` input runs it on the
+  judge. `python3 bench/report_throughput.py --test` checks its report, and `tools/ci.sh` runs it.
 - README charts: `python3 bench/chart.py cpu <report.md> <run> [out.svg]` draws the CPU time a
   request of each server from a judge's report of `--competitors --h11 --h3`. `throughput` draws
-  the most requests a second each server answered, and `latency` each server's p99 at each rate,
-  from a report of `--latency` (design §8 step 13m). The README shows each SVG of `docs/images/`,
+  the requests a second each server reached from a report of `--throughput`, and `latency` each
+  server's p99 at each rate from a report of `--latency` (design §8 steps 13m and 13q). The README
+  shows each SVG of `docs/images/`,
   drawn from the first job of one named run. `python3 bench/chart.py --test` checks the three
   charts, and `tools/ci.sh` runs it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route

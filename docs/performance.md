@@ -204,6 +204,17 @@ inputs are set:
 - Each answers with the fields its own code adds, which h2load counts before QPACK: colibri's
   server sends 25 octets of field lines, `content-length` alone, and quic-go's sends 155.
 
+### Throughput at full load
+
+`bench/run.sh --throughput` loads each server at full speed for 10 s, from the two load cores:
+h2load with 32 connections of 100 streams each for h2 and h3, and wrk with 32 connections for h11
+(design §8 step 13q). colibri's test-only server holds 32 connections on its one worker. The
+report gives the requests a second each load tool counted, the median of the counted rounds, and
+the share of the load's time the server's threads ran. A server whose core ran under 0.95 of the
+time waited for requests: the load tool was the limit, and the server serves at least that rate.
+The latency run's oha costs more a request than h2load and wrk, and limits every fast server near
+80,000 requests a second, so it does not measure throughput.
+
 ### Latency at fixed rates
 
 `bench/run.sh --latency` measures servers that route, under oha at fixed rates (design §8 step
