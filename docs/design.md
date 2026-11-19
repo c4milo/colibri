@@ -17014,9 +17014,12 @@ library.
     [Run 44427805722](https://github.com/c4milo/colibri/actions/runs/44427805722) measured 61a
     and 61b: h2-many is 0.9981 and 0.9986, from 10,462 to 10,439.
 
-- **Step 62 — sizes a program sets for a TCP connection, proposed 2026-11-18.**
-  [#137](https://github.com/c4milo/colibri/issues/137), its last item. The owner ruled to plan it,
-  and rules on the choices below before any code. Each size is a named limit (decision 137).
+- **Step 62 — sizes a program sets for a TCP connection, ruled 2026-11-18.**
+  [#137](https://github.com/c4milo/colibri/issues/137), its last item, and
+  [decision 166](decisions.md). The owner ruled for the six sizes below, at compile time, in
+  v0.19.0 beside 58b. Each size is a named limit (decision 137).
+  - **62a, first.** The names each type and `server.Capacity` gain, listed here before the code,
+    as CLAUDE.md asks, with the tests that list them. The owner reads the list before 62b.
   - **Where the bytes are.** After steps 60 and 61, an engine's TCP slot holds 285,192 bytes,
     from `@sizeOf` on aarch64:
 
@@ -17056,7 +17059,7 @@ library.
     - A response header block past its size is refused to the program, never cut.
   - **What stays.** The 128 streams, because RFC 9113 §5.1.2 recommends at least 100 and fewer
     save little. h2's frame size, whose floor is 16,384 (RFC 9113 §4.2). chapulin's session.
-  - **Two ways to place the sizes**, for the owner's ruling:
+  - **Two ways to place the sizes.** The owner chose the first:
     - **At compile time.** `server.Capacity` takes the sizes, and the types that hold them take
       them as parameters: the TCP connection, `h2.Connection`, HPACK's decoder and encoder, and
       `h11.Connection`. No run-time cost; a program that names one of those types directly
@@ -17064,8 +17067,8 @@ library.
     - **In storage the engine places.** The types keep pointers to buffers that the engine sizes
       from `server.Capacity`, as the slot tables are now. Each read checks a length that the
       compiler no longer knows.
-  - **The release.** Either way the public types of h2, HPACK and h11 change, so the step waits
-    for v0.19.0, beside 58b. The judge measures it at the default sizes, where no input may lose.
+  - **The release.** The public types of h2, HPACK and h11 change, so the step goes into v0.19.0,
+    beside 58b. The judge measures it at the default sizes, where no input may lose.
 
 ## 9. Test-only entry points
 

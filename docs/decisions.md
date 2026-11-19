@@ -8172,3 +8172,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        reads first, and a smaller event moves those reads into later calls.
      - Only the engine's own layers stop the copies. The copy across the public `receive`, and
        the copy into `handle`, then stay on each call.
+
+166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
+     from v0.19.0.** Ruled by the owner on 2026-11-18, for the last item of
+     [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 62).
+     - The sizes, each with today's value as its default:
+       - HPACK's encoder table, from 16,384 octets down to 0, which colibri chooses (RFC 7541
+         §4.2).
+       - HPACK's decoder table, from 16,384 down to 4,096, which a peer may use before it
+         acknowledges a smaller SETTINGS_HEADER_TABLE_SIZE (RFC 9113 §6.5.2).
+       - The longest header value, 8,192, and the header section, 16,384 (RFC 9110 §5.4 sets no
+         limit).
+       - The response header block, 32,768, which sizes `output`; the TLS flight keeps `output`
+         at 20,480 octets at least.
+       - h11's head, 32,768; RFC 9112 §3 recommends request lines of 8,000 octets at least.
+     - The types that hold them take them as type parameters: the server's TCP connection,
+       `h2.Connection`, HPACK's decoder and encoder, and `h11.Connection`. A program that names
+       one of those types directly changes its code.
+     - A peer past a size gets what it gets today past the fixed limit. Past the value size, h2
+       ends the connection with COMPRESSION_ERROR, because HPACK refuses the string (RFC 7541
+       §7.4).
+     - It goes into v0.19.0 beside 58b (decision 165), so names break once. The judge measures
+       it at the default sizes, where no input may lose.
+
+     The alternatives refused:
+     - Buffers that the engine places and sizes from `server.Capacity`, as the slot tables are.
+       Each read on the per-frame path then checks a length the compiler no longer knows.
+     - The stream count as a size. RFC 9113 §5.1.2 recommends at least 100 streams, and 100 in
+       place of 128 saves about 6,600 octets a connection.
+     - A release of its own before 58b, which breaks names twice.
+     - Fixed sizes, as before. connect-zig's OTLP sink then holds about 384 KB a connection
+       after steps 60 and 61, where its counterpart on connect-rust holds about 100 KB.
