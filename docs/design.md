@@ -17020,6 +17020,31 @@ library.
   v0.19.0 beside 58b. Each size is a named limit (decision 137).
   - **62a, first.** The names each type and `server.Capacity` gain, listed here before the code,
     as CLAUDE.md asks, with the tests that list them. The owner reads the list before 62b.
+    Proposed on 2026-11-18, each name after decision 158 (a generic type takes the name of the
+    thing, and each options field has a default) and decision 126 (the server's own words):
+    - `server.Capacity` gains six fields, each a count of octets with today's value:
+      `header_bytes`, 16,384, the request header section a connection holds, as
+      `server.RouterOptions.header_bytes` names a request's header copy; `header_value_bytes`,
+      8,192; `request_head_bytes`, 32,768, h11's request head; `response_header_bytes`, 32,768,
+      the response header block; `hpack_decoder_table_bytes` and `hpack_encoder_table_bytes`,
+      16,384 each. `Engine(capacity)` refuses at compile time a decoder table under 4,096, a
+      request head under 8,000, and a header value longer than the section.
+    - `http.FieldSection` becomes `http.FieldSection(options)`, with
+      `http.FieldSectionOptions{ .bytes = 16_384, .lines = 128 }`.
+    - `hpack.DynamicTable` becomes `hpack.DynamicTable(table_bytes)`; `hpack.Decoder` becomes
+      `hpack.Decoder(options)`, with `hpack.DecoderOptions{ .table_bytes = 16_384, .value_bytes =
+      8_192 }`; `hpack.Encoder` becomes `hpack.Encoder(options)`, with
+      `hpack.EncoderOptions{ .table_bytes = 16_384 }`.
+    - `h2.Connection` becomes `h2.Connection(options)`, with `h2.ConnectionOptions`:
+      `decoder_table_bytes`, `encoder_table_bytes`, `header_bytes`, `header_value_bytes` and
+      `response_header_bytes`, today's values by default.
+    - `h11.Connection` becomes `h11.Connection(options)`, with `h11.ConnectionOptions`:
+      `head_bytes` and `header_bytes`.
+    - No name is removed. A program that names one of the five types writes `(.{})` after it.
+      h3, QPACK and the client pass the defaults; the client's own sizes are not part of this
+      ruling.
+    - Each root's names test gains its options name, and the memory table in
+      docs/performance.md names `h2.Connection(.{})` and `h11.Connection(.{})`.
   - **Where the bytes are.** After steps 60 and 61, an engine's TCP slot holds 285,192 bytes,
     from `@sizeOf` on aarch64:
 
