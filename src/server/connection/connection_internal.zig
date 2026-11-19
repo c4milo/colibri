@@ -32,7 +32,7 @@ pub fn close_transport(connection: *Connection) void {
     connection.update_held_len = 0;
     connection_coding.forget_all(connection);
     // chapulin's close wipes every secret, and is safe on a session that closed or failed.
-    if (connection.config.tls != null) connection.tls_server.close();
+    if (connection.tls_session) |session| session.server.close();
 }
 
 /// Makes h2 the session's protocol and leaves its payload's octets as they are. ReleaseSafe fills
@@ -161,7 +161,8 @@ pub fn take_output(connection: *Connection, written: usize) void {
 pub fn drop_read_plaintext(connection: *Connection) void {
     const read = connection.plain_in_read;
     assert(read <= connection.plain_in_len);
-    @memmove(connection.plain_in[0 .. connection.plain_in_len - read], connection.plain_in[read..connection.plain_in_len]);
+    const plain_in = &connection.tls_session.?.plain_in;
+    @memmove(plain_in[0 .. connection.plain_in_len - read], plain_in[read..connection.plain_in_len]);
     connection.plain_in_len -= read;
     connection.plain_in_read = 0;
 }

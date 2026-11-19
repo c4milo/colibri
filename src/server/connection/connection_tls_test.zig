@@ -129,7 +129,7 @@ test "RFC 7301 §3.2: a handshake with no protocol in common ends with the serve
         .cpu = support.cpu,
     });
     support.config = .{ .tls = &support.server_config };
-    try connection.init(&support.config, support.stream.random(), support.now_seconds, 0);
+    try connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0);
     try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
     const hello = try support.client.handshake(&.{}, &support.input);
     try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..hello.written], support.now_ns));
@@ -190,7 +190,7 @@ test "RFC 9846 §6: a record that fails while a response waits to be sealed send
 test "RFC 9846 §9.2: a configuration chapulin cannot serve from is refused at the start" {
     try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols_h2, .cpu = support.cpu });
     support.config = .{ .tls = &support.server_config };
-    try testing.expectError(error.TlsRefused, connection.init(&support.config, support.stream.random(), support.now_seconds, 0));
+    try testing.expectError(error.TlsRefused, connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0));
 }
 
 test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answers before a request" {
@@ -206,7 +206,7 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
         .cpu = support.cpu,
     });
     support.config = .{ .tls = &support.server_config };
-    try connection.init(&support.config, support.stream.random(), support.now_seconds, 0);
+    try connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0);
     // RFC 9110 §3.4: no request has arrived, so there is none to answer.
     try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
     try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .bytes = "x", .end = true }));
@@ -232,7 +232,7 @@ test "RFC 9846 §6.1: a transport that closed ends the connection, and its secre
         try testing.expect(connection.should_close());
         try testing.expectEqual(null, (try connection.receive(&.{}, support.now_ns)).event);
         try testing.expectEqual(0, connection.send(&support.output, support.now_ns));
-        try testing.expectEqual(.closed, connection.tls_server.session.state());
+        try testing.expectEqual(.closed, connection.tls_session.?.server.session.state());
         try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     }
 }

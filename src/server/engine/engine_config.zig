@@ -19,6 +19,7 @@ const coding_pool = @import("../coding/coding_pool.zig");
 const alt_svc = @import("../alt_svc.zig");
 const connection_config = @import("../connection/connection_config.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
+const tls_session = @import("../connection/tls_session.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const engine_connections = @import("engine_connections.zig");
 
@@ -31,6 +32,13 @@ pub const Config = struct {
     /// stays empty: the engine names the protocol `versions` allows, "h3" over QUIC (RFC 9114
     /// §3.1).
     tls: ?tls.Server = null,
+    /// Room for the TLS sessions of the TCP connections over TLS that the engine holds at once:
+    /// `tls_buffer_len(n)` octets hold `n` of them, at any alignment (decision 167). A connection
+    /// over TLS takes one at `accept`, and gives it back when its slot is released. Empty by
+    /// default, so no TCP connection speaks TLS, while a QUIC connection still does. A buffer with
+    /// a null `tls` is a programmer error. The buffer stays the program's, and lives as long as the
+    /// engine.
+    tls_buffer: []u8 = &.{},
     /// The HTTP versions the engine serves (decision 117). A QUIC connection serves h3 alone.
     protocols: protocols_module.Protocols = .{},
     /// Limits on what a peer may ask (decision 117). `requests_max` bounds an h3 connection's
@@ -82,6 +90,12 @@ pub const Config = struct {
     resumes: ?quic.ResumeProvider = null,
     /// QUIC connections alone: RFC 9959 §5's max_jump and Lifetime for a connection that resumes.
     resume_bounds: quic.ResumeBounds = .{},
+
+    /// The octets `tls_buffer` takes to hold the sessions of `connections` TCP connections over
+    /// TLS at once (decision 167). A program declares a plain array of `u8` of this length.
+    pub fn tls_buffer_len(connections: usize) usize {
+        return tls_session.buffer_len(connections);
+    }
 };
 
 /// How many slots of each kind an engine holds.

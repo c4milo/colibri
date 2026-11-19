@@ -93,6 +93,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         transports: [capacity.tcp_connections]engine_state.Transport,
         send_outstanding: [capacity.tcp_connections]bool,
         empty_read_ns: [capacity.tcp_connections]?u64,
+        tls_free: [capacity.tcp_connections]u32,
         quic: [capacity.quic_connections]QuicConnection,
         pools: [capacity.quic_connections]Pool,
         storages: [capacity.quic_connections]ReceiveStorage,
@@ -147,6 +148,7 @@ pub fn Engine(comptime capacity: Capacity) type {
                 .transports = &engine.transports,
                 .send_outstanding = &engine.send_outstanding,
                 .empty_read_ns = &engine.empty_read_ns,
+                .tls_free = &engine.tls_free,
                 .quic = &engine.quic,
                 .pools = &engine.storages,
                 .quic_tables = &engine.quic_tables,
@@ -170,9 +172,10 @@ pub fn Engine(comptime capacity: Capacity) type {
         }
 
         /// Starts a connection on a TCP socket the program accepted, over TLS by default, `.{}`,
-        /// or in cleartext, `.{ .tls = false }`, and returns the handle that names it. Null when no TCP slot is
-        /// free, after `shutdown`, when `protocols` allows no TCP protocol, or when chapulin
-        /// refuses to start its session: the program closes the socket then.
+        /// or in cleartext, `.{ .tls = false }`, and returns the handle that names it. Null when no
+        /// TCP slot is free, when `Config.tls_buffer` holds no free session for a socket over TLS
+        /// (decision 167), after `shutdown`, when `protocols` allows no TCP protocol, or when
+        /// chapulin refuses to start its session: the program closes the socket then.
         pub fn accept(engine: *Self, socket: Accepted, now_ns: u64) ?ConnectionHandle {
             return engine.state.accept(socket, now_ns);
         }

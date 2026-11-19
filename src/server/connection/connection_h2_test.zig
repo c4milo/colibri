@@ -431,7 +431,7 @@ test "decision 110: the server advertises 100 concurrent streams, refuses the ne
     try testing.expect(lists_streams_max(sent, support.server_constants.limits.requests_max));
     try expect_refused_after(support.server_constants.limits.requests_max);
     support.config = .{ .protocols = support.only(.h2), .limits = .{ .requests_max = lowered_streams_max } };
-    try connection.init(&support.config, support.stream.random(), 0, 0);
+    try connection.init(&support.config, null, support.stream.random(), 0, 0);
     _ = try support.receive_copy(h2_support.client_preface);
     try testing.expect(lists_streams_max(support.drain(), lowered_streams_max));
     try expect_refused_after(lowered_streams_max);
@@ -442,7 +442,7 @@ const lowered_streams_max: u32 = 2;
 
 test "decision 117: the configuration's DATA frame floor is the one h2 holds to" {
     support.config = .{ .protocols = support.only(.h2), .limits = .{ .data_frame_len_min = lowered_floor_len } };
-    try connection.init(&support.config, support.stream.random(), 0, 0);
+    try connection.init(&support.config, null, support.stream.random(), 0, 0);
     try testing.expectEqual(lowered_floor_len, connection.session.h2.data_frame_len_min);
 }
 

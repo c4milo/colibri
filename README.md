@@ -114,12 +114,17 @@ try http_server.init(&.{
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
     .unix_seconds = now_seconds,
+    .engine = .{ .tls_buffer = &tls_buffer },
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
 defer http_server.shutdown();
 ```
+
+`tls_buffer` holds the TLS session of each TCP connection over TLS at once. The program declares
+it as `var tls_buffer: [server.Config.tls_buffer_len(connections)]u8`, and a server that serves no
+TLS over TCP passes none ([decision 167](docs/decisions.md)).
 
 `run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
 did not close, and wipes the private key, the cookie key and the ticket key. `unix_seconds` dates

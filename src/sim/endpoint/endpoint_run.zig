@@ -76,6 +76,8 @@ pub const Record = struct {
 
 pub const Storage = struct {
     endpoint_config: server.Config,
+    /// A TLS session for each TCP slot (decision 167).
+    tls_buffer: [server.Config.tls_buffer_len(limits.tcp_slots)]u8,
     endpoint: Engine,
     ledger: ledger_module.Ledger,
     program: Program,
@@ -117,6 +119,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
             .ticket_key = null,
             .cpu = identity.cpu,
         },
+        .tls_buffer = &storage.tls_buffer,
         .idle_timeout_ms = limits.quic_idle_timeout_ms,
     };
     storage.server_random = Random.init(seed ^ limits.server_salt);

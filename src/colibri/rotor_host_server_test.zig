@@ -12,6 +12,7 @@ const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
 const rotor_host = @import("rotor_host.zig");
 const support = @import("test_support.zig");
+const server_support = @import("server_test_support.zig");
 
 const testing = std.testing;
 
@@ -54,6 +55,7 @@ fn serve() void {
 fn init_with_identity(counter: *support.Counter) !void {
     try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .engine = .{ .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .unix_seconds = testdata.now_seconds,
         .random = counter.random(),
@@ -304,6 +306,7 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     try testing.expectError(error.AddressInUse, test_server.init(&.{
         .port = held.port,
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .engine = .{ .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .unix_seconds = testdata.now_seconds,
         .random = counter.random(),

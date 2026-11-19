@@ -75,6 +75,8 @@ pub const Connection = std.meta.Elem(@FieldType(Engine, "tcp"));
 
 pub const World = struct {
     endpoint_config: server.Config,
+    /// The TLS session of the one TCP slot (decision 167).
+    tls_buffer: [server.Config.tls_buffer_len(1)]u8,
     client_config: client.Config,
     tls: bool,
     endpoint: Engine,
@@ -161,12 +163,8 @@ pub const World = struct {
     /// selects, and each names it from `versions`.
     fn configure_tls(world: *World) void {
         world.endpoint_config = .{
-            .tls = .{
-                .identities = &identity.identities,
-                .cookie_key = &identity.cookie_key,
-                .ticket_key = null,
-                .cpu = identity.cpu,
-            },
+            .tls = .{ .identities = &identity.identities, .cookie_key = &identity.cookie_key, .ticket_key = null, .cpu = identity.cpu },
+            .tls_buffer = &world.tls_buffer,
             // Decision 117: h2 alone, the one protocol the server's ALPN list then names.
             .protocols = .{ .h11 = false },
         };

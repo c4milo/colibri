@@ -16,6 +16,7 @@ const server_module = @import("server.zig");
 const client_module = @import("client.zig");
 const client_loop = @import("client_loop.zig");
 const support = @import("test_support.zig");
+const server_support = @import("server_test_support.zig");
 const fixture = @import("client_test_support.zig");
 
 const testing = std.testing;
@@ -314,6 +315,7 @@ fn start(protocols: client.Protocols) !void {
     handler = .{};
     try pair_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .engine = .{ .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .random = counters[@intFromEnum(Side.server)].random(),
         .now = started,

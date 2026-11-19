@@ -74,6 +74,9 @@ var router: Router align(@alignOf(Router)) = .{};
 const connections = 4;
 const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
 var http_server: Server align(@alignOf(Server)) = undefined;
+/// Room for the TLS session of each TCP connection over TLS the server holds at once (decision
+/// 167). A server that serves no TLS over TCP passes no buffer.
+var tls_buffer: [server.Config.tls_buffer_len(connections)]u8 = undefined;
 
 /// The client, placed the same way. The default capacity holds one TCP connection, one QUIC
 /// connection, and `client.constants.limits.requests_max` requests at once.
@@ -112,6 +115,7 @@ pub fn main() !void {
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
         .unix_seconds = now_seconds,
+        .engine = .{ .tls_buffer = &tls_buffer },
     }, &router, &app);
     defer http_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});

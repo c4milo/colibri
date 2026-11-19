@@ -10,6 +10,7 @@ const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
 const rotor_host = @import("rotor_host.zig");
 const support = @import("test_support.zig");
+const server_support = @import("server_test_support.zig");
 
 const testing = std.testing;
 
@@ -134,7 +135,7 @@ fn fetch_tls(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server with an identity answers an h11 request over TLS" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .engine = .{ .tls_buffer = &server_support.tls_buffer }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
     defer test_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();

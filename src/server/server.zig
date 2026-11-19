@@ -219,6 +219,7 @@ test {
     // The TCP connection each slot of the engine holds. The root exports no name of it, and its
     // own test block runs its test files.
     _ = @import("connection/connection.zig");
+    _ = @import("connection/tls_session.zig");
     _ = @import("protocols.zig");
     _ = @import("reason.zig");
     _ = @import("expect.zig");
@@ -252,6 +253,8 @@ test {
     _ = @import("engine/engine_config.zig");
     _ = @import("engine/engine_writable_test.zig");
     _ = @import("engine/engine_tcp_test.zig");
+    _ = @import("engine/engine_tls_sessions.zig");
+    _ = @import("engine/engine_tls_buffer_test.zig");
     _ = @import("engine/engine_staged_close_test.zig");
     _ = @import("engine/engine_tcp_send_test.zig");
     _ = @import("engine/engine_tcp_writable_test.zig");

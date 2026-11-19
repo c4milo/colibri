@@ -19,6 +19,8 @@ pub const TcpEngine = engine_module.Engine(.{ .tcp_connections = tcp_slots, .qui
 pub const tcp_slots: usize = 2;
 pub var engine: TcpEngine align(@alignOf(TcpEngine)) = undefined;
 pub var config: engine_module.Config align(@alignOf(engine_module.Config)) = undefined;
+/// A TLS session for each TCP slot (decision 167).
+pub var tls_buffer: [engine_module.Config.tls_buffer_len(tcp_slots)]u8 = undefined;
 
 /// The kind of what the engine reported. A request's `finished` counts as `done` when its
 /// response was sent and as `cancelled` when it was not, so a test reads the two apart.
@@ -81,9 +83,15 @@ pub fn identity() tls.Server {
     };
 }
 
-/// Starts the engine with `with` as its identity, or none, serving `versions`. Test-only.
+/// Starts the engine with `with` as its identity, or none, serving `versions`, with a TLS session
+/// for each slot under an identity. Test-only.
 pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
-    config = .{ .tls = with, .protocols = versions };
+    try start_held(with, versions, if (with == null) 0 else tcp_slots);
+}
+
+/// `start` with room for `sessions` TLS sessions alone (decision 167). Test-only.
+pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessions: usize) !void {
+    config = .{ .tls = with, .tls_buffer = tls_buffer[0..engine_module.Config.tls_buffer_len(sessions)], .protocols = versions };
     seen_len = 0;
     sent_len = @splat(0);
     client_read = @splat(0);

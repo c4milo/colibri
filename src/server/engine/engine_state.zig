@@ -26,6 +26,7 @@ const engine_deadline_heap = @import("engine_deadline_heap.zig");
 const engine_requests = @import("engine_requests.zig");
 const engine_state_quic = @import("engine_state_quic.zig");
 const engine_state_tcp = @import("engine_state_tcp.zig");
+const engine_tls_sessions = @import("engine_tls_sessions.zig");
 const quic_connection_h3_room = @import("../quic/quic_connection_h3_room.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -62,6 +63,8 @@ pub const Storage = struct {
     transports: []Transport,
     send_outstanding: []bool,
     empty_read_ns: []?u64,
+    /// One entry for each TCP slot: the numbers of the TLS sessions no connection holds.
+    tls_free: []u32,
     quic: []QuicConnection,
     pools: []const ReceiveStorage,
     quic_tables: []QuicTable,
@@ -102,6 +105,8 @@ pub const State = struct {
     /// that instant reads nothing again, so the engine does not make it. Null once a call
     /// changed the connection (`touch`).
     empty_read_ns: []?u64,
+    /// The TLS sessions of the TCP connections over TLS, from the program's buffer (decision 167).
+    tls_sessions: engine_tls_sessions.TlsSessions,
     /// The configurations a TCP connection borrows, and the transports the engine serves.
     tcp_configs: *const engine_config.TcpConfigs,
     served: engine_config.Served,
@@ -128,7 +133,10 @@ pub const State = struct {
         assert(storage.tcp.len == storage.tcp_tables.len and storage.tcp.len == storage.transports.len);
         assert(storage.quic.len == storage.quic_tables.len and storage.tcp.len == storage.send_outstanding.len);
         assert(storage.generations.len == storage.failed.len and storage.failed.len == storage.room.len);
-        assert(storage.tcp.len == storage.empty_read_ns.len);
+        assert(storage.tcp.len == storage.empty_read_ns.len and storage.tcp.len == storage.tls_free.len);
+        // Decision 167: a buffer of TLS sessions with no identity to serve them is a programmer
+        // error.
+        assert(config.tls != null or config.tls_buffer.len == 0);
         state.slots.init(storage.generations, storage.live, storage.free, @intCast(storage.tcp.len));
         state.tcp = storage.tcp;
         state.tcp_tables = storage.tcp_tables;
@@ -136,6 +144,7 @@ pub const State = struct {
         state.send_outstanding = storage.send_outstanding;
         state.empty_read_ns = storage.empty_read_ns;
         @memset(storage.empty_read_ns, null);
+        state.tls_sessions.init(config.tls_buffer, storage.tls_free);
         state.tcp_configs = built.tcp;
         state.served = built.served;
         const quic_config = built.quic;

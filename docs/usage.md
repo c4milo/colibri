@@ -191,7 +191,15 @@ outside any stack frame, as it places an engine:
 const connections = 4;
 const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
 var http_server: Server align(@alignOf(Server)) = undefined;
+/// Room for the TLS session of each TCP connection over TLS the server holds at once (decision
+/// 167). A server that serves no TLS over TCP passes no buffer.
+var tls_buffer: [server.Config.tls_buffer_len(connections)]u8 = undefined;
 ```
+
+A TCP connection over TLS takes its TLS session, about 83 KB, from `tls_buffer`, and gives it back
+when it ends. `server.Config.tls_buffer_len(n)` gives the bytes that hold `n` sessions at once, at
+any alignment, so the program declares a plain array of `u8`. A server that serves no TLS over TCP
+passes no buffer, and holds no TLS state ([decision 167](decisions.md)).
 
 `init` takes a pointer to the configuration, the router, and the program's context, which each
 route's function takes first. It binds the port and reads the identity, and keeps no pointer to the
@@ -208,6 +216,7 @@ try http_server.init(&.{
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
     .unix_seconds = now_seconds,
+    .engine = .{ .tls_buffer = &tls_buffer },
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
@@ -236,7 +245,8 @@ closed number to another file of your program.
   holds. Your program reads its own files ([decision 150](decisions.md) ruling 11). `init` reads
   the key's text in place and keeps no copy, so your program may wipe the text once `init`
   returns. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP socket.
-  With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
+  With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port. With one and
+  TCP connections, `engine.tls_buffer` must hold one TLS session at least (decision 167).
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
   clock. It has no default. The server's session tickets carry it, so a client resumes a later
@@ -251,6 +261,8 @@ closed number to another file of your program.
   clients keep their tickets. The two keys must differ, or `run` returns
   `error.IdentityRefused`.
 - `engine`: the `server.Config` the engine starts from ([decision 158](decisions.md) ruling 16).
+  Its `tls_buffer` holds the TLS sessions of the TCP connections over TLS, and colibri fills its
+  `tls` from `identity`.
   `colibri` fills its `tls`, and sets its `ecn`, because the server's loop reads and sets each
   datagram's ECN codepoint ([decision 68](decisions.md)).
 
@@ -604,7 +616,10 @@ sets `.quic_connections = 0`.
 
 The configuration holds the server's TLS identity, once for both transports. `init` builds the TLS
 configuration of each transport from it and checks that the key signs, so a program learns of a
-bad identity before it serves. The program then calls `accept` for each socket, with whether the
+bad identity before it serves. `tls_buffer` holds the TLS session of each TCP connection over TLS
+at once, `server.Config.tls_buffer_len(n)` bytes for `n` of them. `accept` over TLS returns null
+when each session is in use, and with no buffer the TCP connections serve cleartext alone, while
+QUIC still serves h3 ([decision 167](decisions.md)). The program then calls `accept` for each socket, with whether the
 socket runs TLS:
 
 ```zig
@@ -617,6 +632,7 @@ engine_config = .{
         .ticket_key = &ticket_key,
         .cpu = cpu,
     },
+    .tls_buffer = &tls_buffer,
     // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
     // server, and this one ends an idle connection sooner.
     .timeouts = .{ .idle_ns = idle_ns },

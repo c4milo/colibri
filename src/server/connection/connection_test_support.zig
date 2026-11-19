@@ -16,6 +16,7 @@ const zlib = @import("zlib");
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
+const TlsSession = @import("tls_session.zig").TlsSession;
 pub const ConnectionResult = connection_module.ConnectionResult;
 pub const Field = connection_module.Field;
 pub const server_constants = @import("../constants.zig");
@@ -76,6 +77,8 @@ pub const Limits = @FieldType(Config, "limits");
 /// The connection the tests drive, its configuration, and what it sends, outside any stack frame.
 pub var connection: Connection align(@alignOf(Connection)) = undefined;
 pub var config: Config align(@alignOf(Config)) = .{};
+/// The TLS session a connection of the tests over TLS runs in (decision 167).
+pub var tls_session: TlsSession align(@alignOf(TlsSession)) = undefined;
 pub var output: [output_len]u8 = undefined;
 pub var input: [input_len]u8 = undefined;
 
@@ -87,7 +90,7 @@ pub const input_len: usize = 65_536;
 /// allows that version alone, so the connection speaks it from the start (decision 117).
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
     config = .{ .protocols = only(protocol), .h3_alternative = alternative, .limits = limits };
-    try connection.init(&config, stream.random(), 0, 0);
+    try connection.init(&config, null, stream.random(), 0, 0);
 }
 
 /// The versions that allow `protocol` alone among those a TCP connection speaks.
@@ -114,7 +117,7 @@ const pool_level: u4 = 1;
 pub fn start_coding(protocol: connection_module.Protocol) !void {
     pool.init(.none());
     config = .{ .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
-    try connection.init(&config, stream.random(), 0, 0);
+    try connection.init(&config, null, stream.random(), 0, 0);
 }
 
 /// The decoders the coding tests read coded content back with, and where they decode it.
@@ -241,7 +244,7 @@ pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const
         .cpu = cpu,
     });
     config = .{ .tls = &server_config, .h3_alternative = alternative };
-    try connection.init(&config, stream.random(), now_seconds, 0);
+    try connection.init(&config, &tls_session, stream.random(), now_seconds, 0);
     try client.start(&client_config, stream.random(), now_seconds, null);
     to_client_len = 0;
     client_saw_alert = false;

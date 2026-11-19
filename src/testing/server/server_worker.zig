@@ -61,6 +61,9 @@ pub const Worker = struct {
     decoded: [constants.h11_decoded_len]u8,
     /// The encoders the worker's connections code responses with under `--coded` (decision 101).
     encoders: server.EncoderPool(.{ .count = constants.encoders_per_worker, .level = server.constants.policy.encoder_level_default }),
+    /// Room for a TLS session for each of the worker's connections, which its engine takes under
+    /// `--tls` (decision 167).
+    tls_buffer: [server.Config.tls_buffer_len(constants.connections_per_worker_max)]u8,
     /// What the worker's engine serves under: the identity or none, the versions, and the
     /// decoders.
     config: server.Config,
@@ -122,6 +125,7 @@ pub fn start(index: usize) server.StartError!void {
     worker.decoders.init(h11.coding.Features.detect());
     worker.config = .{
         .tls = server_mode.identity,
+        .tls_buffer = if (server_mode.identity == null) &.{} else &worker.tls_buffer,
         .protocols = server_mode.versions,
         .decoders = worker.decoders.storage(),
         .decoded = &worker.decoded,

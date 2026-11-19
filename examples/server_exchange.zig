@@ -125,6 +125,9 @@ const chain_der_len = 4096;
 var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
+/// Room for the TLS session of each TCP connection over TLS the engine holds at once: both
+/// (decision 167). A server that serves no TLS over TCP passes no buffer, and holds no TLS state.
+var tls_buffer: [server.Config.tls_buffer_len(2)]u8 = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The instant the server started at.
 var started_ns: u64 = 0;
@@ -217,6 +220,7 @@ fn start_server(cpu: tls.Cpu) !void {
             .ticket_key = &ticket_key,
             .cpu = cpu,
         },
+        .tls_buffer = &tls_buffer,
         // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
         // server, and this one ends an idle connection sooner.
         .timeouts = .{ .idle_ns = idle_ns },

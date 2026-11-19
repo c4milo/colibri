@@ -10,6 +10,7 @@ const testdata = @import("testdata");
 const server_module = @import("server.zig");
 const client_module = @import("client.zig");
 const support = @import("test_support.zig");
+const server_support = @import("server_test_support.zig");
 
 pub const greeting = "hello from colibri";
 /// The instant the tests pass as `unix_seconds`, inside the test identity's dates.
@@ -177,7 +178,10 @@ pub var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
 /// connections read and set ECN codepoints, as each `colibri.Server`'s do (decision 68).
 pub fn start_server(identity: bool, udp: bool) !void {
     var config: server_module.ServerConfig = .{ .cpu = support.cpu(), .unix_seconds = testdata.now_seconds };
-    if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
+    if (identity) {
+        config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
+        config.engine.tls_buffer = &server_support.tls_buffer;
+    }
     router = .{};
     udp_served = udp;
     routes_outside_turn.store(0, .monotonic);

@@ -10,6 +10,7 @@ const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
 const host = @import("host.zig");
 const support = @import("test_support.zig");
+const server_support = @import("server_test_support.zig");
 
 const testing = std.testing;
 
@@ -100,6 +101,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     router = .{};
     try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
+        .engine = .{ .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .unix_seconds = testdata.now_seconds,
         .random = counter.random(),

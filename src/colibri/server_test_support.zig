@@ -17,6 +17,11 @@ const Hosted = server_module.Server(.{ .tcp_connections = 1, .quic_connections =
 /// A hosted server with one TCP socket and no QUIC, which the test of decision 161 places.
 pub var hosted_server: Hosted align(@alignOf(Hosted)) = undefined;
 
+/// Room for the TLS sessions of a test server's TCP connections over TLS: four at once
+/// (decision 167). One server of the tests runs at a time.
+pub var tls_buffer: [server.Config.tls_buffer_len(tls_sessions)]u8 = undefined;
+const tls_sessions = 4;
+
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
 const internal_server_error: server.Status = .internal_server_error;
 /// The room of the router's one response, which holds a head and no body.

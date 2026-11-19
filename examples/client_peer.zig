@@ -71,6 +71,8 @@ var output: [output_len]u8 = undefined;
 var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var config: server.Config align(@alignOf(server.Config)) = undefined;
+/// Room for the TLS session of the one TCP connection (decision 167).
+var tls_buffer: [server.Config.tls_buffer_len(1)]u8 = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
@@ -94,6 +96,7 @@ pub fn init(stream: *Link, cpu: tls.Cpu) !void {
             .ticket_key = &ticket_key,
             .cpu = cpu,
         },
+        .tls_buffer = &tls_buffer,
     };
     try engine.init(&config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = link.now_ns(.server) });
 }

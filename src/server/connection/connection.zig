@@ -58,6 +58,7 @@ const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
+const TlsSession = @import("tls_session.zig").TlsSession;
 
 pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
@@ -110,10 +111,9 @@ pub const Connection = struct {
     header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
     /// The readers at which each request event points `body` (decision 163 ruling 4).
     body_readers: event.BodyReaders = .{},
-    tls_server: tls.record.Server,
-    /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
-    /// octets are what the last event pointed into, dropped at the next call.
-    plain_in: [constants.limits.plaintext_in_len]u8,
+    /// Over TLS, the session and the opened octets the engine took from the program's buffer
+    /// (decision 167). Null in cleartext, so a cleartext slot holds no TLS state.
+    tls_session: ?*TlsSession,
     plain_in_len: usize,
     plain_in_read: usize,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
@@ -164,9 +164,11 @@ pub const Connection = struct {
     sends: connection_sends.Sends,
 
     /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
-    /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
-    /// tickets are issued at, or 0 for none.
-    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) InitError!void {
+    /// TLS it runs in `session`, which it holds until the engine releases its slot, every draw the
+    /// handshake makes comes from `random`, and `now_seconds` is the clock its tickets are issued
+    /// at, or 0 for none. In cleartext `session` is null (decision 167).
+    pub fn init(connection: *Connection, config: *const Config, session: ?*TlsSession, random: tls.Random, now_seconds: u64, now_ns: u64) InitError!void {
+        assert((config.tls == null) == (session == null));
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
         const choice = protocols_module.tcp_choice(config.protocols) orelse return error.NoVersion;
         assert((config.codings.len == 0) == (config.encoders == null));
@@ -181,6 +183,7 @@ pub const Connection = struct {
         connection.bodies.init();
         connection.sends.init();
         connection.config = config;
+        connection.tls_session = session;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
         connection.unread_len = 0;
@@ -210,7 +213,7 @@ pub const Connection = struct {
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
             // RFC 9846 §9.2: chapulin refuses values it cannot serve a handshake from.
-            connection.tls_server.start(tls_config, random, now_seconds) catch return error.TlsRefused;
+            session.?.server.start(tls_config, random, now_seconds) catch return error.TlsRefused;
         } else switch (choice) {
             .speak => |chosen| internal.open_session(connection, chosen),
             .read_preface => connection.phase = .choosing,
@@ -401,8 +404,8 @@ pub const Connection = struct {
 
     /// The server_name the client sent over TLS, or null (RFC 9846 §9.2).
     pub fn server_name(connection: *const Connection) ?[]const u8 {
-        if (connection.config.tls == null) return null;
-        return connection.tls_server.sni();
+        const session = connection.tls_session orelse return null;
+        return session.server.sni();
     }
 
     fn check_writable(connection: *const Connection) SendError!void {

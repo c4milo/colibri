@@ -41,21 +41,29 @@ pub const TcpTable = engine_requests.Table(constants.limits.tcp_requests_max, co
 pub const Transport = enum(u8) { open, closed_by_engine, closed_by_program };
 
 /// Starts a connection on a socket the program accepted, in a free TCP slot, or returns null
-/// when none is free, after `shutdown`, when `versions` allows no TCP version, or when chapulin
-/// refuses to start its session. The program closes the socket on null.
+/// when none is free, when no TLS session is free for a socket over TLS (decision 167), after
+/// `shutdown`, when `versions` allows no TCP version, or when chapulin refuses to start its
+/// session. The program closes the socket on null.
 pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     assert(state.slots.tcp_count > 0);
     // An engine that serves no TCP version builds no TCP configuration to read.
     if (state.shutting_down or !state.served.tcp) return null;
     assert(!socket.tls or state.tcp_configs.secure.tls != null);
-    const handle = state.slots.take(.tcp) orelse return null;
+    // Decision 167: a connection over TLS runs in a session of the program's buffer, and none
+    // is free while each is held.
+    const session = if (socket.tls) (state.tls_sessions.take() orelse return null) else null;
+    const handle = state.slots.take(.tcp) orelse {
+        if (session) |taken| state.tls_sessions.put(taken);
+        return null;
+    };
     const slot = handle.slot;
     const config = if (socket.tls) &state.tcp_configs.secure else &state.tcp_configs.cleartext;
     const seconds = state.connections.seconds_at(now_ns);
-    state.tcp[slot].init(config, state.connections.random, seconds, now_ns) catch |failure| {
+    state.tcp[slot].init(config, session, state.connections.random, seconds, now_ns) catch |failure| {
         // `init` refuses the versions and the limits `build` already took, so chapulin alone may
         // refuse here: it starts no session from the values (RFC 9846 §9.2).
         assert(failure == error.TlsRefused);
+        if (session) |taken| state.tls_sessions.put(taken);
         state.slots.release(handle);
         return null;
     };
@@ -208,6 +216,10 @@ fn end(state: *State, slot: u32, connection: *Connection) Event {
     state.failed[slot] = false;
     state.send_outstanding[slot] = false;
     state.transports[slot] = .open;
+    // Decision 167: the slot gives its TLS session back. `close_transport` ran when the transport
+    // closed, and its close wiped every secret, so none waits for the next connection.
+    if (connection.tls_session) |session| state.tls_sessions.put(session);
+    connection.tls_session = null;
     state.slots.release(handle);
     return .{ .ended = .{ .connection = handle, .reason = reason, .failed = failed } };
 }

@@ -255,10 +255,11 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Engine(.{})` | 50804336 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 250848 | an engine that holds one TCP connection |
-| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2948208 | an engine that holds one QUIC connection, with its receive pool |
-| `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 234256 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS |
+| `server.Engine(.{})` | 49476080 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 167888 | an engine that holds one TCP connection |
+| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2948272 | an engine that holds one QUIC connection, with its receive pool |
+| `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 151232 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS, with no TLS session |
+| `server.Config.tls_buffer_len(1)` | 83039 | the octets of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167) |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1424352 | the connection each QUIC slot of an engine holds, without its receive pool |
 | `server.EncoderPool(.{})` | 1461336 | the encoders a program gives a server's connections, at the default options |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))` | 234288 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |

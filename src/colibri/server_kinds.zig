@@ -74,9 +74,10 @@ pub const hosted = struct {
         /// The key the server sealed its tickets under before `ticket_key`, as
         /// `ServerConfig.ticket_key_previous` is (decision 161 as amended).
         ticket_key_previous: ?[tls.constants.protocol.server_key_len]u8 = null,
-        /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its
-        /// `ecn` from the UDP socket's `Features`. The host knows its port, so the program names
-        /// the h3 alternative in `h3_alternative` itself (RFC 7838 §3).
+        /// What the engine starts from, its `tls_buffer` too (decision 167). `colibri` fills its
+        /// `tls` from `identity`, and sets its `ecn` from the UDP socket's `Features`. The host
+        /// knows its port, so the program names the h3 alternative in `h3_alternative` itself
+        /// (RFC 7838 §3).
         engine: server.Config = .{},
         sockets: struct {
             /// The host opened the TCP listener `listener`.

@@ -47,6 +47,8 @@ const sides = std.enums.values(Side).len;
 const Server = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
 const Client = colibri.Client(.{ .quic = false, .tcp_connections = 1, .requests = 2 }, .hosted);
 var hosted_server: Server align(@alignOf(Server)) = undefined;
+/// Room for the TLS session of the server's one TCP connection (decision 167).
+var tls_buffer: [server.Config.tls_buffer_len(1)]u8 = undefined;
 var hosted_client: Client align(@alignOf(Client)) = undefined;
 
 const routes = .{
@@ -100,6 +102,7 @@ pub fn main() !void {
         .cpu = cpu,
         .random = random,
         .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.server) },
+        .engine = .{ .tls_buffer = &tls_buffer },
     }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = https_port },

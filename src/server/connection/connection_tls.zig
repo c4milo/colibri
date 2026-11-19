@@ -32,10 +32,11 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Connec
     assert(connection.phase == .handshake);
     // chapulin writes a flight whole or fails the handshake, so it runs only with room for one.
     if (internal.room(connection).len < constants.limits.flight_len_max) return .{ .consumed = 0, .event = null };
-    const progress = connection.tls_server.handshake(input, internal.room(connection)) catch {
+    const session = connection.tls_session.?;
+    const progress = session.server.handshake(input, internal.room(connection)) catch {
         // RFC 9846 §6.2: what the refused handshake wrote ends with the alert that says why, and
         // the connection closes once `send` has written it.
-        connection.output_len += connection.tls_server.failure_written();
+        connection.output_len += session.server.failure_written();
         connection.records_len = connection.output_len;
         connection.phase = .closed;
         return internal.fail(connection);
@@ -43,7 +44,7 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Connec
     connection.output_len += progress.written;
     connection.records_len = connection.output_len;
     if (!progress.complete) return .{ .consumed = progress.consumed, .event = null };
-    try attach(connection, connection.tls_server.provider());
+    try attach(connection, session.server.provider());
     const rest = try read(connection, input[progress.consumed..], now_ns);
     return .{ .consumed = progress.consumed + rest.consumed, .event = rest.event };
 }
@@ -78,7 +79,7 @@ pub fn protocol_of(selected: ?[]const u8, versions: Protocols) Protocol {
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) Error!ConnectionResult {
     internal.drop_read_plaintext(connection);
     const consumed = try open_records(connection, input, now_ns);
-    const read_event = try internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
+    const read_event = try internal.read_protocol(connection, connection.tls_session.?.plain_in[0..connection.plain_in_len], now_ns);
     connection.plain_in_read = read_event.consumed;
     return .{ .consumed = consumed, .event = read_event.event };
 }
@@ -92,7 +93,7 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
         // KeyUpdate's answer "prior to sending its next Application Data record". The provider
         // writes the answer in front of that record, so this loop opens records while it is owed.
         if (connection.peer_closed or connection.stopped) return consumed;
-        const room = connection.plain_in[connection.plain_in_len..];
+        const room = connection.tls_session.?.plain_in[connection.plain_in_len..];
         const record = decrypt(connection, input[consumed..], room, now_ns) catch |failure| switch (failure) {
             // The protocol has not read enough of what earlier records held.
             error.NoSpaceLeft => return consumed,
