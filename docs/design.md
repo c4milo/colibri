@@ -5796,8 +5796,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     chapulin show theirs. `bench/chart.py` draws three SVGs into `docs/images/` from the first job
     of one named run, and the README's Performance section shows them:
     - `cpu`: the CPU time a request of each server, from a report of `--competitors --h11 --h3`.
-    - `throughput`: the most requests a second each server answered, all with 200, at any rate,
-      from a report of `--latency`.
+    - `throughput`: the requests a second each server serves at full load, from a report of
+      `--throughput` since 13q. Before 13q it read the most requests a second each server answered
+      at any rate of `--latency`.
     - `latency`: each server's p99 at each rate of the same report, on log scales, with the bound.
     - Each bar chart's title says where colibri is best, where another server ties it, and where
       another server is better. Two servers tie when their values differ by no more than the
@@ -5807,14 +5808,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       [44446759723](https://github.com/c4milo/colibri/actions/runs/44446759723), the
       competitors, and of run [44445591237](https://github.com/c4milo/colibri/actions/runs/44445591237),
       the latency, both on main at `89045d95`.
+    - On 2026-11-19 the three charts were drawn again from job 1 of three runs on main at
+      `15364872`: [44550549712](https://github.com/c4milo/colibri/actions/runs/44550549712), the
+      competitors at the versions of 13p, with Go's servers of 13o;
+      [44550555216](https://github.com/c4milo/colibri/actions/runs/44550555216), the throughput of
+      13q; and [44550560431](https://github.com/c4milo/colibri/actions/runs/44550560431), the
+      latency. In the throughput chart each bar now gives colibri's rate as a multiple of the
+      other server's, so a larger number means colibri serves more. The axis writes a million as
+      `1M`.
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
-      synthetic reports. Seventeen mutations, each CAUGHT: the bars not ordered, or ordered the
-      wrong way; the ratio inverted; a tie that ignores the spread; a better server not
-      reported; a higher CPU time taken as better; a rate held without 95% reached, past the
-      bound, or with an answer not 200; a throughput that counts answers not 200; the report's
-      names kept; an input outside the chart read; colibri drawn alone; no dashed bound; the h3
-      stacks not named; the CPU part not named; and the first sustained rate taken for the
-      highest.
+      synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
+      ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
+      ignores the spread; a better server not reported; a higher CPU time taken as better; a rate
+      held without 95% reached, past the bound, or with an answer not 200; a floor drawn as a
+      measured rate; the report's names kept; an input outside the chart read; colibri drawn
+      alone; no dashed bound; the CPU part not named; the first sustained rate taken for the
+      highest; no `1M` on the axis; and a throughput subtitle without the seconds of a load. Two
+      mutations of the first charts left in 13q with the code they broke: the h3 stacks
+      not named, and a throughput that counts answers not 200.
   - **13n**, two inputs with a large response, which the owner asked for on 2026-11-19 to judge
     design §8 step 65: its output holds a third fewer octets of a large body for each `send`. No
     input sent one before: each answer carried 8 octets, and the POST routes answer "ok".

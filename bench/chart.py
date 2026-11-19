@@ -214,8 +214,12 @@ def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis, at_lea
         fill = "--s1" if server == "colibri" else "--other"
         parts.append(f'<text class="row" x="{bar_left - 8}" y="{y + bar_h / 2 + 4:.1f}" text-anchor="end">{server}</text>')
         parts.append(bar(bar_left, y, value * scale, bar_h, fill))
-        ratio = value / colibri
-        times = "" if server == "colibri" else f", {ratio:.1f}× colibri" if ratio >= 10 else f", {ratio:.2f}× colibri"
+        # The other server's cost as a multiple of colibri's, or colibri's rate as a multiple of
+        # the other server's, so that each reads as how far apart the two are.
+        ratio = value / colibri if lower_wins else colibri / value
+        digits = 1 if ratio >= 10 else 2
+        multiple = f"{ratio:.{digits}f}× colibri" if lower_wins else f"colibri {ratio:.{digits}f}×"
+        times = "" if server == "colibri" else f", {multiple}"
         parts.append(f'<text class="val" x="{bar_left + value * scale + 6:.1f}" y="{y + bar_h / 2 + 4:.1f}">'
                      f'{"≥ " if server in at_least else ""}{unit(value)}{times}</text>')
     return parts
@@ -296,6 +300,8 @@ def read_latency(text):
 
 def requests_a_second(value, axis=False):
     if axis:
+        if value >= 1_000_000:
+            return f"{value / 1_000_000:g}M"
         return f"{value / 1000:g}k" if value else "0"
     return f"{value:,.0f} req/s"
 
@@ -328,10 +334,13 @@ def throughput_chart(text, run):
     values, at_least, machine, commit = read_throughput(text)
     require_colibri(values)
     title = verdict_title(values, CPU_INPUTS, False, "serves the most requests a second on one core")
-    load = re.search(r"^throughput=(.*)$", text, re.M)
-    lines = ["h2load, or wrk for h11, loads each server at full speed from two other cores: "
-             + (load.group(1) if load else "") + ".",
-             "A bar marked ≥ is a server whose core was not full, so the load tool was the limit. Longer is better.",
+    load = re.search(r"^throughput=(\d+) s a load, (\d+) connections, (\d+) streams", text, re.M)
+    if not load:
+        sys.exit("chart.py: the report names no load of --throughput")
+    seconds, connections, streams = load.groups()
+    lines = [f"h2load, or wrk for h11, loads each server at full speed for {seconds} s from two other cores, with {connections} connections",
+             f"and {streams} streams on each h2 or h3 connection. Each server runs on a core of its own. Longer is better. A bar",
+             "marked ≥ is a server whose core was not full, so the load tool was the limit.",
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
     return bars_chart(values, CPU_INPUTS, False, title, lines, requests_a_second, "requests a second",
                       f"{title}. " + described(values, CPU_INPUTS, requests_a_second), at_least)
@@ -504,9 +513,10 @@ def test_latency():
     throughput = throughput_chart(THROUGHPUT_REPORT, "79")
     # colibri's core was not full, so its bar is a floor; hyper's was.
     assert ">colibri serves the most requests a second on one core in h2, and ties for it in h11<" in throughput, throughput
-    assert ">≥ 400,000 req/s<" in throughput and ">190,000 req/s, 0.47× colibri<" in throughput, throughput
+    assert ">≥ 400,000 req/s<" in throughput and ">190,000 req/s, colibri 2.11×<" in throughput, throughput
     assert ">nginx<" in throughput and "run 79, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
-    assert "32 connections, 100 streams" in throughput, throughput
+    assert "for 10 s from two other cores, with 32 connections" in throughput and "and 100 streams" in throughput, throughput
+    assert requests_a_second(1_000_000, True) == "1M" and requests_a_second(500_000, True) == "500k"
     latency = latency_chart(LATENCY_REPORT, "78")
     assert "h2: colibri sustains 2,000 req/s, net/http + chi sustains 1,000 req/s" in latency, latency
     # chi's 2,000 and 4,000 in h2, its 1,000 in h3, which reached 900 in a round, and colibri's 4,000,
