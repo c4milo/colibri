@@ -16835,12 +16835,13 @@ library.
     as `slow-std` over every Zig file the other rules read (`tools/lint/slow_std.zig`). The tree
     holds no such call, so the rule found nothing. The canary of `build/lint.zig` holds one, and
     the lint reports it. pepegrillo's pre-push hook did not change.
-    - The same pin raised pepegrillo's default limits of a commit's body to 4 paragraphs and 150
-      words. `tools/commit_lint.zig` now states CLAUDE.md's 3 and 100, which it took from the
-      defaults before.
+    - The same pin raised pepegrillo's default limits of a commit's body from 3 paragraphs and 100
+      words to 4 and 150, which its commit `60b03e2` made at the owner's word of 2026-11-16. On
+      2026-11-19 the owner ruled that colibri follows them. CLAUDE.md (Commits) states 4 and 150,
+      and `tools/commit_lint.zig` takes pepegrillo's defaults.
     - Five mutations, each CAUGHT: the canary without its slow-std line, `build/` out of the
-      rule's scope, the rule not registered, and the limit of 100 words or of 3 paragraphs left to
-      pepegrillo's default.
+      rule's scope, the rule not registered, and colibri's old limit of 100 words or of 3
+      paragraphs put back.
 
 - **Step 56 — the engine's empty polls on h11, 2026-11-17.**
   [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled the internal work first:

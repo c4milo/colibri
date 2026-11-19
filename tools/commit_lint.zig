@@ -8,9 +8,9 @@
 //!
 //! The linter is pepegrillo's (decision 36). This file holds colibri's configuration of it: the
 //! module scopes of docs/design.md §3, scopes that admit digits so `h2` and `h3` are valid, and the
-//! first words refused as not imperative. The limits are the ones CLAUDE.md states. pepegrillo's
-//! defaults allow a body of 4 paragraphs and 150 words since its commit `a90cc29`, so this file
-//! states colibri's 3 and 100.
+//! first words refused as not imperative. The limits are the ones CLAUDE.md states, which are
+//! pepegrillo's defaults: a body of 4 paragraphs and 150 words since its commit `60b03e2`, which
+//! the owner ruled for colibri on 2026-11-19.
 //!
 //! One line per finding, in the shape the Zig compiler prints an error:
 //!
@@ -50,9 +50,6 @@ const imperative_exceptions = [_][]const u8{
 };
 
 pub const config: pepegrillo.commit.Config = .{
-    // CLAUDE.md (Commits): a body of at most 3 paragraphs and 100 words.
-    .body_paragraphs_max = 3,
-    .body_words_max = 100,
     .scope_admits_digits = true,
     .known_scopes = &module_scopes,
     .unknown_scope_reason = "is not a module of the graph",
@@ -146,8 +143,8 @@ test "every command whose spelling ends in ed or ing passes" {
 }
 
 // The body the tree's first docs commit was written with, before a later rewrite reflowed it. That
-// commit is no longer in the history; the text is kept because it breaks exactly one rule, which is
-// what the test below pins.
+// commit is no longer in the history; the text is kept as a real body of 143 words, near the limit
+// of 150 that the tests below pin.
 
 const head_commit_message =
     \\docs: establish colibri's rules, decisions, invariants and build plan
@@ -169,21 +166,21 @@ const head_commit_message =
     \\
 ;
 
-test "a body of 3 paragraphs passes, and one of 4 breaks the limit of CLAUDE.md" {
-    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n", &.{});
-    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n", &.{
-        "error: body-size: the body has 4 paragraphs, over the limit of 3",
+test "a body of 4 paragraphs passes, and one of 5 breaks the limit of CLAUDE.md" {
+    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n", &.{});
+    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n\nFive.\n", &.{
+        "error: body-size: the body has 5 paragraphs, over the limit of 4",
     });
 }
 
-test "the message of 6e04c77 breaks one rule: its body is 143 words" {
-    // Every other rule passes. The word count does not, and this test records it:
-    // CLAUDE.md (Commits) holds a body at 100 words and 6e04c77 carries 143. Raising
-    // the limit so this line passes would be weakening a rule to pass a test, which CLAUDE.md
-    // (Ask before) puts to the owner.
-    try expect_findings(head_commit_message, &.{
-        "error: body-size: the body has 143 words, over the limit of 100",
+test "the message of 6e04c77, a body of 143 words, passes, and 9 words more break the limit" {
+    // CLAUDE.md (Commits) holds a body at 150 words, pepegrillo's default.
+    try expect_findings(head_commit_message, &.{});
+    const last_line = "step 5 onward needs.\n";
+    comptime std.debug.assert(std.mem.endsWith(u8, head_commit_message, last_line));
+    const longer = head_commit_message[0 .. head_commit_message.len - last_line.len] ++
+        "step 5 onward needs, and eight more words make this body too long.\n";
+    try expect_findings(longer, &.{
+        "error: body-size: the body has 152 words, over the limit of 150",
     });
-    const subject_end = std.mem.indexOfScalar(u8, head_commit_message, '\n').?;
-    try expect_findings(head_commit_message[0 .. subject_end + 1], &.{});
 }

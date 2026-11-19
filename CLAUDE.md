@@ -213,7 +213,7 @@ is added to the root and to the list in its test, which prints the name that dif
   `add the huffman decoder`, never `Adds the Huffman decoder.` The subject line stays at or under
   72 columns.
 - Exactly one blank line separates the body from the subject. A body line stays at or under 100
-  columns and the body stays at or under 3 paragraphs and 100 words. The diff shows the what, so
+  columns and the body stays at or under 4 paragraphs and 150 words. The diff shows the what, so
   the body says why. Reasoning that outlives the commit belongs in `docs/`: state the why in a
   sentence and name the document.
 - Stage by explicit path. Never `git add -A` and never `git add .`
