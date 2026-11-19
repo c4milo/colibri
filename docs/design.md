@@ -467,12 +467,13 @@ because the stream's record owes it, decision 113).
 62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need
 past a 1-bit prefix) · `huffman_padding_bits_max` (7, RFC 7541 §5.2).
 
-**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` (16,384, ruled 2026-09-16) ·
-`dynamic_table_entries_max` (the capacity over the 32-octet overhead) · `size_updates_per_block_max`
-(2, RFC 7541 §4.2) · `blocked_streams_max` · `encoder_instruction_len_max` ·
-`decoder_instructions_owed_max` (the last three decision 74's). Huffman data expands by up
-to 1.6x, since the shortest code is 5 bits, and `wire.huffman.decoded_len_max` is that bound; a
-literal's decoded length is capped by `core`'s field-length limits (RFC 7541 §7.4).
+**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` (4,096, ruled 2026-11-18; 16,384
+from 2026-09-16) · `dynamic_table_entries_max` (the capacity over the 32-octet overhead) ·
+`size_updates_per_block_max` (2, RFC 7541 §4.2) · `blocked_streams_max` ·
+`encoder_instruction_len_max` · `decoder_instructions_owed_max` (the last three decision 74's).
+Huffman data expands by up to 1.6x, since the shortest code is 5 bits, and
+`wire.huffman.decoded_len_max` is that bound; a literal's decoded length is capped by `core`'s
+field-length limits (RFC 7541 §7.4).
 
 **QUIC** (`quic`): `datagram_size_max` · `datagram_size_min` (1200) · `ack_ranges_max` ·
 `crypto_buffer_bytes_max` · `connection_ids_active_max` (at least 2; the default is 2) ·
@@ -1189,7 +1190,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     as the Huffman table is from Appendix B.
   - **Vectors.** Every directory of `http2jp/hpack-test-case` decodes, `nghttp2-change-table-size`
     and `nghttp2-16384-4096` included, and `raw-data` round-trips through the encoder in each of
-    its three Huffman settings (decision 38 on how the corpus is held).
+    its three Huffman settings (decision 38 on how the corpus is held). Since step 62b the run
+    skips `nghttp2-16384-4096`, whose table is larger than colibri keeps (decision 166 as
+    amended).
   - **Corpus.** `src/golden/hpack/` holds the three interop breaks of §6.2 beside their legal
     twins, six cases with five mutations, and `golden` now imports `hpack` to check them.
   - **Not built.** Nothing of the step. `Decoder` and `Encoder` are 30 KiB and 22 KiB, sized by
@@ -17014,38 +17017,15 @@ library.
     [Run 44427805722](https://github.com/c4milo/colibri/actions/runs/44427805722) measured 61a
     and 61b: h2-many is 0.9981 and 0.9986, from 10,462 to 10,439.
 
-- **Step 62 — sizes a program sets for a TCP connection, ruled 2026-11-18.**
+- **Step 62 — colibri sizes a TCP connection to what it uses, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137), its last item, and
-  [decision 166](decisions.md). The owner ruled for the six sizes below, at compile time, in
-  v0.19.0 beside 58b. Each size is a named limit (decision 137).
-  - **62a, first.** The names each type and `server.Capacity` gain, listed here before the code,
-    as CLAUDE.md asks, with the tests that list them. The owner reads the list before 62b.
-    Proposed on 2026-11-18, each name after decision 158 (a generic type takes the name of the
-    thing, and each options field has a default) and decision 126 (the server's own words):
-    - `server.Capacity` gains six fields, each a count of octets with today's value:
-      `header_bytes`, 16,384, the request header section a connection holds, as
-      `server.RouterOptions.header_bytes` names a request's header copy; `header_value_bytes`,
-      8,192; `request_head_bytes`, 32,768, h11's request head; `response_header_bytes`, 32,768,
-      the response header block; `hpack_decoder_table_bytes` and `hpack_encoder_table_bytes`,
-      16,384 each. `Engine(capacity)` refuses at compile time a decoder table under 4,096, a
-      request head under 8,000, and a header value longer than the section.
-    - `http.FieldSection` becomes `http.FieldSection(options)`, with
-      `http.FieldSectionOptions{ .bytes = 16_384, .lines = 128 }`.
-    - `hpack.DynamicTable` becomes `hpack.DynamicTable(table_bytes)`; `hpack.Decoder` becomes
-      `hpack.Decoder(options)`, with `hpack.DecoderOptions{ .table_bytes = 16_384, .value_bytes =
-      8_192 }`; `hpack.Encoder` becomes `hpack.Encoder(options)`, with
-      `hpack.EncoderOptions{ .table_bytes = 16_384 }`.
-    - `h2.Connection` becomes `h2.Connection(options)`, with `h2.ConnectionOptions`:
-      `decoder_table_bytes`, `encoder_table_bytes`, `header_bytes`, `header_value_bytes` and
-      `response_header_bytes`, today's values by default.
-    - `h11.Connection` becomes `h11.Connection(options)`, with `h11.ConnectionOptions`:
-      `head_bytes` and `header_bytes`.
-    - No name is removed. A program that names one of the five types writes `(.{})` after it.
-      h3, QPACK and the client pass the defaults; the client's own sizes are not part of this
-      ruling.
-    - Each root's names test gains its options name, and the memory table in
-      docs/performance.md names `h2.Connection(.{})` and `h11.Connection(.{})`.
-  - **Where the bytes are.** After steps 60 and 61, an engine's TCP slot holds 285,192 bytes,
+  [decision 166](decisions.md) as amended.
+  - **The ruling, and its amendment the same day.** The owner first ruled six sizes a program
+    sets through `server.Capacity`, at compile time. Its names, sub-step 62a, were proposed. Then
+    the owner asked whether callers must size internal parts, and ruled that they need not:
+    colibri sizes each part to what it uses, as long as performance is not affected. No name
+    landed.
+  - **Where the bytes were.** After steps 60 and 61, an engine's TCP slot held 285,192 bytes,
     from `@sizeOf` on aarch64:
 
     | Part | Bytes | Sized by |
@@ -17059,41 +17039,39 @@ library.
     | `output` | 49,161 | h2's `send_block_len_max`, 32 KiB, and one frame |
     | bodies, sends and coding | 19,544 | 128 streams |
 
-    The session is a union of h11 and h2, so it holds 115,528 bytes for either.
-  - **The sizes a program could set**, each with today's value as its default, so a program that
-    sets none keeps today's server. Each saving is for the example value:
-
-    | Size | Default | Floor | Example | Saves |
-    | --- | ---: | --- | ---: | ---: |
-    | HPACK encoder table | 16,384 | 0, which colibri chooses (RFC 7541 §4.2) | 0 | 22,560 |
-    | HPACK decoder table | 16,384 | 4,096, which a peer may use before it acknowledges a smaller SETTINGS_HEADER_TABLE_SIZE (RFC 9113 §6.5.2) | 4,096 | about 17,000 |
-    | Longest header value | 8,192 | none (RFC 9110 §5.4) | 1,024 | about 34,000 |
-    | Header section | 16,384 | none (RFC 9110 §5.4) | 4,096 | about 13,000 |
-    | Response header block | 32,768 | the TLS flight keeps `output` at 20,480 | 4,096 | about 28,700 |
-    | h11 head | 32,768 | 8,000, which RFC 9112 §3 recommends for a request line | 16,384 | about 16,400 |
-
-    With every example value, a TCP connection of connect-zig's OTLP sink goes from about 384 KB
-    to about 250 KB.
-  - **What a peer past a size gets** is what it gets today past the fixed limit, so a small size
-    makes it more frequent:
-    - h11 answers 431 to a head past its size (RFC 6585 §5).
-    - h2 resets the stream with ENHANCE_YOUR_CALM for a section past its size (RFC 9113 §10.5.1).
-    - h2 ends the whole connection with COMPRESSION_ERROR for a value past the longest one,
-      because HPACK refuses the string (RFC 7541 §7.4). A small value size therefore ends
-      connections where a small section size resets one stream.
-    - A response header block past its size is refused to the program, never cut.
-  - **What stays.** The 128 streams, because RFC 9113 §5.1.2 recommends at least 100 and fewer
-    save little. h2's frame size, whose floor is 16,384 (RFC 9113 §4.2). chapulin's session.
-  - **Two ways to place the sizes.** The owner chose the first:
-    - **At compile time.** `server.Capacity` takes the sizes, and the types that hold them take
-      them as parameters: the TCP connection, `h2.Connection`, HPACK's decoder and encoder, and
-      `h11.Connection`. No run-time cost; a program that names one of those types directly
-      changes its code.
-    - **In storage the engine places.** The types keep pointers to buffers that the engine sizes
-      from `server.Capacity`, as the slot tables are now. Each read checks a length that the
-      compiler no longer knows.
-  - **The release.** The public types of h2, HPACK and h11 change, so the step goes into v0.19.0,
-    beside 58b. The judge measures it at the default sizes, where no input may lose.
+  - **62b, HPACK's table, `f49faa4b`.** `dynamic_table_capacity_max` is 4,096, in place of
+    16,384. colibri advertises a SETTINGS_HEADER_TABLE_SIZE of 4,096, and its encoder may use
+    less than a peer allows (RFC 7541 §4.2), so the decoder never held more and the encoder
+    compresses a response's fields with a smaller table. A TCP slot holds 34,560 bytes less.
+    - `zig build hpack-vectors` skips `nghttp2-16384-4096`, the one directory whose encoder used
+      a table of 16,384, and fails unless it skipped the directories its list names and decoded
+      the others: 14 directories, 447 stories.
+    - Mutations, 2 of 2 CAUGHT: the run skipping every directory, and skipping none.
+    - The judge measured it against `89045d95` in two jobs, with the h11 inputs
+      ([run 44442319011](https://github.com/c4milo/colibri/actions/runs/44442319011)). Every
+      input was within the noise, and none lost.
+  - **62c, h11's request head, `69f12c06`.** A server reads a request head of
+    `request_head_len_max`, 24,582 octets: the leading empty line, the longest start line, the
+    largest field section colibri accepts, and their CRLFs, so it refuses no request the section
+    limit admits. A client reads a response head of `response_head_len_max`, 32,768, as before.
+    `message_scan` takes each head's limit from its role. A server's TCP slot holds 8,184 bytes
+    less, and `plaintext_in_len` is 41,221.
+    - Mutations, 2 of 2 CAUGHT: each role reading the other's limit.
+    - The judge measured it against `f49faa4b` in two jobs, with the h11 inputs
+      ([run 44444946150](https://github.com/c4milo/colibri/actions/runs/44444946150)). Every
+      input was within the noise, and none lost.
+  - **The sizes.** A TCP slot holds 242,448 bytes, against 285,192 before the step.
+  - **What stays.**
+    - The 128 streams, because RFC 9113 §5.1.2 recommends at least 100 and fewer save little.
+    - h2's frame size, whose floor is 16,384 (RFC 9113 §4.2), and one TLS record in `plain_in`.
+    - The HPACK value scratch and the field block's representation: an 8 KiB value is
+      colibri's limit, and a value past it ends the connection (RFC 7541 §7.4).
+    - chapulin's session, which design §8 step 63 shrinks.
+    - The TLS session and the plaintext buffer of a server that serves no TLS. The owner was not
+      convinced by a `Capacity` field that drops them.
+    - The response header block of two h2 frames, which sizes `output`, waits for the owner.
+      One frame saves 16,384 bytes a connection, but colibri would then send no CONTINUATION,
+      and each `send` would hold a third fewer octets of a large body.
 
 ## 9. Test-only entry points
 

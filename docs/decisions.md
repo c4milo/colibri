@@ -8174,7 +8174,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the copy into `handle`, then stay on each call.
 
 166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
-     from v0.19.0.** Ruled by the owner on 2026-11-18, for the last item of
+     from v0.19.0, as ruled first; amended the same day to sizes colibri sets itself.** Ruled by
+     the owner on 2026-11-18, for the last item of
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 62).
      - The sizes, each with today's value as its default:
        - HPACK's encoder table, from 16,384 octets down to 0, which colibri chooses (RFC 7541
@@ -8203,3 +8204,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A release of its own before 58b, which breaks names twice.
      - Fixed sizes, as before. connect-zig's OTLP sink then holds about 384 KB a connection
        after steps 60 and 61, where its counterpart on connect-rust holds about 100 KB.
+
+     **Amended by the owner on 2026-11-18, the same day.** The owner asked whether callers must
+     size colibri's internal parts, and ruled that they need not: colibri sizes each part to what
+     it uses, with no `Capacity` field and no type parameter, as long as performance is not
+     affected. The names of design §8 step 62a were withdrawn before any code landed.
+     - HPACK's dynamic table holds 4,096 octets, the SETTINGS_HEADER_TABLE_SIZE colibri
+       advertises and the most its encoder uses (RFC 7541 §4.2), in place of 16,384. This amends
+       the ruling of 2026-09-16 that every directory of http2jp/hpack-test-case decodes: the run
+       skips `nghttp2-16384-4096`, whose encoder used a table of 16,384.
+     - A server reads a request head of `request_head_len_max`, 24,582 octets: the leading empty
+       line, the longest start line, the largest field section colibri accepts, and their CRLFs.
+       A client reads a response head of `response_head_len_max`, 32,768, as before.
+     - Each change landed only after the judge found no input losing.
+     - The alternatives refused:
+       - The six fields of the first ruling: a program then sizes parts it does not see.
+       - An h11 request head of 16,384. It refuses a request whose field section the section
+         limit admits, such as a long target with large fields.
+       - A `Capacity` field that drops the TLS session and the plaintext buffer from a server
+         that serves no TLS, about 35% of a TCP slot. The owner was not convinced.
+     - The response header block of one h2 frame, in place of two, waits for the owner: it saves
+       16,384 octets a connection, colibri would then send no CONTINUATION, and each `send`
+       holds a third fewer octets of a large body.
