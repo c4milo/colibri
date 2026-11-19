@@ -882,6 +882,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     and a peer that never sends END_HEADERS holds no more memory than one that does; the count of
     CONTINUATION frames is still bounded by `continuation_count_max` (§10.5's limits).
 
+    **Amended by the owner on 2026-11-18, for design §8 step 61a**
+    ([#137](https://github.com/c4milo/colibri/issues/137)). Each fragment is decoded where the
+    connection holds it, and only the representation it cuts is copied, with the octets of the
+    next fragment that finish it. So the slot is one representation, `representation_len_max`
+    octets, and no longer one representation plus one frame: 16,384 octets less a connection,
+    and no copy of a block that arrives whole. The design above stands: the block is still
+    decoded fragment by fragment, a cut representation is still read twice, and the reader is
+    still all-or-nothing per representation. A reader that resumes inside a representation would
+    remove the buffer too, but it would replace that reader, and it was not chosen.
+
 41. **h2spec's two self-dependency cases are skipped, because RFC 9113 is the authority.** Ruled by
     the owner on 2026-09-18. h2spec 2.6.0 runs `http2/5.3.1/1` and `/2`, which send a HEADERS frame
     and a PRIORITY frame whose stream depends on itself and require a stream error of
