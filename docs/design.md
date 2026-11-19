@@ -5908,9 +5908,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       quinn. The owner chose it over quiche, which the arm64 judge must build from source.
     - When the h3 panel holds axum, each chart's subtitle says that axum serves h3 through quinn and
       the h3 crate.
+    - axum's h3 server read no request stream to its end. So quinn stopped each one with
+      STOP_SENDING and code 0, where RFC 9114 §4.1 asks for H3_NO_ERROR. h2load counts such a
+      request as failed, and oha does not, so the latency runs before 13r did not show it. The
+      first judge runs, 44573603371 and 44573622792, stopped when axum answered no request of
+      h2load. The server now reads each request stream to its end, for the latency run too.
     - **Check:** `bench/chart.py --test` draws a synthetic h3 panel with axum. Four mutations, each
       CAUGHT: the line in every chart, in none, and left out of the CPU chart or the throughput
-      chart.
+      chart. In a Debian container on macOS arm64, h2load counted axum's one answer as failed
+      before the fix. After it, h2load counted 1 request of 1 and 896,100 of 896,100 in 5 s, each
+      succeeded.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

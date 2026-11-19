@@ -30,6 +30,10 @@ pub async fn serve(port: u16, prefix: &str, segments: bool, router: Router) {
                 let router = router.clone();
                 tokio::spawn(async move {
                     let Ok((request, mut stream)) = resolver.resolve_request().await else { return };
+                    // Reads the request stream to its end. A stream dropped before that makes quinn
+                    // send STOP_SENDING with code 0 where RFC 9114 §4.1 asks for H3_NO_ERROR, and
+                    // h2load counts such a request as failed.
+                    while let Ok(Some(_)) = stream.recv_data().await {}
                     let request = request.map(|()| axum::body::Body::empty());
                     let Ok(response) = router.oneshot(request).await;
                     let (parts, body) = response.into_parts();
