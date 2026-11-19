@@ -5816,6 +5816,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       latency. In the throughput chart each bar now gives colibri's rate as a multiple of the
       other server's, so a larger number means colibri serves more. The axis writes a million as
       `1M`.
+    - The same day they were drawn again from job 1 of three runs at `70f186c1`, with axum on quinn
+      in the h3 panels (13r): [44580815826](https://github.com/c4milo/colibri/actions/runs/44580815826),
+      the competitors; [44580833490](https://github.com/c4milo/colibri/actions/runs/44580833490),
+      the throughput; and [44580848285](https://github.com/c4milo/colibri/actions/runs/44580848285),
+      the latency.
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
       synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
       ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
@@ -5917,7 +5922,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       CAUGHT: the line in every chart, in none, and left out of the CPU chart or the throughput
       chart. In a Debian container on macOS arm64, h2load counted axum's one answer as failed
       before the fix. After it, h2load counted 1 request of 1 and 896,100 of 896,100 in 5 s, each
-      succeeded.
+      succeeded. The judge's three runs at `70f186c1` passed in both jobs. In job 1, axum on quinn
+      took 11.5 µs a request over h3, 2.85 times colibri's, and served 118,520 requests a second, a
+      core busy 0.98 of the time.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
