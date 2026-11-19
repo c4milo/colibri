@@ -17014,6 +17014,59 @@ library.
     [Run 44427805722](https://github.com/c4milo/colibri/actions/runs/44427805722) measured 61a
     and 61b: h2-many is 0.9981 and 0.9986, from 10,462 to 10,439.
 
+- **Step 62 — sizes a program sets for a TCP connection, proposed 2026-11-18.**
+  [#137](https://github.com/c4milo/colibri/issues/137), its last item. The owner ruled to plan it,
+  and rules on the choices below before any code. Each size is a named limit (decision 137).
+  - **Where the bytes are.** After steps 60 and 61, an engine's TCP slot holds 285,192 bytes,
+    from `@sizeOf` on aarch64:
+
+    | Part | Bytes | Sized by |
+    | --- | ---: | --- |
+    | h2's HPACK decoder | 31,032 | its table, 22,560, for `dynamic_table_capacity_max`; a scratch for one value, 8,192 |
+    | h2's HPACK encoder | 23,752 | its table, 22,560 |
+    | h2's field block | 49,200 | one representation, 31,721, for `field_value_len_max` in Huffman's worst case; the decoded section, 17,420 |
+    | h2's streams | 10,744 | `concurrent_streams_max`, 128 |
+    | chapulin's TLS session | 50,000 | chapulin's record state |
+    | `plain_in` | 49,407 | h11's `head_len_max`, 32 KiB, which is longer than an h2 frame, and one TLS record |
+    | `output` | 49,161 | h2's `send_block_len_max`, 32 KiB, and one frame |
+    | bodies, sends and coding | 19,544 | 128 streams |
+
+    The session is a union of h11 and h2, so it holds 115,528 bytes for either.
+  - **The sizes a program could set**, each with today's value as its default, so a program that
+    sets none keeps today's server. Each saving is for the example value:
+
+    | Size | Default | Floor | Example | Saves |
+    | --- | ---: | --- | ---: | ---: |
+    | HPACK encoder table | 16,384 | 0, which colibri chooses (RFC 7541 §4.2) | 0 | 22,560 |
+    | HPACK decoder table | 16,384 | 4,096, which a peer may use before it acknowledges a smaller SETTINGS_HEADER_TABLE_SIZE (RFC 9113 §6.5.2) | 4,096 | about 17,000 |
+    | Longest header value | 8,192 | none (RFC 9110 §5.4) | 1,024 | about 34,000 |
+    | Header section | 16,384 | none (RFC 9110 §5.4) | 4,096 | about 13,000 |
+    | Response header block | 32,768 | the TLS flight keeps `output` at 20,480 | 4,096 | about 28,700 |
+    | h11 head | 32,768 | 8,000, which RFC 9112 §3 recommends for a request line | 16,384 | about 16,400 |
+
+    With every example value, a TCP connection of connect-zig's OTLP sink goes from about 384 KB
+    to about 250 KB.
+  - **What a peer past a size gets** is what it gets today past the fixed limit, so a small size
+    makes it more frequent:
+    - h11 answers 431 to a head past its size (RFC 6585 §5).
+    - h2 resets the stream with ENHANCE_YOUR_CALM for a section past its size (RFC 9113 §10.5.1).
+    - h2 ends the whole connection with COMPRESSION_ERROR for a value past the longest one,
+      because HPACK refuses the string (RFC 7541 §7.4). A small value size therefore ends
+      connections where a small section size resets one stream.
+    - A response header block past its size is refused to the program, never cut.
+  - **What stays.** The 128 streams, because RFC 9113 §5.1.2 recommends at least 100 and fewer
+    save little. h2's frame size, whose floor is 16,384 (RFC 9113 §4.2). chapulin's session.
+  - **Two ways to place the sizes**, for the owner's ruling:
+    - **At compile time.** `server.Capacity` takes the sizes, and the types that hold them take
+      them as parameters: the TCP connection, `h2.Connection`, HPACK's decoder and encoder, and
+      `h11.Connection`. No run-time cost; a program that names one of those types directly
+      changes its code.
+    - **In storage the engine places.** The types keep pointers to buffers that the engine sizes
+      from `server.Capacity`, as the slot tables are now. Each read checks a length that the
+      compiler no longer knows.
+  - **The release.** Either way the public types of h2, HPACK and h11 change, so the step waits
+    for v0.19.0, beside 58b. The judge measures it at the default sizes, where no input may lose.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
