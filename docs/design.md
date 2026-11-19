@@ -17127,6 +17127,32 @@ library.
     measured the change against `89045d95` at 10 rounds. Every h2 input stays within the noise in
     both jobs, from 0.9984 to 1.0029 of the base, as a change of memory alone should.
 
+- **Step 64 — a TCP connection holds a TLS session only over TLS, planned 2026-11-18.**
+  [#137](https://github.com/c4milo/colibri/issues/137), decision 167. After step 63 a TCP slot
+  holds 234,256 octets, and 83,029 of them are the TLS session and `plain_in`, which a cleartext
+  connection never uses. The change breaks names, so it goes into v0.19.0.
+  - **The public names.** `server.Config` gains the field `tls_buffer` and the call
+    `tls_buffer_len`. The server root exports no new name, and `colibri` adds none. A test of
+    `Config` lists its one call with `core.public_names.expect`, in the step's first commit.
+  - **What a program writes.** It declares `var tls_buffer: [server.Config.tls_buffer_len(528)]u8`
+    and passes `&tls_buffer` in `Config.tls_buffer`, or in `colibri.ServerConfig.engine`.
+    `examples/colibri_server.zig`, docs/usage.md and the README show it.
+  - **The change.**
+    - A TLS session, which the `server` module does not export, holds `tls.record.Server` and
+      `plain_in`. A TCP connection holds a pointer to one over TLS, and null in cleartext.
+    - `init` cuts `tls_buffer` into sessions, at most `tcp_connections` of them, and keeps the
+      free ones in a list. A slot gives its session back when it is released.
+    - The test-only endpoints of §9 and the simulator pass a buffer that holds one session for
+      each TCP slot.
+  - **Memory.** A TCP slot goes to about 151,000 octets. A program that serves TLS over TCP holds
+    about 83,000 octets in its buffer for each connection over TLS.
+  - **The checks.** Tests require that a cleartext connection holds no session; that `accept`
+    over TLS returns null when every session is in use, and takes one again once a slot is
+    released; that `tls_buffer_len(n)` holds `n` sessions at any alignment of the buffer; and
+    that `colibri.Server` refuses an identity with no room for a session. Each check is mutated.
+  - **The judge** measures the change against its base, and no input may lose, the TLS inputs
+    above all: one pointer more on each TLS record.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
