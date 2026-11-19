@@ -17,6 +17,12 @@ pub const receive_len: usize = 20 * 1024;
 /// words, in each client configuration and in each TLS session, which chapulin sizes from it.
 pub const anchors_max: usize = 256;
 
+/// Trust anchors each TLS server session holds: none. Anchors check the peer's certificate, and a
+/// colibri server requests no certificate from a client (RFC 9846 §4.4.2), so chapulin never
+/// fills them in a server session. chapulin sizes a session's anchors from its `Limits`, and its
+/// own `Server.check` takes 0. The owner ruled it on 2026-11-18 (design §8 step 63).
+pub const server_anchors_max: usize = 0;
+
 /// Octets of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies
 /// no longer name, and a server reports none for one.
 pub const server_name_len_max: usize = 255;
@@ -55,6 +61,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     const expectEqual = @import("std").testing.expectEqual;
     try expectEqual(20480, receive_len);
     try expectEqual(256, anchors_max);
+    try expectEqual(0, server_anchors_max);
     try expectEqual(255, server_name_len_max);
     try expectEqual(16, certificate_chain_len_max);
     try expectEqual(3, cipher_suites_max);

@@ -284,11 +284,20 @@ fn certificates(chain: []const []const u8) Error![]const []const u8 {
     return chain;
 }
 
-/// The lengths a session of the object takes, colibri's: the longest chain and the most anchors
-/// (chapulin's `Limits`).
+/// The lengths a client session of the object takes, colibri's: the longest chain and the most
+/// anchors (chapulin's `Limits`).
 pub fn limits_of(comptime chapulin: type) chapulin.Limits {
     return .{
         .chain_max = constants.limits.certificate_chain_len_max,
         .anchors_max = constants.limits.anchors_max,
+    };
+}
+
+/// The lengths a server session of the object takes: the longest chain, and no anchors, which a
+/// server never fills (design §8 step 63).
+pub fn server_limits_of(comptime chapulin: type) chapulin.Limits {
+    return .{
+        .chain_max = constants.limits.certificate_chain_len_max,
+        .anchors_max = constants.limits.server_anchors_max,
     };
 }

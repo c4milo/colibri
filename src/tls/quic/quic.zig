@@ -141,7 +141,7 @@ pub const Client = struct {
 };
 
 pub const Server = struct {
-    session: chapulin.quic.Server(constants.limits.receive_len, config_module.limits_of(chapulin)),
+    session: chapulin.quic.Server(constants.limits.receive_len, config_module.server_limits_of(chapulin)),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.
@@ -219,6 +219,14 @@ pub const Server = struct {
         if (server.state.started) server.session.close();
     }
 };
+
+test "design §8 step 63: a server session takes the server's limits, and a client the client's" {
+    // A server's limits hold no trust anchors, which only a client fills.
+    const server_limits = comptime config_module.server_limits_of(chapulin);
+    try std.testing.expectEqual(0, server_limits.anchors_max);
+    try std.testing.expect(@FieldType(Server, "session") == chapulin.quic.Server(constants.limits.receive_len, server_limits));
+    try std.testing.expect(@FieldType(Client, "session") == chapulin.quic.Client(constants.limits.receive_len, config_module.limits_of(chapulin)));
+}
 
 test "decision 115: a client's and a server's public calls are these" {
     const public_names = @import("crypto").core.public_names;
