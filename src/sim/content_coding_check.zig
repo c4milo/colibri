@@ -32,7 +32,7 @@ pub const check_name = "content-coding";
 /// the trace format changes the first, and one to an octet the client writes changes the second.
 /// Each is committed with its new value once the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0x69460a6e;
-pub const census_wire_crc32_expected: u32 = 0xc8625587;
+pub const census_wire_crc32_expected: u32 = 0xdc087af8;
 
 pub const Violation = content_coding_run.Error || error{
     /// Two runs in the same pieces wrote different traces or drew a different number of values.

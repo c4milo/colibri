@@ -255,8 +255,13 @@ Sendable(s) ==
     ELSE Window(s)
 
 (* The DATA frame colibri writes next on s: what Sendable lets through, cut *)
-(* at the frame size and at the room the output has left.                 *)
-DataLen(s) == Min(Min(Sendable(s), FrameMax), OutputRoom - HeaderLen)
+(* at the frame size and at the room the output has left. A frame the room *)
+(* cuts short carries Floor at least, or colibri writes none and waits for *)
+(* the room (decision 166 as amended).                                     *)
+RoomLen == OutputRoom - HeaderLen
+DataLen(s) ==
+    LET len == Min(Sendable(s), FrameMax)
+    IN IF len <= RoomLen THEN len ELSE IF RoomLen < Floor THEN 0 ELSE RoomLen
 
 (* A stream a window holds: content waits and the windows take none of it  *)
 (* (connection_sends.zig's entries).                                       *)

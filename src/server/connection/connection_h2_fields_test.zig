@@ -234,3 +234,27 @@ test "RFC 9113 §8.1: an empty trailer section has no line, as the scan finds" {
     try expect_first_as_scanned(&arrived.trailers.headers);
     try testing.expectEqual(0, arrived.trailers.headers.len());
 }
+
+/// Lines whose block passes one frame of the least size a peer may set, in octets HPACK's Huffman
+/// code does not shorten (RFC 7541 Appendix B), so the block is longer than any one frame.
+/// Test-only.
+const wide_value_len = 6000;
+const wide_lines = 3;
+var wide_value: [wide_value_len]u8 = @splat('<');
+var wide_fields: [wide_lines]support.Field align(@alignOf(support.Field)) = undefined;
+
+test "decision 166 as amended: a block past one frame goes out from an empty output, in two frames" {
+    try h2_support.start();
+    _ = try support.receive_copy(try h2_support.request_frame(1, "/", true));
+    for (&wide_fields) |*line| line.* = .{ .name = "x-wide", .value = &wide_value };
+    comptime std.debug.assert(wide_value_len * wide_lines > h2.constants.protocol.max_frame_size_initial);
+    try connection.respond(1, .{ .status = .ok, .headers = &wide_fields, .end = true });
+    const sent = support.drain();
+    // RFC 9113 §6.10: a HEADERS frame without END_HEADERS, then a CONTINUATION frame with it.
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, sent[h2_support.type_index]);
+    try testing.expectEqual(h2.constants.protocol.max_frame_size_initial, h2_support.frame_len(sent) - h2.constants.protocol.frame_header_len);
+    try testing.expectEqual(0, sent[h2_support.flags_index] & h2.constants.protocol.flag_end_headers);
+    const continuation = sent[h2_support.frame_len(sent)..];
+    try testing.expectEqual(h2.constants.protocol.frame_type_continuation, continuation[h2_support.type_index]);
+    try testing.expectEqual(h2.constants.protocol.flag_end_headers, continuation[h2_support.flags_index] & h2.constants.protocol.flag_end_headers);
+}
