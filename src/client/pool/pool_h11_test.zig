@@ -152,7 +152,7 @@ fn Tests(comptime Pool: type) type {
 
         /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
-            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(&pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
         /// Passes the pool `octets` as what its socket holds, and returns how many it took.
@@ -279,7 +279,7 @@ fn Tests(comptime Pool: type) type {
             support.to_client_len = response.len;
             // The program reads until the pool says to close the socket, and no further.
             for (0..support.buffer_len + support.events_max) |_| {
-                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
+                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
                 const received = pool.receive(input, support.now_ns);
                 @memmove(support.to_client[0 .. support.to_client_len - received.consumed], support.to_client[received.consumed..support.to_client_len]);
                 support.to_client_len -= received.consumed;
@@ -301,7 +301,7 @@ fn Tests(comptime Pool: type) type {
         /// The caller's transport closes: the program drops what it held of the socket, and the
         /// peer of the next connection starts with nothing read or written.
         fn close_transport() !void {
-            pool.transport_closed(pool_support.connection_of(pool, .tcp));
+            pool.transport_closed(pool_support.connection_of(&pool, .tcp));
             support.peer_h11.init(.{ .role = .server });
             support.peer_requests = 0;
             support.to_peer_len = 0;
@@ -394,7 +394,7 @@ fn Tests(comptime Pool: type) type {
             // the transport closes before the program passes that octet again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
             @memcpy(support.to_client[0..octets.len], octets);
-            const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..octets.len] } }, support.now_ns);
+            const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..octets.len] } }, support.now_ns);
             try testing.expectEqual(octets.len - 1, received.consumed);
             try testing.expectEqual(&first.response, received.event.?.finished.response);
             try close_transport();

@@ -196,7 +196,7 @@ fn Tests(comptime Pool: type) type {
 
         /// Writes what the pool's connection owes into the server's buffer.
         fn send() void {
-            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(&pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
         test "RFC 9846 §6.2: a pool asks for its transport's close once the alert of a refused handshake is written" {
@@ -224,7 +224,7 @@ fn Tests(comptime Pool: type) type {
             const provider = tls_support.server.provider();
             try testing.expectEqual(.peer, provider.take_alert().?.origin);
             try collect(&pool);
-            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.result);
             try testing.expectEqual(1, count(.open));
@@ -255,7 +255,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectError(error.TlsFailed, provider.decrypt_record(support.to_peer[0..support.to_peer_len], &tls_support.peer_plain));
             try testing.expectEqual(.bad_record_mac, provider.take_alert().?.description);
             try collect(&pool);
-            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), find(.close).?.close.slot);
             // The attempt went on with TCP counted in it, so it opened no second connection.
             try testing.expectEqual(null, find(.connected));
             try testing.expectEqual(.refused, exchange.response.result);
@@ -401,7 +401,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(true, tls_support.server_flight().?);
             try testing.expectEqual(0, support.to_peer_len);
             try collect(&pool);
-            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.result);
             try testing.expectEqual(1, count(.open));

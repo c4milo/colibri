@@ -34,8 +34,10 @@ pub fn transport_of(pool: anytype, slot: u32) Transport {
     return if (slot == quic_slot(pool)) .quic else .tcp;
 }
 
-/// The link of `slot`.
+/// The link of `slot`, which points into `pool`. `pool` is a pointer: a pool passed by value is a
+/// copy, and the copy is gone when `link` returns.
 pub fn link(pool: anytype, slot: u32) @TypeOf(&pool.quic_link) {
+    comptime assert(@typeInfo(@TypeOf(pool)) == .pointer);
     assert(slot <= quic_slot(pool));
     return if (slot == quic_slot(pool)) &pool.quic_link else &pool.tcp_links[slot];
 }

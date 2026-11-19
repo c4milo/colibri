@@ -185,7 +185,7 @@ fn Tests(comptime Pool: type) type {
 
         /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
-            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(&pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
         /// A pool with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
@@ -211,10 +211,10 @@ fn Tests(comptime Pool: type) type {
             support.to_client_len = whole.len * 2;
             // RFC 9112 §2.1: h11 reads the head again from its first octet until the head ends, so
             // one octet less of it takes nothing.
-            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. whole.len - 1] } }, support.now_ns);
+            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. whole.len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(whole.len, taken.consumed);
             try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
             try testing.expectEqual(.response, exchange.response.result);
@@ -226,7 +226,7 @@ fn Tests(comptime Pool: type) type {
             try start_cleartext(.h2, &exchange);
             support.peer_events_len = 0;
             // In cleartext, one octet of output takes one octet of what h2 wrote.
-            try testing.expectEqual(1, pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[0..1], support.now_ns));
+            try testing.expectEqual(1, pool.send_stream(pool_support.connection_of(&pool, .tcp), support.to_peer[0..1], support.now_ns));
             support.to_peer_len = 1;
             send();
             // The peer reads the preface and the request, and writes its SETTINGS, which the client
@@ -240,10 +240,10 @@ fn Tests(comptime Pool: type) type {
             // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
             support.to_client_len = try peer_write_content(&support.to_client);
             // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
-            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. constants.limits.frame_len_max - 1] } }, support.now_ns);
+            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. constants.limits.frame_len_max - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(constants.limits.frame_len_max, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
@@ -292,10 +292,10 @@ fn Tests(comptime Pool: type) type {
             const record_len = try seal_largest_first(out[0..written]);
             // RFC 9846 §5.2: the connection opens whole records, so one octet less of the first
             // takes nothing.
-            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. record_len - 1] } }, support.now_ns);
+            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. record_len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(record_len, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
@@ -311,7 +311,7 @@ fn Tests(comptime Pool: type) type {
             var posted: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = &content }, .response = .{ .body = &body } };
             _ = try pool.request(&posted.request, &posted.response);
             try testing.expectEqual(0, support.to_peer_len);
-            const written = pool.send_stream(pool_support.connection_of(pool, .tcp), &output, support.now_ns);
+            const written = pool.send_stream(pool_support.connection_of(&pool, .tcp), &output, support.now_ns);
             try testing.expect(written > 0 and written <= output.len);
             // The server opens the first record whole, and it holds the most plaintext a record
             // carries (RFC 9846 §5.1).

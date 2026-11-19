@@ -73,7 +73,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expectEqual(1, count(.connected));
             var output: [1024]u8 = undefined;
-            try testing.expect(pool.send_stream(pool_support.connection_of(pool, .tcp), &output, support.now_ns) > 0);
+            try testing.expect(pool.send_stream(pool_support.connection_of(&pool, .tcp), &output, support.now_ns) > 0);
             try testing.expectEqual(null, pool.deadline_ns());
             pool.cancel(id, support.now_ns);
             try testing.expectEqual(support.now_ns + drop_ns, pool.deadline_ns().?);
