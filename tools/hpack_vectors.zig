@@ -34,6 +34,11 @@ const initial_capacity: u64 = 4096;
 /// The directory of stories with no wire, which the encoder is run over.
 const raw_data_directory = "raw-data";
 
+/// The directories the run skips: each one's encoder used a dynamic table larger than colibri
+/// keeps, 16,384 octets where colibri keeps 4,096 (decision 166 as amended). colibri never
+/// advertises a larger table, so no peer sends it such a block.
+const skipped_directories = [_][]const u8{"nghttp2-16384-4096"};
+
 /// The largest story file the tool reads.
 const story_bytes_max = 16 << 20;
 
@@ -57,6 +62,7 @@ const Failure = error{
 
 const Counts = struct {
     directories: u64 = 0,
+    skipped: u64 = 0,
     stories: u64 = 0,
     cases: u64 = 0,
     fields: u64 = 0,
@@ -96,9 +102,16 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("hpack-vectors: {s}\n", .{@errorName(failure)});
         std.process.exit(exit_mismatch);
     };
+    // Each skipped directory is one the list names, and every other directory decoded.
+    if (counts.skipped != skipped_directories.len or counts.directories == 0) {
+        std.debug.print("hpack-vectors: skipped {d} of the {d} directories the list names, decoded {d}\n", .{
+            counts.skipped, skipped_directories.len, counts.directories,
+        });
+        std.process.exit(exit_mismatch);
+    }
     std.debug.print(
-        "hpack-vectors: directories={d} stories={d} cases={d} fields={d} round_trips={d}\n",
-        .{ counts.directories, counts.stories, counts.cases, counts.fields, counts.round_trips },
+        "hpack-vectors: directories={d} skipped={d} stories={d} cases={d} fields={d} round_trips={d}\n",
+        .{ counts.directories, counts.skipped, counts.stories, counts.cases, counts.fields, counts.round_trips },
     );
 }
 
@@ -108,11 +121,22 @@ fn run_directory(io: Io, gpa: Allocator, root_path: []const u8, counts: *Counts)
     var directories = root.iterate();
     while (try directories.next(io)) |entry| {
         if (entry.kind != .directory) continue;
+        if (is_skipped(entry.name)) {
+            counts.skipped += 1;
+            continue;
+        }
         var directory = try root.openDir(io, entry.name, .{ .iterate = true });
         defer directory.close(io);
         try run_stories(io, gpa, directory, entry.name, counts);
         counts.directories += 1;
     }
+}
+
+fn is_skipped(name: []const u8) bool {
+    for (skipped_directories) |skipped| {
+        if (std.mem.eql(u8, name, skipped)) return true;
+    }
+    return false;
 }
 
 fn run_stories(io: Io, gpa: Allocator, directory: Io.Dir, name: []const u8, counts: *Counts) !void {

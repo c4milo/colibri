@@ -214,6 +214,11 @@ test "an insert larger than the capacity empties the table and the next index pa
 const crowding_value_len = 1100;
 const crowding_literal_framing = 16;
 const crowding_literal_len_max = crowding_value_len + crowding_literal_framing;
+/// The literals of five-octet names that fill the table to within one entry of its end: each
+/// costs its name, its value and the 32 octets of RFC 7541 §4.1.
+const crowding_count = constants.limits.dynamic_table_capacity_max / (crowding_name_len + crowding_value_len + wire.constants.protocol.table_entry_overhead);
+/// The length of each crowding name, "name" and one letter.
+const crowding_name_len = "namea".len;
 
 test "a name referenced from the entry this insert evicts is returned intact (§4.4)" {
     decoder_module.test_decoder.init(constants.limits.dynamic_table_capacity_max);
@@ -222,8 +227,8 @@ test "a name referenced from the entry this insert evicts is returned intact (§
     var output = Writer.init(&block_buffer);
     try wire.string_literal.encode(8, &output, 0, &value, .raw);
     const encoded_value = output.written();
-    // Fourteen literals with new names fill the buffer to within one entry of its end.
-    for (0..14) |index| {
+    // Literals with new names fill the buffer to within one entry of its end.
+    for (0..crowding_count) |index| {
         var name_buffer: [5]u8 = "name?".*;
         name_buffer[4] = @intCast('a' + index);
         var field_buffer: [crowding_literal_len_max]u8 = @splat(0);
@@ -233,14 +238,15 @@ test "a name referenced from the entry this insert evicts is returned intact (§
         try field.write_bytes(encoded_value);
         try expect_lines(field.written(), &.{.{ .name = &name_buffer, .value = &value }});
     }
-    try testing.expectEqual(14, decoder_module.test_decoder.table.len());
-    // A literal whose name is the oldest entry's, index 61 + 14, and whose insert evicts it.
+    try testing.expectEqual(crowding_count, decoder_module.test_decoder.table.len());
+    // A literal whose name is the oldest entry's, index 61 + `crowding_count`, and whose insert
+    // evicts it.
     var field_buffer: [crowding_literal_len_max]u8 = @splat(0);
     var field = Writer.init(&field_buffer);
-    try wire.prefixed_integer.encode(6, &field, constants.protocol.incremental_pattern, constants.protocol.static_table_len + 14);
+    try wire.prefixed_integer.encode(6, &field, constants.protocol.incremental_pattern, constants.protocol.static_table_len + crowding_count);
     try field.write_bytes(encoded_value);
     try expect_lines(field.written(), &.{.{ .name = "namea", .value = &value }});
-    try testing.expectEqual(14, decoder_module.test_decoder.table.len());
+    try testing.expectEqual(crowding_count, decoder_module.test_decoder.table.len());
     try testing.expectEqualStrings("namea", decoder_module.test_decoder.table.get(1).?.name);
 }
 

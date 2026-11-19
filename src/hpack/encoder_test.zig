@@ -187,7 +187,8 @@ test "a lowered then raised limit opens the next block with the smallest size, t
     output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
     test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x3f\xe1\x7f", output.written());
+    // A size update to 4,096, the table's limit (RFC 7541 §6.3): 31 in the prefix, then 4,065.
+    try testing.expectEqualSlices(u8, "\x3f\xe1\x1f", output.written());
     try testing.expectEqual(constants.limits.dynamic_table_capacity_max, test_encoder.table.capacity);
 }
 

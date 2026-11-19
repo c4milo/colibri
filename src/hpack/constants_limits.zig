@@ -10,8 +10,10 @@ const wire = @import("wire");
 /// direction. Policy: the protocol leaves the maximum to the endpoint (§4.2), h2's initial value
 /// is 4,096 (RFC 9113 §6.5.2), and colibri never advertises more than this, nor uses more of what
 /// a peer advertises. It sizes the caller-owned storage of every `DynamicTable`. The owner ruled
-/// 16,384 on 2026-09-16 so every directory of http2jp/hpack-test-case decodes in-process.
-pub const dynamic_table_capacity_max: u32 = 16_384;
+/// 16,384 on 2026-09-16 so every directory of http2jp/hpack-test-case decodes in-process, and
+/// 4,096 on 2026-11-18 (decision 166 as amended): the size colibri advertises, and the most its
+/// encoder uses. The vector run skips the one directory whose encoder used more.
+pub const dynamic_table_capacity_max: u32 = 4_096;
 
 /// Most entries a dynamic table holds: every entry costs at least the overhead, so a table of
 /// `dynamic_table_capacity_max` octets holds at most this many.
@@ -46,8 +48,8 @@ test "the entry bound is exact: one more entry than it could not fit" {
 test "decision 137: each limit holds the value the owner ruled" {
     // A failure here is a changed limit, which the owner rules on before this test changes.
     const expectEqual = @import("std").testing.expectEqual;
-    try expectEqual(16384, dynamic_table_capacity_max);
-    try expectEqual(512, dynamic_table_entries_max);
+    try expectEqual(4096, dynamic_table_capacity_max);
+    try expectEqual(128, dynamic_table_entries_max);
     try expectEqual(256, name_len_max);
     try expectEqual(8192, value_len_max);
     try expectEqual(16384, block_len_max);
