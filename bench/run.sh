@@ -101,7 +101,7 @@ if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
-default_competitors="nginx h2o hyper httpz"
+default_competitors="nginx h2o hyper httpz nethttp fasthttp"
 if [ -n "$h3" ]; then default_competitors+=" quic-go"; fi
 read -r -a competitor_names <<<"${BENCH_COMPETITORS:-$default_competitors}"
 readonly competitor_names
@@ -174,7 +174,8 @@ serves() {  # serves <variant> <input>
     change) serves_colibri "$change_server" "$2" ;;
     base) serves_colibri "$base_server" "$2" ;;
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
-    nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
+    fasthttp) [[ "$2" == h11-* ]] ;;
+    nginx | h2o | hyper | nethttp) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
     quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac
@@ -406,22 +407,7 @@ machine() {
     echo "wrk=$(wrk --version 2>&1 | head -1 | cut -d' ' -f1-2), TLS 1.3 with ${tls_suite} alone"
   fi
   h3_machine
-  if [ -n "$competitors" ]; then
-    if wants nginx; then
-      echo "nginx=$(nginx -v 2>&1 | sed 's/^nginx version: //'), $(nginx -V 2>&1 | sed -n 's/^built with //p')"
-    fi
-    if wants h2o; then
-      echo "h2o=$(h2o --version 2>/dev/null | sed -n 's/^h2o version //p'), $(h2o --version 2>/dev/null | sed -n 's/^OpenSSL: //p')"
-    fi
-    # Cargo.lock names each crate's version; rustls's provider is aws-lc-rs.
-    if wants hyper; then
-      # rustc runs in hyper's directory, whose rust-toolchain.toml names the release.
-      echo "hyper=$(locked hyper), hyper-util $(locked hyper-util), tokio $(locked tokio), rustls $(locked rustls), aws-lc-rs $(locked aws-lc-rs), $(cd "$repository_root/bench/competitors/hyper" && rustc --version 2>/dev/null || echo 'rustc unknown')"
-    fi
-    if wants httpz; then
-      echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("${BENCH_ZIG_HTTPZ:-zig}" version 2>/dev/null || echo unknown)"
-    fi
-  fi
+  if [ -n "$competitors" ]; then competitors_machine; fi
   [ "$mode" = judge ] && echo "perf=$(sudo -n "${PERF:-perf}" --version)"
   [ -n "$profile" ] && echo "profile=${profile_event} at ${profile_frequency} Hz, ${profile_loads} loads, frame pointers"
   echo "rounds=$rounds"

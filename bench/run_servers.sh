@@ -76,6 +76,11 @@ server_command() {  # server_command <variant> <input>
     httpz)
       command=("$httpz_server" --port "$port")
       ;;
+    nethttp | fasthttp)
+      if [ "$1" = nethttp ]; then command=("$nethttp_server"); else command=("$fasthttp_server"); fi
+      command+=(--port "$port")
+      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
+      ;;
     *)
       if [[ "$2" == h3-* ]]; then quic_server_command "$1" "$2"; return; fi
       if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi

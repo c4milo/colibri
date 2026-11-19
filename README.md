@@ -52,16 +52,17 @@ hyper takes the same time
 **Throughput.** oha offers GET requests over the GitHub API's routes at fixed rates, from 2,000 to
 320,000 a second. The chart gives the most requests a second each server answered, all with 200.
 Over h2, colibri answers 84,712 a second, 1.2 times axum's. Over h11, h2 with TLS and h3, colibri
-and axum tie inside the noise. Over h2 with TLS, oha is near its own limit. Over h3, chi runs on
-quic-go and axum on quinn
+and axum tie inside the noise. Over h2 with TLS, oha is near its own limit. chi is a router on Go's
+net/http, and over h3 it runs on quic-go, and axum on quinn
 ([run 44445591237](https://github.com/c4milo/colibri/actions/runs/44445591237)).
 
-![Bars of the most requests a second each server answered, by protocol: over h2 colibri answers 84,712, axum 70,321 and chi 32,933; over h3 colibri answers 54,897, axum on quinn 51,585 and chi on quic-go 30,480](docs/images/throughput.svg)
+![Bars of the most requests a second each server answered, by protocol: over h2 colibri answers 84,712, axum 70,321 and Go's net/http with chi 32,933; over h3 colibri answers 54,897, axum on quinn 51,585 and quic-go with chi 30,480](docs/images/throughput.svg)
 
 **Latency.** The p99 of each server at each rate of the same run. The rates step by a factor of
 two, so most servers tie on the highest rate whose p99 stays under 10 ms. The curves show more.
-Over h2 at 40,000 requests a second, colibri's p99 is 1.24 ms, axum's 1.97 ms and chi's 897 ms.
-Over h3 at 20,000, colibri's is 3.84 ms, axum's 4.99 ms and chi's 17.62 ms.
+Over h2 at 40,000 requests a second, colibri's p99 is 1.24 ms, axum's 1.97 ms and that of Go's
+net/http with chi 897 ms. Over h3 at 20,000, colibri's is 3.84 ms, axum's 4.99 ms and that of
+quic-go with chi 17.62 ms.
 
 ![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri and axum stay under it up to 40,000 requests a second over h11, h2 and h2 over TLS, and up to 20,000 over h3](docs/images/latency.svg)
 
