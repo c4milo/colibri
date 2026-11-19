@@ -8227,6 +8227,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        16,384 octets a connection, colibri would then send no CONTINUATION, and each `send`
        holds a third fewer octets of a large body.
 
+     **Amended by the owner on 2026-11-19, and refused by the judge.** The owner asked to try a
+     server output sized for one h2 frame of header block in place of two, and then, after the
+     trial, to floor a DATA frame that the room cuts short (design §8 step 65).
+     - The note above was wrong in part. The server bounds a response's header section by its
+       count of lines and by the output alone, not by `field_section_size_max`, so a block can
+       pass one frame, and colibri sends CONTINUATION for it.
+     - The trial held a HEADERS frame and a DATA frame in the output, 32,786 octets in place of
+       49,161, and cut no DATA frame at the room below `data_frame_len_min`. Without that floor,
+       a full output went out in DATA frames of a few hundred octets.
+     - The judge refused it, in run 44541453452: a response of 256 KiB, `h2-large-many` (design §8
+       step 13n), lost in both jobs, at 1.1164 and 1.1129 of the base's instructions. Its user
+       instructions went from 119,077 to 146,980 a request: each response took more passes.
+     - So the output stays 49,161 octets, and no floor on the room lands. The branch
+       `one-frame-65b` keeps the trial.
+
 167. **A TCP connection over TLS takes its TLS session from a buffer the program passes in
      `server.Config.tls_buffer`, from v0.19.0.** Ruled by the owner on 2026-11-18, for
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 64).
