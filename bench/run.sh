@@ -23,9 +23,10 @@
 # With --latency, bench/run_latency.sh runs instead: the throughput and the latency of servers
 # that route, at fixed request rates, under oha (design §8 step 13f), or with --network, --waits
 # or --bulk after --latency, the inputs of steps 13i, 13j and 13k. With --profile, perf record
-# samples the server's call stacks under each input (bench/run_profile.sh).
+# samples the server's call stacks under each input (bench/run_profile.sh). With --throughput, each
+# server answers h2load or wrk at full speed for a fixed time instead (bench/run_throughput.sh).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--profile] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--profile] [--throughput] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
@@ -48,6 +49,7 @@ competitors=""
 h11=""
 h3=""
 profile=""
+throughput=""
 rounds=5
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
     --h11) h11=yes; shift ;;
     --h3) h3=yes; shift ;;
     --profile) profile=yes; shift ;;
+    --throughput) throughput=yes; shift ;;
     --latency) shift; exec "$repository_root/bench/run_latency.sh" --rounds "$rounds" "$@" ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
@@ -98,6 +101,12 @@ readonly ready_seconds=1
 inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many h2-large-many h2-tls-large-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
+# --throughput loads the inputs of many requests on each connection alone (design §8 step 13q).
+if [ -n "$throughput" ]; then
+  inputs=(h2-many h2-tls-many)
+  if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many); fi
+  if [ -n "$h3" ]; then inputs+=(h3-many); fi
+fi
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
@@ -434,6 +443,8 @@ if [ -z "$base_server" ] && [ -n "$base" ]; then
 fi
 # shellcheck source-path=SCRIPTDIR source=run_competitors.sh
 source "$repository_root/bench/run_competitors.sh"
+# shellcheck source-path=SCRIPTDIR source=run_throughput.sh
+if [ -n "$throughput" ]; then source "$repository_root/bench/run_throughput.sh"; fi
 
 identity="${BENCH_IDENTITY:-}"
 if [ -z "$identity" ]; then
@@ -451,6 +462,7 @@ awk '$1 == "GET" { print $2 }' "$repository_root/bench/router/competitors/kubern
 head -c "$post_small_len" /dev/zero | tr '\0' 'x' >"$scratch/post_small.bin"
 head -c "$post_late_len" /dev/zero | tr '\0' 'x' >"$scratch/post_late.bin"
 machine >"$scratch/machine.txt"
+if [ -n "$throughput" ]; then throughput_machine >>"$scratch/machine.txt"; fi
 
 variants=(change)
 if [ -n "$base_server" ]; then variants+=(base); fi
@@ -467,13 +479,19 @@ for round in $(seq 0 "$rounds"); do
       if serves "$variant" "$input"; then serving+=("$variant"); fi
     done
     for ((place = 0; place < ${#serving[@]}; place++)); do
-      measure "${serving[(round + place) % ${#serving[@]}]}" "$input" "$round"
+      if [ -n "$throughput" ]; then
+        measure_throughput "${serving[(round + place) % ${#serving[@]}]}" "$input" "$round"
+      else
+        measure "${serving[(round + place) % ${#serving[@]}]}" "$input" "$round"
+      fi
     done
   done
 done
 
 if [ -n "$profile" ]; then
   python3 "$repository_root/bench/report_profile.py" "$scratch" "$report"
+elif [ -n "$throughput" ]; then
+  python3 "$repository_root/bench/report_throughput.py" "$scratch" "$report"
 else
   python3 "$repository_root/bench/report.py" "$scratch" "$report" \
     --many-requests "$many_requests" --one-connections "$((one_runs * one_clients))" --large-requests "$large_requests"

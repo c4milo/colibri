@@ -4,11 +4,14 @@
 it draws the CPU time a request of each server: the time the server's threads ran, in user space
 and in the kernel, over the requests the load sent. Shorter is better.
 
-`throughput` and `latency` read the report of `bench/run.sh --latency`. `throughput` draws, for
-each protocol, the most requests a second each server answered at any rate oha offered. Longer is
-better. `latency` draws each server's p99 at each rate oha offered. A filled point is a rate the
-server sustained: every request answered 200, 95% of the rate reached in every round, and p99
-under the bound. A hollow point is a rate it did not sustain.
+`throughput` reads the report of `bench/run.sh --throughput`: for each load of many requests, the
+requests a second each server reached under h2load or wrk at full speed, and a bar marked ≥ where
+the server's core was not full, so the load tool was the limit. Longer is better.
+
+`latency` reads the report of `bench/run.sh --latency`, and draws each server's p99 at each rate
+oha offered. A filled point is a rate the server sustained: every request answered 200, 95% of
+the rate reached in every round, and p99 under the bound. A hollow point is a rate it did not
+sustain.
 
 Each bar chart gives every other server's value as a multiple of colibri's, each panel on its own
 scale. Its title says where colibri is best, where another server ties it, and where another
@@ -44,9 +47,6 @@ LATENCY_PROTOCOLS = (("h11", "h11"), ("h2", "h2"), ("h2-tls", "h2 over TLS"), ("
 # `change`.
 NAMES = {"change": "colibri", "httpz": "http.zig", "fastify": "Fastify", "nethttp": "net/http",
          "chi": "net/http + chi"}
-# Over h3, the QUIC library each server of the latency report runs on (bench/run_latency.sh): chi
-# is a router on Go's net/http, which serves h3 through quic-go.
-H3_STACKS = {"net/http + chi": "quic-go + chi", "axum": "axum on quinn"}
 # The CPU parts the latency report names by their MIDR part number.
 CPU_PARTS = {"0xd49": "Neoverse-N2"}
 # The share of a rate that oha must reach for the rate to count as sustained, as
@@ -167,7 +167,7 @@ def verdict_title(values, labels, lower_wins, what):
     return title
 
 
-def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description):
+def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description, at_least=None):
     """Panels of bars, two to a row: one panel for each label, colibri first and in blue, the other
     servers in gray, best first, each with its value as a multiple of colibri's."""
     panels = [(key, label) for key, label in labels if key in values]
@@ -180,12 +180,13 @@ def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description
     parts = svg_head(rows_y[-1], title, description) + head
     for index, (key, label) in enumerate(panels):
         left = PAD + (index % columns) * (panel_w + gap_x)
-        parts += bars_panel(values[key], label, left, rows_y[index // columns], panel_w, lower_wins, unit, axis)
+        marked = (at_least or {}).get(key, ())
+        parts += bars_panel(values[key], label, left, rows_y[index // columns], panel_w, lower_wins, unit, axis, marked)
     parts.append('</svg>')
     return "\n".join(parts) + "\n"
 
 
-def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis):
+def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis, at_least=()):
     bar_h, bar_gap, label_w = 18, 9, 104
     parts = [f'<text class="panel" x="{left}" y="{y0 + 14}">{label}</text>']
     bar_left = left + label_w
@@ -216,7 +217,7 @@ def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis):
         ratio = value / colibri
         times = "" if server == "colibri" else f", {ratio:.1f}× colibri" if ratio >= 10 else f", {ratio:.2f}× colibri"
         parts.append(f'<text class="val" x="{bar_left + value * scale + 6:.1f}" y="{y + bar_h / 2 + 4:.1f}">'
-                     f'{unit(value)}{times}</text>')
+                     f'{"≥ " if server in at_least else ""}{unit(value)}{times}</text>')
     return parts
 
 
@@ -293,29 +294,47 @@ def read_latency(text):
     return bound, machine, commit, runs
 
 
-def stack_of(protocol, server):
-    return H3_STACKS.get(server, server) if protocol == "h3" else server
-
-
 def requests_a_second(value, axis=False):
     if axis:
         return f"{value / 1000:g}k" if value else "0"
     return f"{value:,.0f} req/s"
 
 
+def read_throughput(text):
+    """{input: {server: (requests a second, spread)}}, the servers each load tool held back, and the
+    machine and the commit, from a report of bench/run.sh --throughput."""
+    header = dict(re.findall(r"^(\w+)=(.*)$", text, re.M))
+    values, at_least, input_name = {}, {}, None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            input_name = line[3:].strip()
+            continue
+        if not line.startswith("|") or input_name not in dict(CPU_INPUTS):
+            continue
+        cells = cells_of(line)
+        # | server | rounds | requests a second | busy | limit |
+        if len(cells) != 5 or not cells[1].isdigit():
+            continue
+        server = name_of(cells[0])
+        spread = float(re.search(r"\(([0-9.]+)%\)", cells[2]).group(1)) / 100
+        values.setdefault(input_name, {})[server] = (number(cells[2]), spread)
+        if cells[4] == "load":
+            at_least.setdefault(input_name, set()).add(server)
+    machine = ", ".join(value for value in (header.get("cpu"), header.get("kernel")) if value)
+    return values, at_least, machine, header.get("change", "unknown")
+
+
 def throughput_chart(text, run):
-    _, machine, commit, runs = read_latency(text)
-    # The most requests a second each server answered, each with 200, at any rate oha offered.
-    values = {protocol: {stack_of(protocol, server): max((reached, spread) for _, reached, spread, _, answered, _ in points if answered)
-                         for server, points in servers.items() if any(point[4] for point in points)}
-              for protocol, servers in runs.items()}
+    values, at_least, machine, commit = read_throughput(text)
     require_colibri(values)
-    title = verdict_title(values, LATENCY_PROTOCOLS, False, "answers the most requests a second")
-    lines = ["The most requests a second each server answered, all with 200, at any rate oha offered over the GitHub API's routes.",
-             "Each server runs on a core of its own, and oha on two others. Over h2 with TLS, oha's own limit is near. Longer is better.",
+    title = verdict_title(values, CPU_INPUTS, False, "serves the most requests a second on one core")
+    load = re.search(r"^throughput=(.*)$", text, re.M)
+    lines = ["h2load, or wrk for h11, loads each server at full speed from two other cores: "
+             + (load.group(1) if load else "") + ".",
+             "A bar marked ≥ is a server whose core was not full, so the load tool was the limit. Longer is better.",
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
-    return bars_chart(values, LATENCY_PROTOCOLS, False, title, lines, requests_a_second, "requests a second",
-                      f"{title}. " + described(values, LATENCY_PROTOCOLS, requests_a_second))
+    return bars_chart(values, CPU_INPUTS, False, title, lines, requests_a_second, "requests a second",
+                      f"{title}. " + described(values, CPU_INPUTS, requests_a_second), at_least)
 
 
 def latency_chart(text, run):
@@ -443,6 +462,31 @@ The highest rate whose median p99 stays under 10 ms, with every request answered
 """
 
 
+THROUGHPUT_REPORT = """# Throughput at full load (design §8 step 13q)
+
+```text
+cpu=Neoverse-N2
+kernel=Linux 7.0
+change=0123abcd
+throughput=10 s a load, 32 connections, 100 streams on each h2 or h3 connection, 2 load threads
+```
+
+## h2-many
+
+| Server | Rounds | Requests a second | Busy | Limit |
+|---|---|---|---|---|
+| change | 3 | 400,000.0 (2.00%) | 0.62 | load |
+| hyper | 3 | 190,000.0 (2.00%) | 0.99 | server |
+
+## h11-many
+
+| Server | Rounds | Requests a second | Busy | Limit |
+|---|---|---|---|---|
+| change | 3 | 150,000.0 (2.00%) | 0.97 | server |
+| nginx | 3 | 149,000.0 (2.00%) | 0.98 | server |
+"""
+
+
 def test_cpu():
     cpu = cpu_chart(CPU_REPORT, "77")
     assert ">colibri takes the least CPU time a request in h11; another server is better in h2<" in cpu, cpu
@@ -457,24 +501,26 @@ def test_cpu():
 
 
 def test_latency():
-    throughput = throughput_chart(LATENCY_REPORT, "78")
-    # chi's 4,000 req/s were not all answered 200, so its most is 1,500. In h3 the two tie.
-    assert ">colibri answers the most requests a second in h2, and ties for it in h3<" in throughput, throughput
-    assert ">4,000 req/s<" in throughput and "1,500 req/s, 0.38× colibri<" in throughput, throughput
-    assert ">quic-go + chi<" in throughput and "run 78, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
+    throughput = throughput_chart(THROUGHPUT_REPORT, "79")
+    # colibri's core was not full, so its bar is a floor; hyper's was.
+    assert ">colibri serves the most requests a second on one core in h2, and ties for it in h11<" in throughput, throughput
+    assert ">≥ 400,000 req/s<" in throughput and ">190,000 req/s, 0.47× colibri<" in throughput, throughput
+    assert ">nginx<" in throughput and "run 79, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
+    assert "32 connections, 100 streams" in throughput, throughput
     latency = latency_chart(LATENCY_REPORT, "78")
     assert "h2: colibri sustains 2,000 req/s, net/http + chi sustains 1,000 req/s" in latency, latency
     # chi's 2,000 and 4,000 in h2, its 1,000 in h3, which reached 900 in a round, and colibri's 4,000,
     # whose p99 passed the bound.
     assert latency.count('fill="var(--surface)" stroke') == 4 and "net/http + chi sustains no rate" in latency, latency
     assert ">10 ms<" in latency and "stroke-dasharray" in latency and "commit 0123abcd," in latency, latency
+    assert "Neoverse-N2, Linux 7.0." in latency, latency
 
 
 def test():
     test_cpu()
     test_latency()
     with tempfile.TemporaryDirectory() as scratch:
-        for kind, report in (("cpu", CPU_REPORT), ("throughput", LATENCY_REPORT), ("latency", LATENCY_REPORT)):
+        for kind, report in (("cpu", CPU_REPORT), ("throughput", THROUGHPUT_REPORT), ("latency", LATENCY_REPORT)):
             alone = "\n".join(line for line in report.splitlines() if "chi" not in line and "nginx" not in line
                               and "httpz" not in line and "hyper" not in line)
             path = pathlib.Path(scratch, f"{kind}.md")

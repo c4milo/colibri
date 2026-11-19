@@ -5869,6 +5869,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **Check:** axum and hyper built with Rust 1.100.0, chi with quic-go v0.65.0, and http.zig
       with Zig 0.17.1. Fastify answered curl with 200 and `colibri\n` over h11 and h2, in
       cleartext and over TLS, on macOS arm64.
+  - **13q**, throughput at full load, which the owner asked for on 2026-11-19: the README's
+    throughput chart, from the latency run, stopped near oha's own limit of about 80,000 to 95,000
+    requests a second, where colibri's server used about half its core.
+    - The owner refused a rate derived from CPU time alone, a model, and colibri's own client as
+      the load, which a reader could doubt. The judge has 4 vCPUs, so the load keeps its two cores.
+    - `bench/run.sh --throughput` loads each server with h2load, or wrk for h11, at full speed for
+      10 s: 32 connections, which colibri's test-only server holds on its one worker, with 100
+      streams on each h2 or h3 connection. `bench/run_throughput.sh` keeps the server's CPU time,
+      from its threads' schedstat, and the load's wall time.
+    - `bench/report_throughput.py` gives the median requests a second the load tool counted, and
+      the server's busy share. Under 0.95 the load tool was the limit, and the chart marks the bar
+      with ≥. It refuses a load that errored, timed out, got an answer outside 2xx, or failed more
+      requests than were in flight when its time ran out.
+    - **Check:** `python3 bench/report_throughput.py --test`, in `tools/ci.sh`, reads synthetic
+      loads. Seven mutations, each CAUGHT: the warm-up counted; the limit inverted; a load cut at
+      its end refused; an error allowed; an answer outside 2xx allowed; socket errors allowed; and
+      the mean in place of the median. `bench/chart.py --test` reads a synthetic report too, and a
+      floor drawn as a measured rate is CAUGHT.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

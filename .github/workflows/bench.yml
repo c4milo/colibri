@@ -17,7 +17,9 @@
 # step 13j). With `bulk`, bench/run.sh --latency --bulk measures downloads of one file at a
 # bottleneck that tc netem holds (design §8 step 13k). With
 # `profile`, perf record samples colibri's server and its call stacks under each input, and the
-# artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
+# artifact holds the folded stacks (design §8 step 13h). With `throughput`, each server answers
+# h2load or wrk at full speed for a fixed time, and the report gives the requests a second and how
+# busy the server's core was (design §8 step 13q). The work is bench/run.sh, which a person on
 # Linux with perf runs for the same answer; this file only installs what it needs.
 name: Bench
 on:
@@ -63,6 +65,10 @@ on:
         description: "Sample colibri's server and its call stacks under each input, in place of the counts"
         type: boolean
         default: false
+      throughput:
+        description: "Load each server at full speed for a fixed time, and count its requests a second, in place of the counts"
+        type: boolean
+        default: false
       qlog:
         description: "With bulk, keep each colibri connection's qlog beside the report; its numbers are not published"
         type: boolean
@@ -104,6 +110,7 @@ jobs:
       WAITS: ${{ inputs.waits }}
       BULK: ${{ inputs.bulk }}
       PROFILE: ${{ inputs.profile }}
+      THROUGHPUT: ${{ inputs.throughput }}
       # https://github.com/c4milo/colibri/issues/123: bench/run_bulk.sh writes colibri's qlog here.
       BENCH_BULK_QLOG: ${{ inputs.qlog && 'bench-report-qlog' || '' }}
     steps:
@@ -227,6 +234,7 @@ jobs:
           if [ "${WAITS}" = true ]; then arguments+=(--waits); fi
           if [ "${BULK}" = true ]; then arguments+=(--bulk); fi
           if [ "${PROFILE}" = true ]; then arguments+=(--profile); fi
+          if [ "${THROUGHPUT}" = true ]; then arguments+=(--throughput); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
         if: always()
