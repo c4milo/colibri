@@ -5942,6 +5942,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       length of the middle ignored, the drops ignored, a thread that started inside the middle left
       out, the warm-up's figures read, and no figures read. `bench/chart.py --test` draws the same
       chart from the wider rows, and a parser that drops them is CAUGHT.
+    - **What it found.** Run [44598317114](https://github.com/c4milo/colibri/actions/runs/44598317114)
+      measured the branch on the judge, and both jobs agree. oha was not the limit: its busiest
+      thread ran at most 0.79 of the time over h3, and 0.72 over h2. Over h3 the servers set the
+      p99. At 40,000 requests a second, colibri's core was busy 0.62, 15.5 µs a request, and
+      axum's 0.75 and 0.77. Over h2 colibri's core was busy 0.18 and 0.19, and over h2-tls 0.20
+      and 0.22. Near 55,000 requests a second axum's core runs full, 0.99, and colibri's 0.84 and
+      0.87, where the 32 requests in flight hold the rest. No UDP datagram was dropped.
+    - So no point of the chart needs a mark for oha, and the chart has none. With 160 requests in
+      flight, colibri's h3 costs 4.0 µs a request: an h3 request at 32 in flight costs almost four
+      times as much. https://github.com/c4milo/colibri/issues/139 tracks that cost.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

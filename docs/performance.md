@@ -263,6 +263,12 @@ p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
 - **h3 at 40,000 req/s.** colibri's p99 was 15.51 ms and 15.30 ms, and axum's 22.86 ms and
   18.61 ms. Neither stays under 10 ms.
 - **h3 at 80,000 offered.** colibri reached 54,651 and 57,855 req/s, and axum 50,752 and 54,597.
+- **h3 is the servers' cost, not oha's.** The busy shares of step 13s
+  ([run 44598317114](https://github.com/c4milo/colibri/actions/runs/44598317114)) show oha's
+  busiest thread at 0.79 of the time at most. At 40,000 req/s colibri's core was busy 0.62 over
+  h3, 15.5 µs a request, against 0.18 over h2. axum's core runs full near 55,000 req/s. With 160
+  requests in flight, colibri's h3 costs 4.0 µs a request
+  (https://github.com/c4milo/colibri/issues/139).
 - **h2-tls at 80,000 req/s and past it measures oha.** A capture of both directions timed each
   round trip there (design §8 step 13j). oha's side takes 81% to 92% of it, and colibri's
   server uses about half of its core. So a p99 at such a rate does not compare the servers.
