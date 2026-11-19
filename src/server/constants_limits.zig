@@ -22,10 +22,11 @@ pub const frame_len_max: usize = h2.constants.protocol.frame_header_len + h2.con
 /// §5.2 bounds that room by `record_ciphertext_len_max`.
 pub const plaintext_in_len: usize = partial_unit_len_max + tls_provider.constants.protocol.record_ciphertext_len_max;
 
-/// The most octets of a unit that is not whole yet: an h11 head or an h2 frame, whichever is
-/// longer, one octet short of its limit. h11 reads a head again from its first octet until the head
-/// ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1).
-const partial_unit_len_max: usize = @max(h11.constants.limits.head_len_max, frame_len_max) - 1;
+/// The most octets of a unit that is not whole yet: an h11 request head or an h2 frame, whichever
+/// is longer, one octet short of its limit. h11 reads a head again from its first octet until the
+/// head ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1). A server reads request
+/// heads, which decision 166 as amended bounds by `request_head_len_max`.
+const partial_unit_len_max: usize = @max(h11.constants.limits.request_head_len_max, frame_len_max) - 1;
 
 /// Octets of DER one certificate of the server's chain may take, for the bound on its flight.
 pub const certificate_len_max: usize = 8 * 1024;
@@ -198,7 +199,9 @@ comptime {
     // A unit that waits for its last octets never stops the next record from opening: an h11 head
     // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
     // for the most that follows a record's header (RFC 9846 §5.2).
-    assert(plaintext_in_len >= h11.constants.limits.head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
+    assert(plaintext_in_len >= h11.constants.limits.request_head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
+    // A request's trailer section, which h11 reads whole as it reads a head (RFC 9112 §7.1.2).
+    assert(partial_unit_len_max >= h11.constants.limits.trailer_len_max - 1);
     assert(plaintext_in_len >= frame_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
     // The output holds a whole flight, and a whole field block with a frame after it.
     assert(output_len >= flight_len_max);
@@ -223,13 +226,13 @@ test "decision 137: each limit holds the value the owner ruled" {
     // A failure here is a changed limit, which the owner rules on before this test changes.
     const expectEqual = @import("std").testing.expectEqual;
     try expectEqual(16393, frame_len_max);
-    try expectEqual(49407, plaintext_in_len);
+    try expectEqual(41221, plaintext_in_len);
     try expectEqual(8192, certificate_len_max);
     try expectEqual(2, chain_certificates_max);
     try expectEqual(4096, flight_rest_len);
     try expectEqual(20480, flight_len_max);
     try expectEqual(49161, output_len);
-    try expectEqual(5490, frames_per_receive_max);
+    try expectEqual(4581, frames_per_receive_max);
     try expectEqual(4, data_frames_per_write_max);
     try expectEqual(9833, seals_per_send_max);
     try expectEqual(128, done_owed_max);
@@ -246,7 +249,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(16, tcp_connections_default);
     try expectEqual(32, router_requests_default);
     try expectEqual(128, tcp_requests_max);
-    try expectEqual(5747, tcp_events_per_poll_max);
+    try expectEqual(4838, tcp_events_per_poll_max);
     try expectEqual(8, quic_replies_max);
     try expectEqual(1048877, quic_events_per_read_max);
     try expectEqual(128, coding_requests_max);

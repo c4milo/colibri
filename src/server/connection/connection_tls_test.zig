@@ -296,9 +296,16 @@ test "RFC 9113 §6.8: a shutdown asked for during the handshake reaches the prot
 /// an odd size. After two records, 24,000 octets of the head wait in the connection, and the head
 /// ends in the third record. That record opens only while the connection holds the head's first two
 /// records beside room for a whole record (RFC 9112 §2.1, RFC 9846 §5.2). Test-only.
-const long_head_len: usize = 30_000;
+/// A request head near the server's limit, `request_head_len_max` (decision 166 as amended), and
+/// longer than one record, so the head spans records of an odd size.
+const long_head_len: usize = 23_000;
 const long_content_len: usize = 6_000;
 const odd_record_len: usize = 12_000;
+
+comptime {
+    std.debug.assert(long_head_len < @import("h11").constants.limits.request_head_len_max);
+    std.debug.assert(long_head_len > odd_record_len);
+}
 var long_request: [long_head_len + long_content_len]u8 = undefined;
 
 /// The request of `long_head_len` octets of head and `long_content_len` of content. The whitespace

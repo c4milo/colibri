@@ -35,7 +35,8 @@ pub const Error = error{
     /// A start line that is empty, where a request carries a second leading empty line or a
     /// response carries any (RFC 9112 §2.2).
     StartLineEmpty,
-    /// No end within `head_len_max` octets (RFC 9110 §5.4).
+    /// No end within the role's longest head, `request_head_len_max` or `response_head_len_max`
+    /// octets (RFC 9110 §5.4).
     HeadTooLarge,
     /// A request line whose method holds an octet no token holds, or starts with an SP (RFC 9110
     /// §9.1).
@@ -55,6 +56,15 @@ pub const Span = struct {
 
 /// The CR and LF that end every line of a head (RFC 9112 §2.1).
 const line_end = "\r\n";
+
+/// The longest head `role` reads: a server's request, or a client's response (decision 166 as
+/// amended).
+pub fn head_len_max_of(role: Role) u32 {
+    return switch (role) {
+        .request => constants.limits.request_head_len_max,
+        .response => constants.limits.response_head_len_max,
+    };
+}
 
 /// Where the scan of one head stands. `scan` updates it and the caller keeps it between calls;
 /// `reset` readies it for the next head.
@@ -83,16 +93,17 @@ pub const Scanner = struct {
     /// then new ones: the caller consumes nothing from it until a head is returned.
     pub fn scan(scanner: *Scanner, role: Role, input: []const u8) Error!?Span {
         assert(scanner.scanned <= input.len);
-        assert(scanner.scanned <= constants.limits.head_len_max);
+        const head_max = head_len_max_of(role);
+        assert(scanner.scanned <= head_max);
         // The loop works on a copy of the fields in locals, which stay in registers, and each
         // return stores the copy once. The compiler cannot prove that `scanner` and `input` do
         // not overlap, so a loop on `scanner` loads and stores each field for each octet.
         var state = scanner.*;
         defer scanner.* = state;
-        const limit = @min(input.len, constants.limits.head_len_max);
+        const limit = @min(input.len, head_max);
         var reader = Reader.init(input[0..limit]);
         _ = reader.take(state.scanned) catch unreachable;
-        // At most `head_len_max` passes, because `limit` never exceeds it and each pass scans at
+        // At most `head_max` passes, because `limit` never exceeds it and each pass scans at
         // least one octet.
         while (reader.remaining_len() > 0) {
             const run = state.content_len(role, reader.peek_rest());
@@ -104,7 +115,7 @@ pub const Scanner = struct {
             if (try state.step(role, octet)) return state.span();
         }
         // RFC 9110 §5.4: no predefined limit, so colibri's applies and the head is refused.
-        if (state.scanned == constants.limits.head_len_max) return error.HeadTooLarge;
+        if (state.scanned == head_max) return error.HeadTooLarge;
         assert(state.scanned == input.len);
         return null;
     }
@@ -332,21 +343,30 @@ test "a CR or LF is found at every place in a run, and the octets before it are 
     }
 }
 
-test "a head with no end within head_len_max octets is refused, and one that ends at the limit is not" {
-    const start = "GET / HTTP/1.1\r\n";
+test "a head with no end within its role's limit is refused, and one that ends at the limit is not" {
+    // Decision 166 as amended: a server reads a request head of `request_head_len_max` octets, a
+    // client a response head of `response_head_len_max`.
+    // Each limit comes from the constants, not from `head_len_max_of`, which the scan reads.
+    try expect_head_limit(.request, constants.limits.request_head_len_max);
+    try expect_head_limit(.response, constants.limits.response_head_len_max);
+}
+
+fn expect_head_limit(comptime role: Role, comptime head_max: u32) !void {
+    const start = if (role == .request) "GET / HTTP/1.1\r\n" else "HTTP/1.1 200 OK\r\n";
     const field = "a: ";
-    var input: [constants.limits.head_len_max + 1]u8 = @splat('v');
+    var input: [head_max + 1]u8 = @splat('v');
     @memcpy(input[0..start.len], start);
     @memcpy(input[start.len..][0..field.len], field);
-    // Ends exactly at the limit: the value runs up to the last four octets, the two CRLFs.
-    @memcpy(input[constants.limits.head_len_max - 4 .. constants.limits.head_len_max], "\r\n\r\n");
-    try expect_span(.request, input[0..constants.limits.head_len_max], 0, constants.limits.head_len_max);
+    // Ends exactly at the limit: the value runs up to the two CRLFs that end the head.
+    const head_end = line_end ++ line_end;
+    @memcpy(input[head_max - head_end.len .. head_max], head_end);
+    try expect_span(role, input[0..head_max], 0, head_max);
     // Ends one octet past the limit.
-    @memcpy(input[constants.limits.head_len_max - 4 .. constants.limits.head_len_max], "vvvv");
-    @memcpy(input[constants.limits.head_len_max - 3 .. constants.limits.head_len_max + 1], "\r\n\r\n");
-    try expect_error(.request, &input, error.HeadTooLarge);
+    @memset(input[head_max - head_end.len .. head_max], 'v');
+    @memcpy(input[head_max + 1 - head_end.len .. head_max + 1], head_end);
+    try expect_error(role, &input, error.HeadTooLarge);
     var scanner: Scanner = .{};
-    try testing.expectEqual(null, try scanner.scan(.request, input[0 .. constants.limits.head_len_max - 1]));
+    try testing.expectEqual(null, try scanner.scan(role, input[0 .. head_max - 1]));
 }
 
 test "reset readies the scanner for the next head" {

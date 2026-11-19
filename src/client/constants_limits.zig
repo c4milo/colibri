@@ -37,7 +37,7 @@ pub const plaintext_in_len: usize = partial_unit_len_max + tls_provider.constant
 /// The most octets of a unit that is not whole yet: an h11 head or an h2 frame, whichever is
 /// longer, one octet short of its limit. h11 reads a head again from its first octet until the head
 /// ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1).
-const partial_unit_len_max: usize = @max(h11.constants.limits.head_len_max, frame_len_max) - 1;
+const partial_unit_len_max: usize = @max(h11.constants.limits.response_head_len_max, frame_len_max) - 1;
 
 /// Octets of the most the client's TLS handshake writes in one call: its largest ClientHello
 /// record, which a HelloRetryRequest may ask for again, then the alert a refused flight owes.
@@ -114,14 +114,14 @@ const record_len_max: usize = tls_provider.constants.protocol.record_header_len 
 /// while `send_stream` has written what the connection owes.
 /// Each protocol takes some units whole, and this is the largest of them:
 /// - h11 reads a head again from its first octet until the head ends (RFC 9112 §2.1), so it needs
-///   the whole head, at most `h11.constants.limits.head_len_max` octets. A trailer section and a
+///   the whole head, at most `h11.constants.limits.response_head_len_max` octets. A trailer section and a
 ///   chunk-size line are shorter.
 /// - h2 takes whole frames (RFC 9113 §4.1), at most `frame_len_max` octets with the frame size
 ///   colibri advertises (RFC 9113 §4.2).
 /// - Over TLS, the connection opens whole records, at most `record_len_max` octets each (RFC 9846
 ///   §5.2). It holds an h11 head or an h2 frame that is not whole yet beside room for one more
 ///   record (`plaintext_in_len`), so a whole record always opens.
-pub const stream_input_len_min: usize = @max(h11.constants.limits.head_len_max, @max(frame_len_max, record_len_max));
+pub const stream_input_len_min: usize = @max(h11.constants.limits.response_head_len_max, @max(frame_len_max, record_len_max));
 
 /// The least `output` with which `send_stream` writes some of what the TCP connection owes, when
 /// it owes octets (decision 124). In cleartext, one octet is enough: `send_stream` copies any part
@@ -150,7 +150,7 @@ comptime {
     // A unit that waits for its last octets never stops the next record from opening: an h11 head
     // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
     // for the most that follows a record's header (RFC 9846 §5.2).
-    assert(plaintext_in_len >= h11.constants.limits.head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
+    assert(plaintext_in_len >= h11.constants.limits.response_head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
     assert(plaintext_in_len >= frame_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
     // The output holds every flight a handshake writes before a send, and a whole field block
     // with a frame after it.
@@ -164,7 +164,7 @@ comptime {
     assert(std.fmt.count("{d}", .{std.math.maxInt(usize)}) <= content_length_digits_max);
     // The program holds each unit a TCP connection takes whole: an h11 head, trailer section or
     // chunk-size line, an h2 frame, and a TLS record.
-    assert(stream_input_len_min >= h11.constants.limits.head_len_max);
+    assert(stream_input_len_min >= h11.constants.limits.response_head_len_max);
     assert(stream_input_len_min >= h11.constants.limits.trailer_len_max);
     assert(stream_input_len_min > h11.constants.limits.chunk_line_len_max);
     assert(stream_input_len_min >= frame_len_max);

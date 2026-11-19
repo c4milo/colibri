@@ -10,11 +10,25 @@ const core = @import("core");
 /// octets, so this is colibri's policy and meets that floor.
 pub const start_line_len_max: u32 = 8192;
 
-/// Longest head colibri reads, in octets: an optional leading empty line, the start line, every
-/// field line with its colon, whitespace and CRLF, and the empty line that ends the head. RFC 9110
-/// §5.4 places no predefined limit on a field section and lets a server that cannot accept one
-/// answer 4xx, so this is policy. It bounds how far `message_scan` looks for the end of a head.
-pub const head_len_max: u32 = 32768;
+/// Octets of the CR and LF that end each line of a head (RFC 9112 §2.1).
+const line_end_len: u32 = 2;
+
+/// Longest request head colibri reads as a server, in octets: the one leading empty line a request
+/// may carry, the longest start line and its CRLF, the largest field section colibri accepts, and
+/// the empty line that ends the head. RFC 9110 §5.4 places no predefined limit and lets a server
+/// answer 4xx past its own, so this is policy. The owner ruled on 2026-11-18 (decision 166 as
+/// amended) the smallest head that holds every section the section limit admits, where 32,768 was
+/// the policy before.
+pub const request_head_len_max: u32 = line_end_len + start_line_len_max + line_end_len +
+    core.constants.limits.field_section_size_max + line_end_len;
+
+/// Longest response head colibri reads as a client, in octets, as `request_head_len_max` counts
+/// it. Policy, as before decision 166 was amended: a client cannot choose its server's headers.
+pub const response_head_len_max: u32 = 32768;
+
+/// The longer of the two heads, which sizes what both roles share: the scan of a head and the
+/// lines of its field section. `message_scan` bounds each head by its role's own limit.
+pub const head_len_max: u32 = @max(request_head_len_max, response_head_len_max);
 
 /// Octets `message_scan` compares at once when it looks for a line's CR or LF. 16 octets fill one
 /// NEON or SSE2 register, which every arm64 and x86-64 core has.
@@ -44,16 +58,19 @@ pub const decoders_default: u32 = 16;
 comptime {
     // A head holds its start line, so a start line of the longest length must fit in one.
     assert(head_len_max > start_line_len_max);
-    // A head of the longest length holds a start line of the longest length and a field section
-    // of the largest size colibri accepts. A field line's wire form without padding, its name, a
-    // colon, a space, its value and a CRLF, is shorter than the size the section counts for it.
-    assert(head_len_max >= start_line_len_max + core.constants.limits.field_section_size_max);
+    // A head of either role holds a start line of the longest length and a field section of the
+    // largest size colibri accepts. A field line's wire form without padding, its name, a colon, a
+    // space, its value and a CRLF, is shorter than the size the section counts for it.
+    assert(request_head_len_max >= start_line_len_max + core.constants.limits.field_section_size_max);
+    assert(response_head_len_max >= start_line_len_max + core.constants.limits.field_section_size_max);
 }
 
 test "decision 137: each limit holds the value the owner ruled" {
     // A failure here is a changed limit, which the owner rules on before this test changes.
     const expectEqual = @import("std").testing.expectEqual;
     try expectEqual(8192, start_line_len_max);
+    try expectEqual(24582, request_head_len_max);
+    try expectEqual(32768, response_head_len_max);
     try expectEqual(32768, head_len_max);
     try expectEqual(16, scan_vector_len);
     try expectEqual(4096, chunk_line_len_max);

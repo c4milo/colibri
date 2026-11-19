@@ -22,8 +22,9 @@ const line_end = "\r\n";
 /// The reference: `Scanner.scan` as it was, with each field read and written through `scanner`.
 fn scan_by_pointer(scanner: *Scanner, role: Role, input: []const u8) Error!?Span {
     assert(scanner.scanned <= input.len);
-    assert(scanner.scanned <= constants.limits.head_len_max);
-    const limit = @min(input.len, constants.limits.head_len_max);
+    const head_max = message_scan.head_len_max_of(role);
+    assert(scanner.scanned <= head_max);
+    const limit = @min(input.len, head_max);
     var reader = Reader.init(input[0..limit]);
     _ = reader.take(scanner.scanned) catch unreachable;
     // Bounded by `head_len_max`, which `limit` never exceeds.
@@ -33,7 +34,7 @@ fn scan_by_pointer(scanner: *Scanner, role: Role, input: []const u8) Error!?Span
         if (try step_by_pointer(scanner, role, octet)) return span_by_pointer(scanner);
     }
     // RFC 9110 §5.4: no predefined limit, so colibri's applies and the head is refused.
-    if (scanner.scanned == constants.limits.head_len_max) return error.HeadTooLarge;
+    if (scanner.scanned == head_max) return error.HeadTooLarge;
     assert(scanner.scanned == input.len);
     return null;
 }
@@ -228,7 +229,7 @@ fn expect_same_near(input: []const u8, offset: usize, seen: *Seen) !void {
     }
 }
 
-test "scan does what the reference does at start_line_len_max and head_len_max, split near each" {
+test "scan does what the reference does at start_line_len_max and each role's head limit, split near each" {
     const limits = [_]usize{ 1, constants.limits.start_line_len_max, constants.limits.head_len_max };
     var seen: Seen = .initEmpty();
     var input: [constants.limits.head_len_max + 2]u8 = @splat('a');
@@ -239,14 +240,17 @@ test "scan does what the reference does at start_line_len_max and head_len_max, 
         for (limits) |limit| try expect_same_near(input[0 .. line_len + 4], limit, &seen);
         @memset(input[line_len..][0..4], 'a');
     }
-    // A head that ends at head_len_max, then one octet later, then one with no end.
+    // A head that ends at each role's limit, then one octet later, then one with no end
+    // (decision 166 as amended: a server reads a shorter head than a client).
     const start = "GET / HTTP/1.1\r\nX: ";
     @memcpy(input[0..start.len], start);
-    for (0..2) |extra| {
-        const end = constants.limits.head_len_max + extra;
-        @memcpy(input[end - 4 .. end], "\r\n\r\n");
-        for (limits) |limit| try expect_same_near(input[0..end], limit, &seen);
-        @memset(input[end - 4 .. end], 'a');
+    for ([_]u32{ message_scan.head_len_max_of(.request), message_scan.head_len_max_of(.response) }) |head_max| {
+        for (0..2) |extra| {
+            const end = head_max + extra;
+            @memcpy(input[end - 4 .. end], "\r\n\r\n");
+            for (limits) |limit| try expect_same_near(input[0..end], limit, &seen);
+            @memset(input[end - 4 .. end], 'a');
+        }
     }
     for (limits) |limit| try expect_same_near(&input, limit, &seen);
     try std.testing.expect(seen.eql(.initMany(&.{ .span, .start_line_too_long, .head_too_large })));
