@@ -131,8 +131,8 @@ test "a cut line is refused once its octets fed pass representation_len_max, bef
     // The value claims more octets than the buffer holds, so the literal stays cut.
     try write_literal_head(constants.limits.field_block_buffer_len);
     const rest = constants.limits.representation_len_max - constants.limits.frame_size_max;
-    // The octets past the limit arrive as a full frame, which fills `field_block_buffer_len`, and
-    // as one octet with END_HEADERS, which step 3 refuses before step 4 reads the flag.
+    // The two fragments fill `field_block_buffer_len`. The octets past the limit arrive as a full
+    // frame, and as one octet with END_HEADERS, which step 3 refuses before step 4 reads the flag.
     const past_limit = [_][]const u8{ test_frame, "v" };
     for (past_limit, [_]bool{ false, true }) |fragment, end_headers| {
         start(1, .headers, false);

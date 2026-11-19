@@ -4,13 +4,14 @@
 //!
 //! The connection calls `begin` when a HEADERS or PUSH_PROMISE frame opens a block, and `feed`
 //! once per fragment: the first from that frame, each later one from a CONTINUATION frame (§6.2,
-//! §6.6, §6.10). `feed` appends the fragment after the octets the last fragment left and runs
-//! hpack's block reader over the buffer, in `field_block_decode.zig`. That reader is
-//! all-or-nothing per representation, so on `error.Truncated` the octets from the cut
-//! representation's first octet are kept, moved to the buffer's front. The kept octets are at most
-//! one line, so the slot holds one line and one fragment and never a whole block (decision 40). The
-//! decoded lines go into `section`, and the fragment carrying END_HEADERS returns `Done`, after
-//! which the connection reads the section from the block.
+//! §6.6, §6.10). `feed` runs hpack's block reader over the fragment where the connection holds it,
+//! in `field_block_decode.zig`. That reader is all-or-nothing per representation, so on
+//! `error.Truncated` the octets from the cut representation's first octet are copied into the
+//! buffer. The next fragment's octets are appended to them until that representation is whole,
+//! and the rest of that fragment is decoded where it is. The kept octets are at most one line, so
+//! the slot holds one line and never a whole block (decision 40 as amended, design §8 step 61a).
+//! The decoded lines go into `section`, and the fragment carrying END_HEADERS returns `Done`,
+//! after which the connection reads the section from the block.
 //!
 //! `feed` checks each fragment in this order (invariant 7):
 //!   1. the CONTINUATION count: one past `continuation_count_max` is
@@ -91,8 +92,8 @@ pub const Error = error{
 pub const FieldBlock = struct {
     /// The block being reassembled, or null when the slot is free (invariant 14).
     in_progress: ?InProgress,
-    /// The octets kept from the line the last fragment cut, then the fragment being decoded;
-    /// `buffer[0..buffer_len]` is in use.
+    /// The octets kept from the line the last fragment cut, then the octets of the next fragment
+    /// that finish it; `buffer[0..buffer_len]` is in use.
     buffer: [constants.limits.field_block_buffer_len]u8,
     /// Octets of `buffer` in use.
     buffer_len: u32,
@@ -165,9 +166,7 @@ pub const FieldBlock = struct {
         assert(fragment.len <= constants.limits.frame_size_max);
         errdefer block.abandon();
         try field_block_limit.count_fragment(block, fragment.len);
-        block.append(fragment);
-        const consumed = try field_block_decode.decode_whole(block, decoder);
-        field_block_decode.keep_tail(block, consumed);
+        try field_block_decode.decode_fragment(block, decoder, fragment);
         try field_block_limit.measure_cut_line(block);
         if (!end_headers) return null;
         // RFC 9113 §4.3: a receiver that does not decompress a field block ends the connection
@@ -190,14 +189,13 @@ pub const FieldBlock = struct {
         block.size_updates = 0;
     }
 
-    /// Appends the fragment after the kept octets. Those are at most `representation_len_max` and
-    /// the fragment at most `frame_size_max`, which is how `field_block_buffer_len` was sized.
-    fn append(block: *FieldBlock, fragment: []const u8) void {
-        assert(block.buffer_len <= constants.limits.representation_len_max);
+    /// Appends `octets` after the kept octets. Together they are at most `representation_len_max`,
+    /// which is how `field_block_buffer_len` was sized.
+    pub fn append(block: *FieldBlock, octets: []const u8) void {
         const offset: usize = block.buffer_len;
-        const end = offset + fragment.len;
+        const end = offset + octets.len;
         assert(end <= block.buffer.len);
-        @memcpy(block.buffer[offset..end], fragment);
+        @memcpy(block.buffer[offset..end], octets);
         block.buffer_len = @intCast(end);
     }
 

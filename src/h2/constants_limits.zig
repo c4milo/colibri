@@ -50,10 +50,10 @@ pub const representation_len_max: u32 =
     wire.huffman.encoded_len_max(hpack.constants.limits.name_len_max) +
     wire.huffman.encoded_len_max(hpack.constants.limits.value_len_max);
 
-/// Octets of the field-block slot's buffer (decision 40, invariant 14): the octets kept from a line
-/// the last fragment cut, at most `representation_len_max`, then the fragment being decoded, at
-/// most `frame_size_max`.
-pub const field_block_buffer_len: u32 = representation_len_max + frame_size_max;
+/// Octets of the field-block slot's buffer (decision 40 as amended, invariant 14): the octets kept
+/// from a line the last fragment cut, and the octets of the next fragment that finish it, together
+/// at most `representation_len_max`. Each fragment is decoded where it lies (design §8 step 61a).
+pub const field_block_buffer_len: u32 = representation_len_max;
 
 /// The SETTINGS_MAX_CONCURRENT_STREAMS colibri advertises: the slot pool's capacity, so a peer that
 /// honours the setting never finds the pool full (§5.1.2). colibri advertises it because the
@@ -112,7 +112,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(16384, frame_size_max);
     try expectEqual(32, continuation_count_max);
     try expectEqual(31721, representation_len_max);
-    try expectEqual(48105, field_block_buffer_len);
+    try expectEqual(31721, field_block_buffer_len);
     try expectEqual(128, concurrent_streams_max);
     try expectEqual(16384, header_list_size_max);
     try expectEqual(4, settings_pending_max);

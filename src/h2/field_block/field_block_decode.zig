@@ -1,12 +1,13 @@
 //! The decode step of the field-block slot, split off field_block.zig for length: one call runs
-//! hpack's block reader over the slot's buffer, measures and stores or discards each line, and the
-//! octets the reader could not finish are kept at the buffer's front (decision 40). field_block.zig's
-//! header lists the slot's check order, and the tests of the decoding refusals are here, beside the
-//! code that refuses.
+//! hpack's block reader over a fragment where it lies, or over the buffer that finishes a line the
+//! last fragment cut, measures and stores or discards each line, and the octets the reader could
+//! not finish are copied into the buffer (decision 40 as amended, design §8 step 61a).
+//! field_block.zig's header lists the slot's check order, and the tests of the decoding refusals are
+//! here, beside the code that refuses.
 //!
 //! The block reader counts the field lines and size updates it has read, and RFC 7541 §4.2
 //! places a size update before every field line of a block: the whole block, not one fragment.
-//! `decode_whole` carries both counts from one fragment to the next, whether the fragment ends
+//! `decode_slice` carries both counts from one fragment to the next, whether the fragment ends
 //! between representations or inside one, so a size update that opens a CONTINUATION frame after
 //! a field line is refused as it would be in one frame (RFC 9113 §4.3: a field block is logically
 //! equivalent to a single frame).
@@ -39,14 +40,19 @@ comptime {
     assert(hpack.constants.limits.value_len_max <= core.constants.limits.field_value_len_max);
 }
 
-/// Decodes every whole representation in the buffer and returns the octets they took.
-pub fn decode_whole(block: *FieldBlock, decoder: *hpack.Decoder) Error!usize {
+/// The longest run of octets one call decodes: a fragment, or the buffer.
+const decoded_len_max = @max(constants.limits.frame_size_max, constants.limits.field_block_buffer_len);
+
+/// Decodes every whole representation of `octets`, the block's octets after those decoded so far,
+/// counts them as decoded, and returns how many they were.
+pub fn decode_slice(block: *FieldBlock, decoder: *hpack.Decoder, octets: []const u8) Error!usize {
     assert(block.is_in_progress());
-    var walk = decoder.block(block.buffer[0..block.buffer_len]);
+    assert(octets.len <= decoded_len_max);
+    var walk = decoder.block(octets);
     walk.fields = block.lines_decoded;
     walk.updates = block.size_updates;
-    // A buffer of n octets holds at most n representations, and one more call finds the end.
-    for (0..constants.limits.field_block_buffer_len + 1) |_| {
+    // A run of n octets holds at most n representations, and one more call finds the end.
+    for (0..decoded_len_max + 1) |_| {
         const line = walk.next() catch |failure| {
             if (failure == error.Truncated) break;
             // RFC 9113 §4.3: a decoding error in a field block is a connection error of type
@@ -59,8 +65,56 @@ pub fn decode_whole(block: *FieldBlock, decoder: *hpack.Decoder) Error!usize {
     } else unreachable; // Each line takes at least one octet, so the buffer ends first.
     block.lines_decoded = walk.fields;
     block.size_updates = walk.updates;
-    assert(walk.consumed_len() <= block.buffer_len);
+    assert(walk.consumed_len() <= octets.len);
+    block.octets_decoded += walk.consumed_len();
     return walk.consumed_len();
+}
+
+/// The runs one call of `decode_fragment` decodes, at most: the buffer that finishes a line the
+/// last fragment cut, then the rest of the fragment where it lies.
+const runs_max = 2;
+
+/// Decodes `fragment`. If the last fragment cut a line, the fragment's first octets are appended to
+/// it, at most up to `representation_len_max`, and the buffer is decoded first. The rest of the
+/// fragment is decoded where it lies, and the line it cuts is copied into the buffer. One call
+/// site of `decode_slice` serves both runs, so the compiler keeps one copy of the decoding loop.
+pub fn decode_fragment(block: *FieldBlock, decoder: *hpack.Decoder, fragment: []const u8) Error!void {
+    const kept: usize = block.buffer_len;
+    var in_buffer = kept > 0;
+    const taken = if (in_buffer) @min(fragment.len, constants.limits.representation_len_max - kept) else 0;
+    if (taken > 0) block.append(fragment[0..taken]);
+    var octets: []const u8 = if (in_buffer) block.buffer[0..block.buffer_len] else fragment;
+    for (0..runs_max) |_| {
+        const consumed = try decode_slice(block, decoder, octets);
+        if (!in_buffer) return keep(block, octets[consumed..]);
+        if (consumed == 0) {
+            // RFC 7541 §7.4: the cut line's octets fed so far are past the longest line accepted.
+            if (taken < fragment.len) return error.RepresentationTooLong;
+            // The line is still cut, and the buffer keeps every octet of the fragment with it.
+            assert(block.octets_decoded + block.buffer_len == block.octets_fed);
+            return;
+        }
+        // The cut line came first in the buffer, so the reader took all of it before anything else.
+        assert(consumed >= kept);
+        block.buffer_len = 0;
+        octets = fragment[consumed - kept ..];
+        in_buffer = false;
+    } else unreachable; // The second run decodes in place, and returns.
+}
+
+comptime {
+    // A tail is part of one fragment, so the buffer always holds it. `measure_cut_line` refuses a
+    // cut line that grows past the longest line across fragments.
+    assert(constants.limits.frame_size_max <= constants.limits.field_block_buffer_len);
+}
+
+/// Copies `tail`, the representation the fragment cut, into the buffer.
+pub fn keep(block: *FieldBlock, tail: []const u8) void {
+    assert(block.buffer_len == 0);
+    assert(tail.len <= constants.limits.frame_size_max);
+    block.append(tail);
+    // Invariant 10: every octet fed was consumed by the decoder or is kept for the next fragment.
+    assert(block.octets_decoded + block.buffer_len == block.octets_fed);
 }
 
 /// Stores one decoded line, or discards it once the section has refused one. The file's header
@@ -72,18 +126,6 @@ fn store(block: *FieldBlock, line: hpack.FieldLine) void {
         // consistent, so the refusal is noted and the decoding goes on (invariant 10).
         block.too_large = true;
     };
-}
-
-/// Counts the `consumed` octets as decoded and moves the octets after them, the cut
-/// representation, to the buffer's front.
-pub fn keep_tail(block: *FieldBlock, consumed: usize) void {
-    assert(consumed <= block.buffer_len);
-    const tail_len: usize = block.buffer_len - consumed;
-    @memmove(block.buffer[0..tail_len], block.buffer[consumed..block.buffer_len]);
-    block.buffer_len = @intCast(tail_len);
-    block.octets_decoded += consumed;
-    // Invariant 10: every octet fed was consumed by the decoder or is kept for the next fragment.
-    assert(block.octets_decoded + block.buffer_len == block.octets_fed);
 }
 
 const testing = std.testing;
@@ -234,4 +276,83 @@ test "a section past its line count keeps decoding and reports too_large" {
     try expect_done(done, .{ .stream_id = 1, .origin = .headers, .end_stream = false, .too_large = true });
     try testing.expectEqual(core.constants.limits.field_count_max, test_block.section.len());
     try testing.expectEqual(core.constants.limits.field_count_max + 3, test_block.lines_decoded);
+}
+
+/// Where the cut tests write their block, and the section, line count and table length of that block
+/// fed whole, which every cut of it must give. Test-only.
+threadlocal var cut_block: [cut_block_len_max]u8 = undefined;
+threadlocal var whole_section: @TypeOf(support.test_block.section) align(@alignOf(@TypeOf(support.test_block.section))) = undefined;
+threadlocal var whole_lines: u32 = 0;
+threadlocal var whole_table_len: u32 = 0;
+const cut_block_len_max = 4096;
+/// A value of printable octets, some of which Huffman codes in more octets than they take raw.
+/// Test-only.
+const mixed_len = 2000;
+/// The step between the cuts of the test that cuts a block in three. Test-only.
+const cut_step = 53;
+/// The stride that spreads `mixed_len` octets over the printable ones, and the length of the
+/// literal the block inserts and then names by index. Test-only.
+const mixed_stride = 7;
+const literal_len = 300;
+
+/// Writes the block the cut tests feed: indexed and literal lines, Huffman-coded and raw strings, a
+/// value of `mixed_len` octets, and a line that names the dynamic table. Test-only.
+fn write_cut_block(output: *Writer) ![]const u8 {
+    var mixed: [mixed_len]u8 = undefined;
+    for (&mixed, 0..) |*octet, index| octet.* = @intCast(' ' + (index * mixed_stride) % ('~' - ' '));
+    test_encoder.init(constants.protocol.header_table_size_initial, .when_shorter);
+    try test_encoder.write_field(output, ":method", "GET", .incremental);
+    try test_encoder.write_field(output, ":path", "/apis/admissionregistration.k8s.io/v1/webhooks", .incremental);
+    try test_encoder.write_field(output, "custom-key", long_value[0..literal_len], .incremental);
+    try test_encoder.write_field(output, "x-mixed", &mixed, .without_indexing);
+    try test_encoder.write_field(output, "custom-key", long_value[0..literal_len], .incremental);
+    return output.written();
+}
+
+/// Feeds `octets` as one fragment and keeps what it gives as the reference. Test-only.
+fn feed_whole(octets: []const u8) !void {
+    start(1, .headers, false);
+    _ = (try test_block.feed(test_decoder, octets, true)) orelse return error.TestUnexpectedResult;
+    whole_section = test_block.section;
+    whole_lines = test_block.lines_decoded;
+    whole_table_len = test_decoder.table.len();
+}
+
+/// Feeds `octets` cut at each place of `cuts`, and requires what the whole block gave. Test-only.
+fn expect_cut_as_whole(octets: []const u8, cuts: []const usize) !void {
+    start(1, .headers, false);
+    var from: usize = 0;
+    for (cuts) |cut| {
+        try testing.expectEqual(null, try test_block.feed(test_decoder, octets[from..cut], false));
+        from = cut;
+    }
+    _ = (try test_block.feed(test_decoder, octets[from..], true)) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(whole_lines, test_block.lines_decoded);
+    try testing.expectEqual(whole_table_len, test_decoder.table.len());
+    try testing.expectEqual(whole_section.len(), test_block.section.len());
+    for (0..whole_section.len()) |index| {
+        const expected = whole_section.get(@intCast(index));
+        const line = test_block.section.get(@intCast(index));
+        try testing.expectEqualStrings(expected.name, line.name);
+        try testing.expectEqualStrings(expected.value, line.value);
+    }
+}
+
+test "design §8 step 61a: a block cut in two at each octet decodes as the block fed whole" {
+    var output = Writer.init(&cut_block);
+    const octets = try write_cut_block(&output);
+    try feed_whole(octets);
+    try testing.expectEqual(5, whole_lines);
+    for (0..octets.len + 1) |cut| try expect_cut_as_whole(octets, &.{cut});
+}
+
+test "design §8 step 61a: a block cut in three decodes as the block fed whole" {
+    var output = Writer.init(&cut_block);
+    const octets = try write_cut_block(&output);
+    try feed_whole(octets);
+    for (0..octets.len / cut_step + 1) |first| {
+        for (first..octets.len / cut_step + 1) |second| {
+            try expect_cut_as_whole(octets, &.{ first * cut_step, second * cut_step });
+        }
+    }
 }
