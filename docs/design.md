@@ -16828,9 +16828,19 @@ library.
   - **The tests, the simulator and the examples,** commit `ef53f2af`: their 40 calls of
     `std.mem.copyForwards` and `std.mem.copyBackwards` became `@memmove` too, so the tree holds
     none. `tools/ci.sh` passed 31 sections.
-  - **The plan of a rule.** The owner asked pepegrillo for a lint rule that refuses the standard
-    library's calls known to be slow where a better call exists. pepegrillo's session writes it,
-    and colibri adopts it in a later step.
+  - **The rule, 2026-11-19.** The owner asked pepegrillo for a lint rule that refuses the standard
+    library's calls known to be slow where a better call exists. pepegrillo's `slow_std` landed in
+    its commit `b618bb4`, with `std.mem.copyForwards` and `std.mem.copyBackwards` as its entries.
+    colibri pins pepegrillo at `a90cc29`, whose guide states the rule's evidence, and runs the rule
+    as `slow-std` over every Zig file the other rules read (`tools/lint/slow_std.zig`). The tree
+    holds no such call, so the rule found nothing. The canary of `build/lint.zig` holds one, and
+    the lint reports it. pepegrillo's pre-push hook did not change.
+    - The same pin raised pepegrillo's default limits of a commit's body to 4 paragraphs and 150
+      words. `tools/commit_lint.zig` now states CLAUDE.md's 3 and 100, which it took from the
+      defaults before.
+    - Five mutations, each CAUGHT: the canary without its slow-std line, `build/` out of the
+      rule's scope, the rule not registered, and the limit of 100 words or of 3 paragraphs left to
+      pepegrillo's default.
 
 - **Step 56 — the engine's empty polls on h11, 2026-11-17.**
   [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled the internal work first:

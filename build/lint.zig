@@ -36,6 +36,7 @@ const canary_rules = [_][]const u8{
     "rotor-import",
     "type-function-suffix",
     "kept-options-pointer",
+    "slow-std",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -50,6 +51,7 @@ const canary_source =
     \\    _ = allocator;
     \\    _ = std.posix;
     \\    _ = std.time;
+    \\    _ = std.mem.copyForwards;
     \\    while (true) {}
     \\    var buffer: [4096]u8 = undefined;
     \\    _ = &buffer;

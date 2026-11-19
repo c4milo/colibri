@@ -336,7 +336,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   get Rotor, only through `lazyDependency`, and only `src/testing/` and
   `src/colibri/rotor_host*.zig` import it; decision 159), type-function-suffix (a public type
   function is named for its thing, never `...Of`) and kept-options-pointer (an `init` copies
-  what it keeps of a `*const` options parameter; decision 158 ruling 2). The io rule exempts `src/testing/` and,
+  what it keeps of a `*const` options parameter; decision 158 ruling 2) and slow-std (no
+  `std.mem.copyForwards` or `std.mem.copyBackwards`, which copy one octet a step in Zig 0.16;
+  `@memmove` in their place, design §8 step 55). The io rule exempts `src/testing/` and,
   of `src/colibri/`, the Rotor adapter and the tests of `.private` on loopback. Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. A third
   run over the files rotor-import allows must exit 0. The
