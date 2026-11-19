@@ -5958,6 +5958,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       segments counts once, so they compare servers under the same oha and the same protocol.
       Three mutations, each CAUGHT: the two counts swapped, a count not divided by the answers,
       and the counts not read.
+    - Run [44619128899](https://github.com/c4milo/colibri/actions/runs/44619128899) counted them,
+      and both jobs agree. At 2,000 requests a second an h3 request took 3.88 to 3.93 datagrams
+      with colibri, 2.60 with axum on quinn and 3.87 with quic-go. At 40,000 it took 2.29 to 2.39
+      with colibri and 2.11 to 2.13 with axum. The h2 loads counted 0.00, so no other traffic adds
+      to the count. https://github.com/c4milo/colibri/issues/139 follows the extra datagrams.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
