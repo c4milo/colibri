@@ -8,8 +8,9 @@
 //!
 //! The linter is pepegrillo's (decision 36). This file holds colibri's configuration of it: the
 //! module scopes of docs/design.md §3, scopes that admit digits so `h2` and `h3` are valid, and the
-//! first words refused as not imperative. The limits are the ones CLAUDE.md states, which are
-//! pepegrillo's defaults.
+//! first words refused as not imperative. The limits are the ones CLAUDE.md states. pepegrillo's
+//! defaults allow a body of 4 paragraphs and 150 words since its commit `a90cc29`, so this file
+//! states colibri's 3 and 100.
 //!
 //! One line per finding, in the shape the Zig compiler prints an error:
 //!
@@ -49,6 +50,9 @@ const imperative_exceptions = [_][]const u8{
 };
 
 pub const config: pepegrillo.commit.Config = .{
+    // CLAUDE.md (Commits): a body of at most 3 paragraphs and 100 words.
+    .body_paragraphs_max = 3,
+    .body_words_max = 100,
     .scope_admits_digits = true,
     .known_scopes = &module_scopes,
     .unknown_scope_reason = "is not a module of the graph",
@@ -164,6 +168,13 @@ const head_commit_message =
     \\step 5 onward needs.
     \\
 ;
+
+test "a body of 3 paragraphs passes, and one of 4 breaks the limit of CLAUDE.md" {
+    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n", &.{});
+    try expect_findings("docs: state the limit\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n", &.{
+        "error: body-size: the body has 4 paragraphs, over the limit of 3",
+    });
+}
 
 test "the message of 6e04c77 breaks one rule: its body is 143 words" {
     // Every other rule passes. The word count does not, and this test records it:
