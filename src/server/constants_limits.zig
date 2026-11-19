@@ -42,9 +42,11 @@ pub const flight_rest_len: usize = 4 * 1024;
 /// handshake, so the handshake runs only while `output` has this much room.
 pub const flight_len_max: usize = chain_certificates_max * certificate_len_max + flight_rest_len;
 
-/// Octets a connection writes before `send` takes them: a response's field block cut into frames
-/// and a DATA frame after it, or the TLS flight, whichever is larger.
-pub const output_len: usize = @max(h2.constants.limits.send_block_len_max + frame_len_max, flight_len_max);
+/// Octets a connection writes before `send` takes them: a HEADERS frame and a DATA frame, each of
+/// the largest frame colibri reads, or the TLS flight, whichever is larger (decision 166 as
+/// amended). The largest field block h2 sends goes out alone in it, in a HEADERS frame and a
+/// CONTINUATION frame of the least frame size a peer may set (RFC 9113 §4.2, §6.10).
+pub const output_len: usize = @max(2 * frame_len_max, flight_len_max);
 
 /// The most frames one `receive` reads past that mean nothing to the caller, such as a SETTINGS
 /// acknowledgment. Each takes a frame header at least, so the plaintext a call holds bounds them.
@@ -203,9 +205,12 @@ comptime {
     // A request's trailer section, which h11 reads whole as it reads a head (RFC 9112 §7.1.2).
     assert(partial_unit_len_max >= h11.constants.limits.trailer_len_max - 1);
     assert(plaintext_in_len >= frame_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
-    // The output holds a whole flight, and a whole field block with a frame after it.
+    // The output holds a whole flight, and the largest field block alone, cut into the frames of
+    // the least SETTINGS_MAX_FRAME_SIZE a peer may set (RFC 9113 §4.2): so a block a full output
+    // refuses is one no output takes, and `respond` reports it as `SectionTooLarge`.
     assert(output_len >= flight_len_max);
-    assert(output_len >= h2.constants.limits.send_block_len_max + frame_len_max);
+    const block_frames_max = std.math.divCeil(usize, h2.constants.limits.send_block_len_max, h2.constants.protocol.max_frame_size_min) catch unreachable;
+    assert(output_len >= h2.constants.limits.send_block_len_max + block_frames_max * h2.constants.protocol.frame_header_len);
     assert(done_owed_max > 0);
     assert(tcp_connections_default > 0 and tcp_requests_max >= requests_max);
     assert(router_requests_default > 0);
@@ -231,10 +236,10 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(2, chain_certificates_max);
     try expectEqual(4096, flight_rest_len);
     try expectEqual(20480, flight_len_max);
-    try expectEqual(49161, output_len);
+    try expectEqual(32786, output_len);
     try expectEqual(4581, frames_per_receive_max);
-    try expectEqual(4, data_frames_per_write_max);
-    try expectEqual(9833, seals_per_send_max);
+    try expectEqual(3, data_frames_per_write_max);
+    try expectEqual(6558, seals_per_send_max);
     try expectEqual(128, done_owed_max);
     try expectEqual(20, chunk_framing_len_max);
     try expectEqual(100, quic_requests_max);

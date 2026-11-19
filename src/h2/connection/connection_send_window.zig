@@ -2,6 +2,10 @@
 //! the stream's, one frame and the caller's buffer allow, and which of them held it short of the
 //! payload. Split off `connection_send.zig` for length.
 //!
+//! Room in the caller's buffer below `Connection.data_frame_len_min` sends nothing unless it holds
+//! the rest of the payload (decision 166 as amended): a full output then waits for `send`, and a
+//! body does not go out in a frame for each few octets of room.
+//!
 //! A window below `Connection.data_frame_len_min` sends nothing unless it holds the whole payload,
 //! once the peer has sent a WINDOW_UPDATE whose increment is below the floor, and while its
 //! SETTINGS_INITIAL_WINDOW_SIZE is at least the floor (decision 110 as amended). A peer that opens
@@ -56,10 +60,18 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     }
     // RFC 9113 §4.2: no frame is longer than the peer's SETTINGS_MAX_FRAME_SIZE.
     if (target.peer.max_frame_size < next.len) next = .{ .len = target.peer.max_frame_size, .short_by = .frame_size };
-    const room = if (room_len > constants.protocol.frame_header_len) room_len - constants.protocol.frame_header_len else 0;
-    if (room < next.len) next = .{ .len = room, .short_by = .room };
+    next = cut_by_room(target, next, room_len);
     assert(next.len <= payload_len);
     return next;
+}
+
+/// `next`, cut to the payload a buffer of `room_len` octets holds after the frame's header. A frame
+/// the buffer cuts short carries the floor at least, so a buffer its transport drains slowly gets
+/// no frame for each few octets of room (decision 166 as amended).
+fn cut_by_room(target: *const Connection, next: Sendable, room_len: usize) Sendable {
+    const room = if (room_len > constants.protocol.frame_header_len) room_len - constants.protocol.frame_header_len else 0;
+    if (room >= next.len) return next;
+    return .{ .len = if (room < target.data_frame_len_min) 0 else room, .short_by = .room };
 }
 
 /// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
@@ -142,6 +154,19 @@ test "RFC 9113 §6.9.1: the connection's window, the frame size and the room eac
     try testing.expectEqual(.room, room.short_by);
 }
 
+test "decision 166 as amended: room below the floor sends nothing, unless it holds the rest of the payload" {
+    _ = try start(constants.protocol.window_max);
+    // The room's floor holds whether or not the peer sent a small increment.
+    test_connection.tiny_update_read = false;
+    const short_room = test_output[0 .. constants.protocol.frame_header_len + floor_len - 1];
+    const held = try connection_send.write_data(test_connection, short_room, 1, test_body[0..body_len], false);
+    try testing.expectEqual(0, held.consumed);
+    try testing.expectEqual(.room, held.short_by);
+    const rest = try connection_send.write_data(test_connection, short_room, 1, test_body[0 .. floor_len - 1], true);
+    try testing.expectEqual(floor_len - 1, rest.consumed);
+    try testing.expectEqual(.none, rest.short_by);
+}
+
 test "decision 110 as amended: a peer that asks for windows under the floor gets frames that fit them" {
     _ = try start(1);
     test_connection.peer.initial_window_size = floor_len - 1;
@@ -200,14 +225,14 @@ test "decision 119: sendable_len is what write_data sends, under the windows, th
     try testing.expectEqual(floor_len - 1, test_connection.sendable_len(1, test_output.len, floor_len - 1));
     record.send_window = window_module.Window.init(floor_len);
     try testing.expectEqual(floor_len, test_connection.sendable_len(1, test_output.len, body_len));
-    // RFC 9113 §4.1: the room holds the frame's header before its payload.
-    try testing.expectEqual(room_payload_len, test_connection.sendable_len(1, constants.protocol.frame_header_len + room_payload_len, body_len));
+    // RFC 9113 §4.1: the room holds the frame's header before its payload, and a room one octet
+    // short of the floor holds no frame (decision 166 as amended).
+    const header_len = constants.protocol.frame_header_len;
+    try testing.expectEqual(floor_len, test_connection.sendable_len(1, header_len + floor_len, body_len));
+    try testing.expectEqual(0, test_connection.sendable_len(1, header_len + floor_len - 1, body_len));
     const sent = try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], false);
     try testing.expectEqual(floor_len, sent.consumed);
 }
-
-/// Payload octets a test's room holds after a frame's header. Test-only.
-const room_payload_len: usize = 10;
 
 test "RFC 9113 §5.1, §8.1: a stream before its final head, unknown, or reset, has nothing to send" {
     _ = try start(floor_len);

@@ -80,8 +80,8 @@ test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty 
     try testing.expectEqual(constants.protocol.flag_end_stream, sent[flags_index]);
 }
 
-/// Content of `long_body_frames` of the peer's largest frames and one octet more (RFC 9113 §4.2).
-const long_body_frames: usize = 2;
+/// The whole frames of the peer's largest size the output holds with one more (RFC 9113 §4.2).
+const long_body_frames: usize = support.server_constants.limits.output_len / (constants.protocol.frame_header_len + constants.protocol.max_frame_size_initial) - 1;
 const long_body: [long_body_frames * constants.protocol.max_frame_size_initial + 1]u8 = @splat('x');
 
 test "one write_body call takes what the room and the windows allow, cut at the peer's frame size" {

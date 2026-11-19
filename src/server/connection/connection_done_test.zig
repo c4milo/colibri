@@ -52,15 +52,21 @@ test "decision 103: content the output took in part owes no done until its last 
     _ = try support.receive_copy(try h2_support.request_frame(1, "/", true));
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
-    // Room for a DATA frame's header and three octets of its payload.
-    const room: usize = h2.constants.protocol.frame_header_len + 3;
+    // Room for a DATA frame's header and the floor's octets of its payload: a frame the room cuts
+    // short carries the floor at least (decision 166 as amended).
+    const room: usize = h2.constants.protocol.frame_header_len + floor_len;
     connection.output_len = support.server_constants.limits.output_len - room;
-    try testing.expectEqual(3, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
+    try testing.expectEqual(floor_len, try connection.write_body(1, .{ .bytes = &partial_body, .end = true }));
     try expect_nothing();
     connection.output_len = 0;
-    try testing.expectEqual(2, try connection.write_body(1, .{ .bytes = "lo", .end = true }));
+    try testing.expectEqual(partial_body.len - floor_len, try connection.write_body(1, .{ .bytes = partial_body[floor_len..], .end = true }));
     try support.expect_done(1);
 }
+
+/// The floor of a DATA frame the room cuts short, and content a few octets longer. Test-only.
+const floor_len = support.server_constants.policy.data_frame_len_min;
+const partial_tail_len: usize = 2;
+const partial_body: [floor_len + partial_tail_len]u8 = @splat('x');
 
 test "decision 103: an h2 trailer section ends the response, and makes the request done" {
     try h2_support.start();

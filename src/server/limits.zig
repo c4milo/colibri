@@ -10,8 +10,9 @@ pub const Limits = struct {
     /// engine it bounds an h3 connection's request streams too, up to `quic_requests_max`
     /// (decision 119).
     requests_max: u32 = constants.limits.requests_max,
-    /// The shortest DATA frame h2 sends when a window, not the content, decides its length
-    /// (decision 110), up to h2's initial maximum frame size.
+    /// The shortest DATA frame h2 sends when a window or the room in the output, not the content,
+    /// decides its length (decisions 110 and 166 as amended), up to h2's initial maximum frame
+    /// size.
     data_frame_len_min: u32 = constants.policy.data_frame_len_min,
     /// The requests a client may cancel in one second, at least 1: h2's RST_STREAM on a stream
     /// the client opened, and h3's RESET_STREAM or STOP_SENDING on a request stream. One more

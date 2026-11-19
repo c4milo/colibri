@@ -209,10 +209,10 @@ var test_storage: Storage align(@alignOf(Storage)) = undefined;
 /// seed finished each exchange, so each stream counts one request and one response, and the runs
 /// reach the states the clocks' rules are about.
 const expected = struct {
-    const states: u64 = 3837;
+    const states: u64 = 4058;
     const requests: u64 = 69;
-    const bodies_timed: u64 = 798;
-    const sends_timed: u64 = 21;
+    const bodies_timed: u64 = 824;
+    const sends_timed: u64 = 18;
 };
 const census_expected: Census = .{
     .seeds = limits.written_seeds,

@@ -42,8 +42,8 @@ pub const check_name = "deadline";
 /// of the seeds' `Result.wire`. A change to the plan, to what the server does or to the trace
 /// format changes the first, and one to an octet a peer writes changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xf90d85a5;
-pub const census_wire_crc32_expected: u32 = 0xe6434a84;
+pub const census_crc32_expected: u32 = 0x3a37a494;
+pub const census_wire_crc32_expected: u32 = 0x036091b3;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -471,18 +471,19 @@ test "a peer that reads nothing has read nothing when the server closes" {
     return error.TestUnexpectedResult;
 }
 
-/// The first seed whose honest peer reads so slowly that the server's output has no room for a
-/// second answer's head when it is due, and the seed's exchanges.
+/// A seed whose honest peer reads so slowly that the server's output has no room for the second
+/// answer's head when it is due, and the seed's exchanges.
 const no_room_seed: u64 = 0x1f4c;
 const no_room_seed_requests: u8 = 3;
 
 test "an answer whose head finds no room is written once the peer has read, and its exchange ends whole" {
     const result = try run_seed(&check_storage, no_room_seed);
     try std.testing.expectEqual(no_room_seed_requests, result.record.requests_done);
-    // The second answer waited for octets of the first to leave the output, and the others
-    // found room.
+    // The first answer found room, and the second and the third waited for octets of the ones
+    // before them to leave the output, which holds a HEADERS frame and a DATA frame (decision 166
+    // as amended).
     const answers = result.record.app.answers;
-    try std.testing.expectEqual([_]bool{ false, true, false }, [_]bool{
+    try std.testing.expectEqual([_]bool{ false, true, true }, [_]bool{
         answers[0].waited_for_room, answers[1].waited_for_room, answers[2].waited_for_room,
     });
 }
