@@ -1,8 +1,8 @@
 //! The fuzz property of a response's frames (decision 29), and the sweep that runs it over every
-//! input of up to two octets. A block that fits one frame is encoded in place since the owner's
-//! goal of no copy on a request's path, and a larger one goes through `send_block`. Either way the
-//! frames must decode to the response's fields, keep RFC 9113 §4.2 and §6.10, and be refused only
-//! when they do not fit. Everything in this file is test-only.
+//! input of up to two octets. Every block is encoded where it is sent, and a block larger than one
+//! frame is cut there (design §8 step 61b). The frames must decode to the response's fields, keep
+//! RFC 9113 §4.2 and §6.10, and be refused only when they do not fit. Everything in this file is
+//! test-only.
 const std = @import("std");
 const core = @import("core");
 const hpack = @import("hpack");
@@ -28,8 +28,6 @@ const value_len_max = std.math.maxInt(u8) * value_unit;
 
 const names = [_][]const u8{ "content-type", "x-a", "cache-control", "x-trace-id", "etag", "vary" };
 const ok: u16 = 200;
-/// What `send_block` holds before a response that must not write it.
-const sentinel: u8 = 0xa5;
 /// Room for more than the largest block, so that only `send_block_len_max` refuses one.
 const output_len_max = constants.limits.send_block_len_max + constants.limits.send_block_len_max;
 /// A frame size larger than the initial one, which the peer may set (RFC 9113 §6.5.2).
@@ -81,7 +79,6 @@ fn start(case: Case) !void {
     try support.start_server();
     if (case.frame_size != constants.limits.frame_size_max) try feed_frame_size(case.frame_size);
     _ = try support.feed_request(1, "/", true);
-    @memset(&test_connection.send_block, sentinel);
 }
 
 fn check(case: Case) !void {
@@ -97,9 +94,7 @@ fn check(case: Case) !void {
         };
         return testing.expect(whole > case.room);
     };
-    const frames = try expect_frames(fuzz_output[0..written], case);
-    // One frame is written in place, so `send_block` was never written (the owner's no-copy goal).
-    if (frames == 1) try testing.expect(std.mem.allEqual(u8, &test_connection.send_block, sentinel));
+    _ = try expect_frames(fuzz_output[0..written], case);
 }
 
 /// Reads the HEADERS frame and its CONTINUATION frames, and requires their block to decode to

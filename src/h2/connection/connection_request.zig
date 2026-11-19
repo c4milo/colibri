@@ -23,12 +23,12 @@ const connection_send = @import("connection_send.zig");
 const Connection = connection.Connection;
 const Writer = core.Writer;
 
-/// Why a request did not go out. Every one leaves the connection and the caller's buffer as they
-/// were, and none of them ends the connection.
+/// Why a request did not go out. Every one leaves the connection as it was and counts no octet of
+/// the caller's buffer as written, and none of them ends the connection. A refused block may have
+/// been encoded into the buffer: octets past what a call returns are scratch.
 pub const Error = error{
-    /// The caller's buffer is too small for the frames, or the field section does not fit the
-    /// connection's `send_block_len_max` buffer. A section past that buffer is refused whole
-    /// (RFC 9113 §4.3).
+    /// The caller's buffer is too small for the frames, or the field section's block is longer
+    /// than `send_block_len_max`. A section past the limit is refused whole (RFC 9113 §4.3).
     OutputTooSmall,
     /// `:method` is not a token (RFC 9110 §9, RFC 9113 §8.3.1).
     MethodInvalid,
@@ -112,7 +112,7 @@ pub fn write_request(
     try validate(request, fields);
     // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is refused whole
     // rather than cut. The block is not declared yet (RFC 7541 §4.2).
-    const block = encode_request(target, request, fields, indexing) catch return error.OutputTooSmall;
+    const block = encode_request(target, connection_send.block_space(output), request, fields, indexing) catch return error.OutputTooSmall;
     // RFC 9113 §5.1.1: an identifier opened and never used is spent, so a request that finds no
     // room is refused before its stream opens, and its HEADERS then goes out whole (§6.2).
     if (output.len < connection_send.block_frames_len(target, block.len)) return error.OutputTooSmall;
@@ -128,7 +128,7 @@ pub fn write_request(
     };
     const stream_id: u32 = @intCast(record.id);
     // The room was checked above, so the frames go out whole.
-    const written = connection_send.write_block(target, output, stream_id, block, end_stream) catch unreachable;
+    const written = connection_send.frame_block(target, output, stream_id, block.len, end_stream) catch unreachable;
     assert(written == connection_send.block_frames_len(target, block.len));
     // RFC 7541 §4.2: the block is on its way, so the capacity its size updates named is the
     // peer's now.
@@ -232,10 +232,10 @@ const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
     break :build table;
 };
 
-/// Encodes the request's field section into the connection's block buffer, the pseudo-header
-/// fields first (RFC 9113 §8.3). The caller declares the block once its frames are written.
-fn encode_request(target: *Connection, request: Request, fields: []const hpack.Field, indexing: []const Indexing) !([]const u8) {
-    var writer = Writer.init(&target.send_block);
+/// Encodes the request's field section into `buffer`, the pseudo-header fields first (RFC 9113
+/// §8.3). The caller declares the block once its frames are written.
+fn encode_request(target: *Connection, buffer: []u8, request: Request, fields: []const hpack.Field, indexing: []const Indexing) !([]const u8) {
+    var writer = Writer.init(buffer);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes.
     try target.encoder.begin_block(&writer);
     const pseudo = request.indexing;

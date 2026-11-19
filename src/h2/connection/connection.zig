@@ -119,10 +119,6 @@ pub const Connection = struct {
     /// Whether the section of the field block in progress is dropped once it is decoded: the
     /// stream it belongs to was refused, reset or never opened (`connection_headers.zig`).
     block_discarded: bool,
-    /// Where a field section colibri sends is encoded before it is cut into frames
-    /// (`connection_send.zig`). Each use writes a block from the first octet and reads only what
-    /// it wrote, so `init` leaves these octets as they are.
-    send_block: [constants.limits.send_block_len_max]u8,
     /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
     /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
     provider: ?tls_provider.Provider,

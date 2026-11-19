@@ -78,15 +78,10 @@ test "RFC 7541 §4.2: a response or a trailer section refused for room leaves it
     try testing.expect(opens_with_size_update(test_output));
 }
 
-/// What `send_block` holds before a response that must not write it. Test-only.
-const sentinel: u8 = 0xa5;
-
-test "a response whose block fits one frame is encoded in place, and send_block is not written" {
+test "a response whose block fits one frame is one HEADERS frame, encoded where it is sent" {
     try support.start_server();
     _ = try support.feed_request(1, "/", true);
-    @memset(&test_connection.send_block, sentinel);
     const written = try test_connection.write_response(test_output, 1, ok, &.{.{ .name = "x-a", .value = "b" }}, true);
-    try testing.expect(std.mem.allEqual(u8, &test_connection.send_block, sentinel));
     // One HEADERS frame that ends the block and the stream, and holds the whole block.
     const block_len = std.mem.readInt(u24, test_output[0..frame_length_len], .big);
     try testing.expectEqual(written - constants.protocol.frame_header_len, block_len);

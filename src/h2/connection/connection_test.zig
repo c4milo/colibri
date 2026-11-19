@@ -112,12 +112,12 @@ test "a connection with nothing pending writes no reply, after each kind of repl
 
 /// The parts of a connection `init` leaves as they were: storage written before it is read. The
 /// HPACK tables hold an entry's octets once it is inserted, the stream pool an entry once it opens
-/// (invariant 5), and the decoder's scratch, the field block and `send_block` what a call writes
-/// before it reads. Test-only.
+/// (invariant 5), and the decoder's scratch and the field block what a call writes before it reads.
+/// Test-only.
 const storage_left_by_init = [_][]const u8{
     "decoder.table.octets", "decoder.table.entries", "decoder.name_scratch", "decoder.value_scratch",
     "encoder.table.octets", "encoder.table.entries", "encoder.chains.next",  "streams.pool.entries",
-    "block.buffer",         "block.section.octets",  "block.section.lines",  "send_block",
+    "block.buffer",         "block.section.octets",  "block.section.lines",
 };
 
 /// Two connections `init` starts over storage filled with zeros and with ones. Test-only.
