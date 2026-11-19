@@ -5792,6 +5792,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       step's commit as the base, at 10 rounds. Both trees served the input, and every request was
       answered. The base counted 17,136 and 17,139 instructions a request in the two jobs, against
       15,801 and 15,802 on h2-routes-many, with spreads of 0.15% or less.
+  - **13m**, the README's charts, which the owner asked for on 2026-11-18, as connect-zig and
+    chapulin show theirs. `bench/chart.py` draws three SVGs into `docs/images/` from the first job
+    of one named run, and the README's Performance section shows them:
+    - `cpu`: the CPU time a request of each server, from a report of `--competitors --h11 --h3`.
+    - `throughput`: the most requests a second each server answered, all with 200, at any rate,
+      from a report of `--latency`.
+    - `latency`: each server's p99 at each rate of the same report, on log scales, with the bound.
+    - Each bar chart's title says where colibri is best, where another server ties it, and where
+      another server is better. Two servers tie when their values differ by no more than the
+      larger of their two spreads, the noise `bench/report.py` judges a change by. So a title
+      claims no win inside the noise.
+    - The first charts come from job 1 of run
+      [44446759723](https://github.com/c4milo/colibri/actions/runs/44446759723), the
+      competitors, and of run [44445591237](https://github.com/c4milo/colibri/actions/runs/44445591237),
+      the latency, both on main at `89045d95`.
+    - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
+      synthetic reports. Seventeen mutations, each CAUGHT: the bars not ordered, or ordered the
+      wrong way; the ratio inverted; a tie that ignores the spread; a better server not
+      reported; a higher CPU time taken as better; a rate held without 95% reached, past the
+      bound, or with an answer not 200; a throughput that counts answers not 200; the report's
+      names kept; an input outside the chart read; colibri drawn alone; no dashed bound; the h3
+      stacks not named; the CPU part not named; and the first sustained rate taken for the
+      highest.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

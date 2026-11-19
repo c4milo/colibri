@@ -544,6 +544,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   input's folded stacks for a flame graph. The workflow's `profile` input runs it on the judge, and
   no document publishes its numbers. `python3 bench/report_profile.py --test` checks its report,
   and `tools/ci.sh` runs it.
+- README charts: `python3 bench/chart.py cpu <report.md> <run> [out.svg]` draws the CPU time a
+  request of each server from a judge's report of `--competitors --h11 --h3`. `throughput` draws
+  the most requests a second each server answered, and `latency` each server's p99 at each rate,
+  from a report of `--latency` (design §8 step 13m). The README shows each SVG of `docs/images/`,
+  drawn from the first job of one named run. `python3 bench/chart.py --test` checks the three
+  charts, and `tools/ci.sh` runs it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
   table of `bench/router/build.zig` twice and prints the wall time of each compile.
   `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under
