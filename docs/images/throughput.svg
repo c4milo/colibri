@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 507" width="840" height="507" role="img" aria-labelledby="t d">
+<title id="t">colibri answers the most requests a second in h2, and ties for it in h11, h2 over TLS and h3</title>
+<desc id="d">colibri answers the most requests a second in h2, and ties for it in h11, h2 over TLS and h3. h11: axum 84,203 req/s, chi 66,650 req/s, colibri 82,777 req/s, Fastify 19,948 req/s, http.zig 69,992 req/s; h2: axum 70,321 req/s, chi 32,933 req/s, colibri 84,712 req/s, Fastify 15,807 req/s; h2 over TLS: axum 79,970 req/s, chi 32,811 req/s, colibri 76,826 req/s, Fastify 12,970 req/s; h3: axum on quinn 51,585 req/s, chi on quic-go 30,480 req/s, colibri 54,897 req/s.</desc>
+<style>
+svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --other:#a3a29c;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#33332f; --other:#6b6a64;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; }
+}
+text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+.title { font-size: 16px; font-weight: 600; }
+.sub { font-size: 12.5px; fill: var(--ink2); }
+.panel { font-size: 14px; font-weight: 600; }
+.row { font-size: 12.5px; fill: var(--ink2); }
+.val { font-size: 11px; font-weight: 600; }
+.tick { font-size: 11px; fill: var(--muted); }
+.legend { font-size: 12.5px; fill: var(--ink2); }
+</style>
+<rect width="840" height="507" rx="8" fill="var(--surface)"/>
+<text class="title" x="24" y="34">colibri answers the most requests a second in h2, and ties for it in h11,</text>
+<text class="title" x="24" y="56">h2 over TLS and h3</text>
+<text class="sub" x="24" y="78">The most requests a second each server answered, all with 200, at any rate oha offered over the GitHub API's routes.</text>
+<text class="sub" x="24" y="96">Each server runs on a core of its own, and oha on two others. Over h2 with TLS, oha's own limit is near. Longer is better.</text>
+<text class="sub" x="24" y="114">One run of bench.yml measured all: run 44445591237, commit 89045d95, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
+<text class="panel" x="24" y="162">h11</text>
+<line x1="128.0" y1="172" x2="128.0" y2="306" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="128.0" y="321" text-anchor="middle">0</text>
+<line x1="208.0" y1="172" x2="208.0" y2="306" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="208.0" y="321" text-anchor="middle">50k</text>
+<line x1="288.0" y1="172" x2="288.0" y2="306" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="288.0" y="321" text-anchor="middle">100k</text>
+<text class="tick" x="404" y="321" text-anchor="end">requests a second</text>
+<text class="row" x="120" y="189.0" text-anchor="end">colibri</text>
+<path d="M128,176 h128.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-128.4 z" fill="var(--s1)"/>
+<text class="val" x="266.4" y="189.0">82,777 req/s</text>
+<text class="row" x="120" y="216.0" text-anchor="end">axum</text>
+<path d="M128,203 h130.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-130.7 z" fill="var(--other)"/>
+<text class="val" x="268.7" y="216.0">84,203 req/s, 1.02× colibri</text>
+<text class="row" x="120" y="243.0" text-anchor="end">http.zig</text>
+<path d="M128,230 h108.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-108.0 z" fill="var(--other)"/>
+<text class="val" x="246.0" y="243.0">69,992 req/s, 0.85× colibri</text>
+<text class="row" x="120" y="270.0" text-anchor="end">chi</text>
+<path d="M128,257 h102.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-102.6 z" fill="var(--other)"/>
+<text class="val" x="240.6" y="270.0">66,650 req/s, 0.81× colibri</text>
+<text class="row" x="120" y="297.0" text-anchor="end">Fastify</text>
+<path d="M128,284 h27.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-27.9 z" fill="var(--other)"/>
+<text class="val" x="165.9" y="297.0">19,948 req/s, 0.24× colibri</text>
+<text class="panel" x="432" y="162">h2</text>
+<line x1="536.0" y1="172" x2="536.0" y2="279" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="536.0" y="294" text-anchor="middle">0</text>
+<line x1="616.0" y1="172" x2="616.0" y2="279" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="616.0" y="294" text-anchor="middle">50k</text>
+<line x1="696.0" y1="172" x2="696.0" y2="279" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="696.0" y="294" text-anchor="middle">100k</text>
+<text class="tick" x="812" y="294" text-anchor="end">requests a second</text>
+<text class="row" x="528" y="189.0" text-anchor="end">colibri</text>
+<path d="M536,176 h131.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-131.5 z" fill="var(--s1)"/>
+<text class="val" x="677.5" y="189.0">84,712 req/s</text>
+<text class="row" x="528" y="216.0" text-anchor="end">axum</text>
+<path d="M536,203 h108.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-108.5 z" fill="var(--other)"/>
+<text class="val" x="654.5" y="216.0">70,321 req/s, 0.83× colibri</text>
+<text class="row" x="528" y="243.0" text-anchor="end">chi</text>
+<path d="M536,230 h48.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-48.7 z" fill="var(--other)"/>
+<text class="val" x="594.7" y="243.0">32,933 req/s, 0.39× colibri</text>
+<text class="row" x="528" y="270.0" text-anchor="end">Fastify</text>
+<path d="M536,257 h21.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-21.3 z" fill="var(--other)"/>
+<text class="val" x="567.3" y="270.0">15,807 req/s, 0.19× colibri</text>
+<text class="panel" x="24" y="355">h2 over TLS</text>
+<line x1="128.0" y1="365" x2="128.0" y2="472" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="128.0" y="487" text-anchor="middle">0</text>
+<line x1="168.0" y1="365" x2="168.0" y2="472" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="168.0" y="487" text-anchor="middle">20k</text>
+<line x1="208.0" y1="365" x2="208.0" y2="472" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="208.0" y="487" text-anchor="middle">40k</text>
+<line x1="248.0" y1="365" x2="248.0" y2="472" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="248.0" y="487" text-anchor="middle">60k</text>
+<line x1="288.0" y1="365" x2="288.0" y2="472" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="288.0" y="487" text-anchor="middle">80k</text>
+<text class="tick" x="404" y="487" text-anchor="end">requests a second</text>
+<text class="row" x="120" y="382.0" text-anchor="end">colibri</text>
+<path d="M128,369 h149.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-149.7 z" fill="var(--s1)"/>
+<text class="val" x="287.7" y="382.0">76,826 req/s</text>
+<text class="row" x="120" y="409.0" text-anchor="end">axum</text>
+<path d="M128,396 h155.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-155.9 z" fill="var(--other)"/>
+<text class="val" x="293.9" y="409.0">79,970 req/s, 1.04× colibri</text>
+<text class="row" x="120" y="436.0" text-anchor="end">chi</text>
+<path d="M128,423 h61.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-61.6 z" fill="var(--other)"/>
+<text class="val" x="199.6" y="436.0">32,811 req/s, 0.43× colibri</text>
+<text class="row" x="120" y="463.0" text-anchor="end">Fastify</text>
+<path d="M128,450 h21.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-21.9 z" fill="var(--other)"/>
+<text class="val" x="159.9" y="463.0">12,970 req/s, 0.17× colibri</text>
+<text class="panel" x="432" y="355">h3</text>
+<line x1="536.0" y1="365" x2="536.0" y2="445" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="536.0" y="460" text-anchor="middle">0</text>
+<line x1="589.3" y1="365" x2="589.3" y2="445" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="589.3" y="460" text-anchor="middle">20k</text>
+<line x1="642.7" y1="365" x2="642.7" y2="445" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="642.7" y="460" text-anchor="middle">40k</text>
+<line x1="696.0" y1="365" x2="696.0" y2="445" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="696.0" y="460" text-anchor="middle">60k</text>
+<text class="tick" x="812" y="460" text-anchor="end">requests a second</text>
+<text class="row" x="528" y="382.0" text-anchor="end">colibri</text>
+<path d="M536,369 h142.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-142.4 z" fill="var(--s1)"/>
+<text class="val" x="688.4" y="382.0">54,897 req/s</text>
+<text class="row" x="528" y="409.0" text-anchor="end">axum on quinn</text>
+<path d="M536,396 h133.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-133.6 z" fill="var(--other)"/>
+<text class="val" x="679.6" y="409.0">51,585 req/s, 0.94× colibri</text>
+<text class="row" x="528" y="436.0" text-anchor="end">chi on quic-go</text>
+<path d="M536,423 h77.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-77.3 z" fill="var(--other)"/>
+<text class="val" x="623.3" y="436.0">30,480 req/s, 0.56× colibri</text>
+</svg>

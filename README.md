@@ -31,6 +31,40 @@ The name is Spanish for hummingbird.
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 
+## Performance
+
+Three charts, each from one named run of `bench.yml` on GitHub's `ubuntu-24.04-arm` runner, an Arm
+Neoverse-N2. Each chart gives the first of its run's two jobs. Each server runs on a core of its
+own, and the load generator runs on two other cores. colibri's numbers come from its test-only
+servers ([design §9](docs/design.md)), which serve through the `server` module on Rotor's loop.
+[`docs/performance.md`](docs/performance.md) says how each number is measured and what limits it.
+
+**CPU time a request.** The time the server's threads ran, in user space and in the kernel, for
+each request of a load of many requests. The other servers are nginx 1.24.0, h2o 2.2.5, hyper
+1.12.0 on tokio with rustls, http.zig, and quic-go's h3 server from its QUIC Interop Runner image.
+Over h2, hyper and h2o take 3.5 times colibri's time, and over h3 quic-go takes 11.1 times. Over
+h11, nginx takes 1.14 times colibri's time, inside the noise of its own rounds. Over h11 with TLS,
+hyper takes the same time
+([run 44446759723](https://github.com/c4milo/colibri/actions/runs/44446759723)).
+
+![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.2 µs over h11, 7.9 µs over h11 with TLS, 1.5 µs over h2, 2.2 µs over h2 with TLS and 3.9 µs over h3; hyper takes 5.2 µs over h2 and quic-go 43.2 µs over h3](docs/images/cpu.svg)
+
+**Throughput.** oha offers GET requests over the GitHub API's routes at fixed rates, from 2,000 to
+320,000 a second. The chart gives the most requests a second each server answered, all with 200.
+Over h2, colibri answers 84,712 a second, 1.2 times axum's. Over h11, h2 with TLS and h3, colibri
+and axum tie inside the noise. Over h2 with TLS, oha is near its own limit. Over h3, chi runs on
+quic-go and axum on quinn
+([run 44445591237](https://github.com/c4milo/colibri/actions/runs/44445591237)).
+
+![Bars of the most requests a second each server answered, by protocol: over h2 colibri answers 84,712, axum 70,321 and chi 32,933; over h3 colibri answers 54,897, axum on quinn 51,585 and chi on quic-go 30,480](docs/images/throughput.svg)
+
+**Latency.** The p99 of each server at each rate of the same run. The rates step by a factor of
+two, so most servers tie on the highest rate whose p99 stays under 10 ms. The curves show more.
+Over h2 at 40,000 requests a second, colibri's p99 is 1.24 ms, axum's 1.97 ms and chi's 897 ms.
+Over h3 at 20,000, colibri's is 3.84 ms, axum's 4.99 ms and chi's 17.62 ms.
+
+![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri and axum stay under it up to 40,000 requests a second over h11, h2 and h2 over TLS, and up to 20,000 over h3](docs/images/latency.svg)
+
 ## Using colibri
 
 Add colibri to your `build.zig.zon`:
