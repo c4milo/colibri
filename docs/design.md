@@ -5898,6 +5898,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       its end refused; an error allowed; an answer outside 2xx allowed; socket errors allowed; and
       the mean in place of the median. `bench/chart.py --test` reads a synthetic report too, and a
       floor drawn as a measured rate is CAUGHT.
+  - **13r**, axum on quinn among the h3 competitors, which the owner asked for on 2026-11-19. The
+    CPU and throughput charts had quic-go alone over h3, and Rust's h3 stack was in the latency
+    chart alone.
+    - With `--h3`, `--competitors` and `--throughput` measure the axum program of 13f on the h3
+      inputs that quic-go serves, with `--www` and `--h3`: axum's router over the h3 crate on quinn.
+      It reads the file of each request from the directory colibri's UDP server reads.
+    - `run_competitors.sh` builds it with cargo, and the report names the versions of axum, h3 and
+      quinn. The owner chose it over quiche, which the arm64 judge must build from source.
+    - When the h3 panel holds axum, each chart's subtitle says that axum serves h3 through quinn and
+      the h3 crate.
+    - **Check:** `bench/chart.py --test` draws a synthetic h3 panel with axum. Four mutations, each
+      CAUGHT: the line in every chart, in none, and left out of the CPU chart or the throughput
+      chart.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

@@ -6,8 +6,8 @@
 # h2o built from its master, hyper, http.zig, Go's net/http, fasthttp and Fastify answer the same
 # requests in the same job (design §8 steps 13c, 13g, 13o and 13p), and with `h11` four h11
 # inputs join the four h2 ones, which wrk sends. With `h3`,
-# the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
-# server from its image (design §8 step 13d). With `latency`, bench/run.sh --latency measures the
+# the UDP server answers the load over h3 too, and with `competitors` and `h3`, so do quic-go's
+# server from its image and axum on quinn (design §8 steps 13d and 13r). With `latency`, bench/run.sh --latency measures the
 # throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
 # Fastify's, at fixed rates under oha, over h11, h2, h2 over TLS and h3 (design §8 step 13f). With
 # `network`, bench/run.sh --latency --network measures colibri, chi and axum over h2 over TLS and
@@ -174,8 +174,8 @@ jobs:
       - name: Put h2o on the path
         if: env.COMPETITORS == 'true'
         run: echo "${HOME}/h2o/bin" >>"${GITHUB_PATH}"
-      # bench/run.sh builds hyper with cargo, and rustup installs the release that
-      # bench/competitors/hyper/rust-toolchain.toml names on the first call. It builds http.zig
+      # bench/run.sh builds hyper, and with h3 axum, with cargo, and rustup installs the release that
+      # the rust-toolchain.toml of each names on the first call. It builds http.zig
       # with Zig 0.17.1, which no other step uses.
       - name: Install Rust and Zig 0.17.1
         if: env.COMPETITORS == 'true' || env.LATENCY == 'true' || env.NETWORK == 'true' || env.BULK == 'true'

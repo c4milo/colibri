@@ -20,6 +20,8 @@
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
 # (design §8 step 13d), and answers h3-bbr-many and h3-bbr-one under BBRv3 (design §8 step 29d).
+# With --competitors and --h3, quic-go's server and axum on quinn answer the h3 inputs too (design
+# §8 step 13r).
 # With --latency, bench/run_latency.sh runs instead: the throughput and the latency of servers
 # that route, at fixed request rates, under oha (design §8 step 13f), or with --network, --waits
 # or --bulk after --latency, the inputs of steps 13i, 13j and 13k. With --profile, perf record
@@ -34,8 +36,8 @@
 # (docs/performance.md).
 # It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
 # wrk and curl with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
-# hyper, and BENCH_ZIG_HTTPZ naming the Zig 0.17.1 that builds http.zig. BENCH_HYPER and
-# BENCH_HTTPZ name servers built already. Ubuntu's and Debian's h2load have no HTTP/3, so --h3
+# hyper, and with --h3 axum, and BENCH_ZIG_HTTPZ naming the Zig 0.17.1 that builds http.zig.
+# BENCH_HYPER, BENCH_AXUM and BENCH_HTTPZ name servers built already. Ubuntu's and Debian's h2load have no HTTP/3, so --h3
 # runs the image tools/h3load/Dockerfile builds, on the load generator's cores, and needs Docker;
 # BENCH_H3LOAD=native says the h2load on the PATH has HTTP/3 itself.
 # BENCH_SERVER and BENCH_BASE_SERVER name servers built already, for a machine with no Zig, and
@@ -111,7 +113,7 @@ readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
 default_competitors="nginx h2o hyper httpz nethttp fasthttp fastify"
-if [ -n "$h3" ]; then default_competitors+=" quic-go"; fi
+if [ -n "$h3" ]; then default_competitors+=" quic-go axum"; fi
 read -r -a competitor_names <<<"${BENCH_COMPETITORS:-$default_competitors}"
 readonly competitor_names
 # The seconds wrk sends each h11 input for, and before it the seconds of its warm-up, with one
@@ -176,8 +178,8 @@ offer_of() {  # offer_of <input>
 
 # Whether <variant> serves <input>. A build of colibri serves every input whose route table its
 # server names (design §8 step 13l). http.zig has no TLS and speaks h11 alone, nginx, h2o and
-# hyper serve no h3 input, and quic-go serves h3-many and h3-one alone, because its controller is
-# its own.
+# hyper serve no h3 input, and quic-go and axum serve h3-many and h3-one alone, because the
+# controller of each is its own.
 serves() {  # serves <variant> <input>
   case "$1" in
     change) serves_colibri "$change_server" "$2" ;;
@@ -185,7 +187,7 @@ serves() {  # serves <variant> <input>
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
     fasthttp) [[ "$2" == h11-* ]] ;;
     nginx | h2o | hyper | nethttp | fastify) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
-    quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
+    quic-go | axum) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac
 }

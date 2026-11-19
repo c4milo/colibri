@@ -247,12 +247,18 @@ def microseconds(nanoseconds, axis=False):
     return f"{nanoseconds / NANOSECONDS_PER_MICROSECOND:g}" if axis else f"{nanoseconds / NANOSECONDS_PER_MICROSECOND:.1f} µs"
 
 
+def h3_stacks(values):
+    """The subtitle's line that says what axum serves h3 through, when the h3 panel holds axum."""
+    return ["Over h3, axum serves through quinn and the h3 crate."] if "axum" in values.get("h3-many", {}) else []
+
+
 def cpu_chart(text, run):
     values, machine, commit = read_cpu(text)
     require_colibri(values)
     title = verdict_title(values, CPU_INPUTS, True, "takes the least CPU time a request")
     lines = ["The time the server's threads ran, in user space and in the kernel, over the requests of the load. Shorter is better.",
              "Each server runs on a core of its own. From two other cores, wrk sends 16 connections, and h2load 16 of 10 streams each.",
+             *h3_stacks(values),
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
     return bars_chart(values, CPU_INPUTS, True, title, lines, microseconds, "µs a request",
                       f"{title}. " + described(values, CPU_INPUTS, microseconds))
@@ -341,6 +347,7 @@ def throughput_chart(text, run):
     lines = [f"h2load, or wrk for h11, loads each server at full speed for {seconds} s from two other cores, with {connections} connections",
              f"and {streams} streams on each h2 or h3 connection. Each server runs on a core of its own. Longer is better. A bar",
              "marked ≥ is a server whose core was not full, so the load tool was the limit.",
+             *h3_stacks(values),
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
     return bars_chart(values, CPU_INPUTS, False, title, lines, requests_a_second, "requests a second",
                       f"{title}. " + described(values, CPU_INPUTS, requests_a_second), at_least)
@@ -507,6 +514,11 @@ def test_cpu():
     assert h11.index(">colibri<") < h11.index(">nginx<") < h11.index(">http.zig<"), h11
     tied = CPU_REPORT.replace("9,000.0 (1.00%)", "6,100.0 (2.00%)")
     assert ">colibri ties for the least CPU time a request in h11; another server is better in h2<" in cpu_chart(tied, "77")
+    # The subtitle names quinn only when axum serves h3.
+    assert "quinn" not in cpu, cpu
+    with_axum = cpu_chart(CPU_REPORT + "| h3-many | request | change | 5 | 1 | 1 | 1 | 1 | 4,000.0 (1.00%) |\n"
+                          "| h3-many | request | axum | 5 | 1 | 1 | 1 | 1 | 20,000.0 (1.00%) |\n", "77")
+    assert ">Over h3, axum serves through quinn and the h3 crate.<" in with_axum and ">axum<" in with_axum, with_axum
 
 
 def test_latency():
@@ -517,6 +529,11 @@ def test_latency():
     assert ">nginx<" in throughput and "run 79, commit 0123abcd, Neoverse-N2, Linux 7.0." in throughput, throughput
     assert "for 10 s from two other cores, with 32 connections" in throughput and "and 100 streams" in throughput, throughput
     assert requests_a_second(1_000_000, True) == "1M" and requests_a_second(500_000, True) == "500k"
+    assert "quinn" not in throughput, throughput
+    with_axum = throughput_chart(THROUGHPUT_REPORT + "\n## h3-many\n\n| Server | Rounds | Requests a second | Busy | Limit |\n"
+                                 "|---|---|---|---|---|\n| change | 3 | 280,000.0 (2.00%) | 0.98 | server |\n"
+                                 "| axum | 3 | 50,000.0 (2.00%) | 0.99 | server |\n", "79")
+    assert ">Over h3, axum serves through quinn and the h3 crate.<" in with_axum and "colibri 5.60×" in with_axum, with_axum
     latency = latency_chart(LATENCY_REPORT, "78")
     assert "h2: colibri sustains 2,000 req/s, net/http + chi sustains 1,000 req/s" in latency, latency
     # chi's 2,000 and 4,000 in h2, its 1,000 in h3, which reached 900 in a round, and colibri's 4,000,

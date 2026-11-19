@@ -498,7 +498,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   `tools/h3load/Dockerfile` builds with HTTP/3, and needs Docker (design §8 step 13d):
   `h3-many` and `h3-one` under CUBIC, and `h3-bbr-many` and `h3-bbr-one` under BBRv3 (step 29d). With
   `--competitors` and `--h3`, quic-go's server answers the h3 inputs too, from its QUIC Interop
-  Runner image, pinned by digest. `--filter` needs neither perf nor taskset and reads the server's
+  Runner image, pinned by digest, and axum on quinn, which cargo builds from `bench/competitors/axum/`
+  (design §8 step 13r). `--filter` needs neither perf nor taskset and reads the server's
   CPU time from /proc: its numbers order candidates on a laptop and are never published. It needs
   Zig, h2load, python3, and Go to mint the TLS identity. `zig build bench-memory` prints the static
   memory per connection for the objects the build targets (design §8 step 13b), and `zig build

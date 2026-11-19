@@ -82,6 +82,11 @@ server_command() {  # server_command <variant> <input>
       case "$2" in h2-*) command+=(--h2) ;; esac
       if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
       ;;
+    # axum serves the h3 inputs alone, on quinn and the h3 crate, with the file of each request
+    # from the directory colibri's UDP server reads too.
+    axum)
+      command=("$axum_server" --port "$port" --www "$scratch/www" --h3 --tls "$identity")
+      ;;
     nethttp | fasthttp)
       if [ "$1" = nethttp ]; then command=("$nethttp_server"); else command=("$fasthttp_server"); fi
       command+=(--port "$port")

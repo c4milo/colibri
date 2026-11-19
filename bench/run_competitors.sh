@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 #
-# The competitors of bench/run.sh with --competitors (design §8 steps 13c and 13g): which ones the
-# run measures, and the builds of hyper and http.zig. run.sh sources this file after it builds
-# colibri's servers.
+# The competitors of bench/run.sh with --competitors (design §8 steps 13c, 13g, 13o and 13r): which
+# ones the run measures, and the builds of hyper, axum, http.zig and Go's servers. run.sh sources
+# this file after it builds colibri's servers.
 #
 # run.sh assigns the variables that this file reads, and reads the ones that it assigns, as
 # run_h3.sh does. Check the two files with `shellcheck bench/run.sh`.
@@ -14,10 +14,10 @@ wants() {  # wants <competitor>
   return 1
 }
 
-# The version of <crate> that bench/competitors/hyper/Cargo.lock pins.
-locked() {  # locked <crate>
+# The version of <crate> that the Cargo.lock of bench/competitors/<server> pins, hyper's by default.
+locked() {  # locked <crate> [server]
   awk -v crate="$1" '$0 == "name = \"" crate "\"" { getline; gsub(/version = |"/, ""); print; exit }' \
-    "$repository_root/bench/competitors/hyper/Cargo.lock"
+    "$repository_root/bench/competitors/${2:-hyper}/Cargo.lock"
 }
 
 hyper_server="${BENCH_HYPER:-}"
@@ -34,6 +34,14 @@ if [ -n "$competitors" ] && wants httpz && [ -z "$httpz_server" ]; then
     "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.1 that builds http.zig}" build \
       --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
   httpz_server="$scratch/httpz/bin/colibri-bench-httpz"
+fi
+
+axum_server="${BENCH_AXUM:-}"
+if [ -n "$competitors" ] && wants axum && [ -z "$axum_server" ]; then
+  echo "run.sh: building axum" >&2
+  (cd "$repository_root/bench/competitors/axum" &&
+    cargo build --release --locked --quiet --target-dir "$scratch/axum-target")
+  axum_server="$scratch/axum-target/release/colibri-bench-axum"
 fi
 
 nethttp_server="${BENCH_NETHTTP:-}"
@@ -66,6 +74,9 @@ competitors_machine() {
   if wants hyper; then
     # rustc runs in hyper's directory, whose rust-toolchain.toml names the release.
     echo "hyper=$(locked hyper), hyper-util $(locked hyper-util), tokio $(locked tokio), rustls $(locked rustls), aws-lc-rs $(locked aws-lc-rs), $(cd "$repository_root/bench/competitors/hyper" && rustc --version 2>/dev/null || echo 'rustc unknown')"
+  fi
+  if wants axum; then
+    echo "axum=$(locked axum axum), h3 $(locked h3 axum), quinn $(locked quinn axum), $(cd "$repository_root/bench/competitors/axum" && rustc --version 2>/dev/null || echo 'rustc unknown')"
   fi
   if wants httpz; then
     echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("${BENCH_ZIG_HTTPZ:-zig}" version 2>/dev/null || echo unknown)"

@@ -188,9 +188,9 @@ four h2 ones. Each competitor is set up so that all of them do the same work:
 - The report gives the change's ratio to each competitor, losses first, and a competitor's numbers
   never fail the run. Decision 31 reports where colibri wins, matches and loses.
 
-With `--h3` as well, `--competitors` measures quic-go's h3 server in turns with colibri's UDP
-server over the two h3 inputs (design §8 step 13d), and `bench.yml` does so when both of its
-inputs are set:
+With `--h3` as well, `--competitors` measures quic-go's h3 server and axum on quinn in turns with
+colibri's UDP server over the two h3 inputs (design §8 steps 13d and 13r), and `bench.yml` does so
+when both of its inputs are set:
 
 - quic-go's server comes from the image its project publishes for the QUIC Interop Runner, pinned
   by digest, the one `tools/channel_interop.sh` runs. The report names the quic-go commit the
@@ -199,6 +199,10 @@ inputs are set:
   leaves Go one processor. `perf stat` counts the server's process from outside the container.
 - The image's own start script turns debug logging on. The judge starts the server without that
   script, so that no server writes a log line for a request.
+- axum is the program of `bench/competitors/axum/` that the latency run starts too, built with
+  `cargo build --release --locked`. With `--www` and `--h3`, it sends each request through axum's
+  router, over the h3 crate on quinn, with rustls over ring, on tokio's single-thread runtime. The
+  report names the versions of axum, h3 and quinn, and the Rust release.
 - Each server reads the same file of eight octets from its directory on each request, and
   presents the same P-256 identity. h2load offers TLS_AES_256_GCM_SHA384 alone.
 - Each answers with the fields its own code adds, which h2load counts before QPACK: colibri's
