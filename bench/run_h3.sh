@@ -14,8 +14,8 @@
 readonly one_h3_runs=80
 readonly one_h3_clients=8
 # An h3 competitor runs from the image its project publishes for the QUIC Interop Runner, pinned
-# by digest. quic-go's is the one tools/channel_interop.sh pins.
-readonly quic_go_image="martenseemann/quic-go-interop@sha256:5b921a144cbac11d465f63bd49e0d391b72773643288612fd65a3243cd423f10"
+# by digest: quic-go's latest on 2026-11-19, built from its master (design §8 step 13p).
+readonly quic_go_image="martenseemann/quic-go-interop@sha256:7cbfb09cd10944d0a93466488ba4ef1327a6aa0b4325c8f323b9cd51e6075b1e"
 # The port a server of the QUIC Interop Runner listens on, which it takes no argument for.
 readonly interop_port=443
 # The image tools/h3load/Dockerfile builds, and the shell that runs an h2load with HTTP/3: the

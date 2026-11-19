@@ -8,7 +8,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-axum = { version = "=0.8.6", default-features = false, features = ["http1", "http2", "tokio"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "http2", "tokio"] }
 tokio = { version = "1", features = ["rt", "net", "time"] }
 # h3 for the latency inputs (design §8 step 13f): quinn and the h3 crate, with rustls on ring.
 bytes = "1"

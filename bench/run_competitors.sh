@@ -31,7 +31,7 @@ httpz_server="${BENCH_HTTPZ:-}"
 if [ -n "$competitors" ] && wants httpz && [ -z "$httpz_server" ]; then
   echo "run.sh: building http.zig" >&2
   (cd "$repository_root/bench/competitors/httpz" &&
-    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
+    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.1 that builds http.zig}" build \
       --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
   httpz_server="$scratch/httpz/bin/colibri-bench-httpz"
 fi
@@ -47,6 +47,11 @@ if [ -n "$competitors" ] && wants fasthttp && [ -z "$fasthttp_server" ]; then
   echo "run.sh: building fasthttp" >&2
   (cd "$repository_root/bench/competitors/fasthttp" && go build -trimpath -o "$scratch/fasthttp" .)
   fasthttp_server="$scratch/fasthttp"
+fi
+if [ -n "$competitors" ] && wants fastify; then
+  echo "run.sh: installing Fastify" >&2
+  cp -R "$repository_root/bench/competitors/fastify" "$scratch/fastify"
+  (cd "$scratch/fastify" && npm ci --silent --no-audit --no-fund >/dev/null)
 fi
 
 # The machine lines that name each competitor's version, which run.sh's report header holds.
@@ -66,6 +71,9 @@ competitors_machine() {
     echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("${BENCH_ZIG_HTTPZ:-zig}" version 2>/dev/null || echo unknown)"
   fi
   if wants nethttp; then echo "net/http=$(go version 2>/dev/null | cut -d' ' -f3)"; fi
+  if wants fastify; then
+    echo "fastify=$(sed -n 's/.*"fastify": "\(.*\)".*/\1/p' "$repository_root/bench/competitors/fastify/package.json"), node $(node --version)"
+  fi
   if wants fasthttp; then
     echo "fasthttp=$(sed -n 's|^require github.com/valyala/fasthttp \(.*\)|\1|p' "$repository_root/bench/competitors/fasthttp/go.mod"), $(go version 2>/dev/null | cut -d' ' -f3)"
   fi

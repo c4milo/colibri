@@ -33,7 +33,7 @@
 # (docs/performance.md).
 # It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
 # wrk and curl with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
-# hyper, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. BENCH_HYPER and
+# hyper, and BENCH_ZIG_HTTPZ naming the Zig 0.17.1 that builds http.zig. BENCH_HYPER and
 # BENCH_HTTPZ name servers built already. Ubuntu's and Debian's h2load have no HTTP/3, so --h3
 # runs the image tools/h3load/Dockerfile builds, on the load generator's cores, and needs Docker;
 # BENCH_H3LOAD=native says the h2load on the PATH has HTTP/3 itself.
@@ -101,7 +101,7 @@ if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
-default_competitors="nginx h2o hyper httpz nethttp fasthttp"
+default_competitors="nginx h2o hyper httpz nethttp fasthttp fastify"
 if [ -n "$h3" ]; then default_competitors+=" quic-go"; fi
 read -r -a competitor_names <<<"${BENCH_COMPETITORS:-$default_competitors}"
 readonly competitor_names
@@ -175,7 +175,7 @@ serves() {  # serves <variant> <input>
     base) serves_colibri "$base_server" "$2" ;;
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
     fasthttp) [[ "$2" == h11-* ]] ;;
-    nginx | h2o | hyper | nethttp) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
+    nginx | h2o | hyper | nethttp | fastify) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
     quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac

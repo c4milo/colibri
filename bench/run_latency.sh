@@ -38,7 +38,7 @@
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
 # is compared only inside one job (design §11.4). It needs Zig, Go, cargo, Node and npm, curl and
-# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. --network and --waits
+# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.1 that builds http.zig. --network and --waits
 # need no Node and no BENCH_ZIG_HTTPZ. BENCH_OHA names an oha with h3 built already.
 set -euo pipefail
 
@@ -187,7 +187,7 @@ build_servers() {
   # From a copy, so the packages that Zig fetches beside build.zig.zon stay out of bench/.
   cp -R "$repository_root/bench/competitors/httpz" "$scratch/httpz-source"
   (cd "$scratch/httpz-source" &&
-    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
+    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.1 that builds http.zig}" build \
       --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
   cp -R "$repository_root/bench/competitors/fastify" "$scratch/fastify"
   (cd "$scratch/fastify" && npm ci --silent --no-audit --no-fund >/dev/null)

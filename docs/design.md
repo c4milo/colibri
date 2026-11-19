@@ -5853,6 +5853,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `net/http + chi`, and `quic-go + chi` over h3: chi is a router on Go's net/http.
     - **Check:** each server answered curl with 200 and `colibri\n` over h11, over h2 in cleartext
       where it speaks h2, and over TLS, on macOS arm64 with Go 1.27.3.
+  - **13p**, the competitors at their latest versions, and Fastify among them, which the owner
+    asked for on 2026-11-19. Ubuntu's nginx was 1.24.0 and its h2o 2.2.5, from 2018, and the owner
+    found Fastify's throughput suspiciously low.
+    - nginx comes from nginx.org's mainline packages, whose signing key `bench.yml` checks by its
+      fingerprint. h2o is built with mruby from `H2O_COMMIT`, d3e43fcf of 2026-11-14, and the
+      build is cached under the commit.
+    - hyper's tokio goes to 1.54.1 and its aws-lc-rs to 1.19.0, axum to 0.8.9, and both build with
+      Rust 1.100.0. chi goes to v5.5.0 and its quic-go to v0.65.0, Fastify to 5.12.8 on Node 26,
+      http.zig to 1bb71ff1 with Zig 0.17.1, and quic-go's interop image to the digest of
+      2026-11-19. hyper 1.12.0, rustls 0.23.46, quinn 0.11.12 and fasthttp v1.79.0 were the
+      latest already.
+    - Fastify joins the competitor run, so its CPU time a request is counted beside the others:
+      without `--routes` it answers `GET /` with `colibri\n`.
+    - **Check:** axum and hyper built with Rust 1.100.0, chi with quic-go v0.65.0, and http.zig
+      with Zig 0.17.1. Fastify answered curl with 200 and `colibri\n` over h11 and h2, in
+      cleartext and over TLS, on macOS arm64.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
