@@ -8173,6 +8173,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Only the engine's own layers stop the copies. The copy across the public `receive`, and
        the copy into `handle`, then stay on each call.
 
+     **Amended by the owner on 2026-11-19.** v0.19.0 is released without the public change, so
+     that connect-zig can pin the memory steps of
+     [#137](https://github.com/c4milo/colibri/issues/137). The public change, design §8 step 58b,
+     goes into v0.20.0 if the judge admits it, and programs change their loop then.
+
 166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
      from v0.19.0, as ruled first; amended the same day to sizes colibri sets itself.** Ruled by
      the owner on 2026-11-18, for the last item of

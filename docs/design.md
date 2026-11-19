@@ -16987,7 +16987,8 @@ library.
       - The server tests, 757 of 757, passed on x86-64 Debug in an amd64 container.
       - `tools/ci.sh` passed 31 sections on `6b636d09`, with Zig 0.16.0 on an Apple M1 Pro with
         macOS.
-  - **58b, public, in v0.19.0.** Two signatures change:
+  - **58b, public, in v0.20.0.** v0.19.0 is released without it (decision 165 as amended on
+    2026-11-19). Two signatures change:
     - `server.Engine(capacity).receive` takes `result: *server.ReceiveResult` and returns nothing.
     - A `server.Router`'s `handle` takes `received: *const server.Event`.
     - `colibri.Server`'s loop, each example that calls them, docs/usage.md and `tools/consumer/`
