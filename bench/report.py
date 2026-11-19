@@ -7,7 +7,7 @@ the report also compares the server's user instructions: a change wins by them, 
 count (docs/performance.md). The report has one block for each protocol of the run, h11, then h2,
 then h3, and each block has the tables of its own inputs.
 
-    report.py <scratch> <report.md> --many-requests <n> --one-connections <n>
+    report.py <scratch> <report.md> --many-requests <n> --one-connections <n> --large-requests <n>
     report.py --test
 
 With --test it runs its own tests, which `tools/ci.sh` runs: each writes the files bench/run.sh
@@ -222,6 +222,14 @@ def compare(summary, variant, against, primary, floor):
     return ratio, noise, reading
 
 
+def planned_units(arguments, input_name):
+    """The requests or connections h2load sends a round on `input_name`: an input with a large
+    body sends fewer (design §8 step 13n)."""
+    if "-large-" in input_name:
+        return arguments.large_requests
+    return arguments.many_requests if input_name.endswith("-many") else arguments.one_connections
+
+
 def read_samples(arguments, mode):
     """The metrics of each counted round, by variant and input, and the TLS parameters that each
     variant's h2load reports name."""
@@ -236,7 +244,7 @@ def read_samples(arguments, mode):
             units = read_wrk_requests(h2load_path, input_name)
         else:
             units = read_requests(h2load_path)
-            expected = arguments.many_requests if input_name.endswith("-many") else arguments.one_connections
+            expected = planned_units(arguments, input_name)
             if units != expected:
                 sys.exit(f"report.py: {h2load_path}: {units} units where {expected} were planned")
         samples.setdefault((variant, input_name), []).append(per_unit(read_counts(perf_path), units, mode))
@@ -311,6 +319,7 @@ def main():
     parser.add_argument("report")
     parser.add_argument("--many-requests", type=int, required=True)
     parser.add_argument("--one-connections", type=int, required=True)
+    parser.add_argument("--large-requests", type=int, required=True)
     arguments = parser.parse_args()
     machine = dict(line.strip().split("=", 1) for line in open(os.path.join(arguments.scratch, "machine.txt")) if "=" in line)
     mode = machine["mode"]
@@ -348,7 +357,10 @@ TEST_UNITS = {"h2-many": 20000, "h2-tls-one": 640}
 # it finished, which are the h11 input's units.
 TEST_H3_UNITS = {"h3-many": 20000}
 TEST_H11_UNITS = {"h11-many": 20000}
-TEST_INSTRUCTIONS_PER_UNIT = {"h2-many": 50000.0, "h2-tls-one": 900000.0, "h3-many": 150000.0, "h11-many": 40000.0}
+# The input with a large body that a test run has when it asks for it (design §8 step 13n).
+TEST_LARGE_UNITS = {"h2-large-many": 2000}
+TEST_INSTRUCTIONS_PER_UNIT = {"h2-many": 50000.0, "h2-tls-one": 900000.0, "h3-many": 150000.0, "h11-many": 40000.0,
+                              "h2-large-many": 700000.0}
 # The command a test run's wrk report starts with, as load.sh writes it for an input of many
 # requests.
 TEST_WRK_COMMAND = "load: wrk http://127.0.0.1:18480/\n"
@@ -373,7 +385,7 @@ TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False, user_only=False,
                    change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True,
-                   change_protocol=None, served=None, h3=False, h11=False):
+                   change_protocol=None, served=None, h3=False, h11=False, large=False, large_units=None):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
     or with `kernel_only` in the kernel's alone, as a change that adds system calls costs, or with
@@ -384,9 +396,12 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
     run speaks h2 over TLS, h2c in cleartext and h3 on an h3 input, and the change
     `change_protocol` if one is given. A variant that `served` names runs only the inputs it lists
     there. With `h3` the run has TEST_H3_UNITS' inputs too, and with `h11` TEST_H11_UNITS' inputs,
-    whose load wrk sends."""
+    whose load wrk sends. With `large` it has TEST_LARGE_UNITS' input, whose h2load reports
+    `large_units` requests when it is given."""
     factors = dict(competitors or {})
     units_of = dict(TEST_UNITS, **(TEST_H3_UNITS if h3 else {}), **(TEST_H11_UNITS if h11 else {}))
+    if large:
+        units_of.update({name: large_units or units for name, units in TEST_LARGE_UNITS.items()})
     if with_base:
         factors["base"] = 1.0
     with open(os.path.join(directory, "machine.txt"), "w") as machine:
@@ -451,7 +466,8 @@ class Verdicts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             write_test_run(directory, change_factor, **options)
             result = subprocess.run([sys.executable, os.path.abspath(__file__), directory, os.path.join(directory, "report.md"),
-                                     "--many-requests", str(TEST_UNITS["h2-many"]), "--one-connections", str(TEST_UNITS["h2-tls-one"])],
+                                     "--many-requests", str(TEST_UNITS["h2-many"]), "--one-connections", str(TEST_UNITS["h2-tls-one"]),
+                                     "--large-requests", str(TEST_LARGE_UNITS["h2-large-many"])],
                                     capture_output=True, text=True, env=environment)
             return result.returncode, result.stdout + result.stderr
 
@@ -461,6 +477,15 @@ class Verdicts(unittest.TestCase):
         self.assertIn("| h2-many | 1.0000 | 5.00% | within the noise |", output)
         # Four system calls per unit, printed with the digits a small count needs.
         self.assertIn(" | 4.000 (0.00%) | ", output)
+
+    def test_an_input_with_a_large_body_counts_its_own_requests(self):
+        # Design §8 step 13n: h2load sends the large input fewer requests than h2-many's.
+        status, output = self.report(1.0, large=True)
+        self.assertEqual(status, 0, output)
+        self.assertIn("| h2-large-many | 1.0000 | 5.00% | within the noise |", output)
+        status, output = self.report(1.0, large=True, large_units=TEST_UNITS["h2-many"])
+        self.assertNotEqual(status, 0, output)
+        self.assertIn("2000 were planned", output)
 
     def test_a_cost_past_the_floor_loses_and_fails_the_run(self):
         status, output = self.report(1.10)

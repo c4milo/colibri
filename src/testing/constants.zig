@@ -133,6 +133,12 @@ pub const response_status: u16 = 200;
 /// (RFC 9110 §8.6).
 pub const response_content_length = "8";
 
+/// The most octets of content `--body` gives every answer in place of `response_body`, and the
+/// octets it takes them from (design §8 step 13n). The judge's inputs with a large body ask for
+/// 256 KiB.
+pub const answer_body_len_max: u32 = 1 << 20;
+pub const answer_body_octets: [answer_body_len_max]u8 = @splat('x');
+
 /// Most requests one client session runs, each with the response to it on a stream of its own.
 /// It bounds the plan the command line reads and the array the session holds.
 pub const requests_max: u32 = 16;
@@ -202,6 +208,8 @@ comptime {
     assert(response_body.len > 0);
     // The declared length is the body's, or a peer would wait for octets that never come.
     assert(response_content_length.len == 1 and response_content_length[0] - '0' == response_body.len);
+    // The `content-length` of the longest `--body` fits the digits the server writes it in.
+    assert(std.math.pow(u64, port_radix, content_length_digits_max) > answer_body_len_max);
 }
 
 /// The largest DER the TLS checks read from one file: a certificate, a Subject Name or a

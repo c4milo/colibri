@@ -27,12 +27,23 @@ takes_seconds() {  # takes_seconds <path>
   grep -q -- '--seconds' <<<"$usage"
 }
 
-# Whether colibri's test-only server at <path> names the route table <table> in its usage (design
-# §8 step 13l). A base tree from before that step names github alone.
-names_routes() {  # names_routes <path> <table>
+# Whether colibri's test-only server at <path> names <word> in its usage: a route table (design §8
+# step 13l) or an option (design §8 step 13n). A base tree from before the step does not.
+usage_names() {  # usage_names <path> <word>
   local usage
   usage="$("$1" --help 2>&1 || true)"
   grep -q -- "$2" <<<"$usage"
+}
+
+# Whether colibri's test-only server at <path> serves <input>: one that names the Kubernetes API's
+# routes serves that input (design §8 step 13l), and one that takes --body the large inputs (design
+# §8 step 13n). A base tree from before either step does not.
+serves_colibri() {  # serves_colibri <path> <input>
+  case "$2" in
+    *-k8s-routes-*) usage_names "$1" kubernetes ;;
+    *-large-*) usage_names "$1" --body ;;
+    *) true ;;
+  esac
 }
 
 # The command that serves <input> as <variant>, into the array `command`: colibri's server built
@@ -76,6 +87,7 @@ server_command() {  # server_command <variant> <input>
       case "$2" in
         *-k8s-routes-*) command+=(--routes kubernetes) ;;
         *-routes-*) command+=(--routes github) ;;
+        *-large-*) command+=(--body "$large_body_len") ;;
       esac
       ;;
   esac

@@ -5815,6 +5815,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       names kept; an input outside the chart read; colibri drawn alone; no dashed bound; the h3
       stacks not named; the CPU part not named; and the first sustained rate taken for the
       highest.
+  - **13n**, two inputs with a large response, which the owner asked for on 2026-11-19 to judge
+    design §8 step 65: its output holds a third fewer octets of a large body for each `send`. No
+    input sent one before: each answer carried 8 octets, and the POST routes answer "ok".
+    - The test-only server takes `--body <octets>`, from 1 to `answer_body_len_max`, 1 MiB. It
+      then answers every request with that many octets of `answer_body_octets`, in place of
+      `response_body`. It refuses the option with `--echo`, `--routes` or `--coded`, whose answers
+      are their own.
+    - `h2-large-many` and `h2-tls-large-many` run the server with `--body 262144` under h2-many's
+      load, with 2,000 requests a round in place of 20,000, so a round sends 512 MiB. `report.py`
+      takes that count as `--large-requests`, and requires each round of the two inputs to
+      answer it.
+    - Only colibri's servers serve them. A tree whose server's usage does not name `--body`, one
+      from before this step, does not run them: `serves_colibri` reads the usage, as for 13l, and
+      the report gives the input without a verdict.
+    - **Check:** a test of `server_options.zig` requires `--body` to take from 1 octet to the
+      most, and to refuse 0, one octet past the most, a word, no value, and each mode with an
+      answer of its own. A test of `server_session_test.zig` requires an h11 answer under `--body`
+      to carry the whole body and its `content-length` over several steps. A test of `report.py`
+      requires the large input's own count, and refuses h2-many's for it.
+    - Seven mutations, each CAUGHT: `--body` beside a mode that answers itself; a body of 0
+      octets; no body at the most; the fixed body in place of `--body`'s; the fixed
+      `content-length`; and in `report.py`, the large input planned as h2-many, both ways.
+    - The judge's first run, 44530085526, measured both inputs and then failed in `report.py`,
+      which planned 20,000 requests for them. That run is why the count is an argument.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
@@ -17181,6 +17205,7 @@ only place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
 1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
+   of the octets `--body` names when it is given (design §8 step 13n),
    and CONNECT with 501, since it opens no tunnel (decision 109), in both cleartext and TLS
    modes, and **a client**, `http-client`, that runs a plan of
    exchanges against another implementation's server and reports how each ended. For h2spec,

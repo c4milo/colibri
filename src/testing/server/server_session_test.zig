@@ -11,6 +11,7 @@ const constants = @import("../constants.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
 const session_module = @import("server_session.zig");
 const server_routes = @import("server_routes.zig");
+const server_mode = @import("server_mode.zig");
 const entropy = @import("../entropy.zig");
 
 const testing = std.testing;
@@ -191,6 +192,30 @@ test "the echo mode answers content past its limit with 413, and writes a long e
     }
     try testing.expect(steps > 2);
     try testing.expect(sent_len > test_small_output_len);
+}
+
+/// A `--body` longer than the output, the response it makes, and where the steps collect it.
+/// Test-only.
+const long_body_len: u32 = 50_000;
+const long_response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_content_type ++
+    "\r\ncontent-length: " ++ std.fmt.comptimePrint("{d}", .{long_body_len}) ++ "\r\n\r\n";
+var test_collected: [long_response.len + long_body_len]u8 = undefined;
+
+test "design §8 step 13n: with --body every answer carries that many octets, over several steps" {
+    _ = try fresh_session(.h11, null);
+    server_mode.set_answer_body(long_body_len);
+    defer server_mode.reset_answer_body();
+    var collected: usize = 0;
+    for (0..test_collected.len) |index| {
+        const stepped = step(if (index == 0) "GET / HTTP/1.1\r\nHost: a\r\n\r\n" else "", &test_output);
+        try testing.expect(collected + stepped.written <= test_collected.len);
+        @memcpy(test_collected[collected..][0..stepped.written], test_output[0..stepped.written]);
+        collected += stepped.written;
+        if (owed_count(0) == 0 and stepped.written == 0) break;
+    }
+    try testing.expectEqual(test_collected.len, collected);
+    try testing.expectEqualStrings(long_response, test_collected[0..long_response.len]);
+    try testing.expectEqualSlices(u8, constants.answer_body_octets[0..long_body_len], test_collected[long_response.len..]);
 }
 
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4). Test-only.

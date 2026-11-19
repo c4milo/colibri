@@ -3,7 +3,7 @@
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
 //!         [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>]
-//!         [--routes github | kubernetes]
+//!         [--routes github | kubernetes] [--body <octets>]
 //!
 //! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
 //! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--h2`, `--echo` and `--coded` take no
@@ -18,7 +18,9 @@
 //! the Unix time it starts at: the server then draws a ticket key and issues session tickets
 //! (RFC 9846 §4.7.1, decision 161). Without it the server issues none. `--routes` names the route
 //! table that `server.Router` answers every request through: the GitHub API's 203 routes (design §8
-//! step 13f), or 463 of the Kubernetes API's (design §8 step 13l).
+//! step 13f), or 463 of the Kubernetes API's (design §8 step 13l). `--body` makes every answer
+//! carry that many octets, from 1 to `constants.answer_body_len_max`, in place of its fixed body,
+//! so the judge measures responses longer than the output (design §8 step 13n).
 const std = @import("std");
 const constants = @import("../constants.zig");
 const alpn = @import("../alpn.zig");
@@ -43,6 +45,7 @@ const h3_port_option = "--h3-port";
 const coded_option = "--coded";
 const routes_option = "--routes";
 const seconds_option = "--seconds";
+const body_option = "--body";
 
 /// The base the Unix seconds are written in on the command line.
 const decimal: u8 = 10;
@@ -70,6 +73,8 @@ pub const Options = struct {
     /// The Unix seconds the server starts at, which its session tickets carry, or null to issue
     /// none (decision 161).
     unix_seconds: ?u64 = null,
+    /// The octets of content every answer carries (`--body`), or null for `response_body`.
+    body_len: ?u32 = null,
 };
 
 /// Reads the options from `arguments`, anything with a `next` that answers the next argument or
@@ -84,6 +89,11 @@ pub fn read(arguments: anytype) ?Options {
         const value = arguments.next() orelse return null;
         read_setting(&options, argument, value) orelse return null;
     }
+    return if (modes_fit(&options)) options else null;
+}
+
+/// Whether the modes `options` asks for fit together.
+fn modes_fit(options: *const Options) bool {
     // The echo is h11's, and the Garden reaches its origins in cleartext.
     const echo_ok = !options.echo or (options.alone == .h11 and options.identity_prefix == null);
     // The router answers every request itself, so no other mode answers too, and it codes no
@@ -91,7 +101,9 @@ pub fn read(arguments: anytype) ?Options {
     const routes_ok = options.routes == .none or (!options.echo and !options.coded);
     // A ticket is a TLS message (RFC 9846 §4.7.1), so the time serves the TLS mode alone.
     const seconds_ok = options.unix_seconds == null or options.identity_prefix != null;
-    return if (echo_ok and routes_ok and seconds_ok) options else null;
+    // A body replaces the fixed answer, which the echo, the router and the coding replace too.
+    const body_ok = options.body_len == null or (!options.echo and options.routes == .none and !options.coded);
+    return echo_ok and routes_ok and seconds_ok and body_ok;
 }
 
 /// Whether `read_flag` took an argument as a flag, or left it for `read_setting`.
@@ -126,10 +138,19 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
         options.identity_prefix = value;
     } else if (eql(u8, option, h3_port_option)) {
         options.h3_port = std.fmt.parseInt(u16, value, constants.port_radix) catch return null;
-    } else if (eql(u8, option, routes_option)) {
+    } else return read_mode(options, option, value);
+}
+
+/// Applies one option of a mode and its value, or returns null when it is not one or its value is
+/// unreadable.
+fn read_mode(options: *Options, option: []const u8, value: []const u8) ?void {
+    const eql = std.mem.eql;
+    if (eql(u8, option, routes_option)) {
         options.routes = parse_routes(value) orelse return null;
     } else if (eql(u8, option, seconds_option)) {
         options.unix_seconds = parse_seconds(value) orelse return null;
+    } else if (eql(u8, option, body_option)) {
+        options.body_len = parse_body_len(value) orelse return null;
     } else return null;
 }
 
@@ -146,7 +167,14 @@ fn parse_seconds(value: []const u8) ?u64 {
     return if (seconds == 0) null else seconds;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>] [--routes github | kubernetes]\n";
+/// The octets of `--body`, or null for a value that is not a count from 1 to
+/// `constants.answer_body_len_max`.
+fn parse_body_len(value: []const u8) ?u32 {
+    const len = std.fmt.parseUnsigned(u32, value, decimal) catch return null;
+    return if (len == 0 or len > constants.answer_body_len_max) null else len;
+}
+
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>] [--routes github | kubernetes] [--body <octets>]\n";
 
 const testing = std.testing;
 
@@ -212,4 +240,18 @@ test "design §8 step 13f: --routes takes github or kubernetes, and no other mod
     try testing.expectEqual(null, test_read(&.{"--routes"}));
     try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--routes", "github" }));
     try testing.expectEqual(null, test_read(&.{ "--coded", "--routes", "github" }));
+}
+
+test "design §8 step 13n: --body takes from 1 octet to the most, and no mode with an answer of its own" {
+    try testing.expectEqual(262_144, test_read(&.{ "--body", "262144" }).?.body_len.?);
+    try testing.expectEqual(constants.answer_body_len_max, test_read(&.{ "--body", "1048576" }).?.body_len.?);
+    try testing.expectEqual(null, test_read(&.{}).?.body_len);
+    try testing.expectEqual(null, test_read(&.{ "--body", "0" }));
+    try testing.expectEqual(null, test_read(&.{ "--body", "1048577" }));
+    try testing.expectEqual(null, test_read(&.{ "--body", "large" }));
+    try testing.expectEqual(null, test_read(&.{"--body"}));
+    try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--body", "8" }));
+    try testing.expectEqual(null, test_read(&.{ "--routes", "github", "--body", "8" }));
+    try testing.expectEqual(null, test_read(&.{ "--coded", "--body", "8" }));
+    try testing.expectEqual(8, test_read(&.{ "--tls", "id", "--body", "8" }).?.body_len.?);
 }

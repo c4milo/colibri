@@ -1,7 +1,10 @@
 //! What the command line asked of the test-only server (`../server.zig`): `main` writes each value
 //! once, before any worker starts, and the workers read them (`server_worker.zig`). They are here
 //! so neither file imports the other for them. Split off `../server.zig` for length.
+const std = @import("std");
+const assert = std.debug.assert;
 const server = @import("server");
+const constants = @import("../constants.zig");
 const tls = @import("tls");
 const server_identity = @import("../tls/server_identity.zig");
 const server_options = @import("server_options.zig");
@@ -28,3 +31,27 @@ pub var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative))
 /// its key signs, and offers through ALPN the protocols `versions` allows (decision 119).
 pub var identity: ?tls.Server align(@alignOf(?tls.Server)) = null;
 pub var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
+
+/// The content of every answer the server writes, `constants.response_body`, or `--body`'s
+/// octets, and its fields (RFC 9110 §8.3, §8.6, design §8 step 13n).
+pub var answer_body: []const u8 = constants.response_body;
+pub var answer_fields: [answer_field_count]server.Header align(@alignOf(server.Header)) = .{
+    .{ .name = "content-type", .value = constants.response_content_type },
+    .{ .name = "content-length", .value = constants.response_content_length },
+};
+var answer_length_digits: [constants.content_length_digits_max]u8 = undefined;
+/// The fields of every answer: its media type and its length.
+const answer_field_count = 2;
+
+/// Makes every answer carry `len` octets of `constants.answer_body_octets` (`--body`).
+pub fn set_answer_body(len: u32) void {
+    assert(len > 0 and len <= constants.answer_body_len_max);
+    answer_body = constants.answer_body_octets[0..len];
+    answer_fields[answer_fields.len - 1].value = std.fmt.bufPrint(&answer_length_digits, "{d}", .{len}) catch unreachable;
+}
+
+/// Makes every answer carry `constants.response_body` again, for a test that set another.
+pub fn reset_answer_body() void {
+    answer_body = constants.response_body;
+    answer_fields[answer_fields.len - 1].value = constants.response_content_length;
+}

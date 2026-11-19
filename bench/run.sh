@@ -13,6 +13,9 @@
 # h2-k8s-routes-many sends the GET routes of a sample of the Kubernetes API's routes to the server
 # with `--routes kubernetes`, whose segments are longer than the GitHub API's (design §8 step 13l).
 # A tree whose server names no such table, one from before that step, does not run it.
+# h2-large-many and h2-tls-large-many answer every GET with a body longer than the server's output,
+# from the server with `--body`, so the judge counts what a large response costs (design §8 step
+# 13n). A tree whose server does not take the option does not run them.
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
@@ -76,6 +79,10 @@ readonly post_small_len=128
 readonly post_late_len=8192
 # The POST route the two inputs name: a route of the GitHub API's with no parameter.
 readonly post_path=/user/repos
+# The body of each answer of the two large inputs, past the server's output several times, and
+# their requests: a tenth of the other inputs', so a round sends 512 MiB (design §8 step 13n).
+readonly large_body_len=262144
+readonly large_requests=2000
 # One request on each connection: h2load runs this many times, with this many connections each,
 # within the 32 connections one worker holds at once.
 readonly one_runs=40
@@ -88,7 +95,7 @@ readonly warm_requests=2000
 # h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
 readonly ready_seconds=1
-inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many h2-large-many h2-tls-large-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
@@ -164,10 +171,10 @@ offer_of() {  # offer_of <input>
 # its own.
 serves() {  # serves <variant> <input>
   case "$1" in
-    change) [[ "$2" != *-k8s-routes-* ]] || names_routes "$change_server" kubernetes ;;
-    base) [[ "$2" != *-k8s-routes-* ]] || names_routes "$base_server" kubernetes ;;
+    change) serves_colibri "$change_server" "$2" ;;
+    base) serves_colibri "$base_server" "$2" ;;
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
-    nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* ]] ;;
+    nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
     quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac
@@ -223,6 +230,8 @@ case "\$1" in
   # The GitHub API's GET routes in turn, each parameter given a value (design §8 step 13h).
   *-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths.txt >${scratch}/urls.txt
     h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
+  # Answers longer than the server's output (design §8 step 13n).
+  *-large-many) h2load "\${options[@]}" -n ${large_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-one) for _ in \$(seq 1 ${one_runs}); do h2load "\${options[@]}" -n ${one_clients} -c ${one_clients} "\$target"; done ;;
 esac
@@ -481,5 +490,5 @@ if [ -n "$profile" ]; then
   python3 "$repository_root/bench/report_profile.py" "$scratch" "$report"
 else
   python3 "$repository_root/bench/report.py" "$scratch" "$report" \
-    --many-requests "$many_requests" --one-connections "$((one_runs * one_clients))"
+    --many-requests "$many_requests" --one-connections "$((one_runs * one_clients))" --large-requests "$large_requests"
 fi

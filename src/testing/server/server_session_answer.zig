@@ -13,6 +13,7 @@ const server = @import("server");
 const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
+const server_mode = @import("server_mode.zig");
 
 const http = h2.http;
 
@@ -28,12 +29,6 @@ const Request = struct {
     number: u64,
     head: bool,
     connect: bool,
-};
-
-/// The fields every response carries (RFC 9110 §8.3, §8.6).
-const response_fields = [_]server.Header{
-    .{ .name = "content-type", .value = constants.response_content_type },
-    .{ .name = "content-length", .value = constants.response_content_length },
 };
 
 /// The media type of an echo (RFC 9110 §8.3), and the status of one too large to keep (RFC 9110
@@ -170,7 +165,7 @@ pub const Answers = struct {
     fn write_head(answers: *Answers, engine: anytype, id: server.RequestId, request: Request) server.SendError!void {
         if (request.connect) return engine.respond(id, .{ .status = @enumFromInt(not_implemented_status), .end = true });
         // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
-        const echo = answers.echo orelse return engine.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &response_fields, .end = request.head, .codable = true });
+        const echo = answers.echo orelse return engine.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &server_mode.answer_fields, .end = request.head, .codable = true });
         if (echo.body_too_long) return engine.respond(id, .{ .status = @enumFromInt(too_large_status), .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
@@ -186,10 +181,10 @@ pub const Answers = struct {
         return echo.body_too_long;
     }
 
-    /// The content of the response owed: the request's echo in the `--echo` mode, and
-    /// `response_body` otherwise.
+    /// The content of the response owed: the request's echo in the `--echo` mode, and the
+    /// server's answer otherwise, `response_body` or `--body`'s octets.
     fn content(answers: *const Answers) []const u8 {
-        const echo = answers.echo orelse return constants.response_body;
+        const echo = answers.echo orelse return server_mode.answer_body;
         return echo.written();
     }
 

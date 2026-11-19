@@ -91,6 +91,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     server_mode.routes_mode = options.routes;
     if (options.h3_port) |port| server_mode.h3_alternative = .{ .port = port };
     server_mode.unix_seconds = options.unix_seconds;
+    if (options.body_len) |len| server_mode.set_answer_body(len);
     if (options.identity_prefix) |prefix| try load_tls(prefix);
     try listen_and_serve(options.port);
 }

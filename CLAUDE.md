@@ -483,7 +483,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   with `--routes kubernetes`, over a sample of the Kubernetes API's routes, whose segments are
   longer (design §8 step 13l). Its inputs `h2-routes-post-many` and
   `h2-routes-post-late-many` send a POST with a body to a route of that route table, whose route
-  reads the whole body (design §8 step 50b). With `--base` it
+  reads the whole body (design §8 step 50b). Its inputs `h2-large-many` and `h2-tls-large-many`
+  run the server with `--body 262144`, so each answer carries 256 KiB (design §8 step 13n). With
+  `--base` it
   builds a second tree, measures the two in turns, and fails when an input loses past the noise.
   `.github/workflows/bench.yml` runs it on the `ubuntu-24.04-arm` runner, the judge, in two jobs
   when a person starts it (decision 33 as amended). `--competitors` measures nginx, h2o, hyper and
