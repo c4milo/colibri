@@ -87,7 +87,7 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     probe[6 + probe_id_len] = probe_id_len;
     const from = support.client_address();
     try testing.expectEqual(null, give(&probe, from));
-    try testing.expectEqual(null, engine_support.live_connection());
+    try testing.expect(engine_support.live_connection() == null);
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const reply = engine.send_datagram(&output, support.now_ns).?;
     try testing.expect((try quic.packet.invariant.read_long(reply.bytes)).is_version_negotiation());
@@ -238,7 +238,7 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     const len = writer.written().len + short_payload_len;
     @memset(short_initial[writer.written().len..len], 0);
     try testing.expectEqual(null, give(short_initial[0..len], support.client_address()));
-    try testing.expectEqual(null, engine_support.live_connection());
+    try testing.expect(engine_support.live_connection() == null);
 }
 
 /// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
@@ -264,7 +264,7 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
             const len = writer.written().len + padded_payload_len;
             @memset(padded_initial[writer.written().len..len], 0);
             try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
-            try testing.expectEqual(null, engine_support.live_connection());
+            try testing.expect(engine_support.live_connection() == null);
             // With Retry set, no Retry is owed for it either.
             var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
             try testing.expectEqual(null, engine.state.connections.replies.take(&output));
@@ -347,7 +347,7 @@ test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID und
         const len = writer.written().len + padded_payload_len;
         @memset(padded_initial[writer.written().len..len], 0);
         try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
-        try testing.expectEqual(null, engine_support.live_connection());
+        try testing.expect(engine_support.live_connection() == null);
     }
 }
 
