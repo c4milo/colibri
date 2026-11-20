@@ -308,7 +308,7 @@ With chapulin's host objects:
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 151232 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS, with no TLS session |
 | `server.Config.tls_buffer_len(1)` | 83039 | the octets of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167) |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1424352 | the connection each QUIC slot of an engine holds, without its receive pool |
-| `server.EncoderPool(.{})` | 1461336 | the encoders a program gives a server's connections, at the default options |
+| `server.EncoderPool(.{})` | 1461304 | the encoders a program gives a server's connections, at the default options |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))` | 234288 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "entries"))` | 72 | each exchange a pool holds at once |
@@ -346,6 +346,11 @@ With chapulin's host objects:
   every octet of the union, its largest payload's included. Rule: where a payload is large, store
   the tag with `.{ .none = undefined }`, and read the disassembly for the fill again at each Zig
   upgrade, because the language fixes the tag alone. Design §8 step 17 has the judge's numbers.
+- **A large payload made `undefined` to change a union's field.** Symptom: each coded response
+  wrote 299,768 octets of 0xAA before its encoder started. Cause: `.{ .gzip = undefined }` names a
+  payload of that size, and ReleaseSafe writes 0xAA over all of it. Rule: hold a large payload
+  that changes type as octets beside a tag of its own, and start it in place through a pointer of
+  its type. Design §8 step 67 has the numbers.
 - **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that
   had not started, and 0 of 20,000 requests succeeded. Cause: h2load exits 0 even when every
   request fails, so a readiness check on its status passes at once. Rule: read the count h2load

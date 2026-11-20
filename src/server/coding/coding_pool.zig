@@ -88,17 +88,38 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
         const Self = @This();
         const Gzip = gzip.Encoder(.{ .level = level });
         const Zlib = zlib.Encoder(.{ .level = level });
+        const encoder_len = @max(@sizeOf(Gzip), @sizeOf(Zlib));
+        const encoder_alignment = @max(@alignOf(Gzip), @alignOf(Zlib));
 
         const Slot = struct {
             /// Whether a response holds the slot.
             taken: bool,
             /// The next free slot, while this one is free.
             next: Index,
-            /// The coding the response that took the slot codes with.
+            /// The coding the response that took the slot codes with, which names the encoder
+            /// that `encoder` holds.
             coding: Coding,
-            encoder: union { gzip: Gzip, deflate: Zlib },
+            /// A `Gzip` or a `Zlib`, as `coding` names, which `take` starts in place. A union
+            /// writes its whole payload to change its field, and ReleaseSafe writes 0xAA over an
+            /// `undefined` payload: 299,768 octets on each `take` (design §8 step 67).
+            encoder: [encoder_len]u8 align(encoder_alignment),
             ring: Ring,
         };
+
+        /// The gzip encoder that slot `slot` holds while a response codes with it.
+        fn gzip_of(slot: *Slot) *Gzip {
+            assert(slot.taken);
+            assert(slot.coding == .gzip);
+            return @ptrCast(&slot.encoder);
+        }
+
+        /// The deflate encoder, zlib's format, that slot `slot` holds while a response codes
+        /// with it.
+        fn zlib_of(slot: *Slot) *Zlib {
+            assert(slot.taken);
+            assert(slot.coding == .deflate);
+            return @ptrCast(&slot.encoder);
+        }
 
         free_head: Index,
         /// Slots no response holds.
@@ -152,14 +173,8 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             slot.next = no_slot;
             slot.coding = coding;
             switch (coding) {
-                .gzip => {
-                    slot.encoder = .{ .gzip = undefined };
-                    slot.encoder.gzip.init(pool.features);
-                },
-                .deflate => {
-                    slot.encoder = .{ .deflate = undefined };
-                    slot.encoder.deflate.init(pool.features);
-                },
+                .gzip => gzip_of(slot).init(pool.features),
+                .deflate => zlib_of(slot).init(pool.features),
                 // A connection's configuration names only codings the server encodes.
                 .zstd, .br => unreachable,
             }
@@ -170,8 +185,8 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             const slot = &of(context).slots[index];
             assert(slot.taken);
             return switch (slot.coding) {
-                .gzip => slot.encoder.gzip.encode(input, output, flush),
-                .deflate => slot.encoder.deflate.encode(input, output, flush),
+                .gzip => gzip_of(slot).encode(input, output, flush),
+                .deflate => zlib_of(slot).encode(input, output, flush),
                 .zstd, .br => unreachable,
             };
         }
@@ -249,4 +264,36 @@ test "decision 101: every slot taken leaves a response uncoded, and one given ba
     test_zlib_decoder.init(.none());
     const inflated = try test_zlib_decoder.decode_all(deflated, &test_decoded);
     try testing.expectEqualStrings(test_text, test_decoded[0..inflated.written]);
+}
+
+/// A pool of one slot at the default level, the one a server codes with. Test-only.
+const TestPoolDefault = EncoderPool(.{ .count = 1 });
+threadlocal var test_pool_default: TestPoolDefault align(@alignOf(TestPoolDefault)) = undefined;
+/// The octets the next test writes over a free slot's encoder before `take` starts it.
+const test_fills = [_]u8{ 0, std.math.maxInt(u8) };
+/// What each run of the next test coded, kept to compare.
+threadlocal var test_runs: [test_fills.len][test_decoded_len]u8 = undefined;
+
+/// Codes `test_text` in `coding` once after each of `test_fills` fills the encoder of the slot that
+/// `take` gives next, and requires the same coded octets each time.
+fn expect_fill_ignored(pool: anytype, coding: Coding) !void {
+    pool.init(.none());
+    const encoders = pool.encoders();
+    var lens: [test_fills.len]usize = undefined;
+    for (test_fills, 0..) |fill, run| {
+        @memset(&pool.slots[pool.free_head].encoder, fill);
+        const index = encoders.take(coding).?;
+        const coded = try code_all(encoders, index);
+        @memcpy(test_runs[run][0..coded.len], coded);
+        lens[run] = coded.len;
+        encoders.give_back(index);
+    }
+    try testing.expectEqualSlices(u8, test_runs[0][0..lens[0]], test_runs[1][0..lens[1]]);
+}
+
+test "design §8 step 67: what a slot held before take changes no octet its encoder codes" {
+    try expect_fill_ignored(&test_pool, .gzip);
+    try expect_fill_ignored(&test_pool, .deflate);
+    try expect_fill_ignored(&test_pool_default, .gzip);
+    try expect_fill_ignored(&test_pool_default, .deflate);
 }
