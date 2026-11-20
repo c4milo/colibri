@@ -5513,6 +5513,24 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A pool of kept buffers shared by a connection's requests, so that a larger limit costs
        less. It changes decision 79 and needs a design of its own.
 
+     **Amended by the owner on 2026-11-19, for
+     [#139](https://github.com/c4milo/colibri/issues/139) (design §8 step 66).** A stream closes
+     when the peer acknowledges the whole response, so ruling 2's MAX_STREAMS often left in a
+     packet of its own, which the peer then acknowledged. In a qlog of 500 requests at a low rate,
+     199 of the server's 405 packets held a MAX_STREAMS frame alone, and an h3 request took 1.4 to
+     1.5 times the datagrams it took with axum on quinn. RFC 9000 §4.6 leaves to the receiver
+     "when and how many streams should be advertised". The ruling:
+
+     - A stream count still owes a MAX_STREAMS frame as each stream the peer opened closes.
+     - The frame goes out at once, in a packet of its own when no other packet goes, while the
+       peer holds `flow_credit_fraction`'s half of its count unused, or less, or when a lost frame
+       is owed again (§13.3).
+     - Above that, the frame waits, and rides after the STREAM frames of the next packet that
+       elicits an acknowledgment for another reason. The peer still holds half its count, so it
+       waits for no stream.
+
+     The alternative that lost: keep ruling 2 as it was, with the extra packets.
+
 131. **A packet carries up to 16 STREAM frames, and a ring holds the ranges after its first.**
      Ruled by the owner on 2026-10-29. Amends decision 56, which asked to be revisited against a
      measured number. Decision 57 stands: the caller keeps the octets, and loss resends exactly

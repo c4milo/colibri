@@ -197,6 +197,17 @@ pub const Receiver = struct {
         return receiver.consumed + receiver.window > receiver.limit;
     }
 
+    /// Whether a MAX_STREAMS frame is owed and the peer holds `window / flow_credit_fraction` of
+    /// its stream count unused, or less. Such a frame goes out at once, in a packet of its own when
+    /// no other packet goes. One owed while the peer holds more waits for a packet that goes out
+    /// for another reason, since a packet of it alone costs that packet and the peer's
+    /// acknowledgment of it (decision 130 as amended, https://github.com/c4milo/colibri/issues/139).
+    /// RFC 9000 §4.6 leaves to the receiver "when and how many streams should be advertised".
+    pub fn count_credit_low(receiver: *const Receiver) bool {
+        return receiver.count_credit_due() and
+            receiver.available() <= receiver.window / constants.policy.flow_credit_fraction;
+    }
+
     fn advance(receiver: *Receiver, now_ns: u64) u64 {
         receiver.credited_at_ns = now_ns;
         receiver.limit = receiver.consumed + receiver.window;
@@ -360,6 +371,23 @@ test "§4.6, decision 130: a stream count owes credit as each stream closes" {
     // Data of the same window still waits for half of it.
     streams.consume(1);
     try testing.expect(!streams.credit_due());
+}
+
+test "decision 130 as amended: a stream count owed is low once the peer holds half its count or less" {
+    const count = 32;
+    var streams = Receiver.init(count, count);
+    // The peer opened 16 of 32 streams and holds 16 unused, half the count.
+    try streams.use(count / 2, error.StreamLimitExceeded);
+    try testing.expect(!streams.count_credit_low());
+    streams.consume(1);
+    try testing.expect(streams.count_credit_due());
+    try testing.expect(streams.count_credit_low());
+    // One more unused stream: the frame is owed, and waits for a packet that goes anyway.
+    var more = Receiver.init(count, count);
+    try more.use(count / 2 - 1, error.StreamLimitExceeded);
+    more.consume(1);
+    try testing.expect(more.count_credit_due());
+    try testing.expect(!more.count_credit_low());
 }
 
 test "§4.1: a limit that would not rise is never offered, whatever the window" {

@@ -135,7 +135,8 @@ pub fn write(
     // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
     const eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
         carries_handshake_done or carries_control;
-    const framed_len = written_path + data.len;
+    const riding_len = write_riding_count(connection, level, payload[written_path + data.len .. budget], number, now_ns, eliciting);
+    const framed_len = written_path + data.len + riding_len;
     const ping_owed = (!eliciting and ack.owed and elicit_due(connection, level, now_ns)) or keep_alive_due(connection, level);
     const probe_len = write_probe(connection, level, payload[framed_len..budget], eliciting, ping_owed);
     // RFC 9000 §13.2.1 asks for an ACK "with other frames": one written only because it was
@@ -162,6 +163,17 @@ pub fn write(
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,
     };
+}
+
+/// Writes the owed MAX_STREAMS frames after the STREAM frames, each of which carries its length
+/// (RFC 9000 §19.8), when the packet already elicits an acknowledgment. So a frame owed while the
+/// peer still holds half its stream count rides in a packet that goes anyway (decision 130 as
+/// amended). Returns the octets written.
+fn write_riding_count(connection: *Connection, level: Level, output: []u8, number: u64, now_ns: u64, eliciting: bool) usize {
+    if (!eliciting) return 0;
+    var writer = Writer.init(output);
+    _ = connection_flow.write_count_credit(connection, level, &writer, number, now_ns);
+    return writer.written().len;
 }
 
 /// A packet of the path frames alone, which RFC 9000 §9.1 counts as probing frames.

@@ -66,12 +66,26 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
     const round_trip_ns = round_trip_of(connection);
     var wrote = write_max_data(connection, writer, number, now_ns, round_trip_ns);
     for ([_]Directionality{ .bidirectional, .unidirectional }) |directionality| {
-        if (write_max_streams(connection, directionality, writer, number, now_ns)) wrote = true;
+        if (write_max_streams(connection, directionality, writer, number, now_ns, .low)) wrote = true;
     }
     var walk = connection.streams.pool.iterator();
     // Bounded by the table's capacity, `streams_per_connection_max`.
     while (walk.next()) |stream| {
         if (write_max_stream_data(connection, stream, writer, number, now_ns, round_trip_ns)) wrote = true;
+    }
+    return wrote;
+}
+
+/// Writes every MAX_STREAMS frame owed, the ones `write_limits` left for a later packet among
+/// them, into a packet that elicits an acknowledgment for another reason. So a frame owed while
+/// the peer still holds half its stream count costs no packet of its own, and no acknowledgment
+/// of one (decision 130 as amended). True when any went in.
+pub fn write_count_credit(connection: *Connection, level: Level, writer: *Writer, number: u64, now_ns: u64) bool {
+    // RFC 9000 §12.4, Table 3 marks MAX_STREAMS "__01", as it does the other limit frames.
+    if (level != .application) return false;
+    var wrote = false;
+    for ([_]Directionality{ .bidirectional, .unidirectional }) |directionality| {
+        if (write_max_streams(connection, directionality, writer, number, now_ns, .any)) wrote = true;
     }
     return wrote;
 }
@@ -85,12 +99,14 @@ pub fn credit_owed(connection: *Connection) bool {
     return count_credit_owed(connection) or data_credit_owed(connection);
 }
 
-/// Whether this endpoint owes its peer a MAX_STREAMS frame, as `credit_owed` judges one. It walks
-/// no stream, so a caller that has asked `data_credit_owed` asks this for the rest.
+/// Whether this endpoint owes its peer a MAX_STREAMS frame that goes out at once, as
+/// `credit_owed` judges one: the peer holds half its stream count or less (`count_credit_low`),
+/// or a lost frame is owed again (§13.3). It walks no stream, so a caller that has asked
+/// `data_credit_owed` asks this for the rest.
 pub fn count_credit_owed(connection: *const Connection) bool {
     const streams = &connection.streams;
     for (streams.peer_limit, streams.max_streams) |count, frame| {
-        if (count.count_credit_due() or frame.owed) return true;
+        if (count.count_credit_low() or frame.owed) return true;
     }
     return false;
 }
@@ -173,11 +189,24 @@ fn write_max_data(connection: *Connection, writer: *Writer, number: u64, now_ns:
 }
 
 /// RFC 9000 §19.11: how many streams of one type the peer may open, once enough of them closed.
-fn write_max_streams(connection: *Connection, directionality: Directionality, writer: *Writer, number: u64, now_ns: u64) bool {
+/// Which owed MAX_STREAMS frames a packet carries: those the peer's low stream count makes due at
+/// once, or every one owed, which rides in a packet that goes out anyway (decision 130 as amended).
+const CountCredit = enum { low, any };
+
+fn write_max_streams(
+    connection: *Connection,
+    directionality: Directionality,
+    writer: *Writer,
+    number: u64,
+    now_ns: u64,
+    credit: CountCredit,
+) bool {
     const streams = &connection.streams;
     const which = @intFromEnum(directionality);
+    const owed_again = streams.max_streams[which].owed;
+    if (credit == .low and !owed_again and !streams.peer_limit[which].count_credit_low()) return false;
     const fresh = streams.peer_limit_frame(directionality, now_ns) != null;
-    if (!fresh and !streams.max_streams[which].owed) return false;
+    if (!fresh and !owed_again) return false;
     const frame: frame_module.Frame = .{ .max_streams = .{
         .directionality = frame_directionality(directionality),
         .maximum = streams.peer_limit[which].limit,
@@ -390,4 +419,5 @@ pub fn receive_credit_floor(connection: *const Connection) u64 {
 test {
     _ = @import("connection_flow_test.zig");
     _ = @import("connection_flow_floor_test.zig");
+    _ = @import("connection_flow_count_test.zig");
 }
