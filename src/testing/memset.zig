@@ -1,6 +1,7 @@
 //! The `memset` of the programs colibri times: `http-server`, which `bench/run.sh` measures, and
-//! `quic-udp`, which `tools/h3load.sh` loads. Each root references this file, so the export is in
-//! the program; the library exports none, because its caller's program owns the symbol.
+//! `quic-udp`, which `tools/h3load.sh` loads. This file exports nothing: the root of each program
+//! exports `memset` when `overrides` is true, as pepegrillo's guide says. The library exports none,
+//! because its caller's program owns the symbol.
 //!
 //! On Linux every `memset` in a Zig 0.16 program is compiler_rt's, which writes one octet at a
 //! time: the 0xAA fill of a large `undefined` local, each `@memset` whose length is known only at
@@ -14,16 +15,17 @@ const builtin = @import("builtin");
 /// The octets one vector store writes.
 const store_len = 32;
 
-comptime {
-    const zig_0_16 = builtin.zig_version.major == 0 and builtin.zig_version.minor == 16;
-    if (builtin.os.tag == .linux and zig_0_16) @export(&memset, .{ .name = "memset" });
-}
+/// The minor version of Zig 0.16, whose compiler_rt writes one octet at a time.
+const zig_minor_bytewise = 16;
+/// Whether a program exports `memset`: on Linux under Zig 0.16 alone, the guard named above.
+pub const overrides = builtin.os.tag == .linux and builtin.zig_version.major == 0 and
+    builtin.zig_version.minor == zig_minor_bytewise;
 
 /// Writes `value` to the `len` octets at `destination` and returns `destination`, as C's `memset`
 /// does. A fill of one store or more ends with a store over its last `store_len` octets, which may
 /// write some of them twice. The barrier in each loop keeps the compiler from turning the loop into
 /// a call to `memset`, which is this function.
-fn memset(destination: ?[*]u8, value: u8, len: usize) callconv(.c) ?[*]u8 {
+pub fn memset(destination: ?[*]u8, value: u8, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(false);
     const octets = destination orelse return destination;
     const fill: @Vector(store_len, u8) = @splat(value);

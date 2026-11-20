@@ -17,10 +17,11 @@ comptime {
     // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
     // `ch_assert_fail`, and `tls/hooks.zig` exports it. Zig analyses a file only when something
     // references it, and in a build with no tests nothing here does, so the export would be missing
-    // and the link would fail. This reference is what forces the analysis. The one to `memset`
-    // keeps that file's export in the program `bench/run.sh` measures.
+    // and the link would fail. This reference is what forces the analysis.
     _ = hooks;
-    _ = memset;
+    // The program `bench/run.sh` measures exports its own `memset`, which pepegrillo's guide puts
+    // in the root of each program (`memset.zig`).
+    if (memset.overrides) @export(&memset.memset, .{ .name = "memset" });
 }
 
 pub const alpn = @import("alpn.zig");

@@ -28,11 +28,12 @@ pub const udp_resume = @import("quic/udp/udp_resume.zig");
 comptime {
     // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
     // files export. Zig analyses a file only when something references it, so these keep the
-    // exports in a build with no tests. `memset.zig` exports the `memset` of the program
-    // `tools/h3load.sh` loads.
+    // exports in a build with no tests.
     _ = hooks;
     _ = keylog;
-    _ = memset;
+    // The program `tools/h3load.sh` loads exports its own `memset`, which pepegrillo's guide puts
+    // in the root of each program (`memset.zig`).
+    if (memset.overrides) @export(&memset.memset, .{ .name = "memset" });
 }
 
 pub const main = udp_run.main;

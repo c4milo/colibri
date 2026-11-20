@@ -351,8 +351,9 @@ measure() {  # measure <variant> <input> <round>
   echo "$1,$2,$3,$scratch/$name.perf,$scratch/$name.h2load" >>"$scratch/records.csv"
 }
 
-# Whose memset a server links: its own, which src/testing/memset.zig exports on Linux under Zig
-# 0.16, or compiler_rt's, which writes one octet at a time. nm's output is read whole, as h2load's is.
+# Whose memset a server links: its own, src/testing/memset.zig's, which the root of each program
+# exports on Linux under Zig 0.16, or compiler_rt's, which writes one octet at a time. nm's output is
+# read whole, as h2load's is.
 memset_of() {  # memset_of <server>
   local symbols
   symbols="$(nm "$1" 2>/dev/null)" || true
