@@ -5968,6 +5968,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       with colibri, 2.60 with axum on quinn and 3.87 with quic-go. At 40,000 it took 2.29 to 2.39
       with colibri and 2.11 to 2.13 with axum. The h2 loads counted 0.00, so no other traffic adds
       to the count. https://github.com/c4milo/colibri/issues/139 follows the extra datagrams.
+  - **13t**, an input with coded responses, which the owner asked for on 2026-11-19 to judge
+    design §8 step 67. No input coded a response before, so no number showed that `take` filled
+    299,768 octets of each encoder in ReleaseSafe.
+    - `h2-coded-many` runs the server with `--coded` under h2-many's load. Each request carries
+      `accept-encoding: gzip`, so each answer of 8 octets goes out in gzip, as 28 octets.
+    - After the warm-up, `codes` sends one request that accepts gzip. The run fails when the
+      answer's Content-Encoding does not name gzip (RFC 9110 §8.4). `codes` and the other checks
+      of a server before its measurement move to `bench/run_ready.sh`, because `bench/run.sh`
+      passed 500 lines.
+    - Only colibri's servers serve it. A tree whose server's usage does not name `--coded`, one
+      from before design §8 step 17e, does not run it.
+    - The server's pool holds 4 encoders, and a response holds its encoder until it writes its
+      last octet. Under 16 connections of 10 streams each, all 20,000 answers of a round still went
+      out coded: h2load counted 560,000 octets of data, 28 for each answer. That ran in an ubuntu
+      24.04 container on the laptop.
+    - **Check:** in that container, `codes` passed against the server with `--coded` and failed
+      against the server without it.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

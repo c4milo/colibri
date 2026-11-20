@@ -486,7 +486,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   longer (design §8 step 13l). Its inputs `h2-routes-post-many` and
   `h2-routes-post-late-many` send a POST with a body to a route of that route table, whose route
   reads the whole body (design §8 step 50b). Its inputs `h2-large-many` and `h2-tls-large-many`
-  run the server with `--body 262144`, so each answer carries 256 KiB (design §8 step 13n). With
+  run the server with `--body 262144`, so each answer carries 256 KiB (design §8 step 13n). Its
+  input `h2-coded-many` runs it with `--coded` and asks for gzip, so each answer goes out coded
+  (design §8 step 13t). With
   `--base` it
   builds a second tree, measures the two in turns, and fails when an input loses past the noise.
   `.github/workflows/bench.yml` runs it on the `ubuntu-24.04-arm` runner, the judge, in two jobs
@@ -503,7 +505,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   Runner image, pinned by digest, and axum on quinn, which cargo builds from `bench/competitors/axum/`
   (design §8 step 13r). `--filter` needs neither perf nor taskset and reads the server's
   CPU time from /proc: its numbers order candidates on a laptop and are never published. It needs
-  Zig, h2load, python3, and Go to mint the TLS identity. `zig build bench-memory` prints the static
+  Zig, h2load, curl, python3, and Go to mint the TLS identity. `zig build bench-memory` prints the static
   memory per connection for the objects the build targets (design §8 step 13b), and `zig build
   test` fails when `docs/performance.md`'s table for those objects differs from it.
   `bench/run.sh --latency [--rounds <n>] [report.md]` runs `bench/run_latency.sh` instead: oha,

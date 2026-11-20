@@ -13,7 +13,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  ten inputs, four more with `--h11`, and two more with `--h3`:
+  eleven inputs, four more with `--h11`, and two more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
@@ -33,6 +33,9 @@ Performance section states the rules, and design §11 holds the method's numbers
     `send` calls. h2load sends 2,000 requests a round, a tenth of h2-many's. They count what a
     large response costs, which the owner asked for on 2026-11-19 (design §8 step 13n). Only
     colibri's servers answer them.
+  - `h2-coded-many`: h2-many against the server with `--coded`, and each request accepts gzip, so
+    each answer goes out coded in gzip. It counts what a coded response costs, which the owner
+    asked for on 2026-11-19 (design §8 step 13t). Only colibri's servers answer it.
   - `h11-many`, `h11-tls-many`, `h11-one` and `h11-tls-one`: the same four loads over h11, which
     wrk sends, as the baselines below describe (design §8 step 13g).
   - `h3-many` and `h3-one`: the same two loads over h3, against the test-only UDP server in its

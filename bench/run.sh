@@ -16,6 +16,8 @@
 # h2-large-many and h2-tls-large-many answer every GET with a body longer than the server's output,
 # from the server with `--body`, so the judge counts what a large response costs (design §8 step
 # 13n). A tree whose server does not take the option does not run them.
+# h2-coded-many asks for gzip, from the server with `--coded`, which codes each answer, so the
+# judge counts what a coded response costs (design §8 step 13t).
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
@@ -34,8 +36,8 @@
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
 # thread's /proc schedstat: its numbers order candidates on a laptop and are never published
 # (docs/performance.md).
-# It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
-# wrk and curl with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
+# It needs Zig, h2load, curl, python3, and Go for the TLS identity unless BENCH_IDENTITY names one,
+# and wrk with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
 # hyper, and with --h3 axum, and BENCH_ZIG_HTTPZ naming the Zig 0.17.1 that builds http.zig.
 # BENCH_HYPER, BENCH_AXUM and BENCH_HTTPZ name servers built already. Ubuntu's and Debian's h2load have no HTTP/3, so --h3
 # runs the image tools/h3load/Dockerfile builds, on the load generator's cores, and needs Docker;
@@ -100,7 +102,7 @@ readonly warm_requests=2000
 # h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
 readonly ready_seconds=1
-inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many h2-large-many h2-tls-large-many)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many h2-k8s-routes-many h2-routes-post-many h2-routes-post-late-many h2-large-many h2-tls-large-many h2-coded-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 # --throughput loads the inputs of many requests on each connection alone (design §8 step 13q).
@@ -124,6 +126,9 @@ readonly wrk_threads=2
 # The one TLS 1.3 suite h2load offers, so that every server runs the same cipher: colibri's server
 # chooses by its own order, which puts this suite first, and nginx and h2o follow the client's.
 readonly tls_suite=TLS_AES_256_GCM_SHA384
+# The field each request of h2-coded-many carries: gzip, one of the two codings the server writes
+# (decision 101).
+readonly coded_accept="accept-encoding: gzip"
 # The h3 pieces: the load of the h3 inputs, colibri's UDP servers and quic-go's container.
 # shellcheck source-path=SCRIPTDIR source=run_h3.sh
 source "$repository_root/bench/run_h3.sh"
@@ -173,6 +178,7 @@ offer_of() {  # offer_of <input>
   case "$1" in
     *-routes-post-late-*) offer+=(-d "$scratch/post_late.bin") ;;
     *-routes-post-*) offer+=(-d "$scratch/post_small.bin") ;;
+    *-coded-*) offer+=(-H "$coded_accept") ;;
   esac
 }
 
@@ -186,7 +192,7 @@ serves() {  # serves <variant> <input>
     base) serves_colibri "$base_server" "$2" ;;
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
     fasthttp) [[ "$2" == h11-* ]] ;;
-    nginx | h2o | hyper | nethttp | fastify) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* ]] ;;
+    nginx | h2o | hyper | nethttp | fastify) [[ "$2" != h3-* && "$2" != *-routes-* && "$2" != *-large-* && "$2" != *-coded-* ]] ;;
     quic-go | axum) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac
@@ -244,59 +250,15 @@ case "\$1" in
     h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
   # Answers longer than the server's output (design §8 step 13n).
   *-large-many) h2load "\${options[@]}" -n ${large_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
+  # Answers coded in gzip, which each request accepts (design §8 step 13t).
+  *-coded-many) h2load -H "${coded_accept}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-one) for _ in \$(seq 1 ${one_runs}); do h2load "\${options[@]}" -n ${one_clients} -c ${one_clients} "\$target"; done ;;
 esac
 EOF
 
-# h2load exits 0 even when every request fails, so each use of it here reads the count it reports.
-# The output is read whole, because a reader that stops at the first match ends h2load early.
-# <seconds> bounds h2load's run, and 0 leaves it unbounded.
-succeeded() {  # succeeded <requests> <input> <seconds> <h2load arguments...>: whether all succeeded
-  local requests="$1" input="$2" bound=() output
-  if [ "$3" -gt 0 ]; then bound=(timeout "$3"); fi
-  shift 3
-  case "$input" in
-    h3-*) output="$("${h3_shell[@]}" "${bound[*]} h2load --alpn-list=h3 --tls13-ciphers=${tls_suite} $*" 2>/dev/null)" || true ;;
-    *) output="$("${bound[@]}" h2load "$@" 2>/dev/null)" || true ;;
-  esac
-  [[ "$output" == *", ${requests} succeeded, 0 failed,"* ]]
-}
-
-# Whether wrk's report <output> shows answers, none outside 2xx and 3xx, and no socket error but
-# the read errors that a server's close after `Connection: close` counts as.
-wrk_clean() {  # wrk_clean <output>
-  [[ "$1" == *" requests in "* && "$1" != *"Non-2xx or 3xx responses"* ]] || return 1
-  [[ "$1" != *"Socket errors:"* || "$1" == *"Socket errors: connect 0, read "*", write 0, timeout 0"* ]]
-}
-
-# Whether <variant>'s server answers one request for <input>: curl for h11, as wrk speaks it, and
-# h2load for h2 and h3, which may take ready_seconds.
-answers() {  # answers <variant> <input>
-  local offer
-  case "$2" in
-    h11-*)
-      [ "$(curl -sk --http1.1 --tls13-ciphers "$tls_suite" -o /dev/null -w '%{http_code}' "$(url "$1" "$2")")" = 200 ]
-      ;;
-    *)
-      offer_of "$2"
-      succeeded 1 "$2" "$ready_seconds" "${offer[@]}" -n 1 -c 1 "$(url "$1" "$2")"
-      ;;
-  esac
-}
-
-# Whether <variant>'s warm-up for <input> answers every request: load.sh's wrk for
-# h11_warm_seconds, or h2load.
-warms() {  # warms <variant> <input>
-  local offer
-  case "$2" in
-    h11-*) wrk_clean "$(bash "$scratch/load.sh" "$2" "$(port_of "$1")" "$h11_warm_seconds" 2>/dev/null || true)" ;;
-    *)
-      offer_of "$2"
-      succeeded "$warm_requests" "$2" 0 "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$1" "$2")"
-      ;;
-  esac
-}
+# shellcheck source-path=SCRIPTDIR source=run_ready.sh
+source "$repository_root/bench/run_ready.sh"
 
 fail() {  # fail <message> <server log>
   save_container_log
@@ -331,6 +293,7 @@ start_server() {  # start_server <variant> <input> <log>
   done
   [ -n "$ready" ] || fail "$1 answered no request for $2 in $ready_tries tries" "$3"
   warms "$1" "$2" || fail "the warm-up of $1 for $2 did not succeed in full" "$3"
+  codes "$1" "$2" || fail "$1 did not code its answer for $2" "$3"
 }
 
 stop_server() {

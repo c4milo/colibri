@@ -36,12 +36,14 @@ usage_names() {  # usage_names <path> <word>
 }
 
 # Whether colibri's test-only server at <path> serves <input>: one that names the Kubernetes API's
-# routes serves that input (design §8 step 13l), and one that takes --body the large inputs (design
-# §8 step 13n). A base tree from before either step does not.
+# routes serves that input (design §8 step 13l), one that takes --body the large inputs (design §8
+# step 13n), and one that takes --coded the coded input (design §8 step 13t). A base tree from
+# before such a step does not.
 serves_colibri() {  # serves_colibri <path> <input>
   case "$2" in
     *-k8s-routes-*) usage_names "$1" kubernetes ;;
     *-large-*) usage_names "$1" --body ;;
+    *-coded-*) usage_names "$1" --coded ;;
     *) true ;;
   esac
 }
@@ -104,6 +106,7 @@ server_command() {  # server_command <variant> <input>
         *-k8s-routes-*) command+=(--routes kubernetes) ;;
         *-routes-*) command+=(--routes github) ;;
         *-large-*) command+=(--body "$large_body_len") ;;
+        *-coded-*) command+=(--coded) ;;
       esac
       ;;
   esac
