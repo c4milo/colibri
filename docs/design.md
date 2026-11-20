@@ -5984,7 +5984,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       out coded: h2load counted 560,000 octets of data, 28 for each answer. That ran in an ubuntu
       24.04 container on the laptop.
     - **Check:** in that container, `codes` passed against the server with `--coded` and failed
-      against the server without it.
+      against the server without it. The judge's first run with the input, 44661604715, is
+      recorded under step 67: `codes` passed for both trees in both jobs.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
@@ -17447,6 +17448,14 @@ library.
     load in an ubuntu 24.04 container, seven rounds in turns. A coded response took 26,726 ns of
     the server's CPU at `7b06f5bd` and 7,073 ns with the change, medians. An uncoded response
     took 1,612 ns and 1,624 ns.
+  - **Checked, 2026-11-19,** on `627e8a97`:
+    - The judge measured it against `7b06f5bd`
+      ([run 44661604715](https://github.com/c4milo/colibri/actions/runs/44661604715)).
+      h2-coded-many wins in both jobs, 0.4180 and 0.4182. A coded response took 112,910 and
+      112,871 instructions, and 47,199 and 47,197 with the change. Its CPU time went from 17,462
+      and 12,833 ns to 5,378 and 5,442 ns. Every other input is within the noise, and none loses.
+    - `tools/ci.sh` passed 33 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. The server
+      tests passed on x86-64 Debug in an amd64 container.
 
 ## 9. Test-only entry points
 
