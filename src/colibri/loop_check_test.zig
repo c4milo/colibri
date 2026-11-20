@@ -157,7 +157,7 @@ const later: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = later_ns }
 
 /// A CPU with no fast path, which each TLS configuration names.
 const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no },
+    .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
     .timing = .not_stated,
 };
 
