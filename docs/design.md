@@ -17390,6 +17390,19 @@ library.
     every owed frame; no frame after the STREAM frames; a frame after them in a packet that
     elicits nothing; half the count taken as above half; a lost frame left to wait; a lost frame
     not owed.
+  - **Checked, 2026-11-19,** on `3c43557d`:
+    - The judge measured it against `eb26cf67`, with the h11 and h3 inputs
+      ([run 44643486991](https://github.com/c4milo/colibri/actions/runs/44643486991)).
+      h3-bbr-many wins in both jobs, 0.9756 and 0.9834. Every other input is within the noise,
+      and none loses.
+    - The latency run ([44643499229](https://github.com/c4milo/colibri/actions/runs/44643499229))
+      against the one before the step ([44619128899](https://github.com/c4milo/colibri/actions/runs/44619128899)),
+      both jobs. At 2,000 requests a second an h3 request took 2.48 and 2.49 datagrams with
+      colibri, where it took 3.88 and 3.93, and 2.60 with axum. At 40,000, it took 2.05 and 2.08,
+      where it took 2.29 and 2.39, and 2.13 with axum. colibri's core was busy 0.53 and 0.56 at
+      40,000, where it was 0.67 and 0.61. The p99 stayed within the rounds' spread.
+    - `tools/ci.sh` passed 33 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. The quic
+      tests passed on x86-64 Debug in an amd64 container.
 
 ## 9. Test-only entry points
 
