@@ -17474,6 +17474,11 @@ library.
     (chapulin's decision 158), and the judge's h2load offers no ML-KEM, so it shows the cost and
     not the gain. The owner ruled on 2026-11-19 to ask chapulin to split the bit, and to apply
     the rule once a chapulin release does. Until then colibri keeps the SHA-3 claim on an N2.
+  - **Checked, 2026-11-20,** on `88ed25e6`: the judge against `27c6e5f0`, with the h11 and h3
+    inputs, found every input within the noise in both jobs
+    ([run 44668386611](https://github.com/c4milo/colibri/actions/runs/44668386611)).
+    h2-tls-large-many was at 1.0017 and 1.0000. `tools/ci.sh` passed 33 sections, with Zig 0.16.0
+    on an Apple M1 Pro with macOS.
 
 ## 9. Test-only entry points
 
