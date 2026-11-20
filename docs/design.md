@@ -17437,7 +17437,7 @@ library.
     the state its encoder reads. A test requires it: a slot filled with 0 and then with 255 codes
     the same octets, at level 1 and at the default level 6, in gzip and in deflate.
   - h11's decoder pool changes its union the same way, 44,312 octets for each coded message
-    (`begin_stream` in `src/h11/coding.zig`). This step leaves it.
+    (`begin_stream` in `src/h11/coding.zig`). This step leaves it, and step 69 removes it.
   - **Check:** the test above and the two tests of `coding_pool.zig` that read the coded octets
     back. Five mutations, each CAUGHT: `take` starts no gzip encoder; `take` starts no deflate
     encoder; `take` starts a zlib encoder for gzip; a deflate slot encodes with the gzip
@@ -17479,6 +17479,34 @@ library.
     ([run 44668386611](https://github.com/c4milo/colibri/actions/runs/44668386611)).
     h2-tls-large-many was at 1.0017 and 1.0000. `tools/ci.sh` passed 33 sections, with Zig 0.16.0
     on an Apple M1 Pro with macOS.
+- **Step 69 — an h11 decoder starts in place, with no fill, 2026-11-19.** The owner asked for it
+  on 2026-11-19, the last of the four findings that step 67's frame scan left.
+  - **The cost.** `begin_stream` made the slot's union hold the coding's decoder with
+    `slot.decoder = .{ .gzip = undefined }`, as step 67's encoder did. In a ReleaseSafe
+    aarch64-linux build of `8995a305`, it wrote 44,312 octets of 0xAA for gzip and 44,296 for
+    deflate, at each stream and each gzip member.
+    - A server pays it for each h11 request body whose transfer coding is gzip or deflate.
+    - A client pays it for each response coded in gzip or deflate, in any version.
+  - **The change.** A slot holds its decoder as octets of the larger type's size and alignment.
+    `gzip_decoder` and `zlib_decoder` give the decoder as its type, and each asserts the
+    message's coding and its slot. `begin_stream` starts the decoder in place through them.
+    `h11.coding.Slot` is a public name, so its field `decoder` changes type. No code outside
+    `coding.zig` reads that field, and the client's pool has a `Slot` of its own.
+  - A test requires that a slot filled with 0 and then with 255 decodes the same text, in gzip and
+    in deflate, in pieces of 7 octets.
+  - **Check:** five mutations, each CAUGHT: no gzip decoder start; no deflate decoder start; a
+    zlib decoder started for gzip; deflate decoded by the gzip decoder; and the gzip size check
+    adding 4 octets of the window's end, which `init` never writes. Only the new test catches the
+    last.
+  - **No judge number.** The judge times colibri's servers under loads that send no coded body,
+    and it times no client. The owner chose to admit the step on its disassembly: in the
+    ReleaseSafe aarch64-linux builds of `http-client` and `http-server`, no coding function holds
+    a 0xAA fill now.
+  - A filter on the laptop, never published: the ReleaseSafe test-only client, in blocks of 100
+    runs of 16 GETs whose answers came coded in gzip, six blocks in turns in an ubuntu 24.04
+    container. A block took 0.9545 s of user time before the step and 0.929 s with it, medians:
+    about 16 µs for each answer. The test-only client exports no `memset` of its own, so
+    compiler_rt's serves the fill, one octet at a time.
 
 ## 9. Test-only entry points
 

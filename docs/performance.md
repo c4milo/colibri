@@ -350,7 +350,8 @@ With chapulin's host objects:
   wrote 299,768 octets of 0xAA before its encoder started. Cause: `.{ .gzip = undefined }` names a
   payload of that size, and ReleaseSafe writes 0xAA over all of it. Rule: hold a large payload
   that changes type as octets beside a tag of its own, and start it in place through a pointer of
-  its type. Design §8 step 67 has the numbers.
+  its type. Design §8 step 67 has the numbers, and step 69 removes the same fill from h11's
+  decoders.
 - **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that
   had not started, and 0 of 20,000 requests succeeded. Cause: h2load exits 0 even when every
   request fails, so a readiness check on its status passes at once. Rule: read the count h2load

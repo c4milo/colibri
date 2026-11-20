@@ -41,8 +41,29 @@ const no_slot: Index = std.math.maxInt(Index);
 pub const Slot = struct {
     /// The next free slot, while this one is free.
     next: Index,
-    decoder: union { gzip: gzip.Decoder, zlib: zlib.Decoder },
+    /// A `gzip.Decoder` or a `zlib.Decoder`, as the coding of the message that holds the slot
+    /// names, which `begin_stream` starts in place. A union writes its whole payload to change
+    /// its field, and ReleaseSafe writes 0xAA over an `undefined` payload: 44,312 octets on each
+    /// stream (design §8 step 69).
+    decoder: [decoder_len]u8 align(decoder_alignment),
 };
+
+const decoder_len = @max(@sizeOf(gzip.Decoder), @sizeOf(zlib.Decoder));
+const decoder_alignment = @max(@alignOf(gzip.Decoder), @alignOf(zlib.Decoder));
+
+/// The gzip decoder of the slot that `decoding`, a message coded in gzip, holds.
+fn gzip_decoder(decoding: *const Decoding, storage: Storage) *gzip.Decoder {
+    assert(decoding.slot != no_slot);
+    assert(decoding.coding == .gzip);
+    return @ptrCast(&storage.slots[decoding.slot].decoder);
+}
+
+/// The zlib decoder of the slot that `decoding`, a message coded in deflate, holds.
+fn zlib_decoder(decoding: *const Decoding, storage: Storage) *zlib.Decoder {
+    assert(decoding.slot != no_slot);
+    assert(decoding.coding == .deflate);
+    return @ptrCast(&storage.slots[decoding.slot].decoder);
+}
 
 /// What the pool keeps beside its slots.
 pub const Header = struct {
@@ -173,12 +194,11 @@ pub const Decoding = struct {
                 return error.CodingTrailing;
             }
         }
-        const slot = &storage.slots[decoding.slot];
         const progress = switch (decoding.coding) {
-            .gzip => slot.decoder.gzip.decode(input, output) catch |failure| {
+            .gzip => gzip_decoder(decoding, storage).decode(input, output) catch |failure| {
                 return refused(gzip.refusal(failure));
             },
-            .deflate => slot.decoder.zlib.decode(input, output) catch |failure| {
+            .deflate => zlib_decoder(decoding, storage).decode(input, output) catch |failure| {
                 return refused(zlib.refusal(failure));
             },
             .none => unreachable,
@@ -221,16 +241,9 @@ pub const Progress = struct {
 
 /// Starts the decoder on a stream, or on the next member of a gzip body.
 fn begin_stream(decoding: *Decoding, storage: Storage) void {
-    const slot = &storage.slots[decoding.slot];
     switch (decoding.coding) {
-        .gzip => {
-            slot.decoder = .{ .gzip = undefined };
-            slot.decoder.gzip.init(storage.header.features);
-        },
-        .deflate => {
-            slot.decoder = .{ .zlib = undefined };
-            slot.decoder.zlib.init(storage.header.features);
-        },
+        .gzip => gzip_decoder(decoding, storage).init(storage.header.features),
+        .deflate => zlib_decoder(decoding, storage).init(storage.header.features),
         .none => unreachable,
     }
     decoding.stream_ended = false;
@@ -426,4 +439,32 @@ test "decision 158 ruling 10: init frees every slot and sets the features, and a
     const written = try decode_in_pieces(&decoding, storage, coded, coded.len, &decoded);
     try testing.expectEqualStrings(test_text, decoded[0..written]);
     try decoding.finish(storage);
+}
+
+/// The octets the next test writes over a free slot's decoder before a message takes it.
+const test_fills = [_]u8{ 0, std.math.maxInt(u8) };
+/// The octets of each piece the next test decodes: fewer than a gzip header's 10 (RFC 1952
+/// §2.3), so the header spans pieces.
+const test_piece_len: usize = 7;
+
+/// Decodes `coded` in `coding` once after each of `test_fills` fills the decoder of the slot that
+/// the message takes, and requires `test_text` each time, in pieces of `test_piece_len`.
+fn expect_fill_ignored(coding: message.Coding, coded: []const u8) !void {
+    test_pool.init(Features.none());
+    const storage = test_pool.storage();
+    for (test_fills) |fill| {
+        @memset(&storage.slots[storage.header.free_head].decoder, fill);
+        var decoding: Decoding = .{};
+        try decoding.start(storage, coding);
+        var decoded: [test_room]u8 = undefined;
+        const written = try decode_in_pieces(&decoding, storage, coded, test_piece_len, &decoded);
+        try testing.expectEqualStrings(test_text, decoded[0..written]);
+        try decoding.finish(storage);
+    }
+}
+
+test "design §8 step 69: what a slot held before a message changes no octet its decoder writes" {
+    var coded_room: [test_room]u8 = undefined;
+    try expect_fill_ignored(.gzip, try gzip_of(test_text, &coded_room));
+    try expect_fill_ignored(.deflate, try zlib_of(test_text, &coded_room));
 }
