@@ -88,7 +88,7 @@ pub fn DatagramSockets(comptime count: u32) type {
             assert(sockets.served);
             sockets.first_slot = first_slot;
             stop_receivers(&sockets.receivers);
-            sockets.batches = .init(segments);
+            sockets.batches.init(segments);
         }
 
         /// Whether a socket is open that sends to `to`: the server's one, or the client's socket

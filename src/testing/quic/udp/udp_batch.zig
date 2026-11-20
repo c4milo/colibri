@@ -63,10 +63,13 @@ pub const Batches = struct {
     /// a server given `no-gso`.
     segments: bool = segmented,
 
-    /// Empty batches, which take a second datagram when the kernel has UDP_SEGMENT and the server
-    /// was not given `no-gso`.
-    pub fn init(segments: bool) Batches {
-        return .{ .segments = segmented and segments };
+    /// Frees every batch in place, and lets a batch take a second datagram when the kernel has
+    /// UDP_SEGMENT and the server was not given `no-gso`. The batches hold about 1 MiB, so `init`
+    /// writes them through the pointer: a returned value took 1 MiB of the caller's stack frame.
+    pub fn init(batches: *Batches, segments: bool) void {
+        // Bounded by the batches.
+        for (&batches.batches) |*batch| batch.state = .free;
+        batches.segments = segmented and segments;
     }
 
     /// Whether a batch is free, so that a datagram the endpoint gives now has a place.
@@ -100,6 +103,15 @@ pub const Batches = struct {
 
 const testing = std.testing;
 
+/// The batches each test fills, outside any stack frame: they hold about 1 MiB. Test-only.
+threadlocal var test_batches: Batches align(@alignOf(Batches)) = undefined;
+
+/// `test_batches`, which `init` starts with `segments`.
+fn started_batches(segments: bool) *Batches {
+    test_batches.init(segments);
+    return &test_batches;
+}
+
 /// Two peers and the datagrams a test adds. Test-only.
 const loopback_word: u32 = 0x7f00_0001;
 const loopback: [@sizeOf(u32)]u8 = @bitCast(std.mem.nativeToBig(u32, loopback_word));
@@ -123,52 +135,52 @@ fn open_count(batches: *const Batches) usize {
 }
 
 test "design §8 step 13f.6: datagrams of one peer join one batch, and another peer's start another" {
-    var batches: Batches = .{};
+    const batches = started_batches(true);
     batches.add(sent_of(&full, peer_a));
     batches.add(sent_of(&full, peer_b));
     batches.add(sent_of(&full, peer_a));
     batches.add(sent_of(&short, peer_a));
-    if (!segmented) return testing.expectEqual(4, open_count(&batches));
-    try testing.expectEqual(2, open_count(&batches));
+    if (!segmented) return testing.expectEqual(4, open_count(batches));
+    try testing.expectEqual(2, open_count(batches));
     const first = &batches.batches[0];
     try testing.expectEqual(3, first.count);
     try testing.expectEqual(2 * full.len + short.len, first.len);
     try testing.expectEqual(full.len, first.segment_bytes());
     // The shorter datagram closed the batch, so the next one of peer A starts another.
     batches.add(sent_of(&full, peer_a));
-    try testing.expectEqual(3, open_count(&batches));
+    try testing.expectEqual(3, open_count(batches));
     try testing.expectEqual(0, batches.batches[1].segment_bytes());
 }
 
 test "design §8 step 13f.6: a longer datagram starts a batch, and a full batch takes no more" {
-    var batches: Batches = .{};
+    const batches = started_batches(true);
     batches.add(sent_of(&short, peer_a));
     batches.add(sent_of(&full, peer_a));
-    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(2, open_count(batches));
     if (!segmented) return;
-    batches = .{};
+    batches.init(true);
     for (0..constants.udp_segments_max) |_| batches.add(sent_of(&short, peer_a));
-    try testing.expectEqual(1, open_count(&batches));
+    try testing.expectEqual(1, open_count(batches));
     try testing.expectEqual(constants.udp_segments_max, batches.batches[0].count);
     batches.add(sent_of(&short, peer_a));
-    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(2, open_count(batches));
 }
 
 test "design §8 step 13f.6: a batch holds no more octets than one send carries" {
     if (!segmented) return;
-    var batches: Batches = .{};
+    const batches = started_batches(true);
     const per_batch = constants.udp_segmented_bytes_max / full.len;
     for (0..per_batch + 1) |_| batches.add(sent_of(&full, peer_a));
-    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(2, open_count(batches));
     try testing.expectEqual(per_batch, batches.batches[0].count);
 }
 
 test "design §8 step 13f.6: a sending batch takes nothing, and is free once released" {
-    var batches: Batches = .{};
+    const batches = started_batches(true);
     batches.add(sent_of(&full, peer_a));
     batches.batches[0].state = .sending;
     batches.add(sent_of(&full, peer_a));
-    try testing.expectEqual(1, open_count(&batches));
+    try testing.expectEqual(1, open_count(batches));
     try testing.expectEqual(Batch.State.open, batches.batches[1].state);
     batches.release(0);
     try testing.expect(batches.has_free());
@@ -176,19 +188,19 @@ test "design §8 step 13f.6: a sending batch takes nothing, and is free once rel
 }
 
 test "design §8 step 13i: without segments, each datagram of one peer is a batch of its own" {
-    try testing.expectEqual(segmented, Batches.init(true).segments);
-    var batches = Batches.init(false);
+    try testing.expectEqual(segmented, started_batches(true).segments);
+    const batches = started_batches(false);
     batches.add(sent_of(&full, peer_a));
     batches.add(sent_of(&full, peer_a));
-    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(2, open_count(batches));
     try testing.expectEqual(1, batches.batches[0].count);
     try testing.expectEqual(0, batches.batches[0].segment_bytes());
 }
 
 test "design §8 step 13f.6: datagrams of one peer with another codepoint start another batch" {
-    var batches: Batches = .{};
+    const batches = started_batches(true);
     batches.add(sent_of(&full, peer_a));
     batches.add(.{ .bytes = &full, .ecn = .ect_0, .to = peer_a });
-    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(2, open_count(batches));
     try testing.expectEqual(Ecn.ect_0, batches.batches[1].ecn);
 }
