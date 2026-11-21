@@ -17507,6 +17507,23 @@ library.
     container. A block took 0.9545 s of user time before the step and 0.929 s with it, medians:
     about 16 µs for each answer. The test-only client exports no `memset` of its own, so
     compiler_rt's serves the fill, one octet at a time.
+- **Step 70 — chapulin v0.10.0, 2026-11-21.** colibri moves from chapulin v0.8.0 (`c45f661d`) to
+  v0.10.0 (`f7c5360b`), past v0.9.0 and v0.9.1, so that a program on colibri can pin the newest
+  chapulin.
+  - **The change.** No call of chapulin changes its arguments in the three releases, and no
+    source of colibri changes. chapulin v0.9.0 makes a QUIC host session with AES-GCM 1,536
+    octets smaller (its decision 234, addendum). So `tls.quic.Client` goes from 103,160 octets
+    to 101,624, and `tls.quic.Server` from 94,464 to 92,928. Each row of the memory table that
+    holds a QUIC session follows, and no TCP row moves.
+  - **What colibri does not take yet.** v0.10.0 adds `CH_CPU_SVE2`, which runs ChaCha20 on SVE2
+    on an arm64 CPU that has it (its decision 242). `cpu_of` leaves the bit clear, so a session
+    runs the NEON path, as before. stdx's probe answers `sve2` since step 68, and the claim
+    waits for a judge run on a CPU with SVE2. The N2 rule of step 68 still waits too: no
+    chapulin release splits the SHA-3 bit yet.
+  - **Checked, 2026-11-21,** on x86-64 Linux with Zig 0.16.0: `zig build test` passed 4,255 of
+    4,256 tests before the pin, and the same with it. The one test that failed opens a UDP
+    socket of each family, and that host gives no IPv6 socket. No judge ran, and `tools/ci.sh`
+    did not run.
 
 ## 9. Test-only entry points
 
