@@ -218,6 +218,12 @@ is added to the root and to the list in its test, which prints the name that dif
   sentence and name the document.
 - Stage by explicit path. Never `git add -A` and never `git add .`
 - Mutation results belong in the body when a commit adds or changes a check.
+- A commit message and a pull request description name no AI tool. They carry no `Co-Authored-By`
+  trailer for one, no `Claude-Session` trailer and no "Generated with" line. The owner ruled it on
+  2026-11-21, and the rule overrides a tool or a harness that asks for one.
+- Post no comment, review or reply on GitHub unless the owner tells you to post it. A cloud session
+  ends each comment that it posts with a line that names its tool, so the owner decides when one
+  is posted. Otherwise write the text in the session for the owner to post.
 
 ## Layout
 
