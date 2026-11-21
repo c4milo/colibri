@@ -5826,6 +5826,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       [44625801787](https://github.com/c4milo/colibri/actions/runs/44625801787), the competitors;
       [44625817873](https://github.com/c4milo/colibri/actions/runs/44625817873), the throughput;
       and [44625833094](https://github.com/c4milo/colibri/actions/runs/44625833094), the latency.
+    - On 2026-11-21 the owner asked for the charts again after the pin of chapulin v0.10.0 (step
+      70). They come from job 1 of three runs on `b00ebe04`, a commit of a branch and not a
+      release tag: [44945156079](https://github.com/c4milo/colibri/actions/runs/44945156079), the
+      competitors; [44945169194](https://github.com/c4milo/colibri/actions/runs/44945169194), the
+      throughput; and [44945171675](https://github.com/c4milo/colibri/actions/runs/44945171675),
+      the latency. Each other server is at the version of the v0.19.0 runs. The next release tag
+      draws the charts again.
+      - The CPU chart's title does not change.
+      - The throughput chart's title changes over h11 with TLS: colibri now ties with fasthttp
+        there. colibri served 124,621 requests a second against 126,142 on v0.19.0, inside its
+        spread of 3.6%. fasthttp served 120,205 against 112,775, and hyper 118,749 against
+        113,232. Job 2 of the run gave colibri 123,391, fasthttp 117,611 and hyper 115,628.
+      - The latency chart shows a lower highest rate over h11: 40,000 requests a second for
+        colibri and for axum, where v0.19.0's run gave 80,000 for each. At 80,000 colibri's p99
+        was 10.58 ms and axum's 15.16 ms, against the bound of 10 ms. Job 2 of the run gave
+        80,000 for each again.
+      - Job 1's runner was slower for every server. From 2,000 to 40,000 requests a second, the
+        median of the new p50 over v0.19.0's is 1.06 for axum, 1.05 for chi and 1.08 for
+        colibri. In job 2 it is 1.02, 1.06 and 1.03. `--latency` measures no base in turns, so no
+        latency ratio pairs two builds on one runner. The h11 and h2 loads run no TLS, so chapulin
+        takes no part in them.
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
       synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
       ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
@@ -17522,8 +17543,19 @@ library.
     chapulin release splits the SHA-3 bit yet.
   - **Checked, 2026-11-21,** on x86-64 Linux with Zig 0.16.0: `zig build test` passed 4,255 of
     4,256 tests before the pin, and the same with it. The one test that failed opens a UDP
-    socket of each family, and that host gives no IPv6 socket. No judge ran, and `tools/ci.sh`
-    did not run.
+    socket of each family, and that host gives no IPv6 socket. `tools/ci.sh` did not run.
+  - **Judged, 2026-11-21,** on the `ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Run
+    [44945153319](https://github.com/c4milo/colibri/actions/runs/44945153319) measured the pin,
+    `b00ebe04`, in turns with main at `4ce77fa6`, with `h11` and `h3`, in 5 rounds.
+    - Each of its two jobs judged each of the 19 inputs within the noise by instructions. Each
+      judged the four h11 inputs within the noise by user instructions too.
+    - The three inputs that count a TLS handshake moved least. `h11-tls-one` gave 0.9995 and
+      0.9981 of the base's instructions, `h2-tls-one` 0.9993 and 0.9986, and `h3-one` 0.9999 and
+      0.9966.
+    - The largest differences were on inputs with a wide noise: 0.9605 on `h2-large-many` under
+      a noise of 7.85%, and 0.9783 on `h11-one` under 6.78%.
+    - So the pin wins nothing and loses nothing on the judge. It stays for what a program that
+      names chapulin gets from it.
 
 ## 9. Test-only entry points
 
