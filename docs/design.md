@@ -16132,6 +16132,31 @@ library.
       - GitHub's run passed: the `checks` job on x86-64 Linux, with the line coverage check, and
         the `arm64` jobs on Linux and macOS
         ([run 43993121130](https://github.com/c4milo/colibri/actions/runs/43993121130)).
+  - **The close after the shutdown, 2026-11-22.** A fix of decision 160's staged close, after
+    connect-zig's conformance suite read "unexpected EOF" over h11.
+    - **The fault.** A socket that failed while its shutdown was in flight wrote its close at
+      once. Rotor's close first cancels each operation on the descriptor, and then closes it.
+      That cancel does not find a shutdown that has not started. io_uring runs a shutdown on a
+      worker thread, and the worker looks up the descriptor only when it starts: Linux 6.18's
+      `io_shutdown_prep` sets `REQ_F_FORCE_ASYNC`, and a cancel by descriptor matches a request
+      by its file. So the close freed the descriptor's number first. The next accept could take
+      the number, and the shutdown then ended the write side of that new connection. Its client
+      read a FIN and no response.
+    - **How it showed.** connectrpc's conformance suite v1.0.7 failed one h11 case in about one
+      run of three, on connect-zig's server over v0.19.0. A capture showed the server read a
+      whole request and then sent a FIN with no octet of a response. Prints in `colibri.Server`
+      then showed socket 9 shut down descriptor 14, failed, and closed it. Socket 10 accepted a
+      connection on descriptor 14, and socket 9's shutdown completed after that. Socket 10's
+      first send then failed with a reset.
+    - **The change.** `socket.zig`'s `arm` writes no close while `shutting_down`. The shutdown's
+      completion steps the socket, and the close follows. `src/testing`'s server socket does the
+      same through `close_due`, and its `arm` takes any loop, so a test records what it submits.
+    - **The tests:** one in `socket.zig`, and two in `server_socket.zig`. One in
+      `server_half_close_test.zig` takes the place of the test that wrote the close while the
+      shutdown was in flight.
+    - **Mutations, 4 of 4 CAUGHT:** the library's close ignores the shutdown in flight;
+      `close_due` ignores it; the test server's `arm` submits a receive while the socket ends;
+      and the test server ends before its octets are out.
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.

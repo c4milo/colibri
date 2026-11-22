@@ -140,20 +140,23 @@ test "decision 160: the write side closes once the response is out, and a failed
     try testing.expect(!test_server.entries[0].attached);
 }
 
-test "decision 160: a socket whose close completes before its shutdown is free once the shutdown ends" {
+test "decision 160: a socket that fails while its shutdown is in flight closes once the shutdown ends" {
     var counter: support.Counter = .{};
     try start_server(&counter, &router, &context);
     var operations: [operations_len]host.Operation = undefined;
     const shutdown = try send_response(&operations);
-    // The peer resets the connection while the shutdown is in flight, so the socket closes.
+    // The peer resets the connection while the shutdown is in flight, so the socket fails. The
+    // close waits for the shutdown: a close that ran first would free the descriptor's number
+    // for the next accept, and the shutdown would then end that connection's write side.
     const receive_id = test_server.operations.id(socket_module.slot_of(0, .receive));
     test_server.complete(&.{ .id = receive_id, .result = .{ .failed = .reset } }, now_ns);
+    try testing.expectError(error.OperationMissing, turn_for(&operations, .close));
+    try testing.expect(test_server.sockets[0].failed and test_server.sockets[0].live);
+    test_server.complete(&.{ .id = shutdown.id, .result = .shut_down }, now_ns);
     const close = try turn_for(&operations, .close);
-    // Decision 159, rule 2: the close may complete before the shutdown that it ended.
-    test_server.complete(&.{ .id = close.id, .result = .closed }, now_ns);
-    _ = test_server.turn(now_ns, &operations);
+    // Decision 159, rule 2: the socket is free once each operation had its final completion.
     try testing.expect(test_server.sockets[0].live);
-    test_server.complete(&.{ .id = shutdown.id, .result = .canceled }, now_ns);
+    test_server.complete(&.{ .id = close.id, .result = .closed }, now_ns);
     _ = test_server.turn(now_ns, &operations);
     try testing.expect(!test_server.sockets[0].live);
 }
