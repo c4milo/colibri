@@ -1134,6 +1134,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     the quick tier on each push, which the first ruling chose. Entry 67 as amended a second time
     gives the cost.
 
+    Amended by the owner on 2026-11-22: the two jobs that run on each push to main, `tools/ci.sh
+    (x86-64 Linux)` and `zig build test (arm64 ...)`, run on each pull request to main too.
+
+    - A change is checked before it merges. Until then CI ran only once a change was on main, so
+      [#145](https://github.com/c4milo/colibri/pull/145) merged with no run of CI.
+    - Each job has a queue for each ref. Main keeps one run at a time, as before. A pull request
+      never waits for main's run, and a new push to it ends its older run.
+    - The weekly jobs and the nightly job do not run on a pull request.
+    - A rule of the repository, and not this workflow, makes the two jobs required for a merge.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three
