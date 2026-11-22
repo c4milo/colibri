@@ -177,13 +177,29 @@ pub const Socket = struct {
         socket.output_len += written;
     }
 
-    /// Submits what the socket needs next: its close once it is failed or closing and drained,
-    /// otherwise a send of what is owed and a receive while there is room for more. `index` is
-    /// where its worker holds it, which each operation's user data names.
-    pub fn arm(socket: *Socket, loop: *rotor.Loop, index: usize) void {
+    /// Whether the socket ends: it failed, or it is closing and its octets are out.
+    fn ending(socket: *const Socket) bool {
+        return socket.failed or (socket.closing and socket.output_sent == socket.output_len);
+    }
+
+    /// Whether the socket submits its close now: it ends, and no shutdown is in flight. io_uring
+    /// runs a shutdown on a worker thread, which finds the descriptor only when it starts, so the
+    /// cancel before Rotor's close does not end it. A close that runs first frees the descriptor's
+    /// number. The next accept can take that number, and the shutdown then ends the new
+    /// connection's write side.
+    pub fn close_due(socket: *const Socket) bool {
+        return !socket.shutting_down and socket.ending();
+    }
+
+    /// Submits what the socket needs next: its close once `close_due` says so, nothing more while
+    /// it ends, otherwise a send of what is owed and a receive while there is room for more.
+    /// `index` is where its worker holds it, which each operation's user data names. `loop` is the
+    /// worker's `*rotor.Loop`, or a test's record of what `arm` submits.
+    pub fn arm(socket: *Socket, loop: anytype, index: usize) void {
         if (socket.close_submitted) return;
         const drained = socket.output_sent == socket.output_len;
-        if (socket.failed or (socket.closing and drained)) return socket.submit(loop, index, .close);
+        if (socket.close_due()) return socket.submit(loop, index, .close);
+        if (socket.ending()) return;
         if (!socket.sending and !drained) socket.submit(loop, index, .send);
         // RFC 9112 §9.6: the write side closes once the response is out, and the receives go on.
         if (socket.half_closing and drained and !socket.sending and !socket.shutdown_submitted) socket.submit(loop, index, .shutdown);
@@ -193,7 +209,7 @@ pub const Socket = struct {
 
     /// Submits one operation. The loop holds one of each kind for every socket, so it always has
     /// room.
-    fn submit(socket: *Socket, loop: *rotor.Loop, index: usize, kind: Kind) void {
+    fn submit(socket: *Socket, loop: anytype, index: usize, kind: Kind) void {
         const operation = switch (kind) {
             .receive => blk: {
                 const buffer = socket.receive_buffer();
@@ -248,6 +264,67 @@ test "design §8 step 60: a receive writes after the unread octets, which move o
     try testing.expectEqual(@intFromPtr(front) + 12, @intFromPtr(next.ptr));
     try testing.expectEqual(input_capacity - 12, next.len);
     try testing.expectEqualStrings("/ HTTP/1.1\r\n", test_socket.unread());
+}
+
+/// The most operations one test records. Test-only.
+const recorded_max = 8;
+
+/// Stands in for the loop, and records the kind of each operation `arm` submits. Test-only.
+const Record = struct {
+    kinds: [recorded_max]Kind = undefined,
+    len: usize = 0,
+
+    pub fn submit(record: *Record, operations: []const rotor.Operation, handles: anytype) usize {
+        _ = handles;
+        for (operations) |operation| {
+            record.kinds[record.len] = @enumFromInt(@as(u8, @truncate(operation.user_data)));
+            record.len += 1;
+        }
+        return operations.len;
+    }
+
+    fn holds(record: *const Record, kind: Kind) bool {
+        return std.mem.indexOfScalar(Kind, record.kinds[0..record.len], kind) != null;
+    }
+};
+
+test "decision 160: a failed socket submits nothing while its shutdown is in flight, then its close" {
+    var record: Record = .{};
+    test_socket.open(0);
+    test_socket.half_closing = true;
+    test_socket.arm(&record, 0);
+    try testing.expect(record.holds(.shutdown) and record.holds(.receive));
+    // The peer closes while the shutdown is in flight, so the socket fails and waits.
+    test_socket.on_received(rotor.Event.success(user_data(0, .receive), 0));
+    record = .{};
+    test_socket.arm(&record, 0);
+    try testing.expectEqual(0, record.len);
+    // The shutdown's completion lets the close go, and nothing else.
+    test_socket.on_shut_down(rotor.Event.success(user_data(0, .shutdown), 0));
+    test_socket.arm(&record, 0);
+    try testing.expectEqual(1, record.len);
+    try testing.expectEqual(Kind.close, record.kinds[0]);
+}
+
+test "decision 160: a socket that fails while its shutdown is in flight closes after the shutdown" {
+    test_socket.open(0);
+    test_socket.half_closing = true;
+    test_socket.shutdown_submitted = true;
+    test_socket.shutting_down = true;
+    // The peer closes while the shutdown is in flight, so the socket fails.
+    test_socket.on_received(rotor.Event.success(user_data(0, .receive), 0));
+    try testing.expect(test_socket.failed);
+    try testing.expect(!test_socket.close_due());
+    // The shutdown's completion lets the close go.
+    test_socket.on_shut_down(rotor.Event.success(user_data(0, .shutdown), 0));
+    try testing.expect(test_socket.close_due());
+    // A socket the engine closes waits for its octets as well as for the shutdown.
+    test_socket.open(0);
+    test_socket.closing = true;
+    test_socket.output_len = 3;
+    try testing.expect(!test_socket.close_due());
+    test_socket.output_sent = 3;
+    try testing.expect(test_socket.close_due());
 }
 
 test "design §8 step 60: octets consumed while a receive is in flight leave the arrival after the rest" {
