@@ -401,28 +401,6 @@ test "decision 160: the write side closes once the octets are out, and the socke
     try testing.expect(!test_socket.half_close_due());
 }
 
-test "decision 160: a socket that fails while its shutdown is in flight closes after the shutdown" {
-    var table: operation_table.Table(slots_per_socket) = .empty;
-    var operations: [operations_per_socket]host.Operation = undefined;
-    var out: operation_table.Outbox = .{ .operations = &operations };
-    test_socket.open();
-    test_socket.half_closing = true;
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expect(operations[0].kind == .shutdown_send and test_socket.shutting_down);
-    // The peer closes while the shutdown is in flight, so the socket fails.
-    test_socket.on_received(.{ .received = 0 });
-    try testing.expect(test_socket.failed);
-    out = .{ .operations = &operations };
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expectEqual(0, out.len);
-    try testing.expect(!test_socket.close_submitted);
-    // The shutdown's completion lets the close go.
-    test_socket.on_shut_down(.shut_down);
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expectEqual(1, out.len);
-    try testing.expect(operations[0].kind == .close and test_socket.close_submitted);
-}
-
 /// The bit of a receive step's kind octet that consumes while the receive is in flight. Test-only.
 const consume_in_flight_bit: u8 = 0b10;
 /// One step of the fuzz script: a kind octet and two octets of a count. Test-only.

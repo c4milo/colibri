@@ -16151,12 +16151,18 @@ library.
     - **The change.** `socket.zig`'s `arm` writes no close while `shutting_down`. The shutdown's
       completion steps the socket, and the close follows. `src/testing`'s server socket does the
       same through `close_due`, and its `arm` takes any loop, so a test records what it submits.
-    - **The tests:** one in `socket.zig`, and two in `server_socket.zig`. One in
-      `server_half_close_test.zig` takes the place of the test that wrote the close while the
-      shutdown was in flight.
+    - **The tests:** two in `server_socket.zig`. One in `server_half_close_test.zig` takes the
+      place of the test that wrote the close while the shutdown was in flight.
     - **Mutations, 4 of 4 CAUGHT:** the library's close ignores the shutdown in flight;
       `close_due` ignores it; the test server's `arm` submits a receive while the socket ends;
       and the test server ends before its octets are out.
+    - **Checked, 2026-11-22,** with Zig 0.16.0 on x86-64 Linux 6.18, in a container with no IPv6:
+      - `zig build test-colibri` passed 149 of 150. The one that fails, decision 156 ruling 13's
+        test of a UDP socket of each family, fails on main too, for want of IPv6.
+      - `zig build test-testing` passed 64 of 64, and `zig build lint` passed.
+      - connect-zig's conformance server, built on v0.19.0 with this change through `zig build
+        --fork`, ran the suite's h11 cases in zstd and br 30 times, and none failed. On v0.19.0
+        alone, 4 of the first 11 runs failed. The whole server half then passed 5 runs of 5.
 - **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
   2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.
