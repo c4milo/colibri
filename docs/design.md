@@ -5833,6 +5833,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       throughput; and [44945171675](https://github.com/c4milo/colibri/actions/runs/44945171675),
       the latency. Each other server is at the version of the v0.19.0 runs. The next release tag
       draws the charts again.
+      - On 2026-11-22 the owner had the branch written again, so that no commit message names an
+        AI tool and the owner is each commit's author. `b00ebe04` became `2da8b69c`, which holds
+        the same files. The runs and the charts name `b00ebe04`, the commit that they measured.
       - The CPU chart's title does not change.
       - The throughput chart's title changes over h11 with TLS: colibri now ties with fasthttp
         there. colibri served 124,621 requests a second against 126,142 on v0.19.0, inside its
@@ -17546,7 +17549,8 @@ library.
     socket of each family, and that host gives no IPv6 socket. `tools/ci.sh` did not run.
   - **Judged, 2026-11-21,** on the `ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Run
     [44945153319](https://github.com/c4milo/colibri/actions/runs/44945153319) measured the pin,
-    `b00ebe04`, in turns with main at `4ce77fa6`, with `h11` and `h3`, in 5 rounds.
+    `b00ebe04`, in turns with main at `4ce77fa6`, with `h11` and `h3`, in 5 rounds. `2da8b69c`
+    holds the same files under a message that names no AI tool (step 13m).
     - Each of its two jobs judged each of the 19 inputs within the noise by instructions. Each
       judged the four h11 inputs within the noise by user instructions too.
     - The three inputs that count a TLS handshake moved least. `h11-tls-one` gave 0.9995 and
