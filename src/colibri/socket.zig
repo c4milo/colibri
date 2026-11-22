@@ -209,15 +209,23 @@ pub const Socket = struct {
         socket.output_len += written;
     }
 
-    /// Writes what the socket needs next: its close once it is failed or closing and drained,
-    /// otherwise a send of what is owed, the shutdown of its write side once a staged close has
-    /// sent everything, and a receive while there is room for more. `index` is where its driver
-    /// holds it, which is its `SocketId`. False when `out` had no room for an operation the socket
-    /// needs, so the next turn writes it.
+    /// Writes what the socket needs next: its close once it is failed or closing and drained, and
+    /// no shutdown is in flight, otherwise a send of what is owed, the shutdown of its write side
+    /// once a staged close has sent everything, and a receive while there is room for more.
+    /// `index` is where its driver holds it, which is its `SocketId`. False when `out` had no room
+    /// for an operation the socket needs, so the next turn writes it.
     pub fn arm(socket: *Socket, out: *operation_table.Outbox, table: anytype, index: usize) bool {
         if (socket.close_submitted) return true;
         const drained = socket.output_sent == socket.output_len;
-        if (socket.failed or (socket.closing and drained)) return socket.write(out, table, index, .close);
+        if (socket.failed or (socket.closing and drained)) {
+            // The close waits for the shutdown's completion. io_uring runs a shutdown on a worker
+            // thread, which finds the descriptor only when it starts, so the cancel before Rotor's
+            // close does not end it. A close that runs first frees the descriptor's number. The
+            // next accept can take that number, and the shutdown then ends the new connection's
+            // write side.
+            if (socket.shutting_down) return true;
+            return socket.write(out, table, index, .close);
+        }
         var written = true;
         if (!socket.sending and !drained) written = socket.write(out, table, index, .send);
         // RFC 9112 §9.6: the write side closes once the response is out, and the receives go on.
