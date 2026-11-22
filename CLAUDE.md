@@ -453,15 +453,16 @@ Everything below exists. Change this section when a step adds or renames a comma
   a step done.
 - CI: `[CI_TLA=all] tools/ci.sh [report.md]` runs every check above that exists, except
   `tools/interop.sh` and `tools/h3load.sh`, and writes the report, with the wall time of each
-  section; the workflow `CI`, `.github/workflows/ci.yml`, runs it on each push to main
-  (decision 47). By default it skips the TLA+ models and the trace checks below, and the report
-  has a row that says so; with `CI_TLA=all` it runs them too, and it refuses any other value
-  (decision 67 as amended on 2026-11-05). The job `tools/ci.sh (x86-64 Linux)` sets no `CI_TLA`, so it runs no TLC. A new
+  section; the workflow `CI`, `.github/workflows/ci.yml`, runs it on each push to main and on each
+  pull request to main (decision 47 as amended on 2026-11-22). By default it skips the TLA+ models
+  and the trace checks below, and the report has a row that says so; with `CI_TLA=all` it runs them
+  too, and it refuses any other value (decision 67 as amended on 2026-11-05). The job `tools/ci.sh
+  (x86-64 Linux)` sets no `CI_TLA`, so it runs no TLC. A new
   check joins `tools/ci.sh`, never the workflow file, so CI and a person run the same thing. There
   are four exceptions (decision 47 as amended). The jobs `tools/http_garden.sh (x86-64 Linux,
   weekly)` and `tools/interop.sh (x86-64 Linux, weekly)` run by hand and every Monday. The jobs
-  `zig build test (arm64 Linux)` and `zig build test (arm64 macOS)` run on each push, where a
-  person on either machine runs the same command. The job `zig build tla and tools/*_trace.sh
+  `zig build test (arm64 Linux)` and `zig build test (arm64 macOS)` run on each push and pull
+  request, where a person on either machine runs the same command. The job `zig build tla and tools/*_trace.sh
   (x86-64 Linux, nightly)` runs them by hand and every night. Each job of `CI` and `Bench` is
   named `<command> (<machine>[, <schedule>])`, and a workflow's name is its file's.
 - Ports: no check `tools/ci.sh` runs binds a fixed port, so two runs on one machine do not collide
@@ -785,9 +786,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.
 
-CI runs `tools/ci.sh` on each push to main (decision 47). A check CI cannot run — one that needs a
-machine a hosted runner is not — is run by a person before a step is called done. Either way the
-step's entry in design §8 records what was run, on what, and what it printed.
+CI runs `tools/ci.sh` on each push to main and on each pull request to main (decision 47 as amended
+on 2026-11-22). A check CI cannot run — one that needs a machine a hosted runner is not — is run by
+a person before a step is called done. Either way the step's entry in design §8 records what was
+run, on what, and what it printed.
 
 ## Where the work stands
 

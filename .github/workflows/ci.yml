@@ -1,14 +1,18 @@
 # Every check of this repository, with a report (docs/decisions.md entry 47): tools/ci.sh, and the
-# unit tests on Linux and macOS arm64, on each push to main, the TLA+ models and the trace checks
-# by hand and every night, and the HTTP Garden and the QUIC Interop Runner by hand and every
-# Monday. Each job's work is one script or one zig build step, which a person can run by hand for
-# the same answer; this file only installs what that work needs, each download pinned by checksum
-# or commit. Each job is named `<command> (<machine>[, <schedule>])`: what it runs, on which
-# machine, and when, for a job that does not run on each push. So a push's run page also says why
-# it skips a job. The workflow's name is its file's.
+# unit tests on Linux and macOS arm64, on each push to main and each pull request to main, the TLA+
+# models and the trace checks by hand and every night, and the HTTP Garden and the QUIC Interop
+# Runner by hand and every Monday. Each job's work is one script or one zig build step, which a
+# person can run by hand for the same answer; this file only installs what that work needs, each
+# download pinned by checksum or commit. Each job is named `<command> (<machine>[, <schedule>])`:
+# what it runs, on which machine, and when, for a job that does not run on each push. So a push's
+# run page also says why it skips a job. The workflow's name is its file's.
 name: CI
 on:
   push:
+    branches: [main]
+  # A pull request runs the push's two jobs, so its change is checked before it merges (decision
+  # 47 as amended on 2026-11-22).
+  pull_request:
     branches: [main]
   workflow_dispatch:
   # The HTTP Garden's job and the QUIC Interop Runner's, every Monday (decision 47 as amended for
@@ -41,11 +45,12 @@ jobs:
     # models moved to the tla job. A limit of 90 cancelled the four jobs from 3d240941 to 3599733f
     # before their last checks ran.
     timeout-minutes: 150
-    # One run of each job at a time, and each job its own queue, so the Garden's hours never hold
-    # up a push's checks.
+    # One run of each job at a time for each ref, and each job its own queue, so the Garden's hours
+    # never hold up a push's checks. Each pull request has a queue of its own, so it never waits
+    # for main's run, and a new push to it ends its older run.
     concurrency:
-      group: checks
-      cancel-in-progress: false
+      group: checks-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -174,8 +179,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     concurrency:
-      group: arm64-${{ matrix.runner }}
-      cancel-in-progress: false
+      group: arm64-${{ matrix.runner }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # shasum, because macOS has no sha256sum.

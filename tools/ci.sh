@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Every check of this repository in one run, with a report: what .github/workflows/ci.yml runs
-# on each push to main (docs/decisions.md entry 47), and what a person runs by hand to get the
-# same answer. It runs every section even after one fails, so the report is whole, and exits
-# non-zero when any section failed. The HTTP Garden and the QUIC Interop Runner run outside it,
-# each in a job of its own that the workflow starts by hand and every Monday (entry 47 as
-# amended). The TLA+ models and the seven trace checks run only with CI_TLA=all, and the nightly
-# job of the workflow runs them (entries 47 and 67 as amended on 2026-11-05).
+# Every check of this repository in one run, with a report: what .github/workflows/ci.yml runs on
+# each push to main and on each pull request to main (docs/decisions.md entry 47 as amended on
+# 2026-11-22), and what a person runs by hand to get the same answer. It runs every section even
+# after one fails, so the report is whole, and exits non-zero when any section failed. The HTTP
+# Garden and the QUIC Interop Runner run outside it, each in a job of its own that the workflow
+# starts by hand and every Monday (entry 47 as amended). The TLA+ models and the seven trace checks
+# run only with CI_TLA=all, and the nightly job of the workflow runs them (entries 47 and 67 as
+# amended on 2026-11-05).
 #
 # The report separates two kinds of number. The counted costs and the simulator's checksums are
 # exact: a change in one is a change in the code. The h2load throughput is indicative: a hosted
