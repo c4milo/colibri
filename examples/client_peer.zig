@@ -76,7 +76,7 @@ var tls_buffer: [server.Config.tls_buffer_len(1)]u8 = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 var context: void = {};
 /// Responses that are whole, sockets the engine said to close, and connections that are over.
 var answered: u32 = 0;
@@ -99,6 +99,7 @@ pub fn init(stream: *Link, cpu: tls.Cpu) !void {
         .tls_buffer = &tls_buffer,
     };
     try engine.init(&config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = link.now_ns(.server) });
+    router.init();
 }
 
 /// The listener accepts the socket the client connected.

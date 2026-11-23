@@ -274,12 +274,23 @@ where a read of a body still to come fails. Above 0, a header past `header_bytes
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
 const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 ```
 
 The `align(@alignOf(Router))` states the alignment the type already has. Zig 0.16's x86_64 backend
 can place a large global at a smaller alignment, so every global in colibri's examples states it,
 and `zig build lint` refuses one that does not.
+
+The program starts its router once, before the router's first event, with `init`. `init` writes
+the few fields that each entry reads first, and leaves each entry's buffers as they lie. `.{}` in
+its place copies the router's whole default value from the program's image, with the response,
+body and state memory of every entry ([#148](https://github.com/c4milo/colibri/issues/148)):
+
+```zig
+    // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
+    // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
+    router.init();
+```
 
 One `server.Engine` holds the server's TCP and QUIC connections. The program passes the engine
 what each socket read, and gets one event from each `receive`, in h11, h2 and h3 alike. It hands

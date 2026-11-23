@@ -1087,7 +1087,18 @@ const routes = .{
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
 const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
+```
+
+The program starts its router once, before the router's first event, with `init`. `init` writes
+the few fields that each entry reads first, and leaves each entry's buffers as they lie. `.{}` in
+its place copies the router's whole default value from the program's image, with the response,
+body and state memory of every entry ([#148](https://github.com/c4milo/colibri/issues/148)):
+
+```zig
+    // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
+    // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
+    router.init();
 ```
 
 The method of a route is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of

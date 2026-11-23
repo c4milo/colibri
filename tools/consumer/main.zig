@@ -51,7 +51,7 @@ const bound_routes = .{
 };
 // `colibri.server` is the module `server`, which the root of `colibri` re-exports.
 const BoundRouter = colibri.server.Router(void, bound_routes, .{ .requests = 1, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
-var router: BoundRouter align(@alignOf(BoundRouter)) = .{};
+var router: BoundRouter align(@alignOf(BoundRouter)) = undefined;
 var router_context: void = {};
 // A `colibri.Client` of one TCP connection, four requests and no QUIC, which the program places
 // the same way.
@@ -156,6 +156,7 @@ pub fn main() !void {
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
     // the socket.
     const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated }, .unix_seconds = now_seconds };
+    router.init();
     try bound_server.init(&config, &router, &router_context);
     defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;

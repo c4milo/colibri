@@ -6894,6 +6894,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `match` takes no value, because the table holds no state.
         - `server.RouterOptions` names `requests` and `response_bytes`, which `Of` took.
         - Each compile error of a table starts with "server.Router:".
+
+        Amended on 2026-11-23 (design §8 step 70). `Router.init(router: *Router)` starts the
+        router in place, as ruling 1 asks of a large struct. `.{}` still compiles, but it copies the
+        router's whole default value from the program's image, with each entry's buffers
+        ([#148](https://github.com/c4milo/colibri/issues/148)).
      5. `http.Status` is one non-exhaustive `enum(u16)` with `_` (pattern 4), as
         `std.http.Status` is. RFC 9110 §15 allows any status code of three digits, and `_` holds
         each code that the enum does not name.

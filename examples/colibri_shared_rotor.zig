@@ -57,7 +57,7 @@ const routes = .{
     },
 };
 const Router = server.Router(void, routes, .{ .requests = 2, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 var router_context: void = {};
 
 const greeting = "hello from a shared loop\n";
@@ -265,6 +265,7 @@ pub fn main() !void {
     // Each object starts at the loop's instant. A cleartext client judges no date, so the
     // example names a fixed second in place of a reading of the system's clock.
     const now: colibri.server.Timestamp = .{ .unix_seconds = 1_800_000_000, .monotonic_ns = loop.now_ns() };
+    router.init();
     try hosted_server.init(&.{ .cpu = cpu, .random = random, .now = now, .engine = .{ .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &ipv4_addresses, .port = port },

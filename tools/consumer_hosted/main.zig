@@ -23,7 +23,7 @@ const routes = .{
     },
 };
 const Router = colibri.server.Router(void, routes, .{ .requests = 1, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 var router_context: void = {};
 // A `colibri.Client` of one TCP connection and no QUIC, on this program's loop.
 const Client = colibri.Client(.{ .quic = false, .tcp_connections = 1, .requests = 1 }, .hosted);
@@ -75,6 +75,7 @@ pub fn main() !void {
     // The server: its first turn writes the accept on the listener that a host opened. This
     // program opened none, so it stops the server, and ends the accept that the server cancels.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    router.init();
     try hosted_server.init(&.{ .cpu = cpu, .random = entropy, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 } }, &router, &router_context);
     const first = hosted_server.turn(0, &operations);
     if (first.operations != 1 or operations[0].kind != .accept) return error.AcceptMissing;

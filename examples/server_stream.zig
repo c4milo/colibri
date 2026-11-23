@@ -123,7 +123,7 @@ const routes = .{
 };
 
 const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 
 /// The trailer section that ends the call: gRPC's status 0 says the call succeeded.
 const grpc_ok = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
@@ -215,6 +215,7 @@ pub fn main() !void {
     const now_ns = link.now_ns(.server);
     // Cleartext needs no Unix time: no certificate is judged and no ticket is issued.
     try engine.init(&engine_config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+    router.init();
     // The listener accepts the socket the client connects. The link stands where the socket would
     // be, so it is connected from the start.
     accepted = engine.accept(.{ .tls = false }, now_ns) orelse return error.ExchangeWrong;

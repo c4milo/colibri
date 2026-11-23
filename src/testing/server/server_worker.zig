@@ -150,11 +150,11 @@ fn begin(worker: *Worker, now: server.Timestamp) server.StartError!void {
     switch (server_mode.routes_mode) {
         .none => {},
         .github => {
-            github_pools[worker.index] = .{};
+            github_pools[worker.index].init();
             worker.session.routes = .{ .github = &github_pools[worker.index] };
         },
         .kubernetes => {
-            kubernetes_pools[worker.index] = .{};
+            kubernetes_pools[worker.index].init();
             worker.session.routes = .{ .kubernetes = &kubernetes_pools[worker.index] };
         },
     }

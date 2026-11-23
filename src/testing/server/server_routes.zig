@@ -165,7 +165,7 @@ const Engine = struct {
 test "design §8 step 13f: the router's handle compiles over the 203 routes, and answers one" {
     const pool = try testing.allocator.create(github.Pool);
     defer testing.allocator.destroy(pool);
-    pool.* = .{};
+    pool.init();
     var engine: Engine = .{};
     var context: void = {};
     // A request that ended at its head gives a body that ends at once (decision 163 ruling 4).
@@ -193,7 +193,7 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
 test "design §8 step 50b: a POST route answers once its whole body arrived" {
     const pool = try testing.allocator.create(github.Pool);
     defer testing.allocator.destroy(pool);
-    pool.* = .{};
+    pool.init();
     var engine: Engine = .{};
     var context: void = {};
     // A request whose body is still to come gives a body that no read can read (decision 163
