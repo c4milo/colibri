@@ -67,7 +67,7 @@ const routes = .{
 /// The router's pool: an entry for each request at once, with room for its response. No route
 /// takes a request with a body, so the router keeps no copy of a header (`header_bytes`).
 const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 
 /// A server that holds four TCP connections and four QUIC connections, on colibri's own loop. The
 /// program places the server once, outside any stack frame, and does not move it.
@@ -106,6 +106,7 @@ const body_len_max = 256;
 pub fn main() !void {
     // A program's code that takes a request context runs with no router, as in a test.
     try check_numbered();
+    router.init();
     // A program probes its CPU once and passes it to every TLS configuration. With no `random`,
     // the server and the client draw from the system's entropy.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };

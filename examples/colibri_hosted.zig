@@ -58,7 +58,7 @@ const routes = .{
     },
 };
 const Router = server.Router(void, routes, .{ .requests = 2, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 var router_context: void = {};
 
 /// The link between the two objects, and the host's state.
@@ -97,6 +97,7 @@ pub fn main() !void {
     defer link.deinit();
     const random = tls.Random.init(&generator, fill);
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    router.init();
     try hosted_server.init(&.{
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,

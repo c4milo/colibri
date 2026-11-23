@@ -96,7 +96,7 @@ const Fixture = struct {
 };
 
 test "decision 158: a router exports its calls, and match names each route by its tag" {
-    try @import("core").public_names.expect(Pool, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
+    try @import("core").public_names.expect(Pool, &.{ "Route", "Match", "match", "memory_bytes", "init", "handle" });
     try testing.expectEqual(@sizeOf(Pool), Pool.memory_bytes);
     var parameters: @import("../path_parameters.zig").PathParameters = .{};
     const found = Pool.match("POST", "/greetings/x", &parameters).found;

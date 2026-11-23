@@ -141,9 +141,9 @@ fn ValueOf(comptime Entry: type, comptime Route: type) type {
     return @Tuple(&.{ fields[0].type, fields[1].type, Route });
 }
 
-test "decision 158: a router's type exports Route, Match, match, memory_bytes and handle" {
+test "decision 158: a router's type exports Route, Match, match, memory_bytes, init and handle" {
     const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 });
-    try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
+    try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "init", "handle" });
 }
 
 test "decision 163 ruling 9: a router's options default to 32 requests, and a program names each size" {
@@ -164,6 +164,7 @@ test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_pool_answer_test.zig");
     _ = @import("router_pool_answer_engine_test.zig");
+    _ = @import("router_pool_init_test.zig");
     _ = @import("router_pool_quota_test.zig");
     _ = @import("router_struct_test.zig");
     _ = @import("router_data_test.zig");
