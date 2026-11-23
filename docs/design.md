@@ -17598,8 +17598,9 @@ library.
     datagrams instead of 14,391, the ACK-only check 4,032 instead of 4,598, the port and address
     rebinding checks 13,247 and 13,203 instead of 14,691 and 14,548, and the runner's network
     3,906 instead of 3,905. Under BBRv3 the lossy check takes 12,814 instead of 15,142, and under
-    NewReno 11,836 instead of 13,316. Debug and ReleaseSafe agree on every census, and so do the
-    runs with and without qlog.
+    NewReno 11,836 instead of 13,316. The h3 checks run over the same network, so their digests
+    move too, and their qlog grows from 8,025,390 to 8,033,685 octets. Debug and ReleaseSafe agree
+    on every census, and so do the runs with and without qlog.
   - **Memory.** `quic.Connection` grows by 14,920 octets, from 208,472 to 223,392, in clients too.
   - **Tests.** `connection_early_test.zig` holds a packet kept and then opened, recorded at its
     arrival and with the idle timer at its opening, a full store, a client, a closing server, and
