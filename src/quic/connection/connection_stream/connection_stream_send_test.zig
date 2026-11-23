@@ -165,7 +165,7 @@ fn stream_frame_of(sent: send.Sent) !frame_stream.Stream {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, &server, suite_holder.suite())).?.opened;
-    _ = try frames.process(&server, opened, test_now_ns, &recovery_scratch);
+    _ = try frames.process(&server, opened, test_now_ns, &recovery_scratch, 0);
     var reader = Reader.init(opened.payload);
     // Bounded by the payload, which each frame read shortens.
     while (reader.remaining_len() > 0) {

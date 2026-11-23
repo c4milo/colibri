@@ -83,7 +83,7 @@ fn apply_adversary(storage: *Storage) void {
     switch (storage.adversary) {
         // A rebind wants the stream long enough that the client is still sending when it lands.
         .none, .rebind_port, .rebind_address, .light_loss => return,
-        .drop_ack_only, .runner_handshake_loss => {},
+        .drop_ack_only, .runner_handshake_loss, .cut_client_finished => {},
     }
     // Bounded by the two sides.
     for (&storage.endpoints) |*endpoint| endpoint.transfer_len = quic_endpoint.request_len;
@@ -102,6 +102,8 @@ fn schedule_of(adversary: check.Adversary, random: *Random) Schedule {
             return drawn;
         },
         .runner_handshake_loss => {},
+        // One delay and no loss, so what the server receives early is the cut alone.
+        .cut_client_finished => return .{ .delay_min_ns = check.light_delay_ns, .delay_max_ns = check.light_delay_ns },
         .light_loss => return .{
             .drop = @intCast(random.below(check.light_drop_max + 1)),
             .duplicate = @intCast(random.below(check.duplicate_max + 1)),
@@ -224,13 +226,12 @@ const Run = struct {
             run.digest.update(octets);
             run.result.datagrams += 1;
             run.result.packets += sent.count;
-            if (run.adversary_drops(&sent)) {
-                run.result.adversary_dropped += 1;
-                continue;
-            }
+            const cut_len = run.adversary_cut_len(side, &sent);
+            if (cut_len > 0) run.result.adversary_dropped += 1;
+            if (cut_len == octets.len) continue;
             // Decision 72: the datagram goes where colibri named, which a rebind may have left.
             const to = quic_endpoint.network_address(sent.to);
-            if (run.storage.network.send_to(run.now_ns, side, octets, run.carried_ecn(&sent), to) == .no_slot) return Violation.NetworkFull;
+            if (run.storage.network.send_to(run.now_ns, side, octets[cut_len..], run.carried_ecn(&sent), to) == .no_slot) return Violation.NetworkFull;
         }
         return Violation.SendsExhausted;
     }
@@ -242,18 +243,36 @@ const Run = struct {
         return quic_endpoint.network_ecn(sent.ecn);
     }
 
-    /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
-    fn adversary_drops(run: *const Run, sent: *const quic.Connection.Sent) bool {
+    /// How many octets off the front of the datagram `sent` describes the run's adversary takes
+    /// (`check.Adversary`): none, all of them, which drops it, or the packets before its 1-RTT one.
+    fn adversary_cut_len(run: *const Run, side: Side, sent: *const quic.Connection.Sent) usize {
         switch (run.storage.adversary) {
-            .none, .runner_handshake_loss, .rebind_port, .rebind_address, .light_loss => return false,
+            .none, .runner_handshake_loss, .rebind_port, .rebind_address, .light_loss => return 0,
             .drop_ack_only => {
                 // Bounded by the levels a datagram coalesces.
                 for (sent.written()) |packet| {
-                    if (packet.ack_eliciting) return false;
+                    if (packet.ack_eliciting) return 0;
                 }
-                return true;
+                return sent.len;
             },
+            .cut_client_finished => return run.client_finished_cut_len(side, sent),
         }
+    }
+
+    /// The octets of the Initial and Handshake packets at the front of a client datagram, sent once
+    /// the client's handshake completed, for the first `check.finished_cuts_max` such datagrams.
+    fn client_finished_cut_len(run: *const Run, side: Side, sent: *const quic.Connection.Sent) usize {
+        if (side != .client or run.result.adversary_dropped >= check.finished_cuts_max) return 0;
+        const client = &run.storage.endpoints[@intFromEnum(Side.client)];
+        if (!client.connection.handshake_complete) return 0;
+        var cut_len: usize = 0;
+        // Bounded by the levels a datagram coalesces, which `send` writes in level order.
+        for (sent.written()) |packet| {
+            if (packet.level == .application) break;
+            cut_len += packet.len;
+        }
+        assert(cut_len <= sent.len);
+        return cut_len;
     }
 
     /// Keeps the instant both endpoints first had the handshake confirmed.
@@ -318,7 +337,10 @@ const Run = struct {
         for (run.records) |held| result.qlog_events += held.events;
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         result.round_trip_ns = client.connection.recovery.rtt.smoothed_ns;
-        result.migrations = run.storage.endpoints[@intFromEnum(Side.server)].migrations;
+        const server = &run.storage.endpoints[@intFromEnum(Side.server)];
+        result.migrations = server.migrations;
+        // A field the program does not read: the check counts what RFC 9001 §5.7 kept and opened.
+        result.early_opened = server.connection.early_packets.opened;
         // RFC 9959 §3.3: a packet sent in the Unvalidated Phase, or BBRv3's flag set, is a jump.
         const careful = &client.connection.recovery.careful_resume;
         result.jumped = careful.first_unvalidated != null or resumed_bbr(client);

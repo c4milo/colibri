@@ -17,11 +17,13 @@ const send = @import("connection_send.zig");
 const close_module = @import("connection_close.zig");
 const datagram_module = @import("connection_datagram.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
+const support = @import("connection_datagram_test_support.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+const Recorder = support.Recorder;
 const testing = std.testing;
 
 var client: Connection align(@alignOf(Connection)) = undefined;
@@ -207,60 +209,6 @@ test "RFC 9000 §10.2: a closing endpoint counts a datagram, and a draining one 
     try testing.expectEqual(0, server.termination.packets_received_closing);
 }
 
-/// A provider that records what it was handed and answers the parameters and completion a test
-/// sets. Test-only.
-const Recorder = struct {
-    taken: [flight_len]u8 = @splat(0),
-    taken_len: usize = 0,
-    peer_body: []const u8 = "",
-    done: bool = false,
-    /// A level whose keys the octets it is handed produce, which it gives the suite at once, as a
-    /// caller's code moves TLS's secrets to its suite (decision 48).
-    makes_available: ?Level = null,
-
-    fn provider(self: *Recorder) tls_provider.QuicProvider {
-        return .{ .context = @ptrCast(self), .vtable = &table };
-    }
-    fn set_params(_: *anyopaque, _: []const u8) tls_provider.quic_provider.TransportParamsError!void {}
-    fn peer_params(context: *const anyopaque) ?[]const u8 {
-        const self: *const Recorder = @ptrCast(@alignCast(context));
-        return if (self.peer_body.len == 0) null else self.peer_body;
-    }
-    fn provide(context: *anyopaque, _: Level, data: []const u8) tls_provider.quic_provider.ProvideError!void {
-        const self: *Recorder = @ptrCast(@alignCast(context));
-        @memcpy(self.taken[self.taken_len..][0..data.len], data);
-        self.taken_len += data.len;
-        if (self.makes_available) |level| suite_holder.available[@intFromEnum(level)] = @splat(true);
-    }
-    fn write(_: *anyopaque, _: Level, _: []u8) tls_provider.quic_provider.WriteError!usize {
-        return 0;
-    }
-    fn alpn(_: *const anyopaque) ?[]const u8 {
-        return null;
-    }
-    fn complete(context: *const anyopaque) bool {
-        const self: *const Recorder = @ptrCast(@alignCast(context));
-        return self.done;
-    }
-    fn alert_of(_: *anyopaque) ?tls_provider.Alert {
-        return null;
-    }
-    fn exported(_: *anyopaque, _: []const u8, _: ?[]const u8, _: []u8) tls_provider.quic_provider.ExportError!void {
-        // RFC 9846 §7.5 standardises the exporter without obliging a stack to offer one.
-        return error.Unsupported;
-    }
-    const table: tls_provider.QuicVTable = .{
-        .set_transport_params = set_params,
-        .peer_transport_params = peer_params,
-        .provide_handshake = provide,
-        .write_handshake = write,
-        .negotiated_alpn = alpn,
-        .handshake_complete = complete,
-        .take_alert = alert_of,
-        .export_keying_material = exported,
-    };
-};
-
 var recorder: Recorder align(@alignOf(Recorder)) = .{};
 /// The client's transport parameters as its ClientHello would carry them (RFC 9001 §8.2).
 var client_body: [constants.protocol.datagram_len_min]u8 = undefined;
@@ -290,7 +238,7 @@ test "decision 62: a Handshake packet behind the Initial that made its keys open
     const sent = try send_from(&client);
     try testing.expectEqual(2, sent.count);
     // RFC 9001 §4.1.4: the server has no Handshake keys until TLS has read the Initial's octets.
-    recorder = .{ .makes_available = .handshake };
+    recorder = .{ .makes_available = .handshake, .suite = &suite_holder };
     const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
     try testing.expectEqual(2, received.processed);
     try testing.expectEqual(sent.packets[1].packet_number, connection_module.space_at(&server, .handshake).received.largest().?);

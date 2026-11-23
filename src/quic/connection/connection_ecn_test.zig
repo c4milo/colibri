@@ -120,7 +120,7 @@ fn acknowledge(sender: *Connection, reader: *Connection) !frame_module.frame_ack
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, reader, suite_holder.suite())).?.opened;
-    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
+    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch, 0);
     var payload = core.Reader.init(opened.payload);
     return switch (try frame_module.read(&payload)) {
         .ack => |ack| ack,

@@ -57,8 +57,12 @@ pub const Discarded = enum {
     /// RFC 9000 §7.2: a long header carrying a different Source Connection ID than the first one
     /// this endpoint accepted from the peer.
     other_source,
-    /// RFC 9001 §4.9, §5.7: the level's keys are absent, discarded, or not yet permitted.
+    /// RFC 9001 §4.9: the level's keys are absent or discarded.
     no_keys,
+    /// RFC 9001 §5.7: a 1-RTT packet whose keys are installed, which "MUST NOT" be processed
+    /// before the handshake completes. A server keeps it and opens it once the handshake
+    /// completes (decision 168).
+    handshake_pending,
     /// RFC 9001 §5.5: the AEAD tag did not match.
     would_not_open,
     /// RFC 9369 §4.1: a long header in a version the connection does not admit at its level, which
@@ -266,11 +270,12 @@ fn open_at(
     packet_len: usize,
     destination: []const u8,
 ) Error!Outcome {
-    // RFC 9001 §4.9 and §5.7: a level colibri never installed, already discarded, or may not read
-    // yet is not one to call `open` at. Invariant 21 is this check.
-    if (!keys_module.can_open(connection, level, connection.handshake_complete)) {
-        return advance(walk, packet_len, .no_keys);
-    }
+    // RFC 9001 §4.9: a level colibri never installed or already discarded is not one to call
+    // `open` at. Invariant 21 is this check and the next.
+    if (!keys_module.can_open(connection, level, true)) return advance(walk, packet_len, .no_keys);
+    // RFC 9001 §5.7: "A server MUST NOT process incoming 1-RTT protected packets before the TLS
+    // handshake is complete", and a client cannot.
+    if (!keys_module.can_open(connection, level, connection.handshake_complete)) return advance(walk, packet_len, .handshake_pending);
     const space = connection_module.space_at(connection, level);
     const opened = suite.open(.{
         .level = level,

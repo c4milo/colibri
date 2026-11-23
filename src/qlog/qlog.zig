@@ -83,6 +83,7 @@ pub const quic_event = struct {
     pub const Hex = files.quic_event.Hex;
     pub const Initiator = files.quic_event.Initiator;
     pub const LossTrigger = files.quic_event.LossTrigger;
+    pub const PacketBuffered = files.quic_event.PacketBuffered;
     pub const PacketDropped = files.quic_event.PacketDropped;
     pub const PacketHeader = files.quic_event.PacketHeader;
     pub const PacketLost = files.quic_event.PacketLost;

@@ -354,9 +354,10 @@ test "RFC 9001 §5.7: a 1-RTT packet before the handshake completes is not opene
     start(writer.written().len);
 
     // "Endpoints in either role MUST NOT decrypt 1-RTT packets from their peer prior to
-    // completing the handshake", even though the keys are installed.
+    // completing the handshake", even though the keys are installed. The reason says so, since a
+    // server may keep the packet and open it later (decision 168).
     const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
-    try testing.expectEqual(receive.Discarded.no_keys, dropped.discarded);
+    try testing.expectEqual(receive.Discarded.handshake_pending, dropped.discarded);
     try testing.expectEqual(0, opener.opened);
 }
 

@@ -14,13 +14,13 @@ const Storage = check.Storage;
 /// The censuses under BBRv3, pinned as `quic_connection_check.zig`'s are. The handshakeloss
 /// network's runs carry one small request each, so they send as many datagrams as under CUBIC,
 /// at other instants.
-pub const census_crc32_expected: u32 = 0x962e54a4;
-pub const census_datagrams_expected: u64 = 15_142;
-pub const adversary_census_crc32_expected: u32 = 0xc4bf2719;
-pub const runner_census_crc32_expected: u32 = 0x8a8d08e5;
-pub const runner_census_datagrams_expected: u64 = 3_905;
-pub const rebind_port_census_crc32_expected: u32 = 0x2f2dd4b5;
-pub const rebind_address_census_crc32_expected: u32 = 0x5b481da0;
+pub const census_crc32_expected: u32 = 0x097e34ee;
+pub const census_datagrams_expected: u64 = 12_814;
+pub const adversary_census_crc32_expected: u32 = 0xf3d52304;
+pub const runner_census_crc32_expected: u32 = 0x3968d3ac;
+pub const runner_census_datagrams_expected: u64 = 3_906;
+pub const rebind_port_census_crc32_expected: u32 = 0x870a4d71;
+pub const rebind_address_census_crc32_expected: u32 = 0x4096856d;
 
 var check_storage: Storage align(@alignOf(Storage)) = undefined;
 

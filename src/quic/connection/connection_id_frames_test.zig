@@ -89,7 +89,7 @@ fn deliver(sent: send.Sent, reader: *Connection) !void {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, reader, suite_holder.suite())).?.opened;
-    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
+    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch, 0);
 }
 
 fn record_of(sent: send.Sent) Record {

@@ -144,6 +144,18 @@ pub fn on_packet_read(connection: *Connection, outcome: receive_module.Outcome, 
     }
 }
 
+/// Quic-events §5.8 for a 1-RTT packet kept until the handshake completes (RFC 9001 §5.7). It is
+/// logged as received once it opens.
+pub fn on_packet_buffered(connection: *Connection, packet_len: usize, from: *const PeerAddress, now_ns: u64) void {
+    const log = connection.qlog.log orelse return;
+    const tuple = connection.qlog.tuples.of(log, from, now_ns);
+    log.event_on_tuple(tuple, quic_event.name.packet_buffered, now_ns, quic_event.PacketBuffered{
+        .header = .{ .packet_type = .@"1RTT" },
+        .raw = .{ .length = packet_len },
+        .trigger = .keys_unavailable,
+    });
+}
+
 /// Quic-events §7.4 for each packet of `level`'s space that recovery declared lost. `trigger` is
 /// the cause, or null when more than one could have declared the packet.
 pub fn on_packets_lost(
@@ -438,7 +450,7 @@ fn dropped_trigger(why: receive_module.Discarded) @FieldType(quic_event.PacketDr
     return switch (why) {
         .unreadable_header => .invalid,
         .other_connection, .other_source => .connection_unknown,
-        .no_keys => .key_unavailable,
+        .no_keys, .handshake_pending => .key_unavailable,
         .would_not_open => .decryption_failure,
         // Quic-events §5.7: "unsupported: unknown or unsupported version".
         .other_version => .unsupported,

@@ -23,6 +23,7 @@ pub const name = struct {
     pub const packet_sent = "quic:packet_sent";
     pub const packet_received = "quic:packet_received";
     pub const packet_dropped = "quic:packet_dropped";
+    pub const packet_buffered = "quic:packet_buffered";
     pub const packet_lost = "quic:packet_lost";
     pub const recovery_metrics_updated = "quic:recovery_metrics_updated";
     pub const connection_state_updated = "quic:connection_state_updated";
@@ -67,6 +68,18 @@ pub const PacketDropped = struct {
     trigger: enum { internal_error, rejected, unsupported, invalid, duplicate, connection_unknown, decryption_failure, key_unavailable, general },
 
     pub fn write(event: PacketDropped, text: *TextWriter) Error!void {
+        try fields(text, event);
+    }
+};
+
+/// Quic-events §5.8: a packet held because it cannot be processed yet. Its header names the packet
+/// type alone, as §5.8 expects: the packet number is still protected.
+pub const PacketBuffered = struct {
+    header: ?PacketHeader = null,
+    raw: ?Raw = null,
+    trigger: ?enum { backpressure, keys_unavailable } = null,
+
+    pub fn write(event: PacketBuffered, text: *TextWriter) Error!void {
         try fields(text, event);
     }
 };

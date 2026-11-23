@@ -49,6 +49,7 @@ const retry_module = @import("connection_retry.zig");
 const handshake_module = @import("connection_handshake.zig");
 const migration_module = @import("connection_migration.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_early = @import("connection_early.zig");
 const connection_version = @import("connection_version.zig");
 const connection_options = @import("connection_options.zig");
 const connection_datagram = @import("connection_datagram.zig");
@@ -179,6 +180,8 @@ pub const Connection = struct {
     retry_token: retry_module.Token,
     /// The caller's qlog log, and what the last events said (decision 102).
     qlog: connection_qlog.State,
+    /// The 1-RTT packets a server keeps until its handshake completes (RFC 9001 §5.7).
+    early_packets: connection_early.EarlyPackets,
 
     // What `init` takes (decision 158 ruling 6), and the calls a program makes, each in the file
     // that holds it (ruling 8). A name that two files share takes its concept.
@@ -274,6 +277,7 @@ pub const Connection = struct {
         connection.data_blocked = .{};
         connection.key_phase.init();
         connection.retry_token.init();
+        connection.early_packets.init();
         connection.pending_close = null;
         connection.tls_alert = null;
         connection.tls_failed = false;

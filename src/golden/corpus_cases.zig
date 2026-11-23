@@ -448,7 +448,7 @@ pub const quic_receive = [_]Case{
     // RFC 9001 §5.7: no 1-RTT packet is read before the handshake completes.
     in_state(.handshake_pending, reject("quic_receive_short_before_complete", .{
         .literal = &receive_short(0, marker_current),
-    }, error.NoKeys)),
+    }, error.HandshakePending)),
     // RFC 9000 §17.3.1: a zero Fixed Bit leaves nothing to say where the packet ends.
     reject("quic_receive_unreadable_header", .{
         .literal = &([_]u8{0x00} ++ receive_client_id ++ [_]u8{ 0, 0 } ++ receive_tag(marker_current)),
