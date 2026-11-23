@@ -31,6 +31,7 @@ const router_copy = @import("router_copy.zig");
 const router_pool_whole = @import("router_pool_whole.zig");
 const router_pool_stream = @import("router_pool_stream.zig");
 const router_pool_answer = @import("router_pool_answer.zig");
+const router_pool_init = @import("router_pool_init.zig");
 const router_wrap = @import("router_wrap.zig");
 
 /// The sizes of a router's pool.
@@ -145,6 +146,14 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// Octets of the router, which the program places.
         pub const memory_bytes = @sizeOf(Self);
 
+        /// Starts the router in place, with each entry free (decision 158 ruling 1). It writes the
+        /// fields a request reads first, and leaves each entry's response, body and state memory
+        /// as it lies. `router.* = .{}` copies all of that from a constant of the program's image
+        /// (https://github.com/c4milo/colibri/issues/148).
+        pub fn init(router: *Self) void {
+            router_pool_init.init(Self, EntryOf, router);
+        }
+
         /// Takes one event of `engine`, an `*Engine(capacity)`. It answers a request's head
         /// with the route's function, or with 404, 405, 501 or 503, passes its body to a stream
         /// route, sends what waits on `writable`, and frees the request's entry on `finished`. A
@@ -155,14 +164,14 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// `header_bytes` is 0. With `header_bytes` above 0, the router copies the request's
         /// header and holds its body, and calls the function at the body's end. A header past
         /// `header_bytes` gets 431, and a body past `body_bytes` gets 413, with no call.
-        pub fn handle(pool: *Self, context: *ContextOf, engine: anytype, received: event.Event) Handled {
+        pub fn handle(router: *Self, context: *ContextOf, engine: anytype, received: event.Event) Handled {
             switch (received) {
-                .request => |request| on_request(Self, pool, context, engine, &request),
-                .body => |body| if (entry_of(Self, pool, body.user_data)) |entry| on_body(Self, pool, entry, context, engine, body.bytes, body.end),
+                .request => |request| on_request(Self, router, context, engine, &request),
+                .body => |body| if (entry_of(Self, router, body.user_data)) |entry| on_body(Self, router, entry, context, engine, body.bytes, body.end),
                 // A trailer section ends the body (RFC 9110 §6.5).
-                .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, pool, entry, context, engine, "", true),
-                .writable => |writable| writable_event(Self, pool, context, engine, writable),
-                .finished => |finished| finished_event(Self, pool, context, finished),
+                .trailers => |trailers| if (entry_of(Self, router, trailers.user_data)) |entry| on_body(Self, router, entry, context, engine, "", true),
+                .writable => |writable| writable_event(Self, router, context, engine, writable),
+                .finished => |finished| finished_event(Self, router, context, finished),
                 .send, .half_close, .close, .ended, .closed => return .{ .event = received },
             }
             return .taken;

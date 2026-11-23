@@ -161,7 +161,7 @@ const routes = .{
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
 const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
-var router: Router align(@alignOf(Router)) = .{};
+var router: Router align(@alignOf(Router)) = undefined;
 
 /// Sockets the engine said to close, and to close in stages (decision 160), connections that are
 /// over, those that ended at their idle deadline, and whether the shut-down engine is over.
@@ -211,6 +211,9 @@ fn start_server(cpu: tls.Cpu) !void {
     const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
     try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
     identities[0] = .{ .chain = chain, .key = &key };
+    // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
+    // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
+    router.init();
     engine_config = .{
         // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
