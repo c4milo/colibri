@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const wire = @import("wire");
 const core = @import("core");
 const protocol = @import("constants_protocol.zig");
+const recovery = @import("constants_recovery.zig");
 
 /// Most Available Versions colibri keeps of a peer's Version Information (RFC 9368 §3). The list is
 /// bounded only by the parameter's length, so the reader checks every entry and keeps this many,
@@ -143,6 +144,14 @@ pub const probe_timeout_backoff_max: u6 = 16;
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;
 
+/// The octets of the 1-RTT packets a server keeps while it waits for the Finished that completes
+/// its handshake, and how many packets (RFC 9001 §5.7, https://github.com/c4milo/colibri/issues/153).
+/// The owner ruled them on 2026-11-23: RFC 9002 §7.2's initial congestion window, which bounds
+/// what a client has in flight before its window grows, and the packets of RFC 9000 §14.1's
+/// smallest datagram that fill it. A packet past either bound is dropped, as before.
+pub const early_packet_octets_max: usize = @intCast(recovery.congestion_window_initial_len_max);
+pub const early_packets_max: usize = early_packet_octets_max / @as(usize, @intCast(protocol.datagram_len_min));
+
 comptime {
     assert(coalesced_packets_max > 0);
     // A reserve of no window would let one held stream fill the pool.
@@ -155,6 +164,9 @@ comptime {
     assert(stream_frames_per_packet_max > 1 and stream_frames_per_packet_max - 1 <= std.math.maxInt(u8));
     assert(stream_ranges_max >= stream_frames_per_packet_max and stream_ranges_max < std.math.maxInt(u32) / 2);
     assert(stream_lost_ranges_max >= sent_packets_max + stream_ranges_max);
+    // `connection_early.zig` counts the kept packets in a `u8` and their octets in a `u16`.
+    assert(early_packets_max > 0 and early_packets_max <= std.math.maxInt(u8));
+    assert(early_packet_octets_max >= protocol.datagram_len_min and early_packet_octets_max <= std.math.maxInt(u16));
 }
 
 test "decision 137: each limit holds the value the owner ruled" {
@@ -184,4 +196,6 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(16, probe_timeout_backoff_max);
     try expectEqual(4, comptime_scan_branches_per_octet);
     try expectEqual(32, spurious_loss_numbers_max);
+    try expectEqual(14720, early_packet_octets_max);
+    try expectEqual(12, early_packets_max);
 }

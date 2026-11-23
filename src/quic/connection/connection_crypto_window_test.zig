@@ -180,7 +180,7 @@ fn take_ack(smallest: u64, largest: u64) !void {
         .ecn = null,
     };
     try frame_module.write(&writer, .{ .ack = ack });
-    _ = try frames.process(&endpoint, .{ .level = .handshake, .payload = writer.written() }, test_now_ns + round_trip_ns, &scratch);
+    _ = try frames.process(&endpoint, .{ .level = .handshake, .payload = writer.written() }, test_now_ns + round_trip_ns, &scratch, 0);
 }
 
 test "RFC 9000 §13.3: a PTO before any acknowledgment sends a long flight again from its first octet" {

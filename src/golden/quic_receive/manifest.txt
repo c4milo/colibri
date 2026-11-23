@@ -10,7 +10,7 @@ quic_receive_other_connection len=57 crc32=0xb60f772b verdict=OtherConnection st
 quic_receive_other_source len=57 crc32=0x3f52bad1 verdict=OtherSource state=complete construction=literal
 quic_receive_duplicate len=58 crc32=0xac7e0fbe verdict=AlreadyProcessed state=complete construction=literal
 quic_receive_handshake_without_keys len=28 crc32=0xa0a0f9b9 verdict=NoKeys state=initial_only construction=literal
-quic_receive_short_before_complete len=20 crc32=0xb0540b0e verdict=NoKeys state=handshake_pending construction=literal
+quic_receive_short_before_complete len=20 crc32=0xb0540b0e verdict=HandshakePending state=handshake_pending construction=literal
 quic_receive_unreadable_header len=20 crc32=0x85acab18 verdict=UnreadableHeader state=complete construction=literal
 quic_receive_retry len=36 crc32=0xbe001999 verdict=NotForThisWalk state=complete construction=literal
 quic_receive_update_twice len=20 crc32=0x0f846a18 verdict=ConsecutiveKeyUpdate state=update_unacknowledged construction=literal

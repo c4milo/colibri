@@ -100,7 +100,7 @@ fn client_reads(sent: send.Sent) !frames.Report {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, &client, suite_holder.suite())).?.opened;
-    return frames.process(&client, opened, test_now_ns, &recovery_scratch);
+    return frames.process(&client, opened, test_now_ns, &recovery_scratch, 0);
 }
 
 test "RFC 9001 §4.1.2: a server's handshake is confirmed when it completes, and owes HANDSHAKE_DONE" {

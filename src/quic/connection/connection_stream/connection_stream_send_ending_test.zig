@@ -58,7 +58,7 @@ fn deliver(sent: send.Sent, reader: *Connection, out: *[frames_max]Frame) ![]Fra
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = send_test.datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, reader, send_test.suite_holder.suite())).?.opened;
-    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
+    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch, 0);
     var payload = core.Reader.init(opened.payload);
     var count: usize = 0;
     // Bounded by `frames_max`, and each read shortens the payload.

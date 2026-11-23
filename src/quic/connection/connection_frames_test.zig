@@ -64,7 +64,7 @@ fn frames_of(list: []const Frame) []const u8 {
 }
 
 fn run(level: Level, list: []const Frame) frames.Error!frames.Report {
-    return frames.process(&test_connection, .{ .level = level, .payload = frames_of(list) }, test_now_ns, &recovery_scratch);
+    return frames.process(&test_connection, .{ .level = level, .payload = frames_of(list) }, test_now_ns, &recovery_scratch, 0);
 }
 
 /// A CONNECTION_CLOSE of each layer (RFC 9000 §19.19). The transport one carries a Frame Type
@@ -86,7 +86,7 @@ test "RFC 9000 §12.4: a packet with no frames is a connection error" {
     open_as(.client);
     // "An endpoint MUST treat receipt of a packet containing no frames as a connection error of
     // type PROTOCOL_VIOLATION."
-    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .{ .level = .initial, .payload = &.{} }, test_now_ns, &recovery_scratch));
+    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .{ .level = .initial, .payload = &.{} }, test_now_ns, &recovery_scratch, 0));
     try testing.expectEqual(
         error_code.protocol_violation,
         frames.connection_error_code(frames.Error.EmptyPayload),
@@ -196,7 +196,7 @@ test "RFC 9000 §19: a frame that will not parse is a FRAME_ENCODING_ERROR" {
     const unknown = [_]u8{ 0x3f, 0x00 };
     try testing.expectError(
         frames.Error.FrameEncoding,
-        frames.process(&test_connection, .{ .level = .application, .payload = &unknown }, test_now_ns, &recovery_scratch),
+        frames.process(&test_connection, .{ .level = .application, .payload = &unknown }, test_now_ns, &recovery_scratch, 0),
     );
     try testing.expectEqual(
         error_code.frame_encoding_error,
@@ -211,6 +211,7 @@ fn run_with(key_set: crypto.suite.KeySet, list: []const Frame) frames.Error!fram
         .{ .level = .application, .payload = frames_of(list), .key_set = key_set },
         test_now_ns,
         &recovery_scratch,
+        0,
     );
 }
 

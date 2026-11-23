@@ -168,7 +168,7 @@ test "RFC 9001 §6.2: the key set of the packet that opened reaches the frame la
     const outcome = try walk_payload(6, ack_payload(4), test_now_ns);
     try testing.expectError(
         frames.Error.OldKeysAcknowledgeNew,
-        frames.process(&test_connection, outcome.opened, test_now_ns, &recovery_scratch),
+        frames.process(&test_connection, outcome.opened, test_now_ns, &recovery_scratch, 0),
     );
 }
 

@@ -114,8 +114,11 @@ pub const Report = struct {
     /// What the packet left for the send path to answer (RFC 9000 §8.2.2, §19.7).
     owed: path_frames.Owed,
     /// How many streams the packet's acknowledgments moved to "Data Recvd" (RFC 9000 §3.1),
-    /// which `scratch.completed` holds in order.
+    /// which `scratch.completed` holds in order from `completed_from` on.
     completed_streams: usize = 0,
+    /// Where in `scratch.completed` the packet's streams start: after those of the packets the
+    /// caller processed before it in one call.
+    completed_from: usize = 0,
     /// Whether the packet carried a HANDSHAKE_DONE frame, which confirms the handshake at a
     /// client (RFC 9001 §4.1.2). The caller then discards the Handshake keys, which RFC 9001
     /// §4.9.2 requires and which takes the suite this function is not given
@@ -135,15 +138,23 @@ pub const Close = struct {
 /// `payload` is the plaintext `crypto.Suite.open` left in place. Nothing here discards: the tag
 /// has matched, so a rule broken from this point is the peer's and closes the connection.
 ///
-/// `scratch` is where an ACK frame's packets are written while RFC 9002 takes them (decision 59);
-/// the streams they finished stay in `scratch.completed`, and the report counts them.
-pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64, scratch: *connection_recovery.Scratch) Error!Report {
+/// `scratch` is where an ACK frame's packets are written while RFC 9002 takes them (decision 59).
+/// The streams they finished go into `scratch.completed` from `completed_from` on, after those of
+/// the packets the caller processed before it in one call, and the report counts them.
+pub fn process(
+    connection: *Connection,
+    opened: receive.Opened,
+    now_ns: u64,
+    scratch: *connection_recovery.Scratch,
+    completed_from: usize,
+) Error!Report {
+    assert(completed_from <= scratch.completed.len);
     const level = opened.level;
     // RFC 9000 §12.4: "The payload of a packet that contains frames MUST contain at least one
     // frame", and a packet with none is a connection error.
     if (opened.payload.len == 0) return Error.EmptyPayload;
     var reader = Reader.init(opened.payload);
-    var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{} };
+    var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{}, .completed_from = completed_from };
     // Bounded by the frames one packet can hold, which is its octets: §19.1 makes PADDING one
     // octet and no frame is shorter.
     while (report.frames < constants.limits.frames_per_packet_max) {
@@ -229,7 +240,7 @@ fn take_ack(
         ack,
         now_ns,
         scratch,
-        report.completed_streams,
+        report.completed_from + report.completed_streams,
     );
     // RFC 9001 §6.5 waits three Probe Timeouts from "an acknowledgment that confirms that the
     // previous key update was received", which is this frame when it names the current phase.

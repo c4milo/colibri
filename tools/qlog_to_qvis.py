@@ -26,6 +26,7 @@ EVENT_NAMES = {
     "quic:packet_sent": "transport:packet_sent",
     "quic:packet_received": "transport:packet_received",
     "quic:packet_dropped": "transport:packet_dropped",
+    "quic:packet_buffered": "transport:packet_buffered",
     "quic:connection_state_updated": "connectivity:connection_state_updated",
     "quic:connection_closed": "connectivity:connection_closed",
     "quic:recovery_metrics_updated": "recovery:metrics_updated",

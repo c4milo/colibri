@@ -194,7 +194,7 @@ fn take_ack(level: Level, smallest: u64, largest: u64, delay: u64, at_ns: u64) !
         .ecn = null,
     };
     try frame_module.write(&writer, .{ .ack = ack });
-    return frames.process(&server, .{ .level = level, .payload = writer.written() }, at_ns, &scratch);
+    return frames.process(&server, .{ .level = level, .payload = writer.written() }, at_ns, &scratch, 0);
 }
 
 test "RFC 9002 A.7, decision 59: an ACK frame the connection reads takes its packets out" {

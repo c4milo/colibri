@@ -74,7 +74,7 @@ fn open_as(role: connection_module.Role) void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns, &recovery_scratch);
+    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns, &recovery_scratch, 0);
 }
 
 test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
@@ -193,11 +193,12 @@ test "RFC 9000 §19.16: a frame cannot retire the connection ID its own packet a
         .{ .level = .application, .payload = writer.written(), .addressed_to = second },
         test_now_ns,
         &recovery_scratch,
+        0,
     ));
     // The same frame on a packet addressed to the other connection ID is legal, which is what
     // makes the refusal about the packet and not about the number.
     const first: u64 = 0;
-    _ = try frames.process(&test_connection, .{ .level = .application, .payload = writer.written(), .addressed_to = first }, test_now_ns, &recovery_scratch);
+    _ = try frames.process(&test_connection, .{ .level = .application, .payload = writer.written(), .addressed_to = first }, test_now_ns, &recovery_scratch, 0);
     try testing.expectEqual(1, test_connection.local_ids.active_len());
 }
 

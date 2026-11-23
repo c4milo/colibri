@@ -108,7 +108,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !usize {
         switch (outcome) {
             .opened => |opened| {
                 seen += 1;
-                _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
+                _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch, 0);
             },
             // RFC 9000 §19.1: the PADDING that expands a datagram is a frame like any other, and
             // a packet carrying only it is still a packet the walk takes.

@@ -16,6 +16,8 @@
 //!    transport parameters are read once they have arrived (§8.2), and the handshake completes when
 //!    the provider says it has (§4.1.1).
 //! 6. Each level the suite now holds keys for is marked installed (decision 62).
+//! 7. A server keeps a 1-RTT packet that arrives before its handshake completes, and opens each
+//!    one it kept after the datagram that completes the handshake (RFC 9001 §5.7, decision 168).
 //!
 //! Steps 5 and 6 run after each packet and not once for the datagram. A server's first datagram
 //! carries the ServerHello in an Initial packet and the rest of its flight in Handshake packets
@@ -44,6 +46,7 @@ const connection_retry = @import("connection_retry.zig");
 const connection_version = @import("connection_version.zig");
 const migration = @import("connection_migration.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_early = @import("connection_early.zig");
 
 const Connection = connection_module.Connection;
 const Datagram = receive_module.Datagram;
@@ -145,8 +148,13 @@ pub fn receive(
     keys_module.take_available(connection, suite);
     keys_module.take_lost(connection, suite);
     if (try take_whole(connection, suite, datagram.octets, scratch, &received)) return received;
-    try walk_packets(connection, suite, provider, datagram, scratch, &received);
+    try walk_packets(connection, suite, provider, datagram, datagram.now_ns, scratch, &received);
     if (connection.termination.state != .active) return received;
+    // RFC 9001 §5.7: the 1-RTT packets kept while the handshake waited open once it completes.
+    if (connection.handshake_complete and connection.early_packets.count > 0) {
+        try open_kept(connection, suite, provider, datagram, scratch, &received);
+        if (connection.termination.state != .active) return received;
+    }
     received.migrated = migration.after_datagram(connection, datagram.from, arrived, datagram.octets.len, received.highest_non_probing);
     return received;
 }
@@ -188,7 +196,57 @@ fn take_whole(
 }
 
 /// Walks the packets of the datagram and processes each one that opens (RFC 9000 §12.2).
+/// `arrived_ns` is when its octets arrived, which is `datagram.now_ns` except for a kept packet.
 fn walk_packets(
+    connection: *Connection,
+    suite: crypto.Suite,
+    provider: tls_provider.QuicProvider,
+    datagram: Datagram,
+    arrived_ns: u64,
+    scratch: *Scratch,
+    received: *Received,
+) Error!void {
+    assert(arrived_ns <= datagram.now_ns);
+    var walk: receive_module.Walk = undefined;
+    walk.init(datagram);
+    var walked_len: usize = 0;
+    // Bounded by the walk, which separates at most `constants.limits.coalesced_packets_max` packets.
+    while (try receive_module.next(&walk, connection, suite)) |outcome| {
+        // The octets `next` stepped over are the packet's.
+        const packet = datagram.octets[walked_len..walk.consumed];
+        walked_len = walk.consumed;
+        if (keep(connection, outcome, packet, datagram)) continue;
+        connection_qlog.on_packet_read(connection, outcome, packet.len, &datagram.from, datagram.now_ns);
+        const opened = switch (outcome) {
+            .opened => |held| held,
+            .discarded => continue,
+        };
+        try process_packet(connection, suite, opened, datagram, arrived_ns, scratch, received);
+        // RFC 9000 §10.2.2: a CONNECTION_CLOSE puts the connection into the draining state,
+        // after which nothing the rest of the datagram holds changes anything.
+        if (connection.termination.state != .active) return;
+        // Before the next packet, which may need the keys this one's CRYPTO frames produced.
+        try advance_handshake(connection, suite, provider, received);
+    }
+}
+
+/// Keeps a 1-RTT packet that arrived before the handshake completed, when it fits (RFC 9001
+/// §5.7). True when it was kept, and then it is neither logged as dropped nor read further.
+fn keep(connection: *Connection, outcome: receive_module.Outcome, packet: []const u8, datagram: Datagram) bool {
+    const why = switch (outcome) {
+        .opened => return false,
+        .discarded => |held| held,
+    };
+    if (!connection_early.may_keep(connection, why)) return false;
+    if (!connection.early_packets.keep(packet, datagram.now_ns, datagram.ecn)) return false;
+    connection_qlog.on_packet_buffered(connection, packet.len, &datagram.from, datagram.now_ns);
+    return true;
+}
+
+/// RFC 9001 §5.7: opens each kept packet in the order it arrived, now that the handshake has
+/// completed, as a datagram of its own. A packet RFC 9000 §12.3 already processed is dropped as
+/// a duplicate. The kept packets do not move the path (§9.3): only this datagram's packets do.
+fn open_kept(
     connection: *Connection,
     suite: crypto.Suite,
     provider: tls_provider.QuicProvider,
@@ -196,24 +254,20 @@ fn walk_packets(
     scratch: *Scratch,
     received: *Received,
 ) Error!void {
-    var walk: receive_module.Walk = undefined;
-    walk.init(datagram);
-    var walked_len: usize = 0;
-    // Bounded by the walk, which separates at most `constants.limits.coalesced_packets_max` packets.
-    while (try receive_module.next(&walk, connection, suite)) |outcome| {
-        // The octets `next` stepped over are the packet's.
-        connection_qlog.on_packet_read(connection, outcome, walk.consumed - walked_len, &datagram.from, datagram.now_ns);
-        walked_len = walk.consumed;
-        const opened = switch (outcome) {
-            .opened => |held| held,
-            .discarded => continue,
-        };
-        try process_packet(connection, suite, opened, datagram, scratch, received);
-        // RFC 9000 §10.2.2: a CONNECTION_CLOSE puts the connection into the draining state,
-        // after which nothing the rest of the datagram holds changes anything.
+    assert(connection.handshake_complete);
+    const early = &connection.early_packets;
+    const highest_non_probing = received.highest_non_probing;
+    defer {
+        early.clear();
+        received.highest_non_probing = highest_non_probing;
+    }
+    // Bounded by `constants.limits.early_packets_max`.
+    for (early.packets[0..early.count], 0..) |kept, index| {
+        const held: Datagram = .{ .octets = early.octets_of(index), .now_ns = datagram.now_ns, .ecn = kept.ecn, .from = datagram.from };
+        const processed_before = received.processed;
+        try walk_packets(connection, suite, provider, held, kept.arrived_ns, scratch, received);
+        early.opened += @intCast(received.processed - processed_before);
         if (connection.termination.state != .active) return;
-        // Before the next packet, which may need the keys this one's CRYPTO frames produced.
-        try advance_handshake(connection, suite, provider, received);
     }
 }
 
@@ -223,12 +277,13 @@ fn process_packet(
     suite: crypto.Suite,
     opened: receive_module.Opened,
     datagram: Datagram,
+    arrived_ns: u64,
     scratch: *Scratch,
     received: *Received,
 ) Error!void {
     const initial_received_len = connection_module.crypto_at(connection, .initial).received_len();
     const largest_before = connection_module.space_at(connection, opened.level).received.largest();
-    const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery);
+    const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery, received.completed_streams);
     // RFC 9000 §9.3: only a non-probing 1-RTT packet that raises the largest packet number moves
     // the path. Every packet before the handshake travels on the path it began on (§9).
     const raises = largest_before == null or opened.packet_number > largest_before.?;
@@ -237,15 +292,17 @@ fn process_packet(
     // successfully removed and all frames contained in the packet have been processed."
     // Decision 68: a caller that reads no codepoint passes Not-ECT, so no count rises.
     assert(connection.ecn_reads or datagram.ecn == .not_ect);
-    _ = connection_module.space_at(connection, opened.level).receive(opened.packet_number, datagram.now_ns, report.ack_eliciting, datagram.ecn);
+    // RFC 9000 §13.2.5: the ACK Delay SHOULD include "buffering delays caused by unavailability
+    // of decryption keys", so a kept packet is recorded at the instant it arrived.
+    _ = connection_module.space_at(connection, opened.level).receive(opened.packet_number, arrived_ns, report.ack_eliciting, datagram.ecn);
     // RFC 9000 §10.1: "An endpoint restarts its idle timer when a packet from its peer is
     // received and processed successfully."
     connection.termination.on_packet_received(datagram.now_ns);
     received.processed += 1;
-    // Only a 1-RTT packet acknowledges STREAM frames (RFC 9000 §12.4, Table 3), and a short header
-    // is the last packet of its datagram (§12.2), so at most one packet here finishes streams and
-    // the list `frames.process` writes from its start is that packet's.
-    assert(received.completed_streams == 0 or report.completed_streams == 0);
+    // Only a 1-RTT packet acknowledges STREAM frames (RFC 9000 §12.4, Table 3). A datagram holds
+    // one (§12.2), and each kept packet opened after it is one more, so each writes its streams
+    // after the last one's.
+    assert(report.completed_from == received.completed_streams);
     received.completed_streams += report.completed_streams;
     if (report.close) |close| received.close = close;
     connection_qlog.on_close_received(connection, report.close, datagram.now_ns);

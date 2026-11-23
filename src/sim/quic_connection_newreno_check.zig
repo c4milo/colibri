@@ -12,13 +12,13 @@ const Census = check.Census;
 const Storage = check.Storage;
 
 /// The censuses under NewReno, pinned as `quic_connection_check.zig`'s are.
-pub const census_crc32_expected: u32 = 0x7b05e404;
-pub const census_datagrams_expected: u64 = 13_316;
-pub const adversary_census_crc32_expected: u32 = 0x2be12464;
-pub const runner_census_crc32_expected: u32 = 0x7d50767c;
-pub const runner_census_datagrams_expected: u64 = 3_905;
-pub const rebind_port_census_crc32_expected: u32 = 0xb42ef40f;
-pub const rebind_address_census_crc32_expected: u32 = 0x24064aab;
+pub const census_crc32_expected: u32 = 0x24f663b0;
+pub const census_datagrams_expected: u64 = 11_836;
+pub const adversary_census_crc32_expected: u32 = 0x9771718a;
+pub const runner_census_crc32_expected: u32 = 0x8da71c6f;
+pub const runner_census_datagrams_expected: u64 = 3_906;
+pub const rebind_port_census_crc32_expected: u32 = 0xf827adce;
+pub const rebind_address_census_crc32_expected: u32 = 0x92daad5d;
 
 var check_storage: Storage align(@alignOf(Storage)) = undefined;
 

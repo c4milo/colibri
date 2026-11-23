@@ -51,7 +51,7 @@ fn open_application() void {
 /// Reads a built packet back at the peer and returns what its frames amounted to.
 fn read_back(built: anytype) !frames.Report {
     const opened = try fixture.walk_back(built);
-    return frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
+    return frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch, 0);
 }
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.

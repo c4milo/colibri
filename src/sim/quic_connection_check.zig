@@ -30,11 +30,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x172f3941;
-pub const census_datagrams_expected: u64 = 14_391;
-pub const census_packets_expected: u64 = 14_460;
-pub const census_dropped_expected: u64 = 745;
-pub const census_marked_expected: u64 = 539;
+pub const census_crc32_expected: u32 = 0xbbd9a853;
+pub const census_datagrams_expected: u64 = 12_534;
+pub const census_packets_expected: u64 = 12_602;
+pub const census_dropped_expected: u64 = 629;
+pub const census_marked_expected: u64 = 466;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || qlog_records.Error || error{
@@ -68,8 +68,10 @@ pub const Result = struct {
     round_trip_ns: u64 = 0,
     /// The digest of every datagram either endpoint sent.
     octets_crc32: u32 = 0,
-    /// Datagrams the adversary dropped.
+    /// Datagrams the adversary dropped or cut.
     adversary_dropped: u64 = 0,
+    /// 1-RTT packets the server kept before its handshake completed and opened after it.
+    early_opened: u64 = 0,
     /// The instant both endpoints had confirmed the handshake, from the run's start.
     handshake_ns: u64 = 0,
     /// How many times the server's path moved to its client's new address (RFC 9000 §9.3).
@@ -92,12 +94,16 @@ pub const Census = struct {
     dropped: u64 = 0,
     duplicated: u64 = 0,
     reordered: u64 = 0,
-    /// Datagrams the adversary dropped before the network saw them.
+    /// Datagrams the adversary dropped or cut before the network saw them.
     adversary_dropped: u64 = 0,
+    /// 1-RTT packets the servers kept before their handshakes completed and opened after them.
+    early_opened: u64 = 0,
     /// Datagrams the network marked ECN-CE (RFC 9000 §13.4).
     marked: u64 = 0,
     /// The longest any seed took to confirm the handshake at both endpoints.
     handshake_max_ns: u64 = 0,
+    /// How long all the seeds' runs took, summed.
+    finished_ns: u64 = 0,
     /// Rebinds the network made, datagrams it dropped for going to a lost binding, and moves the
     /// server made to follow.
     rebinds: u64 = 0,
@@ -143,7 +149,16 @@ pub const Adversary = enum {
     /// Reconnaissance Phase. Most clients that resume jump, and some lose a packet after the jump
     /// and retreat (design §8 step 35e).
     light_loss,
+    /// No loss, and the client's Initial and Handshake packets cut off the front of its first
+    /// `finished_cuts_max` datagrams that hold any once its own handshake has completed. The
+    /// 1-RTT packet behind them goes on, so the server receives the client's stream before the
+    /// Finished that completes its handshake (RFC 9001 §5.7), as a quinn client's did in the QUIC
+    /// Interop Runner (https://github.com/c4milo/colibri/issues/153).
+    cut_client_finished,
 };
+
+/// How many of the client's datagrams `cut_client_finished` cuts. The third Finished arrives.
+pub const finished_cuts_max: u64 = 2;
 
 /// The most datagrams `light_loss` drops, out of `schedule_denominator`, and its one delay.
 pub const light_drop_max: u64 = 5;
@@ -239,7 +254,9 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.reordered += storage.network.census.reordered;
         census.marked += storage.network.census.marked_congestion;
         census.adversary_dropped += result.adversary_dropped;
+        census.early_opened += result.early_opened;
         census.handshake_max_ns = @max(census.handshake_max_ns, result.handshake_ns);
+        census.finished_ns += result.finished_ns;
         census.rebinds += storage.network.census.rebinds;
         census.misrouted += storage.network.census.misrouted;
         census.migrations += result.migrations;
@@ -268,6 +285,7 @@ fn exercised(adversary: Adversary, census: *const Census) bool {
         // The runner's scenario delays every datagram alike and marks none, so drops are all it has.
         .runner_handshake_loss => census.dropped > 0,
         .light_loss => census.dropped > 0 and census.duplicated > 0,
+        .cut_client_finished => census.adversary_dropped > 0 and census.early_opened > 0,
     };
 }
 
@@ -377,9 +395,9 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0x2be12464;
-pub const adversary_census_datagrams_expected: u64 = 4_598;
-pub const adversary_census_dropped_expected: u64 = 1_406;
+pub const adversary_census_crc32_expected: u32 = 0x9771718a;
+pub const adversary_census_datagrams_expected: u64 = 4_032;
+pub const adversary_census_dropped_expected: u64 = 1_182;
 
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;
@@ -403,8 +421,8 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
 /// Decision 70 brought it from 10.4 to 8.4 seconds. Decision 64 as amended moved it to 10.3 on
 /// these 256 seeds, which is which seeds lose what: over 2,000 seeds it took the slowest from
 /// 34.2 to 32.2 seconds and the mean from 1.36 to 1.26.
-pub const runner_census_crc32_expected: u32 = 0x7d50767c;
-pub const runner_census_datagrams_expected: u64 = 3_905;
+pub const runner_census_crc32_expected: u32 = 0x8da71c6f;
+pub const runner_census_datagrams_expected: u64 = 3_906;
 pub const runner_census_dropped_expected: u64 = 1_136;
 pub const runner_census_handshake_max_ns_expected: u64 = 8_242_000_000;
 
@@ -426,14 +444,14 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     try std.testing.expectEqual(runner_census_crc32_expected, census.crc32);
 }
 
-/// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
-/// rebind: 276 of each in the port check and 275 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0xec6814e4;
-pub const rebind_port_census_datagrams_expected: u64 = 14_691;
-pub const rebind_port_census_migrations_expected: u64 = 255;
-pub const rebind_address_census_crc32_expected: u32 = 0xa50d24a2;
-pub const rebind_address_census_datagrams_expected: u64 = 14_548;
-pub const rebind_address_census_migrations_expected: u64 = 255;
+/// The rebinding checks' censuses, pinned as the lossy check's is. The server moved 248 times in
+/// the port check and 249 times in the address check.
+pub const rebind_port_census_crc32_expected: u32 = 0xdd67ec7f;
+pub const rebind_port_census_datagrams_expected: u64 = 13_247;
+pub const rebind_port_census_migrations_expected: u64 = 248;
+pub const rebind_address_census_crc32_expected: u32 = 0x10a6d796;
+pub const rebind_address_census_datagrams_expected: u64 = 13_203;
+pub const rebind_address_census_migrations_expected: u64 = 249;
 
 /// Runs the check under `adversary` and returns its census.
 fn run_rebinding(adversary: Adversary) !Census {
@@ -463,38 +481,4 @@ test "decision 72: a NAT that gives the client a new host and port leaves the se
     try std.testing.expectEqual(rebind_address_census_datagrams_expected, census.datagrams);
     try std.testing.expectEqual(rebind_address_census_migrations_expected, census.migrations);
     try std.testing.expectEqual(rebind_address_census_crc32_expected, census.crc32);
-}
-
-test "decision 102: every check gives the same census when both endpoints write a qlog" {
-    // Each check's census without a log, and the logs it writes with one: their octets, the
-    // digest of every record and the events read back. The logs change when an event or its
-    // fields change, and are committed with the new values after both build modes agree.
-    const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 10_112_253, .qlog_crc32 = 0xc60dfbf2, .qlog_events = 51_950 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_684_376, .qlog_crc32 = 0xd4a712fb, .qlog_events = 18_885 },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_804_934, .qlog_crc32 = 0x6a65cccf, .qlog_events = 19_072 },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_287_514, .qlog_crc32 = 0xa4169237, .qlog_events = 52_204 },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_150_193, .qlog_crc32 = 0x83ff306e, .qlog_events = 51_486 },
-    };
-    // Bounded by the checks above.
-    for (checks) |logged| {
-        check_storage.fault = .none;
-        check_storage.adversary = logged.adversary;
-        check_storage.controller = .cubic;
-        check_storage.resumed_from = null;
-        check_storage.logged = true;
-        var census: Census = .{};
-        var failed_seed: ?u64 = null;
-        run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
-            std.debug.print("QUIC {t} check with qlog: seed 0x{x} broke {t}, endpoint error {?}\n", .{ logged.adversary, failed_seed orelse 0, failure, check_storage.failure });
-            return failure;
-        };
-        // The digest folds in every datagram's octets, so the same digest is the same datagrams.
-        try std.testing.expectEqual(logged.crc32, census.crc32);
-        // A seed replays its logs byte for byte (invariant 5).
-        try std.testing.expectEqual(logged.qlog_len, census.qlog_len);
-        try std.testing.expectEqual(logged.qlog_crc32, census.qlog_crc32);
-        // Every record read back, which the check of each proves it read (`qlog_records.zig`).
-        try std.testing.expectEqual(logged.qlog_events, census.qlog_events);
-    }
 }

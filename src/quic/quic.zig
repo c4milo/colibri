@@ -92,6 +92,7 @@ const files = struct {
     pub const connection_recovery = @import("connection/connection_recovery.zig");
     pub const connection_datagram = @import("connection/connection_datagram.zig");
     pub const connection_qlog = @import("connection/connection_qlog.zig");
+    pub const connection_early = @import("connection/connection_early.zig");
     pub const crypto_stream = @import("crypto_stream.zig");
     pub const crypto_stream_fuzz = @import("crypto_stream_fuzz.zig");
     pub const bit_runs = @import("bit_runs.zig");
