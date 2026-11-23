@@ -34,9 +34,12 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
 # The image builds from colibri's working tree, fetched packages included, so it runs exactly what
-# this machine has. The packages come first, so zig-pkg/ holds chapulin's.
+# this machine has. The packages come first, so zig-pkg/ holds chapulin's. The fetch takes the
+# packages that the image's release build asks for, and no more. `--fetch=all` also fetched each
+# lazy package of each dependency, such as stdx's corpora and Rotor's baselines, which the image
+# never builds, so one host of theirs that did not answer stopped the run.
 echo "interop: building $image"
-(cd "$repository_root" && zig build --fetch=all)
+(cd "$repository_root" && zig build --fetch -Drelease)
 mkdir -p "$scratch/context/colibri"
 rsync -a --exclude .zig-cache --exclude zig-out --exclude .git "$repository_root/" "$scratch/context/colibri/"
 cp "$repository_root"/tools/quic_interop/{Dockerfile,run_endpoint.sh,qns_identity.py} "$scratch/context/"
