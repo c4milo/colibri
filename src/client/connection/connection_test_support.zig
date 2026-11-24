@@ -123,6 +123,12 @@ pub fn start_coding(protocol: connection_module.Protocol) !void {
     try start_offering(protocol, &codings);
 }
 
+/// As `start_coding`, with a configuration that states `cpu_features` (decision 169).
+pub fn start_coding_on(protocol: connection_module.Protocol, cpu_features: h11.coding.CpuFeatures) !void {
+    pool.init();
+    try start_configured(.{ .cpu_features = cpu_features, .authority = authority, .protocols = only(protocol), .codings = &codings, .decoders = pool.storage() });
+}
+
 /// As `start_coding`, with the client offering `offered`.
 pub fn start_offering(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
     pool.init();
@@ -133,11 +139,16 @@ pub fn start_offering(protocol: connection_module.Protocol, offered: []const htt
 /// As `start_offering`, with the `zstd` and `br` pools of `coding_test_support.zig` beside the
 /// `gzip` one, each given when `offered` names a coding it serves, and every decoder free.
 pub fn start_offering_all(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
+    try start_offering_all_on(protocol, offered, .none());
+}
+
+/// As `start_offering_all`, with a configuration that states `cpu_features` (decision 169).
+pub fn start_offering_all_on(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding, cpu_features: h11.coding.CpuFeatures) !void {
     pool.init();
     const storage = pool.storage();
     coding_support.reset_pools();
     try start_configured(.{
-        .cpu_features = .none(),
+        .cpu_features = cpu_features,
         .authority = authority,
         .protocols = only(protocol),
         .codings = offered,

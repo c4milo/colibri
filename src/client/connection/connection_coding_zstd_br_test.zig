@@ -217,3 +217,40 @@ test "decision 101 as amended: over h2, br decodes, and a zstd frame or a br str
     try testing.expectEqual(.malformed, cut_br.response.result);
     try expect_pools_free();
 }
+
+test "decision 169: a zstd decoder, each frame of it, and a br decoder run on the configuration's CPU features" {
+    // What a decoder keeps of the features it started with: zstd's checksum path and its choice
+    // of assembly, and br's choice of assembly. Where the build target holds what they ask for,
+    // the two sets differ in them.
+    const sets = [_]coding_pool.CpuFeatures{ .none(), .target() };
+    for (sets, [_]coding_pool.CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+        try support.start_offering_all_on(.h11, &.{.zstd}, cpu_features);
+        const zstd_decoder = &coding_support.zstd_pool.storage().slots[0].decoder;
+        zstd_decoder.init(cpu_features);
+        const expected_hash = zstd_decoder.hash_path;
+        const expected_assembly = zstd_decoder.assembly;
+        // The pool's one decoder holds the other set's choices before the exchange takes it.
+        zstd_decoder.init(other);
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+        _ = try connection.request(&exchange.request, &exchange.response);
+        support.client_send();
+        // RFC 8878 §3.1: two frames, and the second one starts the decoder again.
+        try h11_answer("zstd", coding_support.two_frames_zst);
+        try testing.expectEqual(.response, exchange.response.result);
+        try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
+        try testing.expectEqual(expected_hash, zstd_decoder.hash_path);
+        try testing.expectEqual(expected_assembly, zstd_decoder.assembly);
+
+        try support.start_offering_all_on(.h11, &.{.br}, cpu_features);
+        const br_decoder = &coding_support.br_pool.storage().slots[0].decoder;
+        br_decoder.init(cpu_features);
+        const expected_br = br_decoder.state.assembly;
+        br_decoder.init(other);
+        var second: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+        _ = try connection.request(&second.request, &second.response);
+        support.client_send();
+        try h11_answer("br", coding_support.plain_br);
+        try testing.expectEqual(.response, second.response.result);
+        try testing.expectEqual(expected_br, br_decoder.state.assembly);
+    }
+}

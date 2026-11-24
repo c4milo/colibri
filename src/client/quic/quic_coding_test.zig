@@ -94,3 +94,35 @@ test "decision 101: an h3 response whose coded stream is cut short ends malforme
     try testing.expectEqual(.malformed, exchange.response.result);
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
 }
+
+test "decision 169: an h3 response's decoder, each gzip member of it, runs on the configuration's CPU features" {
+    const CpuFeatures = @TypeOf(support.config.cpu_features);
+    // The CRC-32 path of a gzip decoder shows the features it started with.
+    const sets = [_]CpuFeatures{ .none(), .target() };
+    for (sets, [_]CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+        try support.prepare(&support.alpn_h3, &support.alpn_h3, false);
+        tcp_support.pool.init();
+        const storage = tcp_support.pool.storage();
+        support.config.codings = &tcp_support.codings;
+        support.config.decoders = storage;
+        support.config.cpu_features = cpu_features;
+        // The exchange takes the pool's first decoder, which holds the other set's path.
+        const decoder: *gzip.Decoder = @ptrCast(@alignCast(&storage.slots[0].decoder));
+        decoder.init(cpu_features);
+        const expected = decoder.crc32_path;
+        decoder.init(other);
+        try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);
+        gzip_encoder.init(.none());
+        // RFC 1952 §2.2: two members, which decode to the text twice.
+        const member_len = try gzip_encoder.encode_all(text, &coded_room);
+        @memcpy(coded_room[member_len..][0..member_len], coded_room[0..member_len]);
+        support.answer_content = coded_room[0 .. member_len * 2];
+        support.answer_coding = "gzip";
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+        _ = try connection.request(&exchange.request, &exchange.response);
+        try support.pump(support.rounds_default);
+        try testing.expectEqual(.response, exchange.response.result);
+        try testing.expectEqual(text.len * 2, exchange.response.body_received().len);
+        try testing.expectEqual(expected, decoder.crc32_path);
+    }
+}

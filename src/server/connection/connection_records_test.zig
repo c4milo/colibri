@@ -275,3 +275,23 @@ test "decision 91: a transport that closed gives back the decoder its coded body
         connection.transport_closed();
     }
 }
+
+test "decision 169: an h11 request's decoder runs on the configuration's CPU features" {
+    const gzip = @import("gzip");
+    const sets = [_]@TypeOf(support.config.cpu_features){ .none(), .target() };
+    for (sets, [_]@TypeOf(support.config.cpu_features){ sets[1], sets[0] }) |cpu_features, other| {
+        decoders.init();
+        // The request takes the pool's first decoder, which holds the other set's path.
+        const decoder: *gzip.Decoder = @ptrCast(@alignCast(&decoders.storage().slots[0].decoder));
+        decoder.init(cpu_features);
+        const expected = decoder.crc32_path;
+        decoder.init(other);
+        support.config = .{ .cpu_features = cpu_features, .protocols = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
+        try attach_plain_with(.{ .alpn = "http/1.1" });
+        const record_len = try record_at(0, plain_support.content_application_data, coded_request);
+        _ = try connection.receive(support.input[0..record_len], support.now_ns);
+        const body = try connection.receive(&.{}, support.now_ns);
+        try testing.expectEqualStrings("hello", body.event.?.body.bytes);
+        try testing.expectEqual(expected, decoder.crc32_path);
+    }
+}

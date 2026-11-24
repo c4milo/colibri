@@ -225,3 +225,30 @@ test "RFC 9112 §9.3: a server that answers before a coded body ends closes, and
     try testing.expect(test_connection.should_close());
     try expect_pool_free(storage);
 }
+
+test "decision 169: a connection starts its decoder, and each gzip member, on its own CPU features" {
+    var coded_room: [test_output_len]u8 = undefined;
+    const member = try gzip_of(test_text, &coded_room);
+    // RFC 1952 §2.2: two members in one body.
+    var two: [test_output_len * 2]u8 = undefined;
+    @memcpy(two[0..member.len], member);
+    @memcpy(two[member.len..][0..member.len], member);
+    const input = try chunked_message(request_head, two[0 .. member.len * 2]);
+    // The CRC-32 path of a gzip decoder shows the features it started with. Where the build
+    // target holds a carry-less multiply, the two sets take two paths.
+    const sets = [_]coding.CpuFeatures{ .none(), .target() };
+    for (sets, [_]coding.CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+        const storage = pool();
+        const decoder: *gzip.Decoder = @ptrCast(@alignCast(&storage.slots[0].decoder));
+        decoder.init(cpu_features);
+        const expected = decoder.crc32_path;
+        // The pool's one decoder holds the other set's path before the connection takes it.
+        decoder.init(other);
+        test_connection.init(.{ .role = .server, .decoders = storage, .cpu_features = cpu_features });
+        var body: [test_text.len * 2]u8 = undefined;
+        const whole = try read_all(&test_connection, input, test_text.len, &body);
+        try testing.expect(whole.ended);
+        try testing.expectEqual(test_text.len * 2, whole.body.len);
+        try testing.expectEqual(expected, decoder.crc32_path);
+    }
+}
