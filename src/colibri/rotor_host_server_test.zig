@@ -55,7 +55,7 @@ fn serve() void {
 fn init_with_identity(counter: *support.Counter) !void {
     try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .engine = .{ .tls_buffer = &server_support.tls_buffer },
+        .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .unix_seconds = testdata.now_seconds,
         .random = counter.random(),
@@ -116,7 +116,7 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
 
 /// Starts the loop of a server in cleartext, as `run` does before its first turn.
 fn begin_cleartext(counter: *support.Counter) !void {
-    try test_server.init(&.{ .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
     _ = try test_server.host.begin();
 }
 
@@ -306,7 +306,7 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     try testing.expectError(error.AddressInUse, test_server.init(&.{
         .port = held.port,
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .engine = .{ .tls_buffer = &server_support.tls_buffer },
+        .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .unix_seconds = testdata.now_seconds,
         .random = counter.random(),

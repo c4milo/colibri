@@ -83,6 +83,7 @@ pub fn read_coded(
     input: []const u8,
     trailers: *http.FieldSection,
     decoded: []u8,
+    cpu_features: coding.CpuFeatures,
 ) (ReadError || coding.Error)!Read {
     assert(decoding.active());
     const run = try read(reader, role, input, trailers);
@@ -93,7 +94,7 @@ pub fn read_coded(
     }
     // A read that returns data returns nothing after it (`chunked.Decoder.decode`).
     assert(!run.ended);
-    const progress = try decoding.decode(storage, run.data, decoded);
+    const progress = try decoding.decode(storage, run.data, decoded, cpu_features);
     const left = run.data.len - progress.consumed;
     give_back(reader, left);
     var written = core.Reader.init(decoded);

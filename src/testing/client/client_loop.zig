@@ -22,7 +22,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const client = @import("client");
-const h11 = @import("h11");
 const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
@@ -96,7 +95,7 @@ var bodies: [constants.client_connections_max]client_session.Bodies align(@align
 
 /// What every pool of the run borrows: the authority, the versions, the TLS value when `--tls`
 /// names a root, and the codings.
-var pool_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
+var pool_config: client.Config align(@alignOf(client.Config)) = .{ .cpu_features = .none(), .authority = "localhost" };
 /// The decoders every connection of a `--coded` run shares, a pool for each coding (decision 101 as
 /// amended), and the codings it offers. `br` goes first, with no weight: h2o 2.2.5 codes no coding
 /// the request names with a weight, and a peer that reads weights still takes the one it has.
@@ -302,13 +301,18 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    pool_config = .{ .authority = run.authority, .protocols = versions_of(&run), .tcp_connections = client_options.pool_tcp_connections(&run) };
+    pool_config = .{
+        .authority = run.authority,
+        .protocols = versions_of(&run),
+        .tcp_connections = client_options.pool_tcp_connections(&run),
+        // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri
+        // (decision 169).
+        .cpu_features = client.CpuFeatures.detect(),
+    };
     if (run.coded) {
-        // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
-        const features = h11.coding.CpuFeatures.detect();
-        decoders.init(features);
-        zstd_decoders.init(features);
-        br_decoders.init(features);
+        decoders.init();
+        zstd_decoders.init();
+        br_decoders.init();
         pool_config.codings = &offered_codings;
         pool_config.decoders = decoders.storage();
         pool_config.zstd_decoders = zstd_decoders.storage();
@@ -375,7 +379,7 @@ const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
 /// requested, and the `open` its first step reports. Test-only.
 fn test_connection() !*Connection {
     client_exchange.fill_content();
-    pool_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
+    pool_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h2 = false } };
     const connection = &connections[0];
     connection.failure = .none;
     connection.ending = pool_tcp.Ending.none;

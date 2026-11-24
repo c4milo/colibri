@@ -42,7 +42,7 @@ fn start() !void {
 
 /// As `start`, with a connection that speaks `protocol`.
 fn start_speaking(protocol: pool_module.Protocol) !void {
-    config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(protocol)) };
+    config = .{ .cpu_features = .none(), .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(protocol)) };
     try pool.init(&pool_memory, &config, &.{ .addresses = &addresses, .port = http_port }, null);
     fresh_peer();
     events_len = 0;
@@ -50,7 +50,7 @@ fn start_speaking(protocol: pool_module.Protocol) !void {
 
 /// The peer of the next connection the pool opens, with nothing read or written either way.
 fn fresh_peer() void {
-    support.peer_h11.init(.{ .role = .server });
+    support.peer_h11.init(.{ .cpu_features = .none(), .role = .server });
     support.peer_h2.init(.{ .role = .server });
     support.to_peer_len = 0;
     support.to_client_len = 0;

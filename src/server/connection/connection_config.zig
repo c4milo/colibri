@@ -34,6 +34,8 @@ pub const Config = struct {
     /// (decision 101). Both or neither, and only `gzip` and `deflate`, which the server encodes.
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
+    /// The CPU features each codec the connection takes from a pool runs on (decision 169).
+    cpu_features: coding_pool.CpuFeatures,
     /// The limits of decision 110's deadlines. A connection copies them when it starts, and
     /// `Connection.set_timeouts` changes one connection's.
     timeouts: deadline.Timeouts = .{},

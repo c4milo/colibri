@@ -68,8 +68,11 @@ var received: Received align(@alignOf(Received)) = .{};
 pub fn main() !void {
     try link.init();
     defer link.deinit();
-    client.init(.{ .role = .client });
-    server.init(.{ .role = .server });
+    // The CPU features a decoder of a coded body runs on. The program asks its CPU once, and
+    // states them to each connection (decision 169).
+    const cpu_features: h11.coding.CpuFeatures = .detect();
+    client.init(.{ .role = .client, .cpu_features = cpu_features });
+    server.init(.{ .role = .server, .cpu_features = cpu_features });
 
     try send_requests();
     try serve();

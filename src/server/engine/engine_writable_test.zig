@@ -145,7 +145,7 @@ test "design §8 step 46: content the engine takes whole ends a release wait" {
 fn start_coding() !void {
     try support.start_engine(null);
     tcp_support.fill_incompressible();
-    tcp_support.pool.init(.none());
+    tcp_support.pool.init();
     engine_support.engine_config.codings = &tcp_support.codings;
     engine_support.engine_config.encoders = tcp_support.pool.encoders();
     try engine_support.restart();

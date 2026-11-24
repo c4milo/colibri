@@ -129,7 +129,7 @@ test "RFC 9113 §5.4.1: an h2 connection error ends open requests, sends the GOA
 
 test "decision 101: a coded response's ring owes octets, which a send writes out" {
     try support.start(null, .{});
-    tcp_support.pool.init(.none());
+    tcp_support.pool.init();
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();
     try engine.init(&support.config, tcp_support.stream.random(), .{ .unix_seconds = tcp_support.now_seconds, .monotonic_ns = support.now_ns });
@@ -160,7 +160,7 @@ const preface_small_window = h2.constants.protocol.client_preface ++ "\x00\x00\x
 
 test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UPDATE opens it" {
     try support.start(null, .{});
-    tcp_support.pool.init(.none());
+    tcp_support.pool.init();
     tcp_support.fill_incompressible();
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();

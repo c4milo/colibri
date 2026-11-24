@@ -38,7 +38,7 @@ const Engine = server.Engine(.{ .tcp_connections = streams_max, .quic_connection
 // The engine holds hundreds of kilobytes, so it lives outside the stack.
 var link: *StreamsLink = undefined;
 var output: [output_len]u8 = undefined;
-var config: server.Config align(@alignOf(server.Config)) = .{};
+var config: server.Config align(@alignOf(server.Config)) = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The connection of each stream's socket, once the listener accepted it.
 var accepted: [streams_max]?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = @splat(null);
@@ -49,6 +49,8 @@ var ended: u32 = 0;
 /// Starts the server's engine on the stream link the example holds.
 pub fn init(streams: *StreamsLink) !void {
     link = streams;
+    // Each value has its default but the CPU features, which the program asks of its CPU once.
+    config = .{ .cpu_features = .detect() };
     try engine.init(&config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = link.now_ns(.server) });
 }
 

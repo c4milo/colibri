@@ -44,6 +44,10 @@ pub const Config = struct {
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
     br_decoders: ?coding_pool.BrotliDecoders = null,
+    /// The CPU features each decoder of the pools above runs on (decision 169): the program's,
+    /// from `CpuFeatures.detect()`, which it calls once. colibri never asks the CPU itself, and
+    /// the field has no default, so no program keeps the build target's features by mistake.
+    cpu_features: coding_pool.CpuFeatures,
     /// Whether the pool may open QUIC when neither an HTTPS record nor Alt-Svc says whether the
     /// origin speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
     /// `protocols.prefer` says which transport opens first.
@@ -150,6 +154,7 @@ pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic:
         .decoders = config.decoders,
         .zstd_decoders = config.zstd_decoders,
         .br_decoders = config.br_decoders,
+        .cpu_features = config.cpu_features,
     };
 }
 
@@ -170,6 +175,7 @@ pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: 
         .decoders = config.decoders,
         .zstd_decoders = config.zstd_decoders,
         .br_decoders = config.br_decoders,
+        .cpu_features = config.cpu_features,
         .drop_ns = config.timeouts.drop_ns,
     };
     var values = config.tls orelse return;

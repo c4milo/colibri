@@ -262,14 +262,17 @@ pub fn main() !void {
 
     const random = tls.Random.init(&generator, fill);
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    // The CPU features the codecs run on, which the program also asks once and states in each
+    // configuration (decision 169).
+    const cpu_features: platform.CpuFeatures = .detect();
     // Each object starts at the loop's instant. A cleartext client judges no date, so the
     // example names a fixed second in place of a reading of the system's clock.
     const now: colibri.server.Timestamp = .{ .unix_seconds = 1_800_000_000, .monotonic_ns = loop.now_ns() };
     router.init();
-    try hosted_server.init(&.{ .cpu = cpu, .random = random, .now = now, .engine = .{ .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
+    try hosted_server.init(&.{ .cpu = cpu, .random = random, .now = now, .engine = .{ .cpu_features = cpu_features, .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &ipv4_addresses, .port = port },
-        .pool = .{ .authority = "localhost", .protocols = .{ .h2 = false, .h3 = false } },
+        .pool = .{ .cpu_features = cpu_features, .authority = "localhost", .protocols = .{ .h2 = false, .h3 = false } },
         .random = random,
         .now = now,
     }, &exchanges);

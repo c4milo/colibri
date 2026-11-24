@@ -71,6 +71,7 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
             connection.session.h11.init(.{
                 .role = .server,
                 .decoders = connection.config.decoders,
+                .cpu_features = connection.config.cpu_features,
                 // Decision 160: the rest of a body a response did not wait for is read, to a bound.
                 .discard_len_max = constants.limits.discard_len_max,
             });

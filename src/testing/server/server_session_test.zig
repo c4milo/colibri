@@ -24,7 +24,7 @@ const Protocol = enum { h11, h2 };
 
 /// The session, its configuration and buffers, outside any stack frame. Test-only.
 var test_session: Session align(@alignOf(Session)) = undefined;
-var test_config: server.Config align(@alignOf(server.Config)) = .{};
+var test_config: server.Config align(@alignOf(server.Config)) = .{ .cpu_features = .none() };
 var test_input: [test_input_len]u8 = undefined;
 var test_output: [test_output_len]u8 = undefined;
 var test_other_output: [test_output_len]u8 = undefined;
@@ -45,7 +45,7 @@ const response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_conte
 /// A session speaking `protocol` in cleartext, whose entry 0 holds a connection with nothing read
 /// or written: its configuration allows that version alone (decision 117). Test-only.
 fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
-    test_config = .{ .protocols = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
+    test_config = .{ .cpu_features = .none(), .protocols = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
     try test_session.init(&test_config, entropy.random(), .{ .unix_seconds = 0, .monotonic_ns = test_now_ns });

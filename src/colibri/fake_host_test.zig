@@ -58,7 +58,7 @@ var test_client: TestClient align(@alignOf(TestClient)) = undefined;
 /// Starts the hosted server: its host opened the listener alone.
 fn start_server(counter: *support.Counter) !void {
     router = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .now = started }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .random = counter.random(), .now = started }, &router, &context);
 }
 
 /// The one operation of `kind` among `written`, or null.
@@ -169,7 +169,7 @@ test "decision 159: a server stops once each operation had its final completion"
 test "decision 159: a hosted server whose host opened no listener writes no accept" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .now = started, .sockets = .{ .listener = false } }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .random = counter.random(), .now = started, .sockets = .{ .listener = false } }, &router, &context);
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_server.turn(0, &operations);
     try testing.expectEqual(0, turned.operations);

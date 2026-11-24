@@ -127,7 +127,7 @@ fn on_response(connection: *Connection, head: h2.Connection.Response) bool {
     }
     const section = connection.session.h2.field_section();
     internal.note_alt_svc(connection, section, first_regular(section));
-    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section)) catch |failure| {
+    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section), connection.config.cpu_features) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
     // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
@@ -155,7 +155,7 @@ fn on_trailers(connection: *Connection, stream_id: u32) bool {
 fn on_data(connection: *Connection, data: h2.Connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
     if (slot.request.streamed.response) return on_piece(connection, slot, data);
-    response_write.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
+    response_write.append_body(slot, data.payload, connection.config.cpu_features) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
     if (!data.end_stream) return false;
     return finish(connection, slot);
 }

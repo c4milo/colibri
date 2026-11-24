@@ -80,11 +80,7 @@ const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
-var client_config: client.Config align(@alignOf(client.Config)) = .{
-    .authority = origin,
-    .protocols = .{ .h2 = false, .h3 = false },
-    .tcp_connections = tcp_connections,
-};
+var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 
 // The link holds every queue, so it lives outside the stack.
 var link: StreamsLink align(@alignOf(StreamsLink)) = undefined;
@@ -116,6 +112,14 @@ pub fn main() !void {
     try link.init();
     defer link.deinit();
     try peer.init(&link);
+    client_config = .{
+        .authority = origin,
+        .protocols = .{ .h2 = false, .h3 = false },
+        .tcp_connections = tcp_connections,
+        // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
+        // colibri never asks it (decision 169).
+        .cpu_features = .detect(),
+    };
     // The pool takes what the first DNS answer knows: the server's address and its port.
     const known: client.Destination = .{ .addresses = &first_addresses, .port = server_port };
     try pool.init(&pool_memory, &client_config, &known, null);

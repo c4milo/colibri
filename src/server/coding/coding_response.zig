@@ -24,9 +24,10 @@ pub const Head = struct {
 /// Plans the final `response` to a request that asked `asked`: its field lines, rewritten into
 /// `into`, and an encoder taken for its content when it is coded. With every encoder taken, the
 /// content goes uncoded (decision 101). The caller gives the slot back if the head fails to go out.
-pub fn plan_head(encoders: Encoders, asked: coding_rules.Asked, response: event.ResponseHeader, into: *coding_fields.Rewritten) coding_fields.Error!Head {
+/// The encoder runs on `cpu_features`, the configuration's (decision 169).
+pub fn plan_head(encoders: Encoders, asked: coding_rules.Asked, response: event.ResponseHeader, into: *coding_fields.Rewritten, cpu_features: coding_pool.CpuFeatures) coding_fields.Error!Head {
     var plan = coding_rules.plan(asked, response);
-    const slot = if (plan.encodes) encoders.take(plan.coding.?) else null;
+    const slot = if (plan.encodes) encoders.take(plan.coding.?, cpu_features) else null;
     if (plan.encodes and slot == null) plan = .{ .vary = plan.vary };
     errdefer if (slot) |index| encoders.give_back(index);
     const fields = try coding_fields.rewrite(response.headers, plan, into);
@@ -144,9 +145,9 @@ fn copy_held(coded: *Coded, encoders: Encoders, copied: *usize) void {
 
 test "decision 101: content past the ring's room waits for the ring to empty, and decodes whole" {
     test_fill();
-    test_pool.init(.none());
+    test_pool.init();
     const encoders = test_pool.encoders();
-    var coded: Coded = .{ .slot = encoders.take(.gzip).? };
+    var coded: Coded = .{ .slot = encoders.take(.gzip, .none()).? };
     var taken: usize = 0;
     var copied: usize = 0;
     // Bounded: each pass empties the ring, so the encoder takes input or finishes.

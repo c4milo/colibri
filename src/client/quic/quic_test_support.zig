@@ -169,7 +169,7 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
         .alpn = server_protocols,
         .cpu = support.cpu,
     });
-    config = .{ .tls = &client_tls, .authority = support.authority };
+    config = .{ .cpu_features = .none(), .tls = &client_tls, .authority = support.authority };
     now_ns = start_ns;
     server_started = false;
     server_h3_started = false;

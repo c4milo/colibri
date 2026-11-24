@@ -76,6 +76,8 @@ pub const Config = struct {
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
     br_decoders: ?coding_pool.BrotliDecoders = null,
+    /// The CPU features each decoder of the pools above runs on (decision 169).
+    cpu_features: coding_pool.CpuFeatures,
     /// h11: how long the connection reads and drops a response the caller no longer reads, or null
     /// for no limit (decision 146).
     drop_ns: ?u64 = constants.policy.drop_timeout_ns,

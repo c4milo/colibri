@@ -126,6 +126,7 @@ pub const World = struct {
     /// request yet.
     pub fn init(world: *World, seed: u64) Error!void {
         world.endpoint_config = .{
+            .cpu_features = .none(),
             .tls = .{
                 .identities = &identity.identities,
                 .cookie_key = &identity.cookie_key,

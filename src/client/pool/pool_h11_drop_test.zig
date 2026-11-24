@@ -62,6 +62,7 @@ fn Tests(comptime Pool: type) type {
 
         test "decision 146: the pool names the end of an h11 drop, and fails its connection there" {
             config = .{
+                .cpu_features = .none(),
                 .authority = support.authority,
                 .protocols = pool_support.versions_for(&pool, support.only(.h11)),
                 .timeouts = .{ .drop_ns = drop_ns },

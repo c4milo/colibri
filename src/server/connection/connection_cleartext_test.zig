@@ -15,7 +15,7 @@ const h11_request = "GET / HTTP/1.1\r\nhost: example.com\r\n\r\n";
 
 /// A connection with the default configuration, which allows both h11 and h2.
 fn start_both() !void {
-    support.config = .{};
+    support.config = .{ .cpu_features = .none() };
     try connection.init(&support.config, null, support.stream.random(), 0, 0);
 }
 
@@ -57,19 +57,19 @@ test "RFC 9113 §3.3: a prefix of the preface chooses nothing and consumes nothi
 
 test "decision 117: a version `versions` turns off is never chosen" {
     // h11 alone: the preface is an h11 request line like any other, and h2 never runs.
-    support.config = .{ .protocols = support.only(.h11) };
+    support.config = .{ .cpu_features = .none(), .protocols = support.only(.h11) };
     try connection.init(&support.config, null, support.stream.random(), 0, 0);
     try testing.expectEqual(.h11, connection.protocol().?);
     _ = support.receive_copy(preface_and_settings) catch {};
     try testing.expectEqual(.h11, connection.protocol().?);
     // h2 alone: other first octets are an invalid preface, which fails the connection (RFC 9113
     // §3.4).
-    support.config = .{ .protocols = support.only(.h2) };
+    support.config = .{ .cpu_features = .none(), .protocols = support.only(.h2) };
     try connection.init(&support.config, null, support.stream.random(), 0, 0);
     try testing.expectEqual(.h2, connection.protocol().?);
     try testing.expectError(error.ConnectionFailed, support.receive_copy(h11_request));
     // h3 alone leaves a TCP connection nothing to speak (RFC 9114 §3.1).
-    support.config = .{ .protocols = .{ .h11 = false, .h2 = false } };
+    support.config = .{ .cpu_features = .none(), .protocols = .{ .h11 = false, .h2 = false } };
     try testing.expectError(error.NoVersion, connection.init(&support.config, null, support.stream.random(), 0, 0));
 }
 

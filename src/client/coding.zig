@@ -20,6 +20,9 @@ const FieldSection = http.FieldSection;
 /// weight after each but the first.
 pub const offer_len_max: usize = 64;
 
+/// The CPU features a decoder starts with: the configuration's `cpu_features` (decision 169).
+pub const CpuFeatures = h11.coding.CpuFeatures;
+
 pub const Error = error{
     /// The decoded content passed the response's `body`.
     NoSpaceLeft,
@@ -157,23 +160,24 @@ pub fn active(slot: *const Slot) bool {
 
 /// Reads what the final response's Content-Encoding says of its content, in the regular field
 /// lines of `section` from `first`. It starts the decoder of the coding they name, when it is one
-/// the client offered, and gives back every other decoder the slot holds.
-pub fn begin(slot: *Slot, status: u16, section: *const FieldSection, first: u32) void {
+/// the client offered, with `cpu_features`, the configuration's (decision 169), and gives back
+/// every other decoder the slot holds.
+pub fn begin(slot: *Slot, status: u16, section: *const FieldSection, first: u32, cpu_features: h11.coding.CpuFeatures) void {
     if (!holds_any(slot)) return;
     const coding = decodable(slot, status, section, first) orelse return slots_module.give_back(slot);
     switch (coding) {
         .gzip, .deflate => {
-            slot.decoding.begin(slot.decoders.?, if (coding == .gzip) .gzip else .deflate);
+            slot.decoding.begin(slot.decoders.?, if (coding == .gzip) .gzip else .deflate, cpu_features);
             slot.zstd.release();
             slot.br.release();
         },
         .zstd => {
-            slot.zstd.begin();
+            slot.zstd.begin(cpu_features);
             give_back_deflate(slot);
             slot.br.release();
         },
         .br => {
-            slot.br.begin();
+            slot.br.begin(cpu_features);
             give_back_deflate(slot);
             slot.zstd.release();
         },
@@ -222,8 +226,9 @@ fn one_coding(value: []const u8) ?Coding {
 /// RFC 9110 §5.6.3: optional whitespace is spaces and horizontal tabs.
 const whitespace = " \t";
 
-/// Decodes the coded `octets` into the response's body, after the octets already there.
-pub fn decode(slot: *Slot, octets: []const u8) Error!void {
+/// Decodes the coded `octets` into the response's body, after the octets already there. A coding
+/// whose content holds more than one stream starts each with `cpu_features`.
+pub fn decode(slot: *Slot, octets: []const u8, cpu_features: h11.coding.CpuFeatures) Error!void {
     assert(active(slot));
     const response = slot.response;
     slot.coded_len += octets.len;
@@ -236,7 +241,7 @@ pub fn decode(slot: *Slot, octets: []const u8) Error!void {
         if (taken == octets.len) return;
         const room = response.body[response.body_len..];
         const output = if (room.len > 0) room else &spill;
-        const progress = try step(slot, octets[taken..], output);
+        const progress = try step(slot, octets[taken..], output, cpu_features);
         if (room.len == 0 and progress.written > 0) return error.NoSpaceLeft;
         taken += progress.consumed;
         response.body_len += progress.written;
@@ -245,17 +250,17 @@ pub fn decode(slot: *Slot, octets: []const u8) Error!void {
 }
 
 /// One call into the decoder the slot's response took.
-fn step(slot: *Slot, input: []const u8, output: []u8) Error!h11.coding.Progress {
+fn step(slot: *Slot, input: []const u8, output: []u8, cpu_features: h11.coding.CpuFeatures) Error!h11.coding.Progress {
     if (slot.decoding.active()) {
-        return slot.decoding.decode(slot.decoders.?, input, output) catch {
+        return slot.decoding.decode(slot.decoders.?, input, output, cpu_features) catch {
             // RFC 1950 §2.2, RFC 1951 §3.2 and RFC 1952 §2.3: content that breaks its coding's
             // format fails the response (decision 101).
             return error.CodingCorrupt;
         };
     }
-    if (slot.zstd.active) return slot.zstd.decode(input, output);
+    if (slot.zstd.active) return slot.zstd.decode(input, output, cpu_features);
     assert(slot.br.active);
-    return slot.br.decode(input, output);
+    return slot.br.decode(input, output, cpu_features);
 }
 
 /// The response's content ended. Coded content must end with its stream (RFC 1950 §2.2, RFC 1952

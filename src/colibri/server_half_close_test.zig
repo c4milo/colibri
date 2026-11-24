@@ -81,7 +81,7 @@ const now_ns: u64 = 0;
 /// alone.
 fn start_server(counter: *support.Counter, served: anytype, served_context: anytype) !void {
     served.* = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .now = .{ .unix_seconds = 0, .monotonic_ns = now_ns } }, served, served_context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .random = counter.random(), .now = .{ .unix_seconds = 0, .monotonic_ns = now_ns } }, served, served_context);
 }
 
 /// The one operation of `kind` among `written`, or null.

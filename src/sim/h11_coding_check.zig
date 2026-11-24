@@ -146,16 +146,16 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) Violat
 
 /// The pool and the connection as a run starts, and the requests a client has outstanding.
 fn start(storage: *Storage) Violation!void {
-    storage.pool.init(coding.CpuFeatures.none());
+    storage.pool.init();
     const pool = storage.pool.storage();
     storage.holder = .{};
     // RFC 9110 §15.6.4: the exhausted defect finds the pool's one decoder taken.
-    if (storage.plan.defect == .exhausted) storage.holder.start(pool, .gzip) catch unreachable;
+    if (storage.plan.defect == .exhausted) storage.holder.start(pool, .gzip, .none()) catch unreachable;
     storage.seen = @splat(.{});
     switch (storage.plan.role) {
-        .server => storage.connection.init(.{ .role = .server, .decoders = pool }),
+        .server => storage.connection.init(.{ .cpu_features = .none(), .role = .server, .decoders = pool }),
         .client => {
-            storage.connection.init(.{ .role = .client, .decoders = pool });
+            storage.connection.init(.{ .cpu_features = .none(), .role = .client, .decoders = pool });
             for (0..storage.plan.count) |_| {
                 _ = storage.connection.write_request(&storage.scratch, "GET", "/m", host) catch return error.OutcomeUnexpected;
             }
@@ -245,7 +245,7 @@ fn check_outcome(storage: *Storage, run: *const Run) Violation!void {
     // Every run gives its decoder back: the pool's one decoder can be taken again.
     if (storage.connection.decoding.active()) return error.OutcomeUnexpected;
     var probe: coding.Decoding = .{};
-    probe.start(pool, .gzip) catch return error.OutcomeUnexpected;
+    probe.start(pool, .gzip, .none()) catch return error.OutcomeUnexpected;
     probe.release(pool);
 }
 

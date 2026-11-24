@@ -77,8 +77,8 @@ pub const hosted = struct {
         /// What the engine starts from, its `tls_buffer` too (decision 167). `colibri` fills its
         /// `tls` from `identity`, and sets its `ecn` from the UDP socket's `Features`. The host
         /// knows its port, so the program names the h3 alternative in `h3_alternative` itself
-        /// (RFC 7838 §3).
-        engine: server.Config = .{},
+        /// (RFC 7838 §3). It has no default, since its `cpu_features` has none (decision 169).
+        engine: server.Config,
         sockets: struct {
             /// The host opened the TCP listener `listener`.
             listener: bool = true,

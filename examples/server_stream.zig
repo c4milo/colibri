@@ -98,7 +98,7 @@ const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 // The link and the engine hold hundreds of kilobytes, so they live outside the stack.
 var link: Link align(@alignOf(Link)) = undefined;
 var output: [output_len]u8 = undefined;
-var engine_config: server.Config align(@alignOf(server.Config)) = .{};
+var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The connection of the socket the client connected, until the client closes it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
@@ -213,6 +213,8 @@ pub fn main() !void {
     try link.init();
     defer link.deinit();
     const now_ns = link.now_ns(.server);
+    // Each value has its default but the CPU features, which the program asks of its CPU once.
+    engine_config = .{ .cpu_features = .detect() };
     // Cleartext needs no Unix time: no certificate is judged and no ticket is issued.
     try engine.init(&engine_config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = now_ns });
     router.init();

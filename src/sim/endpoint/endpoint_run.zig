@@ -113,6 +113,7 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 
 fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.endpoint_config = .{
+        .cpu_features = .none(),
         .tls = .{
             .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,

@@ -97,17 +97,21 @@ pub fn main() !void {
     defer link.deinit();
     const random = tls.Random.init(&generator, fill);
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    // The CPU features the codecs run on, which the program also asks once and states in each
+    // configuration (decision 169).
+    const cpu_features: platform.CpuFeatures = .detect();
     router.init();
     try hosted_server.init(&.{
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
         .random = random,
         .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.server) },
-        .engine = .{ .tls_buffer = &tls_buffer },
+        .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
     }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = https_port },
         .pool = .{
+            .cpu_features = cpu_features,
             .authority = origin,
             .protocols = .{ .h3 = false },
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },

@@ -161,7 +161,7 @@ test "decision 146: a drop's time starts once its response is the one being read
 }
 
 test "decision 146: a drop with no time limit has no deadline" {
-    try support.start_configured(.{ .authority = support.authority, .protocols = support.only(.h11), .drop_ns = null });
+    try support.start_configured(.{ .cpu_features = .none(), .authority = support.authority, .protocols = support.only(.h11), .drop_ns = null });
     cancelled = get(&bodies[0]);
     next = get(&bodies[1]);
     const id = try connection.request(&cancelled.request, &cancelled.response);

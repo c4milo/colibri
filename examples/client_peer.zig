@@ -90,6 +90,7 @@ pub fn init(stream: *Link, cpu: tls.Cpu) !void {
     program.fill(&cookie_key);
     program.fill(&ticket_key);
     config = .{
+        .cpu_features = .detect(),
         .tls = .{
             .identities = &identities,
             .cookie_key = &cookie_key,

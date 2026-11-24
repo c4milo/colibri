@@ -142,13 +142,13 @@ pub const World = struct {
     }
 
     fn configure(world: *World) !void {
+        // The plan's transports are the pool's two, so what is not QUIC is TCP.
+        comptime assert(std.meta.fields(@TypeOf(world.plan.prefer)).len == std.meta.fields(Transport).len);
         world.pool_config = .{
+            .cpu_features = .none(),
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cpu = identity.cpu },
             // TCP offers "h2" alone, and QUIC "h3". The plan names the transport that opens first.
-            .protocols = .{ .h11 = false, .prefer = switch (world.plan.prefer) {
-                .quic => .quic,
-                .tcp => .tcp,
-            } },
+            .protocols = .{ .h11 = false, .prefer = if (world.plan.prefer == .quic) .quic else .tcp },
             .authority = identity.authority,
             .quic_unadvertised = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,

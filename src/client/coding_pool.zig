@@ -10,7 +10,8 @@ const zstd = @import("zstd");
 const brotli = @import("brotli");
 const constants = @import("constants.zig");
 
-/// The CPU features the decoders run on, which the caller chooses (`Pool.init`).
+/// The CPU features the decoders run on, which the caller states once, in the configuration's
+/// `cpu_features` (decision 169).
 pub const CpuFeatures = h11.coding.CpuFeatures;
 
 /// The `zstd` coding (RFC 8878 §7.2): one or more frames (§3.1), each decoded with RFC 9659 §3's
@@ -45,7 +46,6 @@ const no_slot: Index = std.math.maxInt(Index);
 /// What a pool keeps beside its slots.
 pub const Header = struct {
     free_head: Index,
-    features: CpuFeatures,
 };
 
 /// One decoder, and its place in the free list while no exchange holds it.
@@ -65,12 +65,11 @@ pub fn Pool(comptime Codec: type, comptime count: usize) type {
         header: Header = undefined,
         slots: [count]Slot(Codec.Decoder) = undefined,
 
-        /// Every slot free, and the CPU features its decoders run on. `CpuFeatures.target()` is
-        /// what the build target guarantees, and `CpuFeatures.detect()` asks the CPU, which colibri
-        /// never does itself. Called once, before the storage is given to any connection
-        /// (decision 158 ruling 10).
-        pub fn init(pool: *@This(), features: CpuFeatures) void {
-            reset(Codec, pool.storage(), features);
+        /// Every slot free. Called once, before the storage is given to any connection (decision
+        /// 158 ruling 10). The pool holds no CPU features: each connection gives its
+        /// configuration's to the decoder an exchange takes (decision 169).
+        pub fn init(pool: *@This()) void {
+            reset(Codec, pool.storage());
         }
 
         pub fn storage(pool: *@This()) Storage(Codec) {
@@ -117,8 +116,8 @@ pub fn Storage(comptime Codec: type) type {
     };
 }
 
-/// Every slot of `storage` free, and the CPU features its decoders run on: what `Pool.init` does.
-fn reset(comptime Codec: type, storage: Storage(Codec), features: CpuFeatures) void {
+/// Every slot of `storage` free: what `Pool.init` does.
+fn reset(comptime Codec: type, storage: Storage(Codec)) void {
     assert(storage.slots.len > 0 and storage.slots.len < no_slot);
     // Bounded by the pool's slots.
     for (storage.slots, 0..) |*slot, index| {
@@ -126,7 +125,6 @@ fn reset(comptime Codec: type, storage: Storage(Codec), features: CpuFeatures) v
         slot.next = if (following < storage.slots.len) @intCast(following) else no_slot;
     }
     storage.header.free_head = 0;
-    storage.header.features = features;
 }
 
 /// One exchange's decoder of `Codec`: none, reserved as its request went out, or decoding its
@@ -154,22 +152,24 @@ pub fn Held(comptime Codec: type) type {
             return true;
         }
 
-        /// Starts the reserved decoder on the response's content.
-        pub fn begin(held: *Self) void {
+        /// Starts the reserved decoder on the response's content, with `cpu_features`, the
+        /// connection's.
+        pub fn begin(held: *Self, cpu_features: CpuFeatures) void {
             assert(held.holds() and !held.active);
             held.active = true;
-            held.start_stream();
+            held.start_stream(cpu_features);
         }
 
-        pub fn start_stream(held: *Self) void {
+        pub fn start_stream(held: *Self, cpu_features: CpuFeatures) void {
             const storage = held.storage.?;
-            storage.slots[held.slot].decoder.init(storage.header.features);
+            storage.slots[held.slot].decoder.init(cpu_features);
             held.stream_ended = false;
         }
 
-        /// Decodes as much of the coded octets `input` into `output` as both allow.
-        pub fn decode(held: *Self, input: []const u8, output: []u8) Error!Progress {
-            return decode_held(Codec, held, input, output);
+        /// Decodes as much of the coded octets `input` into `output` as both allow. The next
+        /// frame of a zstd content starts with `cpu_features`, as the first one did.
+        pub fn decode(held: *Self, input: []const u8, output: []u8, cpu_features: CpuFeatures) Error!Progress {
+            return decode_held(Codec, held, input, output, cpu_features);
         }
 
         /// The content ended. Its stream must have ended with it, and the decoder goes back.
@@ -191,13 +191,13 @@ pub fn Held(comptime Codec: type) type {
 }
 
 /// `Held(Codec).decode`, apart from the type so each stays small.
-fn decode_held(comptime Codec: type, held: *Held(Codec), input: []const u8, output: []u8) Error!Progress {
+fn decode_held(comptime Codec: type, held: *Held(Codec), input: []const u8, output: []u8, cpu_features: CpuFeatures) Error!Progress {
     assert(held.active and input.len > 0 and output.len > 0);
     if (held.stream_ended) {
         // RFC 8878 §3.1: octets after a zstd frame start the next one. RFC 7932 §9.2: a br stream
         // ends with its last meta-block, so octets after it are no coding's.
         if (!Codec.frames_repeat) return error.CodingCorrupt;
-        held.start_stream();
+        held.start_stream(cpu_features);
     }
     const decoder = &held.storage.?.slots[held.slot].decoder;
     // RFC 8878 §3.1.1 and RFC 7932 §9: content that breaks its format, or asks for a window past

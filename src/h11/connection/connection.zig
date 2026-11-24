@@ -133,6 +133,8 @@ pub const Connection = struct {
     tls_failed: bool,
     /// `Options.decoders`.
     decoders: ?coding.Storage,
+    /// `Options.cpu_features`.
+    cpu_features: coding.CpuFeatures,
     /// The decoding of the body being read, when it carries `gzip` or `deflate`.
     decoding: coding.Decoding,
 
@@ -150,6 +152,11 @@ pub const Connection = struct {
         /// request 501 and a client offers neither coding, so it refuses a response in one (RFC
         /// 9112 §7.4).
         decoders: ?coding.Storage = null,
+        /// The CPU features each decoder the connection takes runs on (decision 169): the
+        /// program's, from `coding.CpuFeatures.detect()`, which it calls once. colibri never asks
+        /// the CPU itself, and the field has no default, so no program keeps the build target's
+        /// features by mistake.
+        cpu_features: coding.CpuFeatures,
         /// A server: the most octets of a request body it reads and discards after its final
         /// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A
         /// body whose rest has a known length past them, or is chunked, closes the connection
@@ -278,6 +285,7 @@ pub const Connection = struct {
         connection.close_notify_received = false;
         connection.tls_failed = false;
         connection.decoders = options.decoders;
+        connection.cpu_features = options.cpu_features;
         connection.decoding = .{};
         assert(connection.phase == .head and connection.failure == null);
         assert(options.role == .client or !options.retrying);
@@ -418,7 +426,7 @@ pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error
     // RFC 9112 §6.1: a server answers a coding it does not decode 501, and RFC 9112 §7.4: a
     // client that sent no TE accepts chunked alone.
     const storage = connection.decoders orelse return error.CodingUndecoded;
-    try connection.decoding.start(storage, body.coding);
+    try connection.decoding.start(storage, body.coding, connection.cpu_features);
 }
 
 /// Reads body octets from `input`, decoding them into `decoded` when the body carries a
@@ -429,7 +437,7 @@ pub fn read_body(connection: *Connection, role: message.Role, input: []const u8,
     }
     // Decision 98: a caller that placed a decoder pool passes room for what it decodes.
     assert(decoded.len > 0);
-    return connection_body.read_coded(&connection.reader, &connection.decoding, connection.decoders.?, role, input, &connection.trailers, decoded);
+    return connection_body.read_coded(&connection.reader, &connection.decoding, connection.decoders.?, role, input, &connection.trailers, decoded, connection.cpu_features);
 }
 
 /// Gives back the decoder of a body that will not be read to its end.
@@ -476,6 +484,6 @@ test "decision 115: the connection's public functions are the calls a caller out
 }
 
 test "decision 158 ruling 16: a connection's options name the server role by default" {
-    const options: Connection.Options = .{};
+    const options: Connection.Options = .{ .cpu_features = .none() };
     try std.testing.expectEqual(Role.server, options.role);
 }

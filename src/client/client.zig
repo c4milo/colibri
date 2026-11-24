@@ -121,9 +121,8 @@ pub const ZstdDecoderPool = files.coding_pool.ZstdDecoderPool;
 pub const ZstdDecoders = files.coding_pool.ZstdDecoders;
 pub const BrotliDecoderPool = files.coding_pool.BrotliDecoderPool;
 pub const BrotliDecoders = files.coding_pool.BrotliDecoders;
-/// The CPU features a pool's codecs run on, which its `init` takes: `CpuFeatures.detect()` asks
-/// the CPU, as colibri never does itself, and `CpuFeatures.target()` is what the build target
-/// guarantees.
+/// The CPU features each decoder of a configuration's pools runs on, which `Config.cpu_features`
+/// states (decision 169): `CpuFeatures.detect()` asks the CPU, as colibri never does itself.
 pub const CpuFeatures = files.coding_pool.CpuFeatures;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
