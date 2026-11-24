@@ -128,7 +128,7 @@ test "RFC 7301 §3.2: a handshake with no protocol in common ends with the serve
         .alpn = &support.protocols_h11,
         .cpu = support.cpu,
     });
-    support.config = .{ .tls = &support.server_config };
+    support.config = .{ .cpu_features = .none(), .tls = &support.server_config };
     try connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0);
     try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
     const hello = try support.client.handshake(&.{}, &support.input);
@@ -189,7 +189,7 @@ test "RFC 9846 §6: a record that fails while a response waits to be sealed send
 
 test "RFC 9846 §9.2: a configuration chapulin cannot serve from is refused at the start" {
     try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols_h2, .cpu = support.cpu });
-    support.config = .{ .tls = &support.server_config };
+    support.config = .{ .cpu_features = .none(), .tls = &support.server_config };
     try testing.expectError(error.TlsRefused, connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0));
 }
 
@@ -205,7 +205,7 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
         .alpn = &support.protocols_h11,
         .cpu = support.cpu,
     });
-    support.config = .{ .tls = &support.server_config };
+    support.config = .{ .cpu_features = .none(), .tls = &support.server_config };
     try connection.init(&support.config, &support.tls_session, support.stream.random(), support.now_seconds, 0);
     // RFC 9110 §3.4: no request has arrived, so there is none to answer.
     try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));

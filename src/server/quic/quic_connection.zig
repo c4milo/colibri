@@ -63,6 +63,8 @@ pub const Config = struct {
     /// (decision 101). Both or neither, and only `gzip` and `deflate`, which the server encodes.
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
+    /// The CPU features each codec the connection takes from a pool runs on (decision 169).
+    cpu_features: coding_pool.CpuFeatures,
     /// The version the server switches a client to when the client lists it (RFC 9368 §2.3,
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,

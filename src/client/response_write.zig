@@ -30,14 +30,15 @@ pub fn outcome_of(failure: Error) event.Result {
 
 /// Records a final response's status and its header section, from the regular field lines of
 /// `section`, which start at index `first`, and what its Content-Encoding says of its content,
-/// given the decoders the slot took for the codings its request offered.
-pub fn record_head(slot: *Slot, status: u16, section: *const FieldSection, first: u32) Error!void {
+/// given the decoders the slot took for the codings its request offered. The decoder it starts
+/// runs on `cpu_features`, the configuration's (decision 169).
+pub fn record_head(slot: *Slot, status: u16, section: *const FieldSection, first: u32, cpu_features: coding.CpuFeatures) Error!void {
     const response = slot.response;
     assert(response.status == event_internal.no_status and response.headers.len == 0);
     assert(first <= section.len());
     response.status = @enumFromInt(status);
     try headers.record(&response.headers, section, first);
-    coding.begin(slot, status, section, first);
+    coding.begin(slot, status, section, first, cpu_features);
 }
 
 /// Records a response's trailer section, which RFC 9110 §6.5.1 keeps apart from its headers.
@@ -47,9 +48,10 @@ pub fn record_trailers(slot: *Slot, section: *const FieldSection) Error!void {
     try headers.record(&response.trailers, section, 0);
 }
 
-/// Copies octets of the response's content after those already in `body`, or decodes them there.
-pub fn append_body(slot: *Slot, octets: []const u8) Error!void {
-    if (coding.active(slot)) return coding.decode(slot, octets);
+/// Copies octets of the response's content after those already in `body`, or decodes them there,
+/// with `cpu_features`, the configuration's.
+pub fn append_body(slot: *Slot, octets: []const u8, cpu_features: coding.CpuFeatures) Error!void {
+    if (coding.active(slot)) return coding.decode(slot, octets, cpu_features);
     const response = slot.response;
     const room = response.body.len - response.body_len;
     if (octets.len > room) return error.NoSpaceLeft;
@@ -136,7 +138,7 @@ test "decision 152: a final head copies its regular field lines, and the status 
     var response: Response = .{ .headers = .{ .buffer = &buffer } };
     event_internal.clear(&response);
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
-    try record_head(&slot, 200, &test_section, 1);
+    try record_head(&slot, 200, &test_section, 1, .none());
     try testing.expectEqual(200, @intFromEnum(response.status));
     try testing.expectEqualStrings("max-age=60", response.headers.get("cache-control").?);
     try testing.expectEqual(null, response.headers.get(":status"));
@@ -163,11 +165,11 @@ test "a section or content past the caller's memory is refused whole" {
     var response: Response = .{ .headers = .{ .buffer = &buffer }, .body = &body };
     event_internal.clear(&response);
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
-    try testing.expectError(error.NoSpaceLeft, record_head(&slot, 200, &test_section, 0));
-    try append_body(&slot, "abc");
-    try testing.expectError(error.NoSpaceLeft, append_body(&slot, "de"));
+    try testing.expectError(error.NoSpaceLeft, record_head(&slot, 200, &test_section, 0, .none()));
+    try append_body(&slot, "abc", .none());
+    try testing.expectError(error.NoSpaceLeft, append_body(&slot, "de", .none()));
     try testing.expectEqual(3, response.body_len);
-    try append_body(&slot, "d");
+    try append_body(&slot, "d", .none());
     try testing.expectEqualStrings("abcd", body[0..response.body_len]);
 }
 

@@ -128,19 +128,26 @@ program declares its routes. These lines are from
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+// The CPU features the codecs run on, which the program also asks once and states in each
+// configuration (decision 169).
+const cpu_features: platform.CpuFeatures = .detect();
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
     .unix_seconds = now_seconds,
-    .engine = .{ .tls_buffer = &tls_buffer },
+    .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
 defer http_server.shutdown();
 ```
+
+`cpu_features` is what stdx's `platform.CpuFeatures.detect()` found, which your program asks once:
+the engine's codecs run on it, and colibri never asks the CPU itself
+([decision 169](docs/decisions.md)). The field has no default.
 
 `tls_buffer` holds the TLS session of each TCP connection over TLS at once. The program declares
 it as `var tls_buffer: [server.Config.tls_buffer_len(connections)]u8`, and a server that serves no

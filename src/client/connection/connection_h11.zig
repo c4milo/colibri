@@ -93,7 +93,7 @@ fn record(connection: *Connection, h11_event: h11.Connection.Event, now_ns: u64)
                 return end_drop_past_bound(connection, slot);
             }
             if (slot.request.streamed.response) return hold(connection, slot, octets);
-            response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
+            response_write.append_body(slot, octets, connection.config.cpu_features) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
             return false;
         },
         .end => return on_end(connection, slot),
@@ -140,7 +140,7 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) b
 /// the caller an event.
 fn record_final(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) bool {
     const section = &connection.session.h11.section;
-    response_write.record_head(slot, status, section, 0) catch |failure| {
+    response_write.record_head(slot, status, section, 0, connection.config.cpu_features) catch |failure| {
         return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
     };
     // Decision 153 ruling 7: a streamed response comes in pieces, so no length is too large.

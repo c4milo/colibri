@@ -126,8 +126,8 @@ pub const World = struct {
         world.tls = over_tls;
         if (over_tls) world.configure_tls() else {
             // Decision 117: h2 alone, which each side speaks from the start.
-            world.endpoint_config = .{ .protocols = .{ .h11 = false } };
-            world.client_config = .{ .authority = identity.authority, .protocols = .{ .h11 = false } };
+            world.endpoint_config = .{ .cpu_features = .none(), .protocols = .{ .h11 = false } };
+            world.client_config = .{ .cpu_features = .none(), .authority = identity.authority, .protocols = .{ .h11 = false } };
         }
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);
@@ -163,12 +163,14 @@ pub const World = struct {
     /// selects, and each names it from `versions`.
     fn configure_tls(world: *World) void {
         world.endpoint_config = .{
+            .cpu_features = .none(),
             .tls = .{ .identities = &identity.identities, .cookie_key = &identity.cookie_key, .ticket_key = null, .cpu = identity.cpu },
             .tls_buffer = &world.tls_buffer,
             // Decision 117: h2 alone, the one protocol the server's ALPN list then names.
             .protocols = .{ .h11 = false },
         };
         world.client_config = .{
+            .cpu_features = .none(),
             .authority = identity.authority,
             .protocols = .{ .h11 = false },
             .tls = .{

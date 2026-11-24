@@ -249,7 +249,7 @@ fn on_response(connection: *QuicConnection, head: h3.Connection.Response) void {
         return;
     }
     const section = connection.h3.field_section();
-    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section)) catch |failure| {
+    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section), connection.config.cpu_features) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
     // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
@@ -273,7 +273,7 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) void {
 
 fn on_data(connection: *QuicConnection, data: h3.Connection.Data) void {
     const slot = connection.slots.of_stream(data.stream_id) orelse return;
-    response_write.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
+    response_write.append_body(slot, data.octets, connection.config.cpu_features) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
 
 /// Content of a streamed response, which h3 left in QUIC (RFC 9000 §4.1): its first octets, as

@@ -110,13 +110,16 @@ pub fn main() !void {
     // A program probes its CPU once and passes it to every TLS configuration. With no `random`,
     // the server and the client draw from the system's entropy.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    // The CPU features the codecs run on, which the program also asks once and states in each
+    // configuration (decision 169).
+    const cpu_features: platform.CpuFeatures = .detect();
     try http_server.init(&.{
         .host = "127.0.0.1",
         .port = 0,
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
         .unix_seconds = now_seconds,
-        .engine = .{ .tls_buffer = &tls_buffer },
+        .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
     }, &router, &app);
     defer http_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
@@ -125,11 +128,11 @@ pub fn main() !void {
 
     // h11 alone: ALPN offers `http/1.1`. Then h11 and h2, and the server selects h2. Then every
     // version: by default the client opens TCP first, and with `.prefer = .quic` QUIC first.
-    try fetch(cpu, .{ .h2 = false, .h3 = false }, .h11);
-    try fetch(cpu, .{ .h3 = false }, .h2);
-    try fetch(cpu, .{}, .h2);
-    try fetch(cpu, .{ .prefer = .quic }, .h3);
-    try fetch_one(cpu);
+    try fetch(cpu, cpu_features, .{ .h2 = false, .h3 = false }, .h11);
+    try fetch(cpu, cpu_features, .{ .h3 = false }, .h2);
+    try fetch(cpu, cpu_features, .{}, .h2);
+    try fetch(cpu, cpu_features, .{ .prefer = .quic }, .h3);
+    try fetch_one(cpu, cpu_features);
     std.debug.print("colibri_server: two GETs over h11, h2 and h3, and one fetch, to port {d}\n", .{http_server.port()});
 }
 
@@ -164,10 +167,11 @@ var fetched: Fetch align(@alignOf(Fetch)) = .{};
 
 /// Sends the two GETs through a client that speaks `protocols`, over TLS to the server, and checks
 /// that `expected` carried them and that each response arrived octet for octet.
-fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !void {
+fn fetch(cpu: tls.Cpu, cpu_features: platform.CpuFeatures, protocols: client.Protocols, expected: client.Protocol) !void {
     try http_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
         .pool = .{
+            .cpu_features = cpu_features,
             .authority = origin,
             .protocols = protocols,
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
@@ -190,10 +194,11 @@ fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !
 
 /// Runs one GET through `fetch` on a client with no handler, over h2. Before it, the program
 /// hands the pool one request and cancels it, so that exchange never ends.
-fn fetch_one(cpu: tls.Cpu) !void {
+fn fetch_one(cpu: tls.Cpu, cpu_features: platform.CpuFeatures) !void {
     try http_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
         .pool = .{
+            .cpu_features = cpu_features,
             .authority = origin,
             .protocols = .{ .h3 = false },
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },

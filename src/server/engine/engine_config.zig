@@ -57,6 +57,11 @@ pub const Config = struct {
     /// 91), and where h11 decodes a body that carries either (decision 98).
     decoders: ?h11.coding.Storage = null,
     decoded: []u8 = &.{},
+    /// The CPU features each encoder and each decoder of the pools here runs on (decision 169):
+    /// the program's, from `CpuFeatures.detect()`, which it calls once. colibri never asks the
+    /// CPU itself, and the field has no default, so no program keeps the build target's features
+    /// by mistake.
+    cpu_features: coding_pool.CpuFeatures,
     /// TCP connections over TLS alone: the h3 endpoint each advertises (decision 100), or null.
     h3_alternative: ?alt_svc.Alternative = null,
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
@@ -168,6 +173,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         .idle_timeout_ms = config.idle_timeout_ms,
         .codings = config.codings,
         .encoders = config.encoders,
+        .cpu_features = config.cpu_features,
         .switch_to = config.switch_to,
         .timeouts = config.timeouts,
         .requests_max = @min(config.limits.requests_max, constants.limits.quic_requests_max),
@@ -191,6 +197,7 @@ fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError
         .h3_alternative = config.h3_alternative,
         .codings = config.codings,
         .encoders = config.encoders,
+        .cpu_features = config.cpu_features,
         .timeouts = config.timeouts,
         .limits = config.limits,
     };
@@ -275,7 +282,7 @@ threadlocal var tcp_only: TcpOnly align(@alignOf(TcpOnly)) = undefined;
 threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
 fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartError!void {
-    tcp_only_config = .{ .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
+    tcp_only_config = .{ .cpu_features = .none(), .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
     return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
 }
 

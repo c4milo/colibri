@@ -82,6 +82,8 @@ pub const Config = struct {
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
     br_decoders: ?coding_pool.BrotliDecoders = null,
+    /// The CPU features each decoder of the pools above runs on (decision 169).
+    cpu_features: coding_pool.CpuFeatures,
 };
 
 /// The unpredictable values one connection starts from, which the pool draws in `start_quic`

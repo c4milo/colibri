@@ -215,6 +215,9 @@ fn start_server(cpu: tls.Cpu) !void {
     // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
     router.init();
     engine_config = .{
+        // The CPU features the engine's codecs run on. The program asks its CPU once, here, and
+        // colibri never asks it (decision 169).
+        .cpu_features = .detect(),
         // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{

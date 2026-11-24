@@ -91,7 +91,7 @@ pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
 
 /// `start` with room for `sessions` TLS sessions alone (decision 167). Test-only.
 pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessions: usize) !void {
-    config = .{ .tls = with, .tls_buffer = tls_buffer[0..engine_module.Config.tls_buffer_len(sessions)], .protocols = versions };
+    config = .{ .cpu_features = .none(), .tls = with, .tls_buffer = tls_buffer[0..engine_module.Config.tls_buffer_len(sessions)], .protocols = versions };
     seen_len = 0;
     sent_len = @splat(0);
     client_read = @splat(0);

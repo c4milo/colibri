@@ -24,7 +24,7 @@ fn decode_in_pieces(held: anytype, coded: []const u8, piece_len: usize) ![]const
     for (0..coded.len + output.len + 1) |_| {
         if (taken == coded.len) return output[0..written];
         const piece = coded[taken..@min(coded.len, taken +| piece_len)];
-        const progress = try held.decode(piece, output[written..]);
+        const progress = try held.decode(piece, output[written..], .none());
         try testing.expect(progress.consumed + progress.written > 0);
         taken += progress.consumed;
         written += progress.written;
@@ -39,7 +39,7 @@ test "RFC 8878 §3.1: zstd content of one frame, of two, or after a skippable fr
         for (piece_lens) |piece_len| {
             var held: ZstdHeld = .{};
             try testing.expect(held.reserve(storage));
-            held.begin();
+            held.begin(.none());
             try testing.expectEqualStrings(support.plain, try decode_in_pieces(&held, coded, piece_len));
             try held.finish();
             try testing.expectEqual(1, storage.free_count());
@@ -53,7 +53,7 @@ test "RFC 7932 §9.1: br content whose window is 16 MiB, WBITS 24, decodes in an
     for (piece_lens) |piece_len| {
         var held: BrotliHeld = .{};
         try testing.expect(held.reserve(storage));
-        held.begin();
+        held.begin(.none());
         try testing.expectEqualStrings(support.plain, try decode_in_pieces(&held, support.plain_br, piece_len));
         try held.finish();
         try testing.expectEqual(1, storage.free_count());
@@ -64,14 +64,14 @@ test "RFC 9659 §3 and RFC 7932 §9.1: a window past the coding's limit fails, a
     support.reset_pools();
     var zstd_held: ZstdHeld = .{};
     try testing.expect(zstd_held.reserve(support.zstd_pool.storage()));
-    zstd_held.begin();
+    zstd_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&zstd_held, support.window_16mb_zst, piece_lens[2]));
     zstd_held.release();
     try testing.expectEqual(1, support.zstd_pool.storage().free_count());
     // RFC 7932 §9.1: "bit pattern 0010001 is invalid", and `brotli --large_window` writes it.
     var br_held: BrotliHeld = .{};
     try testing.expect(br_held.reserve(support.br_pool.storage()));
-    br_held.begin();
+    br_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&br_held, support.large_window_br, piece_lens[2]));
     br_held.release();
     try testing.expectEqual(1, support.br_pool.storage().free_count());
@@ -85,7 +85,7 @@ test "RFC 7932 §9.2 and RFC 8878 §3.1: octets after a stream, or a stream cut 
     room[support.plain_br.len] = 0;
     var br_held: BrotliHeld = .{};
     try testing.expect(br_held.reserve(support.br_pool.storage()));
-    br_held.begin();
+    br_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&br_held, room[0 .. support.plain_br.len + 1], piece_lens[2]));
     br_held.release();
     // Octets after a zstd frame must start another, and a zero octet starts no magic number.
@@ -93,12 +93,12 @@ test "RFC 7932 §9.2 and RFC 8878 §3.1: octets after a stream, or a stream cut 
     room[support.plain_zst.len] = 0;
     var zstd_held: ZstdHeld = .{};
     try testing.expect(zstd_held.reserve(support.zstd_pool.storage()));
-    zstd_held.begin();
+    zstd_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&zstd_held, room[0 .. support.plain_zst.len + 1], piece_lens[2]));
     zstd_held.release();
     // A frame without its last octet, its checksum's, never ends.
     try testing.expect(zstd_held.reserve(support.zstd_pool.storage()));
-    zstd_held.begin();
+    zstd_held.begin(.none());
     _ = try decode_in_pieces(&zstd_held, support.plain_zst[0 .. support.plain_zst.len - 1], piece_lens[2]);
     try testing.expectError(error.CodingCorrupt, zstd_held.finish());
     try testing.expectEqual(1, support.zstd_pool.storage().free_count());

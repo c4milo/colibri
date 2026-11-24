@@ -53,7 +53,7 @@ fn expect_tcp_alone(given: pool_module.Config, receive_storage: ?pool_module.Rec
 
 test "RFC 9114 §3.1.2: a pool in cleartext, with no receive pool, or with h3 off opens no QUIC" {
     // The fixture's configuration prefers QUIC, so each pool below would open it first.
-    const cleartext: pool_module.Config = .{ .authority = support.authority };
+    const cleartext: pool_module.Config = .{ .cpu_features = .none(), .authority = support.authority };
     try expect_tcp_alone(cleartext, fixture.receive_storage());
     try expect_tcp_alone(fixture.configured(true), null);
     var without_h3 = fixture.configured(true);
@@ -125,7 +125,7 @@ const codings = [_]http.content_coding.Coding{ .br, .zstd, .gzip };
 const idle_timeout_ms: u64 = 10_000;
 
 test "decision 120: a QUIC connection gets the authority, ECN, the controller, the idle timeout, the codings and each pool" {
-    support.pool.init(.none());
+    support.pool.init();
     const storage = support.pool.storage();
     coding_support.reset_pools();
     var given = fixture.configured(true);
@@ -178,7 +178,7 @@ test "decision 143: a pool's QUIC connection runs BBRv3 by default, with probe w
 
 test "decision 120: init converts no TLS value for a transport the pool does not offer" {
     // In cleartext neither TLS configuration is written, and QUIC's connections borrow nothing.
-    const cleartext: pool_module.Config = .{ .authority = support.authority };
+    const cleartext: pool_module.Config = .{ .cpu_features = .none(), .authority = support.authority };
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), cleartext, fixture.receive_storage());
     try testing.expect(unwritten(&pool.tcp_tls) and unwritten(&pool.quic_tls) and unwritten(&pool.quic_config));
     try testing.expectEqual(null, pool.tcp_config.tls);

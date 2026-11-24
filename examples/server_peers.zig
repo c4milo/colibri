@@ -169,6 +169,7 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
 
 fn start(peer: *Peer, cpu: tls.Cpu, protocols: client.Protocols, keeps: bool) void {
     peer.config = .{
+        .cpu_features = .detect(),
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
         .protocols = protocols,
         .authority = origin,

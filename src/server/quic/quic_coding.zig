@@ -28,7 +28,7 @@ pub fn plans(connection: *const QuicConnection, response: event.ResponseHeader) 
 /// The head a response that `plans` passes goes out with, as decision 101 plans it.
 pub fn plan_head(connection: *QuicConnection, record: *const Request, response: event.ResponseHeader, into: *coding_fields.Rewritten) coding_fields.Error!coding_response.Head {
     assert(plans(connection, response));
-    return coding_response.plan_head(connection.config.encoders.?, record.asked, response, into);
+    return coding_response.plan_head(connection.config.encoders.?, record.asked, response, into, connection.config.cpu_features);
 }
 
 const final_min: u16 = 200;

@@ -67,6 +67,7 @@ pub fn start(server_protocols: []const []const u8, values: pool_module.Destinati
 /// asks for QUIC first (decision 117 as amended), as every pool did before step 43.
 pub fn configured(quic_unadvertised: bool) pool_module.Config {
     return .{
+        .cpu_features = .none(),
         .tls = tls_support.client_values(support.authority),
         .protocols = .{ .prefer = .quic },
         .authority = support.authority,

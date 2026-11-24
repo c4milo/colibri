@@ -32,7 +32,7 @@ pub fn start_engine(retry: ?*const tls.quic.Retry) !void {
     support.through_engine = true;
     ended_len = 0;
     closed = false;
-    engine_config = .{ .tls = support.server_values(), .retry = retry };
+    engine_config = .{ .cpu_features = .none(), .tls = support.server_values(), .retry = retry };
     try restart();
 }
 

@@ -109,8 +109,9 @@ pub const World = struct {
         world.random = Random.init(seed);
         world.plan.draw(&world.random);
         // Decision 125: h11 alone, so each TCP connection holds one exchange at a time.
-        world.endpoint_config = .{ .protocols = .{ .h2 = false } };
+        world.endpoint_config = .{ .cpu_features = .none(), .protocols = .{ .h2 = false } };
         world.client_config = .{
+            .cpu_features = .none(),
             .authority = "pool.test",
             .protocols = .{ .h2 = false, .h3 = false },
             .tcp_connections = @intCast(world.plan.slots),

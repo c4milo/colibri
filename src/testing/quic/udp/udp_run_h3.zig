@@ -92,6 +92,7 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
 fn start(asked: udp_arguments.Server, started_ns: u64) void {
     qlog_directory = asked.qlogdir;
     engine_config = .{
+        .cpu_features = .detect(),
         .tls = udp_identity.server_identity(),
         .ecn = asked.ecn,
         .idle_timeout_ms = asked.idle_ms orelse constants.quic_idle_timeout_ms,

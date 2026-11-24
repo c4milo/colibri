@@ -127,9 +127,8 @@ pub const Encoders = files.coding_pool.Encoders;
 pub const DecoderPool = h11.coding.Pool;
 pub const DecoderPoolOptions = h11.coding.PoolOptions;
 pub const Decoders = h11.coding.Storage;
-/// The CPU features a pool's codecs run on, which its `init` takes: `CpuFeatures.detect()` asks
-/// the CPU, as colibri never does itself, and `CpuFeatures.target()` is what the build target
-/// guarantees.
+/// The CPU features each codec of a configuration's pools runs on, which `Config.cpu_features`
+/// states (decision 169): `CpuFeatures.detect()` asks the CPU, as colibri never does itself.
 pub const CpuFeatures = files.coding_pool.CpuFeatures;
 /// The parameters of a path that a route table matched, which the program places and reads with
 /// `get` (decision 122).

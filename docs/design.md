@@ -17612,6 +17612,34 @@ library.
     catches the first two.
   - **Not run yet:** `tools/interop.sh quinn handshakeloss`, which needs Docker. The weekly job
     runs it.
+- **Step 72 — a configuration states the CPU features, and a pool none, 2026-11-24.** The owner
+  ruled it for [#156](https://github.com/c4milo/colibri/issues/156).
+  - **The cost.** A program stated its CPU features to each codec pool it placed: three decoder
+    pools in a client, an encoder pool and a decoder pool in a server. Each `init(features)` was a
+    place to leave `CpuFeatures.target()` by mistake, and no test sees that, since stdx writes the
+    same octets on every path.
+  - **The change.** [Decision 169](decisions.md): `client.Config`, `server.Config` and h11's
+    `Options` hold `cpu_features`, with no default, and a pool's `init` takes no argument. A
+    connection gives its configuration's features to a codec as the codec starts:
+    `h11.coding.Decoding.start`, `begin` and `decode`, the client's `response_write.record_head`
+    and `append_body`, and the server's `Encoders.take` through `coding_response.plan_head`.
+  - **Public names.** No name joins a root and none leaves. The lists of fields and parameters
+    change, which each dependent builds against:
+    - `h11.Connection.Options.cpu_features`, `client.Config.cpu_features` and
+      `server.Config.cpu_features` join, each with no default. `colibri.ServerConfig.engine` and
+      a hosted server's `engine` lose their default of `.{}` with it.
+    - `init` of `h11.coding.Pool`, `client.DecoderPool`, `client.ZstdDecoderPool`,
+      `client.BrotliDecoderPool`, `server.EncoderPool` and `server.DecoderPool` takes no
+      features.
+    - `h11.coding.Decoding.start`, `begin` and `decode`, and `server.Encoders.take`, take
+      `cpu_features` as their last argument.
+    - Each program needs the field: one that places no pool states it too, since the field has
+      no default.
+  - **The examples.** Each program of `examples/`, `tools/consumer/` and
+    `tools/consumer_hosted/` asks its CPU once, as it starts, and states the features in each
+    configuration. A configuration that was a constant of the program's image is now built as
+    the program starts, since `CpuFeatures.detect()` runs then. docs/usage.md and the README show
+    the lines.
 
 ## 9. Test-only entry points
 

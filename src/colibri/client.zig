@@ -349,6 +349,7 @@ const now_seconds = testdata.now_seconds;
 const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata.root_spki }};
 fn tls_pool(protocols: client.Protocols) client.Config {
     return .{
+        .cpu_features = .none(),
         .authority = "localhost",
         .protocols = protocols,
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() },
@@ -357,7 +358,7 @@ fn tls_pool(protocols: client.Protocols) client.Config {
 
 test "design §8 step 42: a cleartext client opens no UDP socket" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(8080), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(8080), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
     try testing.expect(!test_client.udp.served);
@@ -368,7 +369,7 @@ test "design §8 step 42: a cleartext client opens no UDP socket" {
 
 test "design §8 step 42: init takes the counts of the client's capacity" {
     var counter: support.Counter = .{};
-    var config: client.Config = .{ .authority = "localhost", .tcp_connections = 3, .requests = 2 };
+    var config: client.Config = .{ .cpu_features = .none(), .authority = "localhost", .tcp_connections = 3, .requests = 2 };
     config.protocols.h3 = false;
     try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = config, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
@@ -379,7 +380,7 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
 }
 
 test "decision 150 ruling 9: a client given no source draws from the system" {
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     var first: [32]u8 = undefined;
     var second: [32]u8 = undefined;
@@ -409,7 +410,7 @@ test {
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expect(!test_client.undrained);
     const request: client.Request = .{ .method = "GET", .path = "/" };
@@ -421,7 +422,7 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
 
 test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     test_client.connections = @splat(.empty);
     test_client.connections[0].started = true;

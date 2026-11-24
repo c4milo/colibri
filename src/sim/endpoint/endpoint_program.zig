@@ -291,7 +291,7 @@ fn test_fill(random: *sim.Random, buffer: []u8) void {
 }
 
 test "P5: a deadline heap whose top differs from the soonest slot's deadline is refused" {
-    test_config = .{ .tls = .{
+    test_config = .{ .cpu_features = .none(), .tls = .{
         .identities = &identity.identities,
         .cookie_key = &identity.cookie_key,
         .cpu = identity.cpu,

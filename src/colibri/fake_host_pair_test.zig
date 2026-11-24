@@ -315,7 +315,7 @@ fn start(protocols: client.Protocols) !void {
     handler = .{};
     try pair_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .engine = .{ .tls_buffer = &server_support.tls_buffer },
+        .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer },
         .cpu = support.cpu(),
         .random = counters[@intFromEnum(Side.server)].random(),
         .now = started,

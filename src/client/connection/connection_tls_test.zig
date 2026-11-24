@@ -93,7 +93,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
 test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify follows the close" {
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
-    support.peer_h11.init(.{ .role = .server });
+    support.peer_h11.init(.{ .cpu_features = .none(), .role = .server });
     try support.peer_h11.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -121,7 +121,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
 
 test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_alt_svc" {
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
-    support.peer_h11.init(.{ .role = .server });
+    support.peer_h11.init(.{ .cpu_features = .none(), .role = .server });
     try support.peer_h11.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -228,7 +228,7 @@ test "decision 88: a handshake that selected no protocol runs h11 while versions
 
 test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends the connection" {
     try tls_support.prepare_configs(&.{}, &support.protocols_h2, "localhost", false);
-    support.config = .{ .authority = support.authority, .tls = client_config, .protocols = .{ .h11 = false } };
+    support.config = .{ .cpu_features = .none(), .authority = support.authority, .tls = client_config, .protocols = .{ .h11 = false } };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
     try tls_support.start_server();
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
@@ -296,7 +296,7 @@ test "RFC 9846 §4.2.2: the ClientHello goes out on the first send, before any r
         .alpn = &support.protocols_both,
         .cpu = support.cpu,
     });
-    support.config = .{ .authority = support.authority, .tls = client_config };
+    support.config = .{ .cpu_features = .none(), .authority = support.authority, .tls = client_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
     support.to_peer_len = 0;
     support.client_send();

@@ -125,8 +125,8 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
 }
 
 fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
-    storage.encoders.init(.none());
-    storage.decoders.init(.none());
+    storage.encoders.init();
+    storage.decoders.init();
     const decoders = storage.decoders.storage();
     // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
     const server_versions: server.Protocols = switch (plan.protocol) {
@@ -137,12 +137,12 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.endpoint_config = .{ .protocols = server_versions };
+    storage.endpoint_config = .{ .cpu_features = .none(), .protocols = server_versions };
     if (plan.server_codings_len > 0) {
         storage.endpoint_config.codings = plan.server_offers();
         storage.endpoint_config.encoders = storage.encoders.encoders();
     }
-    storage.client_config = .{ .authority = "a.example", .protocols = client_versions };
+    storage.client_config = .{ .cpu_features = .none(), .authority = "a.example", .protocols = client_versions };
     if (plan.client_codings_len > 0) {
         storage.client_config.codings = plan.client_offers();
         storage.client_config.decoders = decoders;

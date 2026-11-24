@@ -129,8 +129,8 @@ test "RFC 9110 §9.3.2, §15.4.5: HEAD names the coding and a 304 keeps a weak E
 test "decision 101: with every encoder taken, a marked response goes uncoded" {
     try support.start_coding(.h11);
     const encoders = support.pool.encoders();
-    const first = encoders.take(.gzip).?;
-    const second = encoders.take(.gzip).?;
+    const first = encoders.take(.gzip, .none()).?;
+    const second = encoders.take(.gzip, .none()).?;
     try expect_request(gzip_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));

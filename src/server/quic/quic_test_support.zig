@@ -145,7 +145,7 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     values.alpn = &alpn_h3;
     try server_tls.init(values);
     try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3, .cpu = support.cpu });
-    config = .{ .tls = &server_tls };
+    config = .{ .cpu_features = .none(), .tls = &server_tls };
     now_ns = start_ns;
     server_started = false;
     server_failed = false;
@@ -225,7 +225,7 @@ pub fn request_with_fields(method: []const u8, path: []const u8, fields: []const
 /// the TCP tests' pool, every one free (decision 101).
 pub fn start_coding() !void {
     try start();
-    support.pool.init(.none());
+    support.pool.init();
     config.codings = &support.codings;
     config.encoders = support.pool.encoders();
 }

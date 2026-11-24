@@ -65,8 +65,11 @@ const server_addresses = [_]colibri.client.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
 
 pub fn main() !void {
+    // The CPU features the codecs run on. The program asks its CPU once, and states them in each
+    // configuration (decision 169).
+    const cpu_features: platform.CpuFeatures = .detect();
     // A protocol module, which never needed Rotor.
-    connection.init(.{ .role = .client });
+    connection.init(.{ .role = .client, .cpu_features = cpu_features });
     const head_len = try connection.write_request(&output, "GET", "/", &.{
         .{ .name = "Host", .value = "example.test" },
     });
@@ -76,7 +79,7 @@ pub fn main() !void {
     // program opened none, so it stops the server, and ends the accept that the server cancels.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     router.init();
-    try hosted_server.init(&.{ .cpu = cpu, .random = entropy, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 } }, &router, &router_context);
+    try hosted_server.init(&.{ .cpu = cpu, .random = entropy, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 }, .engine = .{ .cpu_features = cpu_features } }, &router, &router_context);
     const first = hosted_server.turn(0, &operations);
     if (first.operations != 1 or operations[0].kind != .accept) return error.AcceptMissing;
     const accept = operations[0].id;
@@ -89,7 +92,7 @@ pub fn main() !void {
     // The client: with no request it holds no operation, so one turn after `shutdown` stops it.
     try hosted_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = server_port },
-        .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
+        .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = cpu_features },
         .random = entropy,
         .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 },
     }, null);

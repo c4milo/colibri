@@ -31,7 +31,7 @@ const chunked_head = "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\
 const next_request = "GET /b HTTP/1.1\r\nHost: h\r\n\r\n";
 
 fn server(discard_len_max: u64) *Connection {
-    test_connection.init(.{ .role = .server, .discard_len_max = discard_len_max });
+    test_connection.init(.{ .cpu_features = .none(), .role = .server, .discard_len_max = discard_len_max });
     return &test_connection;
 }
 

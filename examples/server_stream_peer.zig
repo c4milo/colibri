@@ -77,10 +77,7 @@ pub const Error = error{
 const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
-var config: client.Config align(@alignOf(client.Config)) = .{
-    .authority = origin,
-    .protocols = .{ .h11 = false, .h3 = false },
-};
+var config: client.Config align(@alignOf(client.Config)) = undefined;
 
 var link: *Link = undefined;
 /// What `send_stream` writes, which the link then sends.
@@ -125,6 +122,7 @@ var pool_closed: bool = false;
 /// first piece. The server's listener accepted the socket the link stands for.
 pub fn init(stream: *Link) !void {
     link = stream;
+    config = .{ .authority = origin, .protocols = .{ .h11 = false, .h3 = false }, .cpu_features = .detect() };
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
     try pool.init(&pool_memory, &config, &known, null);
     call_id = try pool.request(&call, &response);

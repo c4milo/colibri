@@ -78,7 +78,7 @@ const rounds_max: usize = 64;
 /// The connection the tests drive, its configuration, and the octets in flight each way, outside
 /// any stack frame.
 pub var connection: Connection align(@alignOf(Connection)) = undefined;
-pub var config: Config align(@alignOf(Config)) = .{ .authority = authority };
+pub var config: Config align(@alignOf(Config)) = .{ .cpu_features = .none(), .authority = authority };
 pub var to_peer: [buffer_len]u8 = undefined;
 pub var to_peer_len: usize = 0;
 pub var to_client: [buffer_len]u8 = undefined;
@@ -94,7 +94,7 @@ pub var peer_h11: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 /// A cleartext connection speaking `protocol`, and a peer of the same protocol, with nothing read
 /// or written.
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    try start_configured(.{ .authority = authority, .protocols = only(protocol) });
+    try start_configured(.{ .cpu_features = .none(), .authority = authority, .protocols = only(protocol) });
 }
 
 /// The versions that allow `protocol` alone among those a TCP connection speaks.
@@ -125,18 +125,19 @@ pub fn start_coding(protocol: connection_module.Protocol) !void {
 
 /// As `start_coding`, with the client offering `offered`.
 pub fn start_offering(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
-    pool.init(.none());
+    pool.init();
     const storage = pool.storage();
-    try start_configured(.{ .authority = authority, .protocols = only(protocol), .codings = offered, .decoders = storage });
+    try start_configured(.{ .cpu_features = .none(), .authority = authority, .protocols = only(protocol), .codings = offered, .decoders = storage });
 }
 
 /// As `start_offering`, with the `zstd` and `br` pools of `coding_test_support.zig` beside the
 /// `gzip` one, each given when `offered` names a coding it serves, and every decoder free.
 pub fn start_offering_all(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
-    pool.init(.none());
+    pool.init();
     const storage = pool.storage();
     coding_support.reset_pools();
     try start_configured(.{
+        .cpu_features = .none(),
         .authority = authority,
         .protocols = only(protocol),
         .codings = offered,
@@ -159,7 +160,7 @@ pub fn start_configured(value: Config) !void {
     events_len = 0;
     switch (protocol) {
         .h2 => peer_h2.init(.{ .role = .server }),
-        .h11 => peer_h11.init(.{ .role = .server }),
+        .h11 => peer_h11.init(.{ .cpu_features = .none(), .role = .server }),
         .h3 => unreachable,
     }
 }

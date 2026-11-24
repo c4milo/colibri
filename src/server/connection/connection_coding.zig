@@ -120,7 +120,7 @@ pub fn respond(connection: *Connection, id: Number, response: event.ResponseHead
         return keep_or_release(connection, entry, response.end);
     };
     var rewritten: coding_fields.Rewritten = undefined;
-    const head = try coding_response.plan_head(encoders, entry.asked, response, &rewritten);
+    const head = try coding_response.plan_head(encoders, entry.asked, response, &rewritten, connection.config.cpu_features);
     errdefer if (head.slot) |index| encoders.give_back(index);
     try write_head(connection, id, status, head.fields, response.end, response.request_body);
     if (head.slot) |index| {

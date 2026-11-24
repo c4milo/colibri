@@ -213,6 +213,9 @@ fn start_client(cpu: tls.Cpu) !void {
     // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
     // TCP first by default, and `.prefer = .quic` makes it open QUIC first.
     client_config = .{
+        // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
+        // colibri never asks it (decision 169).
+        .cpu_features = .detect(),
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
         .authority = origin,
         .protocols = .{ .prefer = .quic },

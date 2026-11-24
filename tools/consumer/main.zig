@@ -103,7 +103,10 @@ const server_addresses = [_]client_module.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
 
 pub fn main() !void {
-    client.init(.{ .role = .client });
+    // The CPU features the codecs run on. The program asks its CPU once, and states them in each
+    // configuration (decision 169).
+    const cpu_features: platform.CpuFeatures = .detect();
+    client.init(.{ .role = .client, .cpu_features = cpu_features });
     const head_len = try client.write_request(&output, "GET", "/", &.{
         .{ .name = "Host", .value = "example.test" },
     });
@@ -155,7 +158,7 @@ pub fn main() !void {
     // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
     // the socket.
-    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated }, .unix_seconds = now_seconds };
+    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated }, .unix_seconds = now_seconds, .engine = .{ .cpu_features = cpu_features } };
     router.init();
     try bound_server.init(&config, &router, &router_context);
     defer bound_server.deinit();
@@ -166,7 +169,7 @@ pub fn main() !void {
     // fetches nothing.
     const bound_client_config: colibri.ClientConfig = .{
         .destination = .{ .addresses = &server_addresses, .port = bound_server.port() },
-        .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
+        .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = cpu_features },
         .unix_seconds = now_seconds,
     };
     try bound_client.init(&bound_client_config, null);

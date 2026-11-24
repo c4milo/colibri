@@ -42,16 +42,17 @@ pub const Encoders = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        take: *const fn (context: *anyopaque, coding: Coding) ?Index,
+        take: *const fn (context: *anyopaque, coding: Coding, cpu_features: CpuFeatures) ?Index,
         encode: *const fn (context: *anyopaque, index: Index, input: []const u8, output: []u8, flush: Flush) Progress,
         ring: *const fn (context: *anyopaque, index: Index) *Ring,
         give_back: *const fn (context: *anyopaque, index: Index) void,
     };
 
-    /// Takes a free slot and starts its encoder on `coding`, or answers null when every slot is
-    /// taken, and the response goes uncoded (decision 101).
-    pub fn take(encoders: Encoders, coding: Coding) ?Index {
-        return encoders.vtable.take(encoders.context, coding);
+    /// Takes a free slot and starts its encoder on `coding`, with `cpu_features`, the
+    /// configuration's (decision 169), or answers null when every slot is taken, and the response
+    /// goes uncoded (decision 101).
+    pub fn take(encoders: Encoders, coding: Coding, cpu_features: CpuFeatures) ?Index {
+        return encoders.vtable.take(encoders.context, coding, cpu_features);
     }
 
     /// Codes as much of `input` into `output` as both allow, and with `flush` ends a block or the
@@ -125,13 +126,11 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
         free_head: Index,
         /// Slots no response holds.
         free_len: usize,
-        features: CpuFeatures,
         slots: [count]Slot,
 
-        /// Every slot free, and the CPU features its encoders run on: `CpuFeatures.target()`, what
-        /// the build target guarantees, or `CpuFeatures.detect()`, which asks the CPU, as colibri
-        /// never does itself (decision 158 ruling 10).
-        pub fn init(pool: *Self, features: CpuFeatures) void {
+        /// Every slot free (decision 158 ruling 10). The pool holds no CPU features: each
+        /// connection gives its configuration's to the encoder a response takes (decision 169).
+        pub fn init(pool: *Self) void {
             // Bounded by the pool's slots, each free and followed by the next.
             for (&pool.slots, 1..) |*slot, following| {
                 slot.taken = false;
@@ -140,7 +139,6 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             pool.slots[count - 1].next = no_slot;
             pool.free_head = 0;
             pool.free_len = count;
-            pool.features = features;
         }
 
         /// The slots no response holds.
@@ -161,7 +159,7 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             return @ptrCast(@alignCast(context));
         }
 
-        fn take(context: *anyopaque, coding: Coding) ?Index {
+        fn take(context: *anyopaque, coding: Coding, cpu_features: CpuFeatures) ?Index {
             const pool = of(context);
             const index = pool.free_head;
             if (index == no_slot) return null;
@@ -174,8 +172,8 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             slot.next = no_slot;
             slot.coding = coding;
             switch (coding) {
-                .gzip => gzip_of(slot).init(pool.features),
-                .deflate => zlib_of(slot).init(pool.features),
+                .gzip => gzip_of(slot).init(cpu_features),
+                .deflate => zlib_of(slot).init(cpu_features),
                 // A connection's configuration names only codings the server encodes.
                 .zstd, .br => unreachable,
             }
@@ -235,10 +233,10 @@ fn code_all(encoders: Encoders, index: Index) ![]const u8 {
 }
 
 test "decision 101: a slot codes gzip and deflate, which stdx's decoders read back whole" {
-    test_pool.init(.none());
+    test_pool.init();
     const encoders = test_pool.encoders();
-    const gzip_slot = encoders.take(.gzip).?;
-    const deflate_slot = encoders.take(.deflate).?;
+    const gzip_slot = encoders.take(.gzip, .none()).?;
+    const deflate_slot = encoders.take(.deflate, .none()).?;
     try testing.expect(gzip_slot != deflate_slot);
     const gzipped = try code_all(encoders, gzip_slot);
     test_gzip_decoder.init(.none());
@@ -251,15 +249,15 @@ test "decision 101: a slot codes gzip and deflate, which stdx's decoders read ba
 }
 
 test "decision 101: every slot taken leaves a response uncoded, and one given back is taken again" {
-    test_pool.init(.none());
+    test_pool.init();
     const encoders = test_pool.encoders();
-    const first = encoders.take(.gzip).?;
-    _ = encoders.take(.deflate).?;
-    try testing.expectEqual(null, encoders.take(.gzip));
+    const first = encoders.take(.gzip, .none()).?;
+    _ = encoders.take(.deflate, .none()).?;
+    try testing.expectEqual(null, encoders.take(.gzip, .none()));
     try testing.expectEqual(0, test_pool.free_count());
     encoders.give_back(first);
     try testing.expectEqual(1, test_pool.free_count());
-    try testing.expectEqual(first, encoders.take(.deflate).?);
+    try testing.expectEqual(first, encoders.take(.deflate, .none()).?);
     // A slot taken again starts a new stream on its new coding.
     const deflated = try code_all(encoders, first);
     test_zlib_decoder.init(.none());
@@ -278,12 +276,12 @@ threadlocal var test_runs: [test_fills.len][test_decoded_len]u8 = undefined;
 /// Codes `test_text` in `coding` once after each of `test_fills` fills the encoder of the slot that
 /// `take` gives next, and requires the same coded octets each time.
 fn expect_fill_ignored(pool: anytype, coding: Coding) !void {
-    pool.init(.none());
+    pool.init();
     const encoders = pool.encoders();
     var lens: [test_fills.len]usize = undefined;
     for (test_fills, 0..) |fill, run| {
         @memset(&pool.slots[pool.free_head].encoder, fill);
-        const index = encoders.take(coding).?;
+        const index = encoders.take(coding, .none()).?;
         const coded = try code_all(encoders, index);
         @memcpy(test_runs[run][0..coded.len], coded);
         lens[run] = coded.len;

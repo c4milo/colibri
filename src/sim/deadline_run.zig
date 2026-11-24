@@ -176,7 +176,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.endpoint_config = .{ .protocols = versions, .timeouts = plan.deadlines };
+    storage.endpoint_config = .{ .cpu_features = .none(), .protocols = versions, .timeouts = plan.deadlines };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
     try storage.endpoint.init(&storage.endpoint_config, source, .{ .unix_seconds = 0, .monotonic_ns = ns_of(plan, 0) });
@@ -212,7 +212,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.client_config = .{ .authority = "a.example", .protocols = client_versions };
+    storage.client_config = .{ .cpu_features = .none(), .authority = "a.example", .protocols = client_versions };
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.init(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.

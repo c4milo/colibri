@@ -210,13 +210,16 @@ each connection and returns:
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+// The CPU features the codecs run on, which the program also asks once and states in each
+// configuration (decision 169).
+const cpu_features: platform.CpuFeatures = .detect();
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
     .unix_seconds = now_seconds,
-    .engine = .{ .tls_buffer = &tls_buffer },
+    .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
 }, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
@@ -325,6 +328,7 @@ program keeps in place until the exchange's `finished`:
 try http_client.init(&.{
     .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
     .pool = .{
+        .cpu_features = cpu_features,
         .authority = origin,
         .protocols = protocols,
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
@@ -624,6 +628,9 @@ socket runs TLS:
 
 ```zig
 engine_config = .{
+    // The CPU features the engine's codecs run on. The program asks its CPU once, here, and
+    // colibri never asks it (decision 169).
+    .cpu_features = .detect(),
     // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
     // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
@@ -1033,8 +1040,10 @@ Three more things a server sets:
 
 - **Content codings.** With the configuration's `codings` and an `EncoderPool` the program places,
   a response marked `codable` goes out in the coding its request accepts, gzip or deflate
-  ([decision 101](decisions.md)). The program calls the pool's `init` once, with
-  `server.CpuFeatures.detect()` or `.target()`, and gives its `encoders()` to the configuration.
+  ([decision 101](decisions.md)). The program calls the pool's `init` once, and gives its
+  `encoders()` to the configuration. Each encoder runs on the configuration's `cpu_features`
+  ([decision 169](decisions.md)): `server.CpuFeatures.detect()`, which the program calls once.
+  The field has no default, and colibri never asks the CPU itself.
 - **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
   endpoint (RFC 7838), as the example's does. A cleartext connection advertises nothing (RFC 9114
   §3.1.2).
@@ -1744,6 +1753,9 @@ and its port, and an HTTPS record's `alpn` and `port` when it has one.
 // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
 // TCP first by default, and `.prefer = .quic` makes it open QUIC first.
 client_config = .{
+    // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
+    // colibri never asks it (decision 169).
+    .cpu_features = .detect(),
     .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
     .authority = origin,
     .protocols = .{ .prefer = .quic },
@@ -1763,6 +1775,9 @@ _ = try pool.request(&post, &post_response);
 
 The pool takes one `client.Config` ([decision 120](decisions.md)):
 
+- `cpu_features` is what `client.CpuFeatures.detect()` found, which your program calls once. Each
+  decoder the pool's connections take runs on it ([decision 169](decisions.md)). The field has no
+  default, and colibri never asks the CPU itself.
 - `tls` is one `tls.Client` value, which says how the client judges the server over TCP and over
   QUIC. Its `alpn` list stays empty. A pool with no `tls` runs in cleartext, over TCP alone.
 - `protocols` names the protocols the client speaks, h11, h2 and h3, each on by default. The pool offers
@@ -1893,10 +1908,19 @@ const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
-var client_config: client.Config align(@alignOf(client.Config)) = .{
+var client_config: client.Config align(@alignOf(client.Config)) = undefined;
+```
+
+The program builds the configuration as it starts, since it asks its CPU for the features then:
+
+```zig
+client_config = .{
     .authority = origin,
     .protocols = .{ .h2 = false, .h3 = false },
     .tcp_connections = tcp_connections,
+    // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
+    // colibri never asks it (decision 169).
+    .cpu_features = .detect(),
 };
 ```
 
@@ -2433,11 +2457,12 @@ connection's `decrypt` and `encrypt`.
 A body may arrive coded with `gzip` or `deflate` under `chunked` (RFC 9112 §7.2). stdx decodes it,
 and each decoder holds a window of 32,768 octets, so a connection keeps none of its own. Your
 program places a pool, `h11.coding.Pool(.{})` or `h11.coding.Pool(.{ .count = count })`, calls
-`init(features)` on it once, and gives its `storage()` to each connection in
+`init()` on it once, and gives its `storage()` to each connection in
 `Options.decoders`. Connections share the pool, and one takes a decoder only while a message
-carries a coding (decision 91). `features` is `h11.coding.CpuFeatures.detect()` to use the CPU's
-fastest paths, or `.target()` for what the build target guarantees; colibri never asks the CPU
-itself.
+carries a coding (decision 91). Each decoder runs on the connection's `Options.cpu_features`
+([decision 169](decisions.md)): `h11.coding.CpuFeatures.detect()`, which your program calls once,
+for the CPU's fastest paths. The field has no default, so each connection states it, and colibri
+never asks the CPU itself.
 
 With a pool, `receive` decodes straight into the `decoded` buffer you pass it, and each `data`
 event is a slice of that buffer, valid until you pass it again (decision 98). A larger buffer means
@@ -2731,7 +2756,8 @@ One more struct, `@sizeOf` in ReleaseSafe with Zig 0.16.0 on aarch64 macOS, on 2
 The buffers your program reads into and writes from come on top, and QUIC's calls also take
 scratch storage your program places; `udp_peer.zig` shows both.
 
-A client that decodes `zstd` or `br` places a pool of decoders for each. Measured the same way on
+A client that decodes `zstd` or `br` places a pool of decoders for each, and calls each pool's
+`init()` once. Measured the same way on
 2026-09-30, each decoder of a `client.ZstdDecoderPool(count)` is 8,683,024 octets, most of them RFC
 9659 §3's 8 MB window, and each of a `client.BrotliDecoderPool(count)` is 19,483,040, most of them
 RFC 7932 §9.1's 16 MiB window. An exchange takes a decoder of each coding it offers as its request

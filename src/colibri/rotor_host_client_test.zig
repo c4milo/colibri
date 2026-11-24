@@ -304,6 +304,7 @@ const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata
 test "decision 156 ruling 13: a client over TLS opens a UDP socket of each family" {
     var counter: support.Counter = .{};
     const pool: client.Config = .{
+        .cpu_features = .none(),
         .authority = "localhost",
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() },
     };
