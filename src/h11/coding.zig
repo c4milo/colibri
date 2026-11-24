@@ -12,13 +12,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const gzip = @import("gzip");
 const zlib = @import("zlib");
 const constants = @import("constants.zig");
 const message = @import("message/message.zig");
 
 /// The CPU features the decoders run on, which the caller chooses (`Pool.init`).
-pub const Features = codec.Features;
+pub const Features = platform.CpuFeatures;
 
 pub const Error = error{
     /// The coded body breaks RFC 1950, 1951 or 1952, or the body ends before its coded stream

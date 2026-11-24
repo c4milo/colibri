@@ -53,7 +53,7 @@ and is re-argued, not edited.
    wants QUIC without HTTP, or one person can no longer maintain QUIC and HTTP together.
 
    Entry 102 amends this entry: `quic` also imports `qlog`, which imports stdx's `json` and
-   `codec` alone (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
+   `platform` alone (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
 
 4. **Client and server, both, from the first step.** Cost: roughly a third more state machine —
    stream-id parity in both directions (RFC 9113 §5.1.1), the two connection prefaces (§3.4),
@@ -3131,7 +3131,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       caller places and gives each connection in `Options.decoders`. `DefaultPool` holds
       `decoders_default`, 16, in 691,472 octets. The caller prepares it with
       `storage().reset(features)` and chooses the features, `Features.detect()` or
-      `Features.target()`, so colibri never asks the CPU itself.
+      `Features.target()`, so colibri never asks the CPU itself. `Features` is stdx's
+      `platform.CpuFeatures` since 2026-11-24 (decision 102 as amended that day).
     - The reason is copies. stdx writes each decoded octet once, and at the end of each call copies
       the call's last 32,768 octets into its window. Into the caller's own buffer that is about one
       write per octet, with no copy out, and a larger buffer means fewer calls.
@@ -3428,6 +3429,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      call, which is simpler and 2.7% slower there; and gathering without copies, which has each
      writer that formats a string on its stack write the gathered tokens before it returns, a rule
      a later writer could break without any test failing.
+
+     Amended on 2026-11-24, after stdx's decision 40 as amended that day: stdx moved the type of
+     CPU features from its `codec` module to `platform`, as `platform.CpuFeatures`, and `codec`
+     no longer holds it. `qlog` imports `platform` in place of `codec`, for the type alone, and
+     never calls `probe` or `detect`. h11 and `server` import `platform` beside `codec` for the
+     same type (decisions 98 and 101). The names `qlog.Features`, `h11.coding.Features`,
+     `server.Features` and `client.Features` stay, each an alias of `platform.CpuFeatures`, so a
+     program that names one builds as before. Refused: a name `CpuFeatures` in each module in
+     their place, which renames four public names (decision 115) for no change in what a program
+     can do.
 
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for

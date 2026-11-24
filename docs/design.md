@@ -86,7 +86,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` and `codec` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
+| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` and `platform` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider`, `qlog` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic`, `qlog` | 9114 |

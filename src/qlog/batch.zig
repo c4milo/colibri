@@ -9,7 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const json = @import("json");
-const Features = @import("codec").Features;
+const Features = @import("platform").CpuFeatures;
 const constants = @import("constants.zig");
 
 const Item = json.Encoder.Item;

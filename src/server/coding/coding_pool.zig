@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const codec = @import("codec");
+const platform = @import("platform");
 const gzip = @import("gzip");
 const zlib = @import("zlib");
 const http = @import("http");
@@ -17,7 +18,7 @@ const constants = @import("../constants.zig");
 const coding_ring = @import("coding_ring.zig");
 
 const Coding = http.content_coding.Coding;
-pub const Features = codec.Features;
+pub const Features = platform.CpuFeatures;
 pub const Flush = codec.Flush;
 pub const Progress = codec.Progress;
 

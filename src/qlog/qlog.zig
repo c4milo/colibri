@@ -32,7 +32,7 @@ const files = struct {
 pub const TextWriter = @import("batch.zig").Batch;
 /// The CPU features stdx's JSON writer may use, which a log's caller passes to `Log.init`
 /// (decision 102 as amended), as it passes them to h11's decoder pool (decision 98).
-pub const Features = @import("codec").Features;
+pub const Features = @import("platform").CpuFeatures;
 pub const Error = files.member.Error;
 pub const Log = files.log.Log;
 pub const Trace = files.log.Trace;
