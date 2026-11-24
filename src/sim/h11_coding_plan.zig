@@ -16,7 +16,7 @@ const sim = @import("sim");
 const Writer = core.Writer;
 const Random = sim.Random;
 const limits = sim.constants.h11_coding;
-const Features = h11.coding.Features;
+const CpuFeatures = h11.coding.CpuFeatures;
 const Code = h11.http.Status;
 
 pub const Coding = h11.message.Coding;
@@ -210,16 +210,16 @@ fn code(message: Message, body: []const u8, encoders: *Encoders, storage: []u8) 
             return storage[0..body.len];
         },
         .deflate => {
-            encoders.zlib.init(Features.none());
+            encoders.zlib.init(CpuFeatures.none());
             return storage[0..try encoders.zlib.encode_all(body, storage)];
         },
         .gzip => {
             // RFC 1952 §2.2: a gzip body may be a series of members, each coding part of it.
             const split = if (message.two_members) body.len / member_halves else body.len;
-            encoders.gzip.init(Features.none());
+            encoders.gzip.init(CpuFeatures.none());
             const first = try encoders.gzip.encode_all(body[0..split], storage);
             if (!message.two_members) return storage[0..first];
-            encoders.gzip.init(Features.none());
+            encoders.gzip.init(CpuFeatures.none());
             const second = try encoders.gzip.encode_all(body[split..], storage[first..]);
             return storage[0 .. first + second];
         },

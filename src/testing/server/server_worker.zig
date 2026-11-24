@@ -122,7 +122,7 @@ pub fn start(index: usize) server.StartError!void {
     worker.accepting = false;
     worker.touched = Touched.initEmpty();
     // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
-    worker.decoders.init(h11.coding.Features.detect());
+    worker.decoders.init(h11.coding.CpuFeatures.detect());
     worker.config = .{
         .tls = server_mode.identity,
         .tls_buffer = if (server_mode.identity == null) &.{} else &worker.tls_buffer,
@@ -132,7 +132,7 @@ pub fn start(index: usize) server.StartError!void {
         .h3_alternative = server_mode.h3_alternative,
     };
     if (server_mode.coded_mode) {
-        worker.encoders.init(server.Features.detect());
+        worker.encoders.init(server.CpuFeatures.detect());
         worker.config.codings = &server_mode.served_codings;
         worker.config.encoders = worker.encoders.encoders();
     }

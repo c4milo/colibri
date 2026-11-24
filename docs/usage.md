@@ -1034,7 +1034,7 @@ Three more things a server sets:
 - **Content codings.** With the configuration's `codings` and an `EncoderPool` the program places,
   a response marked `codable` goes out in the coding its request accepts, gzip or deflate
   ([decision 101](decisions.md)). The program calls the pool's `init` once, with
-  `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
+  `server.CpuFeatures.detect()` or `.target()`, and gives its `encoders()` to the configuration.
 - **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
   endpoint (RFC 7838), as the example's does. A cleartext connection advertises nothing (RFC 9114
   §3.1.2).
@@ -2435,7 +2435,7 @@ and each decoder holds a window of 32,768 octets, so a connection keeps none of 
 program places a pool, `h11.coding.Pool(.{})` or `h11.coding.Pool(.{ .count = count })`, calls
 `init(features)` on it once, and gives its `storage()` to each connection in
 `Options.decoders`. Connections share the pool, and one takes a decoder only while a message
-carries a coding (decision 91). `features` is `h11.coding.Features.detect()` to use the CPU's
+carries a coding (decision 91). `features` is `h11.coding.CpuFeatures.detect()` to use the CPU's
 fastest paths, or `.target()` for what the build target guarantees; colibri never asks the CPU
 itself.
 
@@ -2705,7 +2705,7 @@ takes the instant, as QUIC's calls do.
 To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` over a buffer
 with `Log.init(buffer, features)`, write its header with `Log.start`, and pass it as the `qlog`
 option of both the QUIC connection and the h3 connection, so one trace holds both. `features` is
-`qlog.Features.detect()`, called once, or `qlog.Features.target()`: colibri never asks the CPU
+`qlog.CpuFeatures.detect()`, called once, or `qlog.CpuFeatures.target()`: colibri never asks the CPU
 itself, and the records are the same octets either way. colibri appends one record per event; your
 program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
 `log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis. To start a log on a QUIC

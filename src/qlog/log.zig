@@ -8,7 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const TextWriter = @import("batch.zig").Batch;
-const Features = @import("platform").CpuFeatures;
+const CpuFeatures = @import("platform").CpuFeatures;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 
@@ -37,7 +37,7 @@ pub const Log = struct {
     buffer: []u8,
     /// The CPU features stdx's JSON writer may use, which the caller chose (decision 102 as
     /// amended). The records are the same octets for every value (stdx's invariant 5).
-    features: Features,
+    features: CpuFeatures,
     /// Octets of whole records, from the start of `buffer`, that the caller has not taken.
     len: usize = 0,
     /// Events dropped because they did not fit.
@@ -46,9 +46,9 @@ pub const Log = struct {
     start_ns: u64 = 0,
     started: bool = false,
 
-    /// A log over `buffer`, written with `features`: `Features.detect()`, what the CPU has, or
-    /// `Features.target()`, what the build target guarantees. colibri never asks the CPU itself.
-    pub fn init(buffer: []u8, features: Features) Log {
+    /// A log over `buffer`, written with `features`: `CpuFeatures.detect()`, what the CPU has, or
+    /// `CpuFeatures.target()`, what the build target guarantees. colibri never asks the CPU itself.
+    pub fn init(buffer: []u8, features: CpuFeatures) Log {
         assert(buffer.len >= constants.limits.log_len_min);
         return .{ .buffer = buffer, .features = features };
     }
@@ -133,7 +133,7 @@ fn write_trace(text: *TextWriter, trace: Trace) Error!void {
 
 /// One event record into `buffer`, and its length. Nothing is committed until it all fit, so a
 /// failed record leaves only scratch past the log's length.
-fn write_event(buffer: []u8, features: Features, tuple: u32, name: []const u8, time_ns: u64, data: anytype) Error!usize {
+fn write_event(buffer: []u8, features: CpuFeatures, tuple: u32, name: []const u8, time_ns: u64, data: anytype) Error!usize {
     var text = TextWriter.init(buffer, .sequence, features);
     try text.begin_object();
     try member.milliseconds(&text, "time", time_ns);
@@ -168,7 +168,7 @@ fn test_trace(group_id: []const u8) Trace {
 
 test "the header record is a QlogFileSeq between RS and LF" {
     var buffer: [constants.limits.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer, Features.none());
+    var log = Log.init(&buffer, CpuFeatures.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 7);
     try testing.expectEqualStrings("\x1e{\"file_schema\":\"urn:ietf:params:qlog:file:sequential\"," ++
         "\"serialization_format\":\"application/qlog+json-seq\",\"trace\":{\"common_fields\":" ++
@@ -179,7 +179,7 @@ test "the header record is a QlogFileSeq between RS and LF" {
 
 test "an event record carries its time from the header's instant, its name and its data" {
     var buffer: [constants.limits.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer, Features.none());
+    var log = Log.init(&buffer, CpuFeatures.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 1_000_000);
     log.clear();
     log.event("loglevel:info", 3_500_000, Marker{ .message = "hello" });
@@ -189,7 +189,7 @@ test "an event record carries its time from the header's instant, its name and i
 
 test "an event that does not fit is dropped whole, and the next one that fits is written" {
     var buffer: [constants.limits.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer, Features.none());
+    var log = Log.init(&buffer, CpuFeatures.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
     const filler: [constants.limits.log_len_min]u8 = @splat('x');
     const kept = log.len;
@@ -203,7 +203,7 @@ test "an event that does not fit is dropped whole, and the next one that fits is
 
 test "an event on a later tuple names it, and one on the first names none" {
     var buffer: [constants.limits.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer, Features.none());
+    var log = Log.init(&buffer, CpuFeatures.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
     log.clear();
     log.event_on_tuple(2, "loglevel:info", 0, Marker{ .message = "moved" });

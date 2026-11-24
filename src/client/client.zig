@@ -121,9 +121,10 @@ pub const ZstdDecoderPool = files.coding_pool.ZstdDecoderPool;
 pub const ZstdDecoders = files.coding_pool.ZstdDecoders;
 pub const BrotliDecoderPool = files.coding_pool.BrotliDecoderPool;
 pub const BrotliDecoders = files.coding_pool.BrotliDecoders;
-/// The CPU features a pool's codecs run on, which its `init` takes: `Features.detect()` asks the
-/// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
-pub const Features = files.coding_pool.Features;
+/// The CPU features a pool's codecs run on, which its `init` takes: `CpuFeatures.detect()` asks
+/// the CPU, as colibri never does itself, and `CpuFeatures.target()` is what the build target
+/// guarantees.
+pub const CpuFeatures = files.coding_pool.CpuFeatures;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21d takes out `Connection` and `QuicConnection`, which the channel holds, and
@@ -152,7 +153,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Input",            "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",          "Open",
         "ConnectionHandle", "Connected",         "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions",
         "ReceiveStorage",   "Coding",            "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",
-        "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders", "Features",
+        "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders", "CpuFeatures",
     });
 }
 

@@ -405,7 +405,7 @@ fn expect_record(expected: []const u8) !void {
 
 test "quic-events §4.7: the server's log numbers the client's new address, and each packet names its tuple" {
     open_pair(true);
-    server_log = qlog.Log.init(&server_log_buffer, qlog.Features.none());
+    server_log = qlog.Log.init(&server_log_buffer, qlog.CpuFeatures.none());
     try server_log.start(.{ .vantage_point = .server, .group_id = &peer_id, .event_schemas = &test_schemas }, test_now_ns);
     connection_qlog.init(&server, &server_log, test_now_ns);
     // The first address the log meets is tuple 0, the default, which the log names with "".

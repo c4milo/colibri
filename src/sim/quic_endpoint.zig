@@ -58,7 +58,7 @@ pub const h3_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.htt
 pub fn start_log(log: *quic.qlog.Log, buffer: []u8, role: Role, event_schemas: []const []const u8, now_ns: u64) void {
     // The simulator takes stdx's scalar paths, as its h11 coding check does. The records are the
     // same octets for every value (stdx's invariant 5).
-    log.* = quic.qlog.Log.init(buffer, quic.qlog.Features.none());
+    log.* = quic.qlog.Log.init(buffer, quic.qlog.CpuFeatures.none());
     const trace: quic.qlog.Trace = .{
         .vantage_point = if (role == .client) .client else .server,
         .group_id = &original_id,
