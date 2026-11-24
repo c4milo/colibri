@@ -224,22 +224,25 @@ test "decision 169: a zstd decoder, each frame of it, and a br decoder run on th
     // the two sets differ in them.
     const sets = [_]coding_pool.CpuFeatures{ .none(), .target() };
     for (sets, [_]coding_pool.CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
-        try support.start_offering_all_on(.h11, &.{.zstd}, cpu_features);
-        const zstd_decoder = &coding_support.zstd_pool.storage().slots[0].decoder;
-        zstd_decoder.init(cpu_features);
-        const expected_hash = zstd_decoder.hash_path;
-        const expected_assembly = zstd_decoder.assembly;
-        // The pool's one decoder holds the other set's choices before the exchange takes it.
-        zstd_decoder.init(other);
-        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
-        _ = try connection.request(&exchange.request, &exchange.response);
-        support.client_send();
-        // RFC 8878 §3.1: two frames, and the second one starts the decoder again.
-        try h11_answer("zstd", coding_support.two_frames_zst);
-        try testing.expectEqual(.response, exchange.response.result);
-        try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
-        try testing.expectEqual(expected_hash, zstd_decoder.hash_path);
-        try testing.expectEqual(expected_assembly, zstd_decoder.assembly);
+        // RFC 8878 §3.1: content of one frame shows the first start, and content of two frames
+        // the start of the second.
+        for ([_][]const u8{ coding_support.plain_zst, coding_support.two_frames_zst }) |coded| {
+            try support.start_offering_all_on(.h11, &.{.zstd}, cpu_features);
+            const zstd_decoder = &coding_support.zstd_pool.storage().slots[0].decoder;
+            zstd_decoder.init(cpu_features);
+            const expected_hash = zstd_decoder.hash_path;
+            const expected_assembly = zstd_decoder.assembly;
+            // The pool's one decoder holds the other set's choices before the exchange takes it.
+            zstd_decoder.init(other);
+            var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+            _ = try connection.request(&exchange.request, &exchange.response);
+            support.client_send();
+            try h11_answer("zstd", coded);
+            try testing.expectEqual(.response, exchange.response.result);
+            try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
+            try testing.expectEqual(expected_hash, zstd_decoder.hash_path);
+            try testing.expectEqual(expected_assembly, zstd_decoder.assembly);
+        }
 
         try support.start_offering_all_on(.h11, &.{.br}, cpu_features);
         const br_decoder = &coding_support.br_pool.storage().slots[0].decoder;

@@ -334,13 +334,14 @@ test "issue 106: coded content is judged decoded, never by a Content-Length past
     try testing.expectEqualStrings(short, exchange.response.body_received());
 }
 
-/// The members of the body `gzip_twice` codes.
-const members: usize = 2;
+/// The most members of a body `gzip_members` codes.
+const members_max: usize = 2;
 
-/// Two gzip members of `text`, one after the other (RFC 1952 §2.2), which decode to `text` twice.
-fn gzip_twice() ![]u8 {
+/// `members` gzip members of `text`, one or two, one after the other (RFC 1952 §2.2).
+fn gzip_members(members: usize) ![]u8 {
+    std.debug.assert(members > 0 and members <= members_max);
     const member = try gzip_of(text);
-    std.debug.assert(member.len * members <= coded_room.len);
+    std.debug.assert(member.len * members_max <= coded_room.len);
     @memcpy(coded_room[member.len..][0..member.len], member);
     return coded_room[0 .. member.len * members];
 }
@@ -350,7 +351,8 @@ test "decision 169: over h11 and h2, a response's decoder runs on the configurat
     // target holds a carry-less multiply, the two sets take two paths.
     const sets = [_]h11.coding.CpuFeatures{ .none(), .target() };
     inline for (.{ .h11, .h2 }) |protocol| {
-        for (sets, [_]h11.coding.CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+        // A response of one member shows the first start, and one of two the second's.
+        for ([_]usize{ 1, 2, 1, 2 }, [_]h11.coding.CpuFeatures{ sets[0], sets[0], sets[1], sets[1] }, [_]h11.coding.CpuFeatures{ sets[1], sets[1], sets[0], sets[0] }) |members, cpu_features, other| {
             try support.start_coding_on(protocol, cpu_features);
             // The exchange takes the pool's first decoder, which holds the other set's path.
             const decoder: *gzip.Decoder = @ptrCast(@alignCast(&support.pool.storage().slots[0].decoder));
@@ -358,7 +360,7 @@ test "decision 169: over h11 and h2, a response's decoder runs on the configurat
             const expected = decoder.crc32_path;
             decoder.init(other);
             var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
-            const coded = try gzip_twice();
+            const coded = try gzip_members(members);
             if (protocol == .h11) {
                 var digits: [8]u8 = undefined;
                 const fields = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
@@ -371,7 +373,6 @@ test "decision 169: over h11 and h2, a response's decoder runs on the configurat
                 try support.client_receive();
             }
             try testing.expectEqual(.response, exchange.response.result);
-            // Both members decoded, the second one started on the same features.
             try testing.expectEqual(text.len * members, exchange.response.body_received().len);
             try testing.expectEqual(expected, decoder.crc32_path);
         }
