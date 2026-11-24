@@ -17677,10 +17677,16 @@ library.
   - **Run on x86-64 Linux, in a container with no IPv6:** `zig build test`, `zig build
     examples` and `tools/doc_snippets.sh`. One test of `colibri` and the example
     `colibri_shared_rotor` open an IPv6 socket, and fail there for that reason alone.
-  - **Not run yet:** the checks of `tools/ci.sh` that need Docker, Go or a network peer, and
-    `bench/run.sh`, whose input `h2-coded-many` takes an encoder for each response. CI runs the
-    first on a pull request to main, and the `Bench` workflow runs the second when a person
-    starts it.
+  - **CI, run 71 at 012b745, on GitHub's runners:** `zig build test` passed on arm64 Linux and
+    on arm64 macOS. `tools/ci.sh` on x86-64 Linux passed each section but one, "A project that
+    depends on colibri". `tools/consumer/main.zig` built a `server.Config` and a
+    `client.Config` with no `cpu_features`, and its build stopped there. colibri's own build
+    does not compile that project, and `tools/consumer_check.sh` fetches stdx from the
+    network, which the container above does not reach. The commit after 012b745 states the
+    field there. Each step of the script then passed in that container, with stdx and
+    chapulin taken from Zig's cache.
+  - **Not run yet:** `bench/run.sh`, whose input `h2-coded-many` takes an encoder for each
+    response. The `Bench` workflow runs it when a person starts it.
 
 ## 9. Test-only entry points
 
