@@ -125,7 +125,7 @@ pub fn main() !void {
     // stdx's gzip, which colibri's package exports (decision 101), codes content and decodes it.
     gzip_encoder.init(.target());
     const coded_len = try gzip_encoder.encode_all("colibri", &coded);
-    gzip_decoder.init(.target());
+    gzip_decoder.init(cpu_features);
     const decoded = try gzip_decoder.decode_all(coded[0..coded_len], &output);
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
 
@@ -134,8 +134,8 @@ pub fn main() !void {
     // with no QUIC, which allows h2 alone, so it speaks h2 with prior knowledge. The server's
     // engine names no version, and the connection it accepts reads h2 from the client's
     // connection preface (decision 117).
-    const engine_config: server_module.Config = .{};
-    const client_config: client_module.Config = .{ .protocols = .{ .h11 = false, .h3 = false }, .authority = "example.test" };
+    const engine_config: server_module.Config = .{ .cpu_features = cpu_features };
+    const client_config: client_module.Config = .{ .protocols = .{ .h11 = false, .h3 = false }, .authority = "example.test", .cpu_features = cpu_features };
     try engine.init(&engine_config, entropy, .{ .unix_seconds = 0, .monotonic_ns = 0 });
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
