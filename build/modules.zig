@@ -6,7 +6,7 @@
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
 //! way: `quic` receives `core`, `wire`, `crypto`, `tls_provider` and `qlog`, and nothing else.
 //! `src/quic/` naming `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is
-//! invariant 26 and the check of design §8 step 0. `qlog` imports stdx's `json` and `codec` alone
+//! invariant 26 and the check of design §8 step 0. `qlog` imports stdx's `json` and `platform` alone
 //! (decision 102 as amended).
 //!
 //! `sim` receives `core`, `tls_provider` and `crypto` because it implements the two caller-supplied
@@ -46,7 +46,7 @@ pub const Modules = struct {
     /// The packet-protection vtable. No production implementation (decision 9).
     crypto: *std.Build.Module,
     /// A qlog log in the caller's buffer, and the event records `quic` and `h3` fill (decision
-    /// 102). Imports stdx's `json` and `codec` alone.
+    /// 102). Imports stdx's `json` and `platform` alone.
     qlog: *std.Build.Module,
     hpack: *std.Build.Module,
     qpack: *std.Build.Module,
@@ -132,8 +132,9 @@ pub fn add(
 
     const qlog = library(b, "qlog", target, optimize);
     qlog.addImport("json", stdx.module("json"));
-    // Decision 102 as amended: the caller passes the CPU features stdx's JSON writer may use.
-    qlog.addImport("codec", stdx.module("codec"));
+    // Decision 102 as amended: the caller passes the CPU features stdx's JSON writer may use, a
+    // type of stdx's `platform` (stdx's decision 40 as amended on 2026-11-24).
+    qlog.addImport("platform", stdx.module("platform"));
 
     const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);
@@ -176,6 +177,9 @@ pub fn add(
     // Decisions 90 and 91: stdx decodes the gzip and deflate transfer codings. `codec` carries
     // the streaming contract both decoders share.
     h11.addImport("codec", stdx.module("codec"));
+    // The CPU features the decoders run on, a type of stdx's `platform` (stdx's decision 40 as
+    // amended on 2026-11-24). h11 names the type and never probes.
+    h11.addImport("platform", stdx.module("platform"));
     h11.addImport("gzip", stdx.module("gzip"));
     h11.addImport("zlib", stdx.module("zlib"));
 
@@ -217,6 +221,8 @@ pub fn add(
     server.addImport("quic", quic);
     // Decision 101: the server codes response content with stdx's encoders.
     server.addImport("codec", stdx.module("codec"));
+    // The CPU features the encoders run on, a type of stdx's `platform`, as h11 takes it.
+    server.addImport("platform", stdx.module("platform"));
     server.addImport("gzip", stdx.module("gzip"));
     server.addImport("zlib", stdx.module("zlib"));
     // Decision 100: `client` sends requests over h11 and h2 behind one set of calls, and drives

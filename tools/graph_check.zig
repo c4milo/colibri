@@ -24,7 +24,7 @@ const quic_imports = [_]Import{
     .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
     .{ .name = "crypto", .root = "crypto/crypto.zig", .deps = &.{"core"} },
     .{ .name = "tls_provider", .root = "tls_provider/tls_provider.zig", .deps = &.{"core"} },
-    // `qlog` imports stdx's `json` and `codec`, which this list leaves out: no fixture imports
+    // `qlog` imports stdx's `json` and `platform`, which this list leaves out: no fixture imports
     // `qlog`, so the compiler never reads it.
     .{ .name = "qlog", .root = "qlog/qlog.zig", .deps = &.{} },
 };

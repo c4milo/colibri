@@ -43,6 +43,7 @@ pub fn add(
     server_keylog.addImport("tls", graph.tls_keylog);
     server_keylog.addImport("tls_provider", graph.tls_provider);
     server_keylog.addImport("codec", graph.stdx.module("codec"));
+    server_keylog.addImport("platform", graph.stdx.module("platform"));
     server_keylog.addImport("gzip", graph.stdx.module("gzip"));
     server_keylog.addImport("zlib", graph.stdx.module("zlib"));
     testing_udp.addImport("server", server_keylog);

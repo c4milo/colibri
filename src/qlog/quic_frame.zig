@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("batch.zig").Batch;
-const Features = @import("codec").Features;
+const Features = @import("platform").CpuFeatures;
 
 pub const Error = member.Error;
 
