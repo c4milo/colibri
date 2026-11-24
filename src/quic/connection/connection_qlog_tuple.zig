@@ -84,7 +84,7 @@ const host_octet: u8 = 0x7f;
 const host: [ipv4_len]u8 = .{ host_octet, 0, 0, 1 };
 
 fn test_log(log: *Log, buffer: []u8) !void {
-    log.* = Log.init(buffer, qlog.Features.none());
+    log.* = Log.init(buffer, qlog.CpuFeatures.none());
     try log.start(.{ .vantage_point = .server, .group_id = "odcid", .event_schemas = &test_schemas }, 0);
     log.clear();
 }

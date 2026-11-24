@@ -32,7 +32,7 @@ const files = struct {
 pub const TextWriter = @import("batch.zig").Batch;
 /// The CPU features stdx's JSON writer may use, which a log's caller passes to `Log.init`
 /// (decision 102 as amended), as it passes them to h11's decoder pool (decision 98).
-pub const Features = @import("platform").CpuFeatures;
+pub const CpuFeatures = @import("platform").CpuFeatures;
 pub const Error = files.member.Error;
 pub const Log = files.log.Log;
 pub const Trace = files.log.Trace;
@@ -118,7 +118,7 @@ pub const h3_event = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     const expected = [_][]const u8{
-        "json",              "constants",          "TextWriter", "Features",
+        "json",              "constants",          "TextWriter", "CpuFeatures",
         "Error",             "Log",                "Trace",      "VantagePoint",
         "quic_event_schema", "http3_event_schema", "member",     "quic_frame",
         "quic_event",        "h3_event",

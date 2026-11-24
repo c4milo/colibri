@@ -305,7 +305,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     pool_config = .{ .authority = run.authority, .protocols = versions_of(&run), .tcp_connections = client_options.pool_tcp_connections(&run) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
-        const features = h11.coding.Features.detect();
+        const features = h11.coding.CpuFeatures.detect();
         decoders.init(features);
         zstd_decoders.init(features);
         br_decoders.init(features);

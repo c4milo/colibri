@@ -3131,8 +3131,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       caller places and gives each connection in `Options.decoders`. `DefaultPool` holds
       `decoders_default`, 16, in 691,472 octets. The caller prepares it with
       `storage().reset(features)` and chooses the features, `Features.detect()` or
-      `Features.target()`, so colibri never asks the CPU itself. `Features` is stdx's
-      `platform.CpuFeatures` since 2026-11-24 (decision 102 as amended that day).
+      `Features.target()`, so colibri never asks the CPU itself. Since 2026-11-24 the type is
+      `h11.coding.CpuFeatures`, stdx's `platform.CpuFeatures` (decision 102 as amended that day).
     - The reason is copies. stdx writes each decoded octet once, and at the end of each call copies
       the call's last 32,768 octets into its window. Into the caller's own buffer that is about one
       write per octet, with no copy out, and a larger buffer means fewer calls.
@@ -3439,6 +3439,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      program that names one builds as before. Refused: a name `CpuFeatures` in each module in
      their place, which renames four public names (decision 115) for no change in what a program
      can do.
+
+     Amended by the owner later on 2026-11-24: the four names become `qlog.CpuFeatures`,
+     `h11.coding.CpuFeatures`, `server.CpuFeatures` and `client.CpuFeatures`. Each is the name of
+     the type it aliases, so the type has one name in stdx and in colibri. A program that named
+     `Features` names `CpuFeatures`, which is the change the previous amendment refused.
 
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for

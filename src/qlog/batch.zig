@@ -9,7 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const json = @import("json");
-const Features = @import("platform").CpuFeatures;
+const CpuFeatures = @import("platform").CpuFeatures;
 const constants = @import("constants.zig");
 
 const Item = json.Encoder.Item;
@@ -25,7 +25,7 @@ pub const Batch = struct {
     octets: [constants.limits.batch_octets_len]u8,
     octets_len: usize,
 
-    pub fn init(output: []u8, framing: json.Framing, features: Features) Batch {
+    pub fn init(output: []u8, framing: json.Framing, features: CpuFeatures) Batch {
         return .{
             .text = json.TextWriter.init(output, framing, features),
             .items = undefined,
@@ -126,7 +126,7 @@ const test_value = "a string long enough to fill the buffer";
 
 /// A record written one token a call, which a batch must match octet for octet. Test-only.
 fn one_token_a_call(output: []u8, count: usize) ![]const u8 {
-    var text = json.TextWriter.init(output, .sequence, Features.none());
+    var text = json.TextWriter.init(output, .sequence, CpuFeatures.none());
     try text.begin_object();
     try text.name("items");
     try text.begin_array();
@@ -145,7 +145,7 @@ fn one_token_a_call(output: []u8, count: usize) ![]const u8 {
 }
 
 fn batched(output: []u8, count: usize) ![]const u8 {
-    var batch = Batch.init(output, .sequence, Features.none());
+    var batch = Batch.init(output, .sequence, CpuFeatures.none());
     try batch.begin_object();
     try batch.name("items");
     try batch.begin_array();
@@ -189,7 +189,7 @@ fn scribble() u8 {
 
 test "octets that die when their writer returns are written as they were added" {
     var output: [test_output_len]u8 = undefined;
-    var batch = Batch.init(&output, .sequence, Features.none());
+    var batch = Batch.init(&output, .sequence, CpuFeatures.none());
     try batch.begin_array();
     try add_formatted(&batch, 4_294_967_295);
     _ = scribble();
@@ -199,7 +199,7 @@ test "octets that die when their writer returns are written as they were added" 
 
 test "octets longer than the buffer are written at once, after what came before" {
     var output: [test_output_len]u8 = undefined;
-    var batch = Batch.init(&output, .sequence, Features.none());
+    var batch = Batch.init(&output, .sequence, CpuFeatures.none());
     const long: [constants.limits.batch_octets_len + 1]u8 = @splat('a');
     try batch.begin_array();
     try batch.string("first");

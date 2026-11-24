@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("batch.zig").Batch;
-const Features = @import("platform").CpuFeatures;
+const CpuFeatures = @import("platform").CpuFeatures;
 const quic_frame = @import("quic_frame.zig");
 const VantagePoint = @import("log.zig").VantagePoint;
 
@@ -272,7 +272,7 @@ const test_buffer_len = 512;
 
 fn expect_event(expected: []const u8, event: anytype) !void {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text, Features.none());
+    var text = TextWriter.init(&buffer, .text, CpuFeatures.none());
     try text.begin_object();
     try event.write(&text);
     try text.end_object();
@@ -303,7 +303,7 @@ test "recovery metrics write only what is present, and durations in milliseconds
 
 test "a long header carries its version and connection IDs as hexstrings" {
     var buffer: [256]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text, Features.none());
+    var text = TextWriter.init(&buffer, .text, CpuFeatures.none());
     try text.begin_object();
     try field(&text, "header", PacketHeader{
         .packet_type = .initial,

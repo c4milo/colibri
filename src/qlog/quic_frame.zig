@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("batch.zig").Batch;
-const Features = @import("platform").CpuFeatures;
+const CpuFeatures = @import("platform").CpuFeatures;
 
 pub const Error = member.Error;
 
@@ -260,7 +260,7 @@ const test_buffer_len = 256;
 
 fn expect_frame(expected: []const u8, comptime write: anytype, arguments: anytype) !void {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text, Features.none());
+    var text = TextWriter.init(&buffer, .text, CpuFeatures.none());
     try @call(.auto, write, .{&text} ++ arguments);
     try testing.expectEqualStrings(expected, (try text.written()));
 }
@@ -273,7 +273,7 @@ test "padding, ping and handshake_done" {
 
 test "an ack frame writes a single-packet range as one number, and its ECN counts" {
     var buffer: [256]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text, Features.none());
+    var text = TextWriter.init(&buffer, .text, CpuFeatures.none());
     try ack_begin(&text, 1_500_000);
     try ack_range(&text, 7, 9);
     try ack_range(&text, 3, 3);

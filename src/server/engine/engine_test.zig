@@ -422,7 +422,7 @@ fn open_test_log(context: *anyopaque, original_destination: []const u8, now_ns: 
     @memcpy(logs.original_destination[0..original_destination.len], original_destination);
     logs.original_destination_len = original_destination.len;
     if (!logs.giving) return null;
-    logs.log = quic.qlog.Log.init(&logs.buffer, quic.qlog.Features.none());
+    logs.log = quic.qlog.Log.init(&logs.buffer, quic.qlog.CpuFeatures.none());
     logs.log.start(.{ .vantage_point = .server, .group_id = original_destination, .event_schemas = &test_schemas }, now_ns) catch return null;
     return &logs.log;
 }

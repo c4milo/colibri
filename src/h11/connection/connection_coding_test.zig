@@ -42,18 +42,18 @@ const request_head = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: gzip, chu
 const deflate_request_head = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: deflate, chunked\r\n\r\n";
 
 fn pool() coding.Storage {
-    test_pool.init(coding.Features.none());
+    test_pool.init(coding.CpuFeatures.none());
     const storage = test_pool.storage();
     return storage;
 }
 
 fn gzip_of(text: []const u8, output: []u8) ![]const u8 {
-    test_gzip.init(coding.Features.none());
+    test_gzip.init(coding.CpuFeatures.none());
     return output[0..try test_gzip.encode_all(text, output)];
 }
 
 fn zlib_of(text: []const u8, output: []u8) ![]const u8 {
-    test_zlib.init(coding.Features.none());
+    test_zlib.init(coding.CpuFeatures.none());
     return output[0..try test_zlib.encode_all(text, output)];
 }
 

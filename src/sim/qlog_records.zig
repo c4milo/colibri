@@ -57,7 +57,7 @@ pub const Records = struct {
     pub fn check(records: *Records, octets: []const u8, storage: []u8) Error!void {
         // stdx's scalar paths, as the simulator's writer takes: the items are the same for every
         // value (stdx's invariant 5).
-        var reader = TextReader.init(octets, storage, .sequence, qlog.Features.none());
+        var reader = TextReader.init(octets, storage, .sequence, qlog.CpuFeatures.none());
         // Bounded by the octets: each record takes more than one.
         for (0..octets.len + 1) |_| {
             if (!reader.next_text()) return;
@@ -265,7 +265,7 @@ const test_schemas = [_][]const u8{ qlog.quic_event_schema, qlog.http3_event_sch
 
 /// A log started at instant 0, whose header the check reads first.
 fn test_log(buffer: []u8) !qlog.Log {
-    var log = qlog.Log.init(buffer, qlog.Features.none());
+    var log = qlog.Log.init(buffer, qlog.CpuFeatures.none());
     try log.start(.{ .vantage_point = .client, .group_id = "odcid", .event_schemas = &test_schemas }, 0);
     return log;
 }

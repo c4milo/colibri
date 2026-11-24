@@ -18,7 +18,7 @@ const constants = @import("../constants.zig");
 const coding_ring = @import("coding_ring.zig");
 
 const Coding = http.content_coding.Coding;
-pub const Features = platform.CpuFeatures;
+pub const CpuFeatures = platform.CpuFeatures;
 pub const Flush = codec.Flush;
 pub const Progress = codec.Progress;
 
@@ -125,13 +125,13 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
         free_head: Index,
         /// Slots no response holds.
         free_len: usize,
-        features: Features,
+        features: CpuFeatures,
         slots: [count]Slot,
 
-        /// Every slot free, and the CPU features its encoders run on: `Features.target()`, what
-        /// the build target guarantees, or `Features.detect()`, which asks the CPU, as colibri
+        /// Every slot free, and the CPU features its encoders run on: `CpuFeatures.target()`, what
+        /// the build target guarantees, or `CpuFeatures.detect()`, which asks the CPU, as colibri
         /// never does itself (decision 158 ruling 10).
-        pub fn init(pool: *Self, features: Features) void {
+        pub fn init(pool: *Self, features: CpuFeatures) void {
             // Bounded by the pool's slots, each free and followed by the next.
             for (&pool.slots, 1..) |*slot, following| {
                 slot.taken = false;

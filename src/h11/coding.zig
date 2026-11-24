@@ -19,7 +19,7 @@ const constants = @import("constants.zig");
 const message = @import("message/message.zig");
 
 /// The CPU features the decoders run on, which the caller chooses (`Pool.init`).
-pub const Features = platform.CpuFeatures;
+pub const CpuFeatures = platform.CpuFeatures;
 
 pub const Error = error{
     /// The coded body breaks RFC 1950, 1951 or 1952, or the body ends before its coded stream
@@ -69,7 +69,7 @@ fn zlib_decoder(decoding: *const Decoding, storage: Storage) *zlib.Decoder {
 /// What the pool keeps beside its slots.
 pub const Header = struct {
     free_head: Index,
-    features: Features,
+    features: CpuFeatures,
 };
 
 /// The sizes of a `Pool` (decision 158 ruling 3).
@@ -87,11 +87,11 @@ pub fn Pool(comptime options: PoolOptions) type {
         header: Header = undefined,
         slots: [options.count]Slot = undefined,
 
-        /// Every slot free, and the CPU features its decoders run on. `Features.target()` is what
-        /// the build target guarantees; `Features.detect()` asks the CPU, which colibri never does
-        /// itself. Called once, before the storage is given to any connection (decision 158
-        /// ruling 10).
-        pub fn init(pool: *@This(), features: Features) void {
+        /// Every slot free, and the CPU features its decoders run on. `CpuFeatures.target()` is
+        /// what the build target guarantees; `CpuFeatures.detect()` asks the CPU, which colibri
+        /// never does itself. Called once, before the storage is given to any connection
+        /// (decision 158 ruling 10).
+        pub fn init(pool: *@This(), features: CpuFeatures) void {
             reset(pool.storage(), features);
         }
 
@@ -136,7 +136,7 @@ pub const Storage = struct {
 };
 
 /// Every slot of `storage` free, and the CPU features its decoders run on: what `Pool.init` does.
-fn reset(storage: Storage, features: Features) void {
+fn reset(storage: Storage, features: CpuFeatures) void {
     assert(storage.slots.len > 0 and storage.slots.len < no_slot);
     // Bounded by the pool's slots.
     for (storage.slots, 0..) |*slot, index| {
@@ -280,12 +280,12 @@ const test_room_margin = 64;
 const crc32_offset_from_end = 8;
 
 fn gzip_of(text: []const u8, output: []u8) ![]u8 {
-    test_gzip.init(Features.none());
+    test_gzip.init(CpuFeatures.none());
     return output[0..try test_gzip.encode_all(text, output)];
 }
 
 fn zlib_of(text: []const u8, output: []u8) ![]u8 {
-    test_zlib.init(Features.none());
+    test_zlib.init(CpuFeatures.none());
     return output[0..try test_zlib.encode_all(text, output)];
 }
 
@@ -306,7 +306,7 @@ fn decode_in_pieces(decoding: *Decoding, storage: Storage, coded: []const u8, pi
 }
 
 test "RFC 9110 §8.4.1.3: a gzip body decodes in any pieces, and the decoder goes back" {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     var coded_room: [test_room]u8 = undefined;
     const coded = try gzip_of(test_text, &coded_room);
@@ -331,7 +331,7 @@ test "RFC 9110 §8.4.1.3: a gzip body decodes in any pieces, and the decoder goe
 }
 
 test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     var coded_room: [2 * test_room]u8 = undefined;
     const first = try gzip_of("first member, ", coded_room[0..test_room]);
@@ -345,7 +345,7 @@ test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
 }
 
 test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refused" {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     var coded_room: [test_room]u8 = undefined;
     const coded = try zlib_of(test_text, &coded_room);
@@ -359,7 +359,7 @@ test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refus
 }
 
 test "decision 91: a corrupt body, a refused feature and a stream cut short each have their verdict" {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     var coded_room: [test_room]u8 = undefined;
     const coded = try gzip_of(test_text, &coded_room);
@@ -384,7 +384,7 @@ test "decision 91: a corrupt body, a refused feature and a stream cut short each
 }
 
 test "decision 101: a decoder reserved before the coding is known starts on it, or goes back unused" {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     var coded_room: [test_room]u8 = undefined;
     const coded = try zlib_of(test_text, &coded_room);
@@ -409,10 +409,10 @@ test "decision 101: a decoder reserved before the coding is known starts on it, 
     try testing.expect(unused.reserve(storage));
 }
 
-/// Features with each one on, which differ from `Features.none()`. Test-only.
-fn every_feature() Features {
-    var features = Features.none();
-    inline for (@typeInfo(Features).@"struct".fields) |field| {
+/// CPU features with each one on, which differ from `CpuFeatures.none()`. Test-only.
+fn every_feature() CpuFeatures {
+    var features = CpuFeatures.none();
+    inline for (@typeInfo(CpuFeatures).@"struct".fields) |field| {
         if (field.type == bool) @field(features, field.name) = true;
     }
     return features;
@@ -424,12 +424,12 @@ test "decision 158 ruling 3: a pool of the default options holds the decoders th
 
 test "decision 158 ruling 10: init frees every slot and sets the features, and a gzip body decodes" {
     // A pool that a run used: one slot taken, and other features.
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     var held: Decoding = .{};
     try testing.expect(held.reserve(test_pool.storage()));
     test_pool.header.features = every_feature();
-    test_pool.init(Features.none());
-    try testing.expect(std.meta.eql(Features.none(), test_pool.header.features));
+    test_pool.init(CpuFeatures.none());
+    try testing.expect(std.meta.eql(CpuFeatures.none(), test_pool.header.features));
     const storage = test_pool.storage();
     try testing.expectEqual(test_pool_count, storage.free_count());
     var coded_room: [test_room]u8 = undefined;
@@ -451,7 +451,7 @@ const test_piece_len: usize = 7;
 /// Decodes `coded` in `coding` once after each of `test_fills` fills the decoder of the slot that
 /// the message takes, and requires `test_text` each time, in pieces of `test_piece_len`.
 fn expect_fill_ignored(coding: message.Coding, coded: []const u8) !void {
-    test_pool.init(Features.none());
+    test_pool.init(CpuFeatures.none());
     const storage = test_pool.storage();
     for (test_fills) |fill| {
         @memset(&storage.slots[storage.header.free_head].decoder, fill);

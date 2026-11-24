@@ -48,7 +48,7 @@ pub const chunked = struct {
 
 pub const coding = struct {
     pub const Decoding = files.coding.Decoding;
-    pub const Features = files.coding.Features;
+    pub const CpuFeatures = files.coding.CpuFeatures;
     pub const Header = files.coding.Header;
     pub const Pool = files.coding.Pool;
     pub const PoolOptions = files.coding.PoolOptions;
@@ -66,7 +66,7 @@ test "decision 115: the root exports the names code outside the module uses" {
 
 test "decision 158: a pool takes its options, and its init is a program's call" {
     try core.public_names.expect(coding, &.{
-        "Decoding", "Features", "Header", "Pool", "PoolOptions", "Progress", "Slot", "Storage",
+        "Decoding", "CpuFeatures", "Header", "Pool", "PoolOptions", "Progress", "Slot", "Storage",
     });
     try core.public_names.expect(coding.Pool(.{}), &.{ "init", "storage" });
     // Decision 158 ruling 10: `reset` leaves the calls of the storage a connection holds.

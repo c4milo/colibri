@@ -146,7 +146,7 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) Violat
 
 /// The pool and the connection as a run starts, and the requests a client has outstanding.
 fn start(storage: *Storage) Violation!void {
-    storage.pool.init(coding.Features.none());
+    storage.pool.init(coding.CpuFeatures.none());
     const pool = storage.pool.storage();
     storage.holder = .{};
     // RFC 9110 §15.6.4: the exhausted defect finds the pool's one decoder taken.
