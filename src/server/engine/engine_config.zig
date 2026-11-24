@@ -276,6 +276,21 @@ test "decision 110 as amended: each QUIC connection takes the engine's two reset
 /// A reset limit lower than the default.
 const peer_resets_few: u32 = 3;
 
+/// CPU features no default holds and no instruction needs: the one member is a choice of path.
+const features_stated: coding_pool.CpuFeatures = .{ .madd_addend_slow = true };
+
+test "decision 169: each connection of an engine takes the configuration's CPU features" {
+    try support.start_engine(null);
+    engine_support.engine_config.cpu_features = features_stated;
+    try engine_support.restart();
+    try support.connect();
+    try testing.expectEqual(features_stated, support.served.config.cpu_features);
+    tcp_only_config = .{ .cpu_features = features_stated, .protocols = .{ .h2 = false } };
+    try tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
+    try testing.expectEqual(features_stated, tcp_only.tcp_configs.cleartext.cpu_features);
+    try testing.expectEqual(features_stated, tcp_only.tcp_configs.secure.cpu_features);
+}
+
 /// An engine of one TCP slot and no QUIC slot. Test-only.
 const TcpOnly = @import("engine.zig").Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 threadlocal var tcp_only: TcpOnly align(@alignOf(TcpOnly)) = undefined;

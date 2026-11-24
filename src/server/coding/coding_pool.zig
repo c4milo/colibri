@@ -296,3 +296,31 @@ test "design §8 step 67: what a slot held before take changes no octet its enco
     try expect_fill_ignored(&test_pool_default, .gzip);
     try expect_fill_ignored(&test_pool_default, .deflate);
 }
+
+test "decision 169: an encoder starts on the CPU features its connection gives" {
+    test_pool.init();
+    const encoders = test_pool.encoders();
+    // The checksum path an encoder keeps shows the features it started with. Where the build
+    // target holds what a path asks for, the two sets take two paths.
+    const sets = [_]CpuFeatures{ .none(), .target() };
+    for (sets, [_]CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+        // The slot's encoder holds the other set's path before the response takes it.
+        const first = encoders.take(.gzip, other).?;
+        encoders.give_back(first);
+        const gzip_slot = encoders.take(.gzip, cpu_features).?;
+        try testing.expectEqual(first, gzip_slot);
+        const gzip_encoder = TestPool.gzip_of(&test_pool.slots[gzip_slot]);
+        const gzip_path = gzip_encoder.crc32_path;
+        gzip_encoder.init(cpu_features);
+        try testing.expectEqual(gzip_encoder.crc32_path, gzip_path);
+        encoders.give_back(gzip_slot);
+        const again = encoders.take(.deflate, other).?;
+        encoders.give_back(again);
+        const deflate_slot = encoders.take(.deflate, cpu_features).?;
+        const zlib_encoder = TestPool.zlib_of(&test_pool.slots[deflate_slot]);
+        const zlib_path = zlib_encoder.adler32_path;
+        zlib_encoder.init(cpu_features);
+        try testing.expectEqual(zlib_encoder.adler32_path, zlib_path);
+        encoders.give_back(deflate_slot);
+    }
+}

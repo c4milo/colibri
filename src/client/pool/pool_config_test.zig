@@ -136,8 +136,11 @@ test "decision 120: a QUIC connection gets the authority, ECN, the controller, t
     given.decoders = storage;
     given.zstd_decoders = coding_support.zstd_pool.storage();
     given.br_decoders = coding_support.br_pool.storage();
+    // Decision 169: features no default holds and no instruction needs.
+    given.cpu_features = .{ .madd_addend_slow = true };
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
     const built = &pool.quic_config;
+    try testing.expect(built.cpu_features.madd_addend_slow and pool.tcp_config.cpu_features.madd_addend_slow);
     try testing.expectEqual(&pool.quic_tls, built.tls);
     try testing.expectEqualStrings(support.authority, built.authority);
     try testing.expect(built.ecn);

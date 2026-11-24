@@ -239,3 +239,19 @@ test "RFC 9110 §6.5: a trailer section waits for the coded octets the ring hold
     try testing.expectEqualSlices(u8, support.incompressible[0..taken], try support.decode(.gzip, parsed.content));
     try testing.expectEqual(encoders_all, support.pool.free_count());
 }
+
+test "decision 169: a response's encoder runs on the configuration's CPU features" {
+    const sets = [_]@TypeOf(support.config.cpu_features){ .none(), .target() };
+    for (sets, [_]@TypeOf(support.config.cpu_features){ sets[1], sets[0] }) |cpu_features, other| {
+        try support.start_coding_on(.h11, cpu_features);
+        // The response takes the pool's first encoder, which holds the other set's path.
+        const encoder = support.pool_gzip(0);
+        encoder.init(cpu_features);
+        const expected = encoder.crc32_path;
+        encoder.init(other);
+        try expect_request(gzip_request, 1);
+        try connection.respond(1, .{ .status = ok, .headers = &.{}, .end = false, .codable = true });
+        try testing.expectEqual(encoders_all - 1, support.pool.free_count());
+        try testing.expectEqual(expected, encoder.crc32_path);
+    }
+}

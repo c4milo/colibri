@@ -333,3 +333,47 @@ test "issue 106: coded content is judged decoded, never by a Content-Length past
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings(short, exchange.response.body_received());
 }
+
+/// The members of the body `gzip_twice` codes.
+const members: usize = 2;
+
+/// Two gzip members of `text`, one after the other (RFC 1952 §2.2), which decode to `text` twice.
+fn gzip_twice() ![]u8 {
+    const member = try gzip_of(text);
+    std.debug.assert(member.len * members <= coded_room.len);
+    @memcpy(coded_room[member.len..][0..member.len], member);
+    return coded_room[0 .. member.len * members];
+}
+
+test "decision 169: over h11 and h2, a response's decoder runs on the configuration's CPU features" {
+    // The CRC-32 path of a gzip decoder shows the features it started with. Where the build
+    // target holds a carry-less multiply, the two sets take two paths.
+    const sets = [_]h11.coding.CpuFeatures{ .none(), .target() };
+    inline for (.{ .h11, .h2 }) |protocol| {
+        for (sets, [_]h11.coding.CpuFeatures{ sets[1], sets[0] }) |cpu_features, other| {
+            try support.start_coding_on(protocol, cpu_features);
+            // The exchange takes the pool's first decoder, which holds the other set's path.
+            const decoder: *gzip.Decoder = @ptrCast(@alignCast(&support.pool.storage().slots[0].decoder));
+            decoder.init(cpu_features);
+            const expected = decoder.crc32_path;
+            decoder.init(other);
+            var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+            const coded = try gzip_twice();
+            if (protocol == .h11) {
+                var digits: [8]u8 = undefined;
+                const fields = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+                try h11_exchange(&exchange, ok, &fields, coded);
+            } else {
+                support.peer_events_len = 0;
+                _ = try connection.request(&exchange.request, &exchange.response);
+                try support.pump_h2();
+                try support.peer_h2_answer(1, ok, &.{.{ .name = "content-encoding", .value = "gzip" }}, coded);
+                try support.client_receive();
+            }
+            try testing.expectEqual(.response, exchange.response.result);
+            // Both members decoded, the second one started on the same features.
+            try testing.expectEqual(text.len * members, exchange.response.body_received().len);
+            try testing.expectEqual(expected, decoder.crc32_path);
+        }
+    }
+}

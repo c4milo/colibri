@@ -194,3 +194,22 @@ test "RFC 9000 §3.1: a coded response whose runs wait for acknowledgments takes
 const held_by_head_and_header: usize = 3;
 /// A write the encoder takes whole and holds back, having written the gzip header alone.
 const small_write_len: usize = 100;
+
+test "decision 169: an h3 response's encoder runs on the configuration's CPU features" {
+    const sets = [_]@TypeOf(support.config.cpu_features){ .none(), .target() };
+    for (sets, [_]@TypeOf(support.config.cpu_features){ sets[1], sets[0] }) |cpu_features, other| {
+        try support.start_coding();
+        support.config.cpu_features = cpu_features;
+        // The response takes the pool's first encoder, which holds the other set's path.
+        const encoder = tcp_support.pool_gzip(0);
+        encoder.init(cpu_features);
+        const expected = encoder.crc32_path;
+        encoder.init(other);
+        try support.connect();
+        const fetch = try support.request_with_fields("GET", "/", &accepts_gzip);
+        try support.pump(support.rounds_default);
+        try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
+        try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
+        try testing.expectEqual(expected, encoder.crc32_path);
+    }
+}

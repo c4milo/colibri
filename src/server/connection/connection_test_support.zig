@@ -115,9 +115,20 @@ const pool_level: u4 = 1;
 
 /// A cleartext connection speaking `protocol` that codes content with `pool`, every encoder free.
 pub fn start_coding(protocol: connection_module.Protocol) !void {
+    try start_coding_on(protocol, .none());
+}
+
+/// As `start_coding`, with a configuration that states `cpu_features` (decision 169).
+pub fn start_coding_on(protocol: connection_module.Protocol, cpu_features: coding_pool.CpuFeatures) !void {
     pool.init();
-    config = .{ .cpu_features = .none(), .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
+    config = .{ .cpu_features = cpu_features, .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
     try connection.init(&config, null, stream.random(), 0, 0);
+}
+
+/// The gzip encoder of the pool's slot `index`, whose checksum path shows the CPU features it
+/// started with.
+pub fn pool_gzip(index: usize) *gzip.Encoder(.{ .level = pool_level }) {
+    return @ptrCast(@alignCast(&pool.slots[index].encoder));
 }
 
 /// The decoders the coding tests read coded content back with, and where they decode it.

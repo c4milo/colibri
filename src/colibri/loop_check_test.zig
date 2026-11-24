@@ -234,7 +234,7 @@ const stray_id: colibri.OperationId = @enumFromInt(std.math.maxInt(u32));
 const cases = struct {
     /// A hosted server and client that a host starts, turns and stops, with no socket.
     pub fn hosted_init() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         const turned = hosted_server.turn(0, &operations);
         const accept = operations[0];
         if (turned.operations != 1 or accept.kind != .accept) return error.AcceptMissing;
@@ -243,7 +243,7 @@ const cases = struct {
         hosted_server.complete(&.{ .id = accept.id, .result = .canceled }, 0);
         if (!hosted_server.stopped()) return error.NotStopped;
         hosted_server.deinit();
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
         hosted_client.shutdown();
         _ = hosted_client.turn(0, &operations);
         if (!hosted_client.stopped()) return error.NotStopped;
@@ -284,14 +284,14 @@ const cases = struct {
 
     /// A completion of an operation that the client never wrote: a halt (decision 159, rule 6).
     pub fn halt_stray_completion() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
         _ = hosted_client.turn(0, &operations);
         hosted_client.complete(&.{ .id = stray_id, .result = .closed }, 0);
     }
 
     /// `deinit` while the server's accept is in flight: a halt (decision 159, rule 2).
     pub fn halt_deinit_early() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         _ = hosted_server.turn(0, &operations);
         hosted_server.deinit();
     }
@@ -311,7 +311,7 @@ const halts = struct {
 
     /// Ends one exchange refused, so `handler`'s `on_finished` runs inside the last turn.
     fn refuse_inside_handler(handler: anytype) !void {
-        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, handler);
+        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, handler);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(0, &operations);
         const connect = try written(first.operations, .connect);
@@ -334,7 +334,7 @@ const halts = struct {
     /// its own sends the request over loopback.
     pub fn halt_server_run_in_route() !void {
         route_call = .run;
-        try private_server.init(&.{ .cpu = cpu, .unix_seconds = started.unix_seconds, .random = zero_source }, &reentrant_router, &context);
+        try private_server.init(&.{ .cpu = cpu, .unix_seconds = started.unix_seconds, .random = zero_source, .engine = .{ .cpu_features = .none() } }, &reentrant_router, &context);
         const peer = try std.Thread.spawn(.{}, get_from, .{private_server.port()});
         peer.detach();
         try private_server.run();
@@ -343,7 +343,7 @@ const halts = struct {
     /// Sends one GET of `/` to `port` on loopback from a `.private` client. The server halts
     /// before it answers.
     fn get_from(port: u16) void {
-        private_client.init(&.{ .destination = loopback(port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
+        private_client.init(&.{ .destination = loopback(port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
         _ = private_client.request(&get, &answer_of_get) catch return;
         private_client.run() catch return;
     }
@@ -382,7 +382,7 @@ const halts = struct {
 
     /// Gives a hosted server with `routed` the request `head`, so its route runs inside a turn.
     fn serve(routed: anytype, comptime head: []const u8) !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, routed, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, routed, &context);
         const first = hosted_server.turn(0, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);
@@ -395,13 +395,13 @@ const halts = struct {
 
     /// A hosted server whose first turn names an instant before the `now` of `init`.
     pub fn halt_server_turn_before_init() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = later }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = later, .engine = .{ .cpu_features = .none() } }, &router, &context);
         _ = hosted_server.turn(later_ns - 1, &operations);
     }
 
     /// The accept's completion at an instant before the turn that wrote it.
     pub fn halt_server_complete_back() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         const first = hosted_server.turn(later_ns, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, later_ns - 1);
@@ -409,13 +409,13 @@ const halts = struct {
 
     /// A hosted client whose first turn names an instant before the `now` of `init`.
     pub fn halt_client_turn_before_init() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = later }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = later }, null);
         _ = hosted_client.turn(later_ns - 1, &operations);
     }
 
     /// The connect's completion at an instant before the turn that wrote it.
     pub fn halt_client_complete_back() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(later_ns, &operations);
         const connect = try written(first.operations, .connect);
@@ -424,7 +424,7 @@ const halts = struct {
 
     /// A cancel at an instant before the last turn.
     pub fn halt_client_cancel_back() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
         const id = try hosted_client.request(&get, &answer_of_get);
         _ = hosted_client.turn(later_ns, &operations);
         hosted_client.cancel(id, later_ns - 1);
@@ -443,7 +443,7 @@ const halts = struct {
     /// Runs one exchange to a port that refuses it, so `handler`'s `on_finished` runs inside a
     /// turn of `run`.
     fn private_inside_handler(handler: anytype) !void {
-        var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false } };
+        var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() };
         pool.timeouts.connect_ns = connect_ns;
         try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .random = zero_source, .unix_seconds = 0 }, handler);
         _ = try private_client.request(&get, &answer_of_get);
