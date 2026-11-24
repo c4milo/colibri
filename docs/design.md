@@ -17640,6 +17640,47 @@ library.
     configuration. A configuration that was a constant of the program's image is now built as
     the program starts, since `CpuFeatures.detect()` runs then. docs/usage.md and the README show
     the lines.
+  - **Memory.** `zig build bench-memory`: `h11.Connection` grows by 16 octets, to 35,072, since
+    it keeps its options' features. `server.Engine(.{})` grows by 64, to 49,714,864, and
+    `client.ConnectionPool(.{})` by 32, to 843,472, each for the field in its configurations.
+    `server.EncoderPool(.{})` loses 8, to 1,461,296, since it holds no features.
+  - **Tests.** stdx writes the same octets on every path, so each test reads what a codec keeps
+    of the features it started with: gzip's CRC-32 path, deflate's Adler-32 path, zstd's
+    checksum path and its choice of assembly, and br's choice of assembly. Each one runs with no
+    features and with the build target's, on a codec that held the other set before.
+    - h11: `coding.zig` holds `start`, `begin` and `decode`, and `connection_coding_test.zig` a
+      connection, on a body of one gzip member and of two.
+    - client: `connection_coding_test.zig` over h11 and h2, `quic_coding_test.zig` over h3, and
+      `connection_coding_zstd_br_test.zig` for zstd, of one frame and of two, and br.
+      `pool_config_test.zig` holds what each connection's configuration takes of the pool's.
+    - server: `coding_pool.zig` holds `take`, `connection_coding_h11_test.zig` a response over
+      TCP, `quic_coding_test.zig` one over QUIC, `connection_records_test.zig` an h11 request's
+      decoder, and `engine_config.zig` what each connection's configuration takes.
+  - **Check:** 28 mutations, each a place that gives a codec no features, or a configuration
+    that takes none. Each is CAUGHT.
+    - `zig build test-h11`, 6: a gzip decoder's start; a later member's; `start` to `begin`; a
+      connection that keeps none of its options'; a connection's first start; its later
+      member's.
+    - `zig build test-client`, 14: the first start and a later member's, each over h11, h2 and
+      h3; `coding.begin` for gzip, zstd and br; `coding.decode` for a later gzip member and a
+      later zstd frame; the pool's held decoder on a later frame; a QUIC connection's
+      configuration; a TCP connection's.
+    - `zig build test-server`, 8: a gzip encoder's start and a deflate one's; `plan_head`; a
+      TCP connection's response and a QUIC connection's; a server's h11 session; the engine's
+      QUIC configuration and its TCP ones.
+    - One was NOT CAUGHT at first: an h11 connection that started its decoder with no
+      features. A body of two gzip members ends on the features its second member started
+      with, so each test now decodes a body of one member too.
+  - **Not a mutation:** a client's h11 session takes the configuration's features and no
+    decoder pool, since the client decodes content codings itself. Its features reach no codec,
+    so no test tells them from another set.
+  - **Run on x86-64 Linux, in a container with no IPv6:** `zig build test`, `zig build
+    examples` and `tools/doc_snippets.sh`. One test of `colibri` and the example
+    `colibri_shared_rotor` open an IPv6 socket, and fail there for that reason alone.
+  - **Not run yet:** the checks of `tools/ci.sh` that need Docker, Go or a network peer, and
+    `bench/run.sh`, whose input `h2-coded-many` takes an encoder for each response. CI runs the
+    first on a pull request to main, and the `Bench` workflow runs the second when a person
+    starts it.
 
 ## 9. Test-only entry points
 
