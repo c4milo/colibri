@@ -91,9 +91,9 @@ pub const Files = struct {
 
     /// Acts on an event of a request of this table's connection, and answers each request whose
     /// content ended.
-    pub fn on_event(files: *Files, engine: *Engine, reported: server.Event) void {
-        switch (reported) {
-            .request => |request| {
+    pub fn on_event(files: *Files, engine: *Engine, reported: *const server.Event) void {
+        switch (reported.*) {
+            .request => |*request| {
                 files.take(request);
                 // Decision 116 as amended: a head that ended its stream is the whole request.
                 if (request.end) files.answer(engine, request.id);
@@ -111,7 +111,7 @@ pub const Files = struct {
     /// Keeps a request's path until its end arrives. The server holds as many requests as the
     /// table has entries, and each request it reported ends in one `done` or `cancelled`, which
     /// releases its entry: so a free one is there.
-    fn take(files: *Files, request: server.Request) void {
+    fn take(files: *Files, request: *const server.Request) void {
         const entry = files.free_entry() orelse unreachable;
         entry.* = .{ .in_use = true, .id = request.id, .head = std.mem.eql(u8, request.method, "HEAD") };
         // A CONNECT names no path (RFC 9114 §4.4), and a path too long for hq-interop's rule names

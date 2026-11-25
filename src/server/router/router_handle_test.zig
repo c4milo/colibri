@@ -84,14 +84,14 @@ const Fixture = struct {
     fn request(fixture: *Fixture, method: []const u8, target: []const u8) event.RequestId {
         fixture.number += 1;
         const head = support.request_of(fixture.number, method, target, true);
-        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .request = head });
+        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .request = head });
         std.debug.assert(handled == .taken);
         return head.id;
     }
 
     fn finished(fixture: *Fixture, id: event.RequestId) void {
         const done: event.Finished = .{ .id = id, .user_data = fixture.recorder.user_data, .result = .sent };
-        _ = fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .finished = done });
+        _ = fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .finished = done });
     }
 };
 
@@ -172,7 +172,7 @@ test "decision 127: a writable sends what the engine did not take" {
     try testing.expectEqualStrings("hell", fixture.recorder.body_bytes());
     fixture.recorder.room = std.math.maxInt(usize);
     const writable: event.Writable = .{ .id = id, .user_data = fixture.recorder.user_data };
-    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .writable = writable }) == .taken);
+    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .writable = writable }) == .taken);
     try testing.expectEqualStrings("hello, x x1", fixture.recorder.body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
@@ -192,7 +192,16 @@ test "decision 127 ruling 4: the error function chooses the status, and an error
 test "decision 127: handle hands back the events of connections" {
     var fixture: Fixture = .{};
     const handle: event.ConnectionHandle = @bitCast(@as(u64, 3));
-    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .send = handle }) == .event);
-    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .close = handle }) == .event);
-    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, .closed) == .event);
+    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .send = handle }) == .event);
+    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .close = handle }) == .event);
+    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &@as(event.Event, .closed)) == .event);
+}
+
+test "decision 165: handle hands back the program's own event, by its pointer, and copies none" {
+    var fixture: Fixture = .{};
+    const received: event.Event = .{ .send = @bitCast(@as(u64, 3)) };
+    const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &received);
+    try testing.expect(handled == .event);
+    // The pointer is the one the program passed, so the event lives in the program's storage.
+    try testing.expectEqual(&received, handled.event);
 }

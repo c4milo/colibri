@@ -317,7 +317,8 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, ns_of(plan, now_ms));
+        var received: server.ReceiveResult = undefined;
+        storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, ns_of(plan, now_ms), &received);
         // A hostile peer's octets may fail the connection; an honest peer's may not.
         if (plan.honest() and storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
         stream.consumed += received.consumed;

@@ -111,10 +111,9 @@ pub const Program = struct {
         try program.check_deadline(call);
     }
 
-    pub fn receive(program: *Program, input: server.Input, now_ns: u64) Violation!server.ReceiveResult {
-        const received = program.endpoint.receive(input, now_ns);
+    pub fn receive(program: *Program, input: server.Input, now_ns: u64, result: *server.ReceiveResult) Violation!void {
+        program.endpoint.receive(input, now_ns, result);
         try program.called("receive");
-        return received;
     }
 
     /// Accepts a TCP socket. P1: a handle is one the endpoint never gave, none comes after
@@ -264,7 +263,8 @@ pub const Program = struct {
     }
 
     fn expect_no_event(program: *Program, now_ns: u64) Violation!void {
-        const received = try program.receive(.none, now_ns);
+        var received: server.ReceiveResult = undefined;
+        try program.receive(.none, now_ns, &received);
         const reported = received.event orelse return;
         _ = reported;
         return program.fail(error.EventMissed, "receive", nothing, 0);

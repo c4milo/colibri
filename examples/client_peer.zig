@@ -75,6 +75,9 @@ var config: server.Config align(@alignOf(server.Config)) = undefined;
 /// Room for the TLS session of the one TCP connection (decision 167).
 var tls_buffer: [server.Config.tls_buffer_len(1)]u8 = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports. The
+/// program owns it, as it owns the engine (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
 var router: Router align(@alignOf(Router)) = undefined;
@@ -120,9 +123,9 @@ pub fn turn() !void {
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
         const read: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
-        const received = engine.receive(.{ .stream = read }, now_ns);
+        engine.receive(.{ .stream = read }, now_ns, &received);
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) break;
             continue;
         };
@@ -131,8 +134,8 @@ pub fn turn() !void {
     link.consume(.server, consumed);
 }
 
-fn serve(event: server.Event, now_ns: u64) !void {
-    switch (event) {
+fn serve(event: *const server.Event, now_ns: u64) !void {
+    switch (event.*) {
         .request => |request| std.debug.print("server: {s} {s}\n", .{ request.method, request.target }),
         // A request is over: its response was sent, or it was cancelled.
         .finished => |finished| answered += @intFromBool(finished.result == .sent),
@@ -141,7 +144,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
     // The router answers each request, and hands back the events of the connection.
     switch (router.handle(&context, &engine, event)) {
         .taken => {},
-        .event => |other| switch (other) {
+        .event => |other| switch (other.*) {
             .send => |connection| try flush(connection, now_ns),
             .close => closes += 1,
             .ended => |connection| {

@@ -35,7 +35,8 @@ pub fn take(run: anytype, received: datagram_socket.Received, now_ns: u64) void 
     state.now_ns = now_ns;
     var rest: server.Input = .{ .datagram = .{ .bytes = received.bytes, .ecn = received.ecn, .from = received.from } };
     for (0..constants.limits.events_per_step_max) |_| {
-        const reported = state.engine.receive(rest, now_ns).event orelse return;
+        state.engine.receive(rest, now_ns, &state.received);
+        const reported = if (state.received.event) |*event| event else return;
         rest = .none;
         @import("server_pump.zig").route(run, reported);
     }

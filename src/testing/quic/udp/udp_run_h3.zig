@@ -36,6 +36,8 @@ const server_routes = @import("../../server/server_routes.zig");
 const Engine = udp_h3_files.Engine;
 
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// The files each connection serves, at its slot in the engine.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
@@ -139,9 +141,10 @@ fn take_delivery(asked: udp_arguments.Server, delivery: udp.Delivery, now_ns: u6
 fn take(asked: udp_arguments.Server, input: server.Input, now_ns: u64) void {
     var rest = input;
     for (0..constants.h3_endpoint_events_max) |_| {
-        const reported = engine.receive(rest, now_ns).event orelse return;
+        engine.receive(rest, now_ns, &received);
+        const reported = if (received.event) |*event| event else return;
         rest = .none;
-        switch (reported) {
+        switch (reported.*) {
             .ended => |over| end(asked, over),
             // A QUIC connection owes no `send` or `close`, and the run never shuts the engine
             // down.

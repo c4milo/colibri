@@ -73,7 +73,7 @@ pub const Answers = struct {
 
     /// A request's head arrived. Its octets are valid until the engine's next call, so the echo
     /// copies them now.
-    pub fn on_request(answers: *Answers, request: server.Request) void {
+    pub fn on_request(answers: *Answers, request: *const server.Request) void {
         if (answers.echo) |echo| echo.begin(.{
             .method = request.method,
             .target = request.target,

@@ -45,7 +45,7 @@ var engine_app: App align(@alignOf(App)) = .{};
 
 /// Passes each event the TCP engine reports to the router, as a program's loop does.
 fn take_tcp(reported: event.Event) void {
-    _ = engine_router.handle(&engine_app, tcp_engine, reported);
+    _ = engine_router.handle(&engine_app, tcp_engine, &reported);
 }
 
 /// The h2 streams of the test's two requests (RFC 9113 §5.1.1), and the 404's status code.

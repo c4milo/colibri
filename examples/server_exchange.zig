@@ -130,6 +130,9 @@ var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// (decision 167). A server that serves no TLS over TCP passes no buffer, and holds no TLS state.
 var tls_buffer: [server.Config.tls_buffer_len(2)]u8 = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports. The
+/// program owns it, as it owns the engine (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The instant the server started at.
 var started_ns: u64 = 0;
 /// The connection of the socket the TCP client opened, which `accept` named.
@@ -289,9 +292,9 @@ fn read_stream(input: []u8, now_ns: u64) !void {
     for (0..events_per_input_max) |_| {
         // The handle says which connection's socket read the octets.
         const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
-        const received = engine.receive(.{ .stream = read }, now_ns);
+        engine.receive(.{ .stream = read }, now_ns, &received);
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) break;
             continue;
         };
@@ -317,16 +320,16 @@ fn read_datagrams(now_ns: u64) !void {
 fn serve_all(input: server.Input, now_ns: u64) !void {
     var rest = input;
     for (0..events_per_input_max) |_| {
-        const received = engine.receive(rest, now_ns);
+        engine.receive(rest, now_ns, &received);
         rest = .none;
-        try serve(received.event orelse return, now_ns);
+        try serve(if (received.event) |*event| event else return, now_ns);
     }
 }
 
 /// Acts on one event of the server. A request is answered by its id, which names the request's
 /// connection too, in h11, h2 and h3 alike.
-fn serve(event: server.Event, now_ns: u64) !void {
-    switch (event) {
+fn serve(event: *const server.Event, now_ns: u64) !void {
+    switch (event.*) {
         .request => |request| try note_request(request),
         // The request is over. A `sent` result says its response is whole, and colibri reads none
         // of the program's bytes for it again. Over QUIC the client acknowledged every byte of it.
@@ -338,7 +341,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
     // entry at its `finished`. It hands back the events of the connections, the program's I/O.
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
-        .event => |other| switch (other) {
+        .event => |other| switch (other.*) {
             // A TCP connection owes its socket octets.
             .send => |connection| try flush(connection, now_ns),
             // RFC 9112 §9.6: the program closes only the write side of this TCP connection's

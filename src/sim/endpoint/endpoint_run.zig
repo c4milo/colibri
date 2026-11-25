@@ -262,7 +262,8 @@ fn give(storage: *Storage, peer: *Peer, now_ns: u64, now_ms: u64) Error!bool {
     for (0..limits.receives_per_stream_max) |_| {
         if (connection.socket != .open or stream.held().len == 0) return moved;
         const input: server.Input = .{ .stream = .{ .connection = peer.handle, .bytes = stream.held() } };
-        const received = try storage.program.receive(input, now_ns);
+        var received: server.ReceiveResult = undefined;
+        try storage.program.receive(input, now_ns, &received);
         stream.consumed += received.consumed;
         if (received.event) |reported| try route_module.route(storage, reported, now_ns, now_ms);
         if (received.consumed == 0 and received.event == null) return moved;
@@ -299,7 +300,8 @@ fn send_datagrams(storage: *Storage, index: usize, peer_plan: *const plan_module
         if (peer.peer.muted) continue;
         const octets = storage.datagram[0..len];
         storage.record.wire.update(octets);
-        const received = try storage.program.receive(.{ .datagram = .{ .bytes = octets, .from = peer.address } }, now_ns);
+        var received: server.ReceiveResult = undefined;
+        try storage.program.receive(.{ .datagram = .{ .bytes = octets, .from = peer.address } }, now_ns, &received);
         try note_new_connection(storage, index, peer_plan, now_ms);
         if (received.event) |reported| try route_module.route(storage, reported, now_ns, now_ms);
     }

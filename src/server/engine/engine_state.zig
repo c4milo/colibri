@@ -162,20 +162,29 @@ pub const State = struct {
         @memset(storage.failed, false);
     }
 
-    /// Takes what `input` brings, then reports the next event any connection owes, if one does.
-    pub fn receive(state: *State, input: Input, now_ns: u64) event.ReceiveResult {
-        const consumed: usize = switch (input) {
+    /// Takes what `input` brings, then writes into `result` the octets it took and the next
+    /// event any connection owes, or null (decision 165). Each field is written in place, so a
+    /// call that reports nothing writes no event.
+    pub fn receive(state: *State, input: Input, now_ns: u64, result: *event.ReceiveResult) void {
+        result.consumed = switch (input) {
             .none => 0,
             // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
             .stream => |octets| taken: {
                 const taken = engine_state_tcp.take_stream(state, octets, now_ns);
-                if (taken.reported) return .{ .consumed = taken.consumed, .event = state.event };
+                if (taken.reported) {
+                    result.consumed = taken.consumed;
+                    result.event = state.event;
+                    return;
+                }
                 break :taken taken.consumed;
             },
             .datagram => |datagram| engine_state_quic.take_datagram(state, datagram, now_ns),
         };
-        if (!state.next_event(now_ns)) return .{ .consumed = consumed, .event = null };
-        return .{ .consumed = consumed, .event = state.event };
+        if (!state.next_event(now_ns)) {
+            result.event = null;
+            return;
+        }
+        result.event = state.event;
     }
 
     /// Starts a connection on a TCP socket the program accepted, or returns null.

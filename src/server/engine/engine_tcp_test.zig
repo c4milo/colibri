@@ -7,6 +7,7 @@ const h2 = @import("h2");
 const quic = @import("quic");
 const tls = @import("tls");
 const http = @import("http");
+const event = @import("../event.zig");
 const server_constants = @import("../constants.zig");
 const support = @import("engine_tcp_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -180,7 +181,8 @@ test "decision 119: TCP slots owe no datagram, and an engine that serves no QUIC
     // With no identity the QUIC slot serves nothing: a datagram is consumed, and starts nothing.
     var datagram: [@import("quic").constants.protocol.datagram_len_min]u8 = @splat(0xc0);
     const from = @import("quic").PeerAddress.init(&.{ 127, 0, 0, 1 }, 50_000);
-    const received = engine.receive(.{ .datagram = .{ .bytes = &datagram, .from = from } }, support.now_ns);
+    var received: event.ReceiveResult = undefined;
+    engine.receive(.{ .datagram = .{ .bytes = &datagram, .from = from } }, support.now_ns, &received);
     try testing.expectEqual(datagram.len, received.consumed);
     try testing.expectEqual(null, engine.send_datagram(&output, support.now_ns));
     try testing.expect(!engine.live[support.tcp_slots]);
@@ -258,7 +260,9 @@ fn close_follows(handle: @import("../event.zig").ConnectionHandle, octets: []u8)
     var input: @import("engine.zig").Input = .{ .stream = .{ .connection = handle, .bytes = octets } };
     // Bounded: the fixture's log holds as many events.
     for (0..support.seen_max) |_| {
-        const reported = engine.receive(input, support.now_ns).event;
+        var received_2: event.ReceiveResult = undefined;
+        engine.receive(input, support.now_ns, &received_2);
+        const reported = received_2.event;
         const first = input == .stream;
         input = .none;
         switch (reported orelse if (first) continue else return false) {
@@ -325,7 +329,8 @@ fn answers_with_retry(id: *const [server_constants.policy.quic_id_len]u8) !bool 
     const len = writer.written().len + quic.constants.protocol.datagram_len_min;
     @memset(initial[writer.written().len..len], 0);
     const from = quic.PeerAddress.init(&loopback, client_port);
-    _ = engine.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns);
+    var received_result: event.ReceiveResult = undefined;
+    engine.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns, &received_result);
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const sent = engine.state.connections.replies.take(&output) orelse return false;
     return (try quic.packet.header.read(sent.bytes, server_constants.policy.quic_id_len)) == .retry;

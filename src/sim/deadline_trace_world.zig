@@ -195,7 +195,9 @@ pub const World = struct {
     /// Reads what the endpoint owes until it reports nothing.
     fn drain(world: *World) void {
         for (0..limits.events_per_action_max) |_| {
-            const reported = world.endpoint.receive(.none, world.now_ns).event orelse return;
+            var received_2: server.ReceiveResult = undefined;
+            world.endpoint.receive(.none, world.now_ns, &received_2);
+            const reported = received_2.event orelse return;
             world.on_server_event(reported);
         }
         world.broken = true;
@@ -298,7 +300,8 @@ pub const World = struct {
         var taken: usize = 0;
         for (0..limits.receives_per_frame_max) |_| {
             if (taken == len) break;
-            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.octets[taken..len] } }, world.now_ns);
+            var received: server.ReceiveResult = undefined;
+            world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.octets[taken..len] } }, world.now_ns, &received);
             if (world.endpoint.failed[world.accepted.slot]) {
                 world.broken = true;
                 return;

@@ -100,13 +100,13 @@ const Fixture = struct {
     pool: Pool = .{},
 
     fn get(fixture: *Fixture, target: []const u8) void {
-        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .request = support.request_of(1, "GET", target, true) });
+        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .request = support.request_of(1, "GET", target, true) });
         std.debug.assert(handled == .taken);
     }
 
     fn finish(fixture: *Fixture) void {
         const finished: event.Finished = .{ .id = @bitCast(@as(u128, 1)), .user_data = fixture.recorder.user_data, .result = .sent };
-        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .finished = finished });
+        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .finished = finished });
         std.debug.assert(handled == .taken);
     }
 };

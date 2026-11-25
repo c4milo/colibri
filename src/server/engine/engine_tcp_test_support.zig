@@ -110,7 +110,8 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     var rest = input[0..octets.len];
     // Bounded: each pass consumes octets or reports an event, or ends the loop.
     for (0..rounds_max) |_| {
-        const received = engine.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns);
+        var received: event.ReceiveResult = undefined;
+        engine.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns, &received);
         check_deadline();
         rest = rest[received.consumed..];
         if (received.event) |reported| note(reported);
@@ -124,7 +125,9 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
 pub fn collect() void {
     // Bounded: the log holds `seen_max` events.
     for (0..seen_max) |_| {
-        const reported = engine.receive(.none, instant_ns).event;
+        var received_result: event.ReceiveResult = undefined;
+        engine.receive(.none, instant_ns, &received_result);
+        const reported = received_result.event;
         check_deadline();
         note(reported orelse return);
     }

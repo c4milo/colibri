@@ -27,6 +27,8 @@ var coded: [256]u8 = undefined;
 // connection.
 const Engine = server_module.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports (decision 165).
+var engine_received: server_module.ReceiveResult align(@alignOf(server_module.ReceiveResult)) = undefined;
 // The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
 const ConnectionPool = client_module.ConnectionPool(.{ .quic = false });
 var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
@@ -224,13 +226,14 @@ fn serve(accepted: server_module.ConnectionHandle, len: usize) !void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
         const read: server_module.StreamBytes = .{ .connection = accepted, .bytes = wire[consumed..len] };
-        const received = engine.receive(.{ .stream = read }, 0);
+        engine.receive(.{ .stream = read }, 0, &engine_received);
+        const received = &engine_received;
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) return;
             continue;
         };
-        switch (event) {
+        switch (event.*) {
             .request => |request| try engine.respond(request.id, .{ .status = .no_content, .end = true }),
             .send => |connection| try send(connection),
             else => {},

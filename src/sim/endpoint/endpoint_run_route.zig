@@ -26,7 +26,8 @@ pub fn drain(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: a pass reads `events_per_pass_max` events at most.
     for (0..limits.events_per_pass_max) |_| {
-        const received = try storage.program.receive(.none, now_ns);
+        var received: server.ReceiveResult = undefined;
+        try storage.program.receive(.none, now_ns, &received);
         const reported = received.event orelse return moved;
         moved = true;
         try route(storage, reported, now_ns, now_ms);

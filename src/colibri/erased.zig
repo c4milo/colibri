@@ -14,7 +14,7 @@ pub fn Router(comptime Engine: type) type {
 
         router: *anyopaque,
         context: *anyopaque,
-        handle_fn: *const fn (router: *anyopaque, context: *anyopaque, engine: *Engine, reported: server.Event) server.Handled,
+        handle_fn: *const fn (router: *anyopaque, context: *anyopaque, engine: *Engine, reported: *const server.Event) server.Handled,
 
         /// Keeps `router`, a pointer to the program's `server.Router`, and `context`, a pointer to
         /// the context that the router's functions take.
@@ -22,7 +22,7 @@ pub fn Router(comptime Engine: type) type {
             const RouterType = @typeInfo(@TypeOf(router)).pointer.child;
             const Context = @typeInfo(@TypeOf(context)).pointer.child;
             const Calls = struct {
-                fn handle(erased_router: *anyopaque, erased_context: *anyopaque, engine: *Engine, reported: server.Event) server.Handled {
+                fn handle(erased_router: *anyopaque, erased_context: *anyopaque, engine: *Engine, reported: *const server.Event) server.Handled {
                     const typed: *RouterType = @ptrCast(@alignCast(erased_router));
                     const typed_context: *Context = @ptrCast(@alignCast(erased_context));
                     return typed.handle(typed_context, engine, reported);
@@ -32,7 +32,7 @@ pub fn Router(comptime Engine: type) type {
         }
 
         /// Hands one event to the router, which writes the response or hands the event back.
-        pub fn handle(self: Self, engine: *Engine, reported: server.Event) server.Handled {
+        pub fn handle(self: Self, engine: *Engine, reported: *const server.Event) server.Handled {
             return self.handle_fn(self.router, self.context, engine, reported);
         }
     };

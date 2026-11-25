@@ -23,13 +23,13 @@ test "the owner's ruling of 2026-11-13: header_bytes 0 calls a function route at
     var app: App = .{};
     var recorder: support.Recorder = .{};
     var pool: HeadPool = .{};
-    _ = pool.handle(&app, &recorder, .{ .request = support.request_of(1, "POST", "/empty", false) });
+    _ = pool.handle(&app, &recorder, &.{ .request = support.request_of(1, "POST", "/empty", false) });
     try testing.expectEqual(1, app.calls);
     try testing.expectEqual(error.ReadFailed, app.empty_read.?);
     try testing.expect(app.empty_body.? == &support.body_readers.failing);
     try testing.expectEqual(ok, @intFromEnum(recorder.heads[0].status));
     // The router drops the body, so the route gets no second call.
-    _ = pool.handle(&app, &recorder, .{ .body = .{ .id = whole.first_id, .user_data = recorder.user_data, .bytes = "x", .end = true } });
+    _ = pool.handle(&app, &recorder, &.{ .body = .{ .id = whole.first_id, .user_data = recorder.user_data, .bytes = "x", .end = true } });
     try testing.expectEqual(1, app.calls);
     try testing.expectEqual(1, recorder.head_count);
 }
@@ -42,7 +42,7 @@ const engine = &tcp_support.engine;
 
 /// Passes each event the TCP engine reports to the router, as a program's loop does.
 fn take(reported: event.Event) void {
-    _ = router.handle(&context, engine, reported);
+    _ = router.handle(&context, engine, &reported);
 }
 
 /// Starts the TCP engine with the router as its program, and accepts one cleartext connection

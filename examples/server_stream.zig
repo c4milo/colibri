@@ -101,6 +101,9 @@ var link: Link align(@alignOf(Link)) = undefined;
 var output: [output_len]u8 = undefined;
 var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports. The
+/// program owns it, as it owns the engine (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The connection of the socket the client connected, until the client closes it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
 /// Connections that are over.
@@ -251,8 +254,8 @@ fn server_turn() !void {
     }
     // With no input, `receive` reports what the engine owes.
     for (0..events_per_turn_max) |_| {
-        const received = engine.receive(.none, now_ns);
-        try serve(received.event orelse return, now_ns);
+        engine.receive(.none, now_ns, &received);
+        try serve(if (received.event) |*event| event else return, now_ns);
     }
 }
 
@@ -262,9 +265,9 @@ fn read_stream(connection: server.ConnectionHandle, input: []u8, now_ns: u64) !u
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
         const read: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
-        const received = engine.receive(.{ .stream = read }, now_ns);
+        engine.receive(.{ .stream = read }, now_ns, &received);
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) break;
             continue;
         };
@@ -275,10 +278,10 @@ fn read_stream(connection: server.ConnectionHandle, input: []u8, now_ns: u64) !u
 
 /// Acts on one event of the server. The router takes each event of a request, calls the route's
 /// callbacks, and hands back the events of the connection.
-fn serve(event: server.Event, now_ns: u64) !void {
+fn serve(event: *const server.Event, now_ns: u64) !void {
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
-        .event => |other| switch (other) {
+        .event => |other| switch (other.*) {
             .send => |connection| try flush(connection, now_ns),
             .ended => |over| {
                 if (over.failed) return error.ExchangeWrong;
