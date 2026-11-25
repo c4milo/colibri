@@ -10,10 +10,12 @@ An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC und
 It is written from the RFCs, and every check it makes on a peer's input cites the section that
 requires it.
 
-colibri owns no socket, no allocator and no clock. Your program reads the octets, hands them to
-colibri, and gets back events. colibri writes the octets it owes into buffers your program owns,
-and your program sends them. Every function that needs the current time takes it as a parameter.
-Because of this, one seed of the simulator replays a whole connection byte for byte.
+The protocol code does no I/O. It never opens a socket, allocates memory, or reads the clock.
+Your program reads bytes from the network and passes them in. colibri writes its replies into
+buffers you own, and your program sends them. You pass in the current time too. So a connection
+depends only on what you give it, and the simulator can replay one from a seed, byte for byte.
+If you would rather not run that loop yourself, `colibri.Server` and `colibri.Client` run it for
+you on [Rotor](https://github.com/c4milo/rotor).
 
 The name is Spanish for hummingbird.
 
