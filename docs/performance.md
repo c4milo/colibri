@@ -278,6 +278,63 @@ p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
   round trip there (design §8 step 13j). oha's side takes 81% to 92% of it, and colibri's
   server uses about half of its core. So a p99 at such a rate does not compare the servers.
 
+## The charts of the README
+
+The README shows three charts and one reading of each. This section holds the whole reading, and
+the version of each server.
+
+Three charts, each from one named run of `bench.yml` on the v0.19.0 tag, commit `4c41e44a`, on
+GitHub's `ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Each chart gives the first of its run's two
+jobs. Each server runs on a core of its own, and the load generator runs on two other cores.
+colibri's numbers come from its test-only servers ([design §9](design.md)), which serve
+through the `server` module on Rotor's loop. The sections above say how each number is measured
+and what limits it.
+
+Each other server is at its latest release, or at its latest commit where the project has no
+recent release:
+
+- nginx 1.31.9, from nginx.org's mainline packages, and h2o at commit `d3e43fc`.
+- hyper 1.12.0 on tokio 1.54.1, with rustls 0.23.46 on aws-lc-rs.
+- axum 0.8.9 on hyper, and over h3 on the h3 crate 0.0.8 and quinn 0.11.12.
+- http.zig at commit `1bb71ff`, which serves h11 alone.
+- Go 1.27.4's net/http, and fasthttp 1.79.0, which serves h11 alone.
+- chi 5.5.0, a router on net/http, and over h3 on quic-go 0.65.0.
+- Fastify 5.12.8 on Node 26.13.1.
+- quic-go's h3 server, from its QUIC Interop Runner image.
+
+**CPU time a request.** The time the server's threads ran, in user space and in the kernel, for
+each request of a load of many requests. Over h2, hyper takes 3.3 times colibri's time. Over h3,
+axum on quinn takes 2.8 times, and quic-go 11.0 times. Over h11, nginx takes 1.16 times. Over h11
+with TLS, fasthttp and hyper tie with colibri inside the noise. Over h11, colibri runs more
+instructions a request than nginx, hyper and fasthttp. But it makes 0.07 system calls a request
+against their two or three
+([run 44625801787](https://github.com/c4milo/colibri/actions/runs/44625801787)).
+
+![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.7 µs over h11, 8.1 µs over h11 with TLS, 1.5 µs over h2, 2.1 µs over h2 with TLS and 3.9 µs over h3; hyper takes 5.0 µs over h2; axum on quinn takes 10.9 µs over h3 and quic-go 43.1 µs](images/cpu.svg)
+
+**Throughput.** h2load, or wrk for h11, loads each server at full speed for 10 s, with 32
+connections and 100 streams on each h2 or h3 connection. The chart gives the requests a second the
+load tool counted. In each load the server's core was busy 98% of the time or more, so each number
+is the limit of that server on one core. Over h2, colibri serves 1,051,350 requests a second, 4.8
+times hyper's. Over h2 with TLS it serves 4.2 times hyper's. Over h3 it serves 2.1 times axum's on
+quinn, and 9.3 times quic-go's. Over h11 with TLS it serves 1.11 times hyper's. Over h11, colibri
+and nginx tie inside nginx's spread of 10%
+([run 44625817873](https://github.com/c4milo/colibri/actions/runs/44625817873)).
+
+![Bars of the requests a second each server serves on one Neoverse-N2 core, by protocol: over h2 colibri serves 1,051,350, hyper 220,450 and h2o 187,880; over h3 colibri serves 281,150, axum on quinn 134,250 and quic-go 30,292; over h11 colibri serves 150,472 and nginx 136,697](images/throughput.svg)
+
+**Latency.** oha sends GET requests over the GitHub API's routes at fixed rates, from 2,000 to
+320,000 a second, with its latency correction. The chart gives each server's p99 at each rate.
+Over h2 at 80,000 requests a second, colibri's p99 is 6.91 ms and axum's 22.49 ms, past the bound
+of 10 ms. At 40,000, colibri's is 1.05 ms, axum's 1.79 ms, and that of net/http with chi 845 ms.
+Over h3 at 20,000, colibri's is 2.44 ms, axum's 3.94 ms and that of quic-go with chi 16.80 ms.
+Over h11 at 80,000, axum's is 4.50 ms and colibri's 6.75 ms. Past 80,000, the load and not the
+server is the limit: over h2, oha reaches 93,429 requests a second against colibri, which serves
+1,051,350 under h2load
+([run 44625833094](https://github.com/c4milo/colibri/actions/runs/44625833094)).
+
+![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri stays under it up to 80,000 requests a second over h11 and h2, 40,000 over h2 over TLS and 20,000 over h3; axum stays under it up to 80,000 over h11, 40,000 over h2 and h2 over TLS and 20,000 over h3](images/latency.svg)
+
 ## Memory per connection
 
 The table gives the size in bytes of each struct a program places, and of the connection in each

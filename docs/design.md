@@ -17712,7 +17712,11 @@ library.
     `h2` naming the module `h3`; `dnssec` not named; and one more public name. Against
     `tools/consumer_check.sh`: each library module exported by name again; and stdx's `gzip`
     exported again.
-  - **The documents.** docs/usage.md's "Adding colibri" and README.md show the one import.
+  - **The documents.** docs/usage.md's "Adding colibri" shows the one import. README.md went
+    from 558 lines to 297: it keeps one server, one client and the route table, and points to
+    docs/usage.md and `examples/` for the rest. The whole reading of its three charts, with each
+    server's version, moved to docs/performance.md, "The charts of the README". The note on a
+    global's alignment moved to docs/usage.md, "What your program owns".
   - **Each dependent changes at its next bump.** cocuyo, stompy and connect-zig ask the package
     for modules by name. Each then asks for `colibri` alone, and its sources name
     `colibri.<module>`. A program of theirs in cleartext defines `ch_assert_fail`.
