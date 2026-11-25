@@ -35,25 +35,25 @@ The name is Spanish for hummingbird.
 
 ## Performance
 
-Three charts, each from one named run of `bench.yml` on the v0.19.0 tag, on GitHub's
+Three charts, each from one named run of `bench.yml` on the v0.20.0 tag, on GitHub's
 `ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Each server runs on a core of its own. colibri's
 numbers come from its test-only servers, which serve through the `server` module on Rotor's loop.
 [`docs/performance.md`](docs/performance.md#the-charts-of-the-readme) names each other server's
 version, reads each chart in full, and says how each number is measured and what limits it.
 
 **CPU time a request.** Over h2, hyper takes 3.3 times colibri's time. Over h3, axum on quinn
-takes 2.8 times, and quic-go 11.0 times. Over h11, nginx takes 1.16 times. Over h11 with TLS,
+takes 2.9 times, and quic-go 11.4 times. Over h11, nginx takes 1.18 times. Over h11 with TLS,
 fasthttp and hyper tie with colibri inside the noise
-([run 44625801787](https://github.com/c4milo/colibri/actions/runs/44625801787)).
+([run 45630159962](https://github.com/c4milo/colibri/actions/runs/45630159962)).
 
-![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.7 µs over h11, 8.1 µs over h11 with TLS, 1.5 µs over h2, 2.1 µs over h2 with TLS and 3.9 µs over h3; hyper takes 5.0 µs over h2; axum on quinn takes 10.9 µs over h3 and quic-go 43.1 µs](docs/images/cpu.svg)
+![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.2 µs over h11, 7.9 µs over h11 with TLS, 1.5 µs over h2, 2.2 µs over h2 with TLS and 3.9 µs over h3; hyper takes 4.9 µs over h2; axum on quinn takes 11.3 µs over h3 and quic-go 44.0 µs](docs/images/cpu.svg)
 
-**Throughput.** Over h2, colibri serves 1,051,350 requests a second on one core, 4.8 times
-hyper's. Over h3 it serves 2.1 times axum's on quinn, and 9.3 times quic-go's. Over h11, colibri
-and nginx tie inside nginx's spread of 10%
-([run 44625817873](https://github.com/c4milo/colibri/actions/runs/44625817873)).
+**Throughput.** Over h2, colibri serves 1,062,860 requests a second on one core, 4.8 times
+hyper's. Over h3 it serves 2.2 times axum's on quinn, and 9.7 times quic-go's. Over h11, colibri
+serves 1.22 times nginx's, past nginx's spread of 16%
+([run 45630164036](https://github.com/c4milo/colibri/actions/runs/45630164036)).
 
-![Bars of the requests a second each server serves on one Neoverse-N2 core, by protocol: over h2 colibri serves 1,051,350, hyper 220,450 and h2o 187,880; over h3 colibri serves 281,150, axum on quinn 134,250 and quic-go 30,292; over h11 colibri serves 150,472 and nginx 136,697](docs/images/throughput.svg)
+![Bars of the requests a second each server serves on one Neoverse-N2 core, by protocol: over h2 colibri serves 1,062,860, hyper 223,280 and h2o 187,710; over h3 colibri serves 290,989, axum on quinn 134,580 and quic-go 30,075; over h11 colibri serves 157,890 and nginx 129,212](docs/images/throughput.svg)
 
 **Latency.** The p99 at fixed rates, over the GitHub API's routes. Over h2 at 80,000 requests a
 second, colibri's is 6.91 ms and axum's 22.49 ms. Over h3 at 20,000, colibri's is 2.44 ms and
