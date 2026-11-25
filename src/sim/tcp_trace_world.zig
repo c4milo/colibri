@@ -385,11 +385,10 @@ pub const World = struct {
     /// The server reads every octet the client handed out, and its caller notes each request.
     fn deliver_to_server(world: *World, plan: *const Plan) void {
         for (0..limits.receives_per_delivery_max) |_| {
-            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.unread() } }, world.now_ns);
-            if (world.endpoint.failed[world.accepted.slot]) {
-                world.broken = true;
-                return;
-            }
+            var received: server.ReceiveResult = undefined;
+            world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.unread() } }, world.now_ns, &received);
+            // A connection that failed breaks the run, as a loop that reaches its bound does.
+            if (world.endpoint.failed[world.accepted.slot]) break;
             world.to_server.consumed += received.consumed;
             if (received.event) |event| world.on_server_event(event, plan);
             if (received.consumed == 0 and received.event == null) return;

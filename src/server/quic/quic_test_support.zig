@@ -333,7 +333,9 @@ pub fn collect() void {
     if (!server_started) return;
     for (0..seen_max) |_| {
         if (through_engine) {
-            const reported = engine.receive(.none, now_ns).event;
+            var received_2: event.ReceiveResult = undefined;
+            engine.receive(.none, now_ns, &received_2);
+            const reported = received_2.event;
             engine_support.check_deadline();
             keep(reported orelse return);
             continue;
@@ -372,7 +374,8 @@ fn to_engine(octets: []u8) void {
         engine.state.heap.mark_stale(slot);
         return;
     }
-    const taken = engine.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns);
+    var taken: event.ReceiveResult = undefined;
+    engine.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns, &taken);
     engine_support.check_deadline();
     if (engine_support.live_connection()) |live| {
         served = live;

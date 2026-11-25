@@ -97,7 +97,8 @@ test "decision 119: the program's cancel is reported before the input that names
     var frame: [h2.constants.protocol.frame_header_len + 1]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_data(&writer, 1, "x", true, 0);
-    const received = engine.receive(.{ .stream = .{ .connection = handle, .bytes = &frame } }, support.now_ns);
+    var received: event.ReceiveResult = undefined;
+    engine.receive(.{ .stream = .{ .connection = handle, .bytes = &frame } }, support.now_ns, &received);
     try testing.expectEqual(0, received.consumed);
     try testing.expectEqual(event.CancelReason.program, received.event.?.finished.result.cancelled);
 }

@@ -51,17 +51,17 @@ const Fixture = struct {
         fixture.number += 1;
         fixture.recorder.user_data = 0;
         const head = support.request_of(fixture.number, method, target, true);
-        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .request = head }) == .taken);
+        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .request = head }) == .taken);
         return .{ .id = head.id, .user_data = fixture.recorder.user_data };
     }
 
     fn writable(fixture: *Fixture, of: event.Writable) void {
-        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .writable = of }) == .taken);
+        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .writable = of }) == .taken);
     }
 
     fn finished(fixture: *Fixture, of: event.Writable, result: event.Result) void {
         const done: event.Finished = .{ .id = of.id, .user_data = of.user_data, .result = result };
-        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .finished = done }) == .taken);
+        std.debug.assert(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .finished = done }) == .taken);
     }
 
     /// The answers that wait: the slots in use, which the pool's count must equal.
@@ -164,7 +164,7 @@ test "design §8 step 53: the body of a request whose answer waits goes to no en
     fixture.recorder.head_blocked = true;
     const missing = fixture.request("POST", "/missing");
     const body: event.RequestBody = .{ .id = missing.id, .user_data = missing.user_data, .bytes = "dropped", .end = true };
-    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, .{ .body = body }) == .taken);
+    try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .body = body }) == .taken);
     try testing.expectEqual(0, fixture.recorder.cancelled);
     try testing.expectEqual(1, fixture.waiting());
 }

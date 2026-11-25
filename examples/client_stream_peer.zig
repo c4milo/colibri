@@ -49,6 +49,9 @@ var link: *Link = undefined;
 var output: [output_len]u8 = undefined;
 var config: server.Config align(@alignOf(server.Config)) = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports. The
+/// program owns it, as it owns the engine (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
 /// The call's id, and the octets of its body the server sent back.
@@ -92,9 +95,9 @@ pub fn turn() !void {
     for (0..events_per_turn_max) |_| {
         // With no socket, `.none` reports what the engine owes: the end of the connection.
         const read: server.Input = if (accepted) |connection| .{ .stream = .{ .connection = connection, .bytes = input[consumed..] } } else .none;
-        const received = engine.receive(read, now_ns);
+        engine.receive(read, now_ns, &received);
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) break;
             continue;
         };
@@ -103,8 +106,8 @@ pub fn turn() !void {
     link.consume(.server, consumed);
 }
 
-fn serve(event: server.Event, now_ns: u64) !void {
-    switch (event) {
+fn serve(event: *const server.Event, now_ns: u64) !void {
+    switch (event.*) {
         .request => |request| try answer(request),
         .body => |body| try send_back(body),
         .trailers => |trailers| try read_trailers(trailers),

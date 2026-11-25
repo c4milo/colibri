@@ -111,6 +111,9 @@ pub fn Session(comptime connections_max: usize) type {
         events_max: usize,
         /// The instant of the last call (design §4.2).
         now_ns: u64,
+        /// Where each `receive` writes what it took and the event it reports (decision 165). The
+        /// session holds it, so no call copies an event out of a returned value.
+        received: server.ReceiveResult,
         /// The router that answers every request in the `--routes` mode, or none, when each
         /// connection's `answers` do (design §8 steps 13f and 13l).
         routes: Routes,
@@ -245,9 +248,10 @@ fn read(session: anytype, entry: *Entry, input: []u8) Read {
     for (0..session.events_max) |_| {
         if (entry.closing or !entry.attached) break;
         const octets: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
-        const received = session.engine.receive(.{ .stream = octets }, session.now_ns);
+        const received = &session.received;
+        session.engine.receive(.{ .stream = octets }, session.now_ns, received);
         taken.consumed += received.consumed;
-        if (received.event) |reported| on_event(session, reported);
+        if (received.event) |*reported| on_event(session, reported);
         if (received.consumed == 0 and received.event == null) break;
         taken.moved = true;
     }
@@ -276,7 +280,8 @@ fn send(session: anytype, entry: *Entry, room: []u8) usize {
 /// Reads the engine's events until it reports none, routing each.
 fn drain(session: anytype) void {
     for (0..session.events_max) |_| {
-        const reported = session.engine.receive(.none, session.now_ns).event orelse {
+        session.engine.receive(.none, session.now_ns, &session.received);
+        const reported = if (session.received.event) |*event| event else {
             session.undrained = false;
             return;
         };
@@ -287,13 +292,13 @@ fn drain(session: anytype) void {
 
 /// Notes what one event says in the entry of the connection it names. The event's octets are
 /// valid until the engine's next call, so the echo copies them now.
-fn on_event(session: anytype, reported: server.Event) void {
+fn on_event(session: anytype, reported: *const server.Event) void {
     switch (session.routes) {
         .none => {},
         inline else => |pool| if (routed(session, pool, reported)) return,
     }
-    switch (reported) {
-        .request => |request| named(session, request.id.connection).answers.on_request(request),
+    switch (reported.*) {
+        .request => |*request| named(session, request.id.connection).answers.on_request(request),
         .body => |body| named(session, body.id.connection).answers.on_body(body),
         .trailers => |trailers| named(session, trailers.id.connection).answers.finish_reading(trailers.id.number),
         // Every response body is a constant or the echo's own copy, so nothing waits to be freed.
@@ -319,8 +324,8 @@ fn on_event(session: anytype, reported: server.Event) void {
 
 /// Passes a request's event to the router, and returns whether it took it. The router writes the
 /// response itself, so the connection's entry is stepped, and its `answers` owe nothing.
-fn routed(session: anytype, pool: anytype, reported: server.Event) bool {
-    const connection = switch (reported) {
+fn routed(session: anytype, pool: anytype, reported: *const server.Event) bool {
+    const connection = switch (reported.*) {
         .request => |request| request.id.connection,
         .body => |body| body.id.connection,
         .trailers => |trailers| trailers.id.connection,

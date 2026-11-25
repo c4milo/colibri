@@ -6,6 +6,7 @@ const std = @import("std");
 const quic = @import("quic");
 const tls = @import("tls");
 const http = @import("http");
+const event = @import("../event.zig");
 const support = @import("../quic/quic_test_support.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -39,7 +40,9 @@ test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which
 
 /// What the engine reports of `octets`, a datagram from `from`.
 fn give(octets: []u8, from: quic.PeerAddress) ?server_event.Event {
-    return engine.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, support.now_ns).event;
+    var received_result: event.ReceiveResult = undefined;
+    engine.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, support.now_ns, &received_result);
+    return received_result.event;
 }
 
 const server_event = @import("../event.zig");

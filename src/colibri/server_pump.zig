@@ -108,9 +108,10 @@ fn read(run: anytype, entry: *Entry, input: []u8) Read {
     for (0..constants.limits.events_per_step_max) |_| {
         if (entry.closing or !entry.attached) break;
         const bytes: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
-        const received = state.engine.receive(.{ .stream = bytes }, state.now_ns);
+        const received = &state.received;
+        state.engine.receive(.{ .stream = bytes }, state.now_ns, received);
         taken.consumed += received.consumed;
-        if (received.event) |reported| route(run, reported);
+        if (received.event) |*reported| route(run, reported);
         if (received.consumed == 0 and received.event == null) break;
         taken.moved = true;
     }
@@ -130,7 +131,8 @@ fn send(state: anytype, entry: *Entry, room: []u8) usize {
 pub fn drain(run: anytype) void {
     const state = run;
     for (0..constants.limits.events_per_step_max) |_| {
-        const reported = state.engine.receive(.none, state.now_ns).event orelse {
+        state.engine.receive(.none, state.now_ns, &state.received);
+        const reported = if (state.received.event) |*event| event else {
             state.undrained = false;
             return;
         };
@@ -143,7 +145,7 @@ pub fn drain(run: anytype) void {
 /// itself, so the TCP connection of a request's event is stepped. The router hands back the events
 /// of the connections, which are the server's I/O. A QUIC connection's datagrams leave in the
 /// loop's flush.
-pub fn route(run: anytype, reported: server.Event) void {
+pub fn route(run: anytype, reported: *const server.Event) void {
     if (request_connection(reported)) |handle| {
         if (is_tcp(run, handle)) _ = named(run, handle);
     }
@@ -154,8 +156,8 @@ pub fn route(run: anytype, reported: server.Event) void {
 }
 
 /// The connection of a request's event, or null for a connection's own event.
-fn request_connection(reported: server.Event) ?server.ConnectionHandle {
-    return switch (reported) {
+fn request_connection(reported: *const server.Event) ?server.ConnectionHandle {
+    return switch (reported.*) {
         .request => |request| request.id.connection,
         .body => |body| body.id.connection,
         .trailers => |trailers| trailers.id.connection,
@@ -165,8 +167,8 @@ fn request_connection(reported: server.Event) ?server.ConnectionHandle {
     };
 }
 
-fn on_connection_event(state: anytype, reported: server.Event) void {
-    switch (reported) {
+fn on_connection_event(state: anytype, reported: *const server.Event) void {
+    switch (reported.*) {
         .send => |handle| named(state, handle).send_owed = true,
         .half_close => |handle| named(state, handle).half_closing = true,
         .close => |handle| named(state, handle).closing = true,

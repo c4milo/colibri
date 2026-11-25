@@ -87,14 +87,14 @@ test "design §8 step 54: a table of 256 struct routes compiles, and each event 
         recorder.user_data = 0;
         // The head carries no end, so the body event reaches `on_body`.
         const head = support.request_of(number, "POST", path, false);
-        try testing.expect(pool.handle(&app, &recorder, .{ .request = head }) == .taken);
+        try testing.expect(pool.handle(&app, &recorder, &.{ .request = head }) == .taken);
         const user_data = recorder.user_data;
         const body: event.RequestBody = .{ .id = head.id, .user_data = user_data, .bytes = "", .end = true };
-        try testing.expect(pool.handle(&app, &recorder, .{ .body = body }) == .taken);
+        try testing.expect(pool.handle(&app, &recorder, &.{ .body = body }) == .taken);
         const writable: event.Writable = .{ .id = head.id, .user_data = user_data };
-        try testing.expect(pool.handle(&app, &recorder, .{ .writable = writable }) == .taken);
+        try testing.expect(pool.handle(&app, &recorder, &.{ .writable = writable }) == .taken);
         const finished: event.Finished = .{ .id = head.id, .user_data = user_data, .result = .sent };
-        try testing.expect(pool.handle(&app, &recorder, .{ .finished = finished }) == .taken);
+        try testing.expect(pool.handle(&app, &recorder, &.{ .finished = finished }) == .taken);
     }
     try testing.expectEqual(sent, app.heads);
     try testing.expectEqual(sent, recorder.head_count);

@@ -255,14 +255,17 @@ pub const World = struct {
         for (world.sockets[0..world.plan.slots]) |*socket| {
             if (!socket.connected or socket.server_closed or socket.to_server.len == 0) continue;
             const input: server.Input = .{ .stream = .{ .connection = socket.server, .bytes = socket.to_server.octets[0..socket.to_server.len] } };
-            const received = world.endpoint.receive(input, now_ns);
+            var received: server.ReceiveResult = undefined;
+            world.endpoint.receive(input, now_ns, &received);
             socket.to_server.take(received.consumed);
             if (received.event) |event| try world.on_server_event(event);
             try observer.observe();
         }
         // Bounded: each pass reports one of the finitely many events.
         for (0..limits.turn_events_max) |_| {
-            const event = world.endpoint.receive(.none, now_ns).event orelse return;
+            var received_result: server.ReceiveResult = undefined;
+            world.endpoint.receive(.none, now_ns, &received_result);
+            const event = received_result.event orelse return;
             try world.on_server_event(event);
             try observer.observe();
         }

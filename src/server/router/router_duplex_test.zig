@@ -40,7 +40,7 @@ var app: duplex.App align(@alignOf(duplex.App)) = .{ .reply_len = 0 };
 
 /// Passes each request's event the engine reports to the router, as a program's loop does.
 fn take(reported: event.Event) void {
-    _ = router.handle(&app, engine, reported);
+    _ = router.handle(&app, engine, &reported);
 }
 
 /// Starts the engine with the router as its program, and accepts one cleartext connection.

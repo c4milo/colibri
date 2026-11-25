@@ -123,6 +123,9 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         touched: Bits,
         /// Whether a read of the engine's events stopped at its bound.
         undrained: bool,
+        /// Where each `receive` of the engine writes what it took and the event it reports
+        /// (decision 165), so no call copies an event out of a returned value.
+        received: server.ReceiveResult,
         /// The instant of the last `turn` or `complete`, which each call into the engine passes.
         /// The next call may not go before it, nor the first before the run's start (decision
         /// 159, rule 6).

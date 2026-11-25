@@ -27,7 +27,7 @@ var app: duplex.App align(@alignOf(duplex.App)) = .{ .reply_len = reply_len };
 
 /// Passes each event the engine reports to the router, as a program's loop does.
 fn take(reported: event.Event) void {
-    _ = router.handle(&app, engine, reported);
+    _ = router.handle(&app, engine, &reported);
 }
 
 /// Moves datagrams both ways until the client received `target` octets, or the rounds ran out.

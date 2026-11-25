@@ -86,7 +86,8 @@ fn by_handle(program: *Program, connection: *const Connection, which: HandleCall
             // connection that failed on them would also consume them whole.
             const before = Holder.init(program, handle.slot);
             const octets = program.probe[0..limits.stale_octets_len];
-            const received = try program.receive(.{ .stream = .{ .connection = handle, .bytes = octets } }, now_ns);
+            var received: server.ReceiveResult = undefined;
+            try program.receive(.{ .stream = .{ .connection = handle, .bytes = octets } }, now_ns, &received);
             reported = received.event;
             break :dropped received.consumed == octets.len and std.meta.eql(before, Holder.init(program, handle.slot));
         },

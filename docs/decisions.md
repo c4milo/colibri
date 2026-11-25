@@ -8229,6 +8229,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      [#137](https://github.com/c4milo/colibri/issues/137). The public change, design §8 step 58b,
      goes into v0.20.0 if the judge admits it, and programs change their loop then.
 
+     **Amended by the owner on 2026-11-25**, who asked for 58b in v0.20.0. `server.Handled` hands
+     an event back by the pointer `handle` took, as `event: *const server.Event`, so the router
+     copies no event it does not take. A program switches on `other.*`. The alternative refused:
+     `Handled.event` by value, which copies 160 octets back on each `send`, `close` and `ended`.
+
 166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
      from v0.19.0, as ruled first; amended the same day to sizes colibri sets itself.** Ruled by
      the owner on 2026-11-18, for the last item of

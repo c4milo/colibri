@@ -19,7 +19,7 @@ const Fixture = struct {
     pool: data.Pool = .{},
 
     fn handle(fixture: *Fixture, received: event.Event) void {
-        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, received);
+        const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &received);
         std.debug.assert(handled == .taken);
     }
 

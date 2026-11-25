@@ -41,6 +41,9 @@ var link: *StreamsLink = undefined;
 var output: [output_len]u8 = undefined;
 var config: server.Config align(@alignOf(server.Config)) = undefined;
 var engine: Engine align(@alignOf(Engine)) = undefined;
+/// Where each `receive` of the engine writes what it took and the event it reports. The
+/// program owns it, as it owns the engine (decision 165).
+var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The connection of each stream's socket, once the listener accepted it.
 var accepted: [streams_max]?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = @splat(null);
 /// Responses that are whole, and connections that are over.
@@ -77,7 +80,8 @@ pub fn turn() !void {
     for (0..streams_max) |stream| try read(stream, now_ns);
     // What the engine reports with no octets: the ends of the connections the client closed.
     for (0..events_per_stream_max) |_| {
-        const event = engine.receive(.none, now_ns).event orelse break;
+        engine.receive(.none, now_ns, &received);
+        const event = if (received.event) |*reported| reported else break;
         try serve(event, now_ns);
     }
 }
@@ -88,9 +92,9 @@ fn read(stream: usize, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_stream_max) |_| {
         const octets: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
-        const received = engine.receive(.{ .stream = octets }, now_ns);
+        engine.receive(.{ .stream = octets }, now_ns, &received);
         consumed += received.consumed;
-        const event = received.event orelse {
+        const event = if (received.event) |*reported| reported else {
             if (received.consumed == 0) break;
             continue;
         };
@@ -99,8 +103,8 @@ fn read(stream: usize, now_ns: u64) !void {
     link.consume(stream, .server, consumed);
 }
 
-fn serve(event: server.Event, now_ns: u64) !void {
-    switch (event) {
+fn serve(event: *const server.Event, now_ns: u64) !void {
+    switch (event.*) {
         .request => |request| try answer(request),
         .finished => |finished| answered += @intFromBool(finished.result == .sent),
         .send => |connection| try flush(connection, now_ns),

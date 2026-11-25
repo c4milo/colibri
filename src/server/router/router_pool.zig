@@ -68,9 +68,11 @@ pub const Options = struct {
 
 /// What `handle` did with an event: it took it, or it hands it back, for the program to act on.
 /// The router takes each event of a request, and hands back `send`, `close`, `ended` and `closed`.
+/// A handed-back event is the one `handle` was given, by its pointer, so no event is copied
+/// (decision 165).
 pub const Handled = union(enum) {
     taken,
-    event: event.Event,
+    event: *const event.Event,
 };
 
 /// The comptime branches of a switch over the routes: a base, and a share for each route's prong.
@@ -164,9 +166,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// `header_bytes` is 0. With `header_bytes` above 0, the router copies the request's
         /// header and holds its body, and calls the function at the body's end. A header past
         /// `header_bytes` gets 431, and a body past `body_bytes` gets 413, with no call.
-        pub fn handle(router: *Self, context: *ContextOf, engine: anytype, received: event.Event) Handled {
-            switch (received) {
-                .request => |request| on_request(Self, router, context, engine, &request),
+        pub fn handle(router: *Self, context: *ContextOf, engine: anytype, received: *const event.Event) Handled {
+            switch (received.*) {
+                .request => |*request| on_request(Self, router, context, engine, request),
                 .body => |body| if (entry_of(Self, router, body.user_data)) |entry| on_body(Self, router, entry, context, engine, body.bytes, body.end),
                 // A trailer section ends the body (RFC 9110 §6.5).
                 .trailers => |trailers| if (entry_of(Self, router, trailers.user_data)) |entry| on_body(Self, router, entry, context, engine, "", true),

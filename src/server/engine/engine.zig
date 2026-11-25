@@ -191,8 +191,12 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// of an h11 response a pipelined request waited for. An event's slices stay
         /// valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
         /// `transport_closed` or `shutdown`.
-        pub fn receive(engine: *Self, input: Input, now_ns: u64) event.ReceiveResult {
-            return engine.state.receive(input, now_ns);
+        ///
+        /// The call writes the octets it took and the event into `result`, which the program
+        /// owns and keeps from call to call, and returns nothing (decision 165). A call that
+        /// reports nothing writes null there.
+        pub fn receive(engine: *Self, input: Input, now_ns: u64, result: *event.ReceiveResult) void {
+            engine.state.receive(input, now_ns, result);
         }
 
         /// Sets the word each later event of request `id` carries: its `body`, `trailers`,

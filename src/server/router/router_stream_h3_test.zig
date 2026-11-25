@@ -58,11 +58,11 @@ var app: App align(@alignOf(App)) = .{ .stream_len = stream_len, .message_len = 
 
 /// Passes each event the engine reports to the router, as a program's loop does.
 fn take(reported: event.Event) void {
-    _ = router.handle(&app, engine, reported);
+    _ = router.handle(&app, engine, &reported);
 }
 
 fn take_long(reported: event.Event) void {
-    _ = long_router.handle(&app, engine, reported);
+    _ = long_router.handle(&app, engine, &reported);
 }
 
 test "design §8 step 46: a struct route sends sixteen times response_bytes over h3, with loss" {

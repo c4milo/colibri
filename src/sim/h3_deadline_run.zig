@@ -210,7 +210,8 @@ fn peer_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
         if (peer.muted) continue;
         const from = server.Address.init(&peer_octets, peer_port);
         storage.record.wire.update(storage.datagram[0..len]);
-        const received = storage.endpoint.receive(.{ .datagram = .{ .bytes = storage.datagram[0..len], .from = from } }, now_ns);
+        var received: server.ReceiveResult = undefined;
+        storage.endpoint.receive(.{ .datagram = .{ .bytes = storage.datagram[0..len], .from = from } }, now_ns, &received);
         if (received.event) |reported| note(storage, reported, now_ms);
     }
     // A deaf peer's request has left, and nothing of its leaves after.
@@ -223,7 +224,9 @@ fn server_read(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: every event reads an octet the pool holds, or ends a request.
     for (0..limits.events_per_pass_max) |_| {
-        const reported = storage.endpoint.receive(.none, now_ns).event orelse return moved;
+        var received_result: server.ReceiveResult = undefined;
+        storage.endpoint.receive(.none, now_ns, &received_result);
+        const reported = received_result.event orelse return moved;
         moved = true;
         note(storage, reported, now_ms);
     }

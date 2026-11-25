@@ -17098,6 +17098,26 @@ library.
       change with them. No public name is added or removed, so no names list changes.
     - The judge measures 58b against 58a. A change that breaks every program's loop must win
       past the noise.
+  - **58b, built 2026-11-25** (decision 165 as amended that day). The judge's verdict decides
+    whether it stays in v0.20.0.
+    - `server.Engine(capacity).receive` takes `result: *server.ReceiveResult` and returns nothing.
+      `State.receive` writes `consumed` and `event` in place, and writes null when it reports
+      nothing.
+    - A `server.Router`'s `handle` takes `received: *const server.Event`, and switches on it by
+      pointer. `server.Handled.event` is `*const server.Event`: the event `handle` took.
+    - Each program keeps one result: `colibri.Server` holds `received` beside its engine, and so
+      do the test-only server's session, the h3 endpoint, the examples and `tools/consumer/`.
+      Their handlers take `*const server.Event`. The simulator's runs and the tests keep a
+      result in each call's scope.
+    - No public name is added or removed, so no names list changes. Two signatures change, and
+      the type of `Handled`'s payload.
+    - Mutations, 4, each CAUGHT against `zig build test-server`: an event `take_stream` reported
+      not written into the result; null not written when nothing is reported, which leaves the
+      last event; the octets a reported event consumed not written; and `handle` handing back a
+      copy, which the new test of decision 165 catches by its pointer.
+    - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
+      failed; `zig build examples`, 10 of 11, the IPv6 example failed; `tools/doc_snippets.sh`;
+      and `tools/consumer_check.sh`, with stdx from Zig's cache.
   - **What stays.** The client keeps its own form, because #133 measured the server.
 
 - **Step 59 — fewer deadline checks on a TCP connection, planned 2026-11-18.**

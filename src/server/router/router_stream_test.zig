@@ -72,7 +72,7 @@ fn FixtureOf(comptime PoolOf: type) type {
         }
 
         fn handle(fixture: *Self, received: event.Event) void {
-            const handled = fixture.pool.handle(&fixture.app, &fixture.holder, received);
+            const handled = fixture.pool.handle(&fixture.app, &fixture.holder, &received);
             std.debug.assert(handled == .taken);
         }
 

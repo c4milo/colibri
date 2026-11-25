@@ -184,10 +184,10 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
         .body = &no_body,
         .end = true,
     };
-    try testing.expect(pool.handle(&context, &engine, .{ .request = head }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, &.{ .request = head }) == .taken);
     try testing.expectEqual(200, engine.status);
     const finished: server.Finished = .{ .id = head.id, .user_data = engine.user_data, .result = .sent };
-    try testing.expect(pool.handle(&context, &engine, .{ .finished = finished }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, &.{ .finished = finished }) == .taken);
 }
 
 test "design §8 step 50b: a POST route answers once its whole body arrived" {
@@ -213,14 +213,14 @@ test "design §8 step 50b: a POST route answers once its whole body arrived" {
         .body = &no_body,
         .end = false,
     };
-    try testing.expect(pool.handle(&context, &engine, .{ .request = head }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, &.{ .request = head }) == .taken);
     // The route reads its body whole, so neither the header nor the first piece gets an answer.
     try testing.expectEqual(0, engine.status);
     const piece = [_]u8{'x'} ** (constants.routes_body_bytes / 2);
     const first: server.RequestBody = .{ .id = head.id, .user_data = engine.user_data, .bytes = &piece, .end = false };
-    try testing.expect(pool.handle(&context, &engine, .{ .body = first }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, &.{ .body = first }) == .taken);
     try testing.expectEqual(0, engine.status);
     const last: server.RequestBody = .{ .id = head.id, .user_data = engine.user_data, .bytes = &piece, .end = true };
-    try testing.expect(pool.handle(&context, &engine, .{ .body = last }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, &.{ .body = last }) == .taken);
     try testing.expectEqual(200, engine.status);
 }

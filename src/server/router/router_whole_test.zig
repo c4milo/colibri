@@ -36,7 +36,7 @@ fn Fixture(comptime Pool: type) type {
         const Self = @This();
 
         fn handle(fixture: *Self, received: event.Event) void {
-            const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, received);
+            const handled = fixture.pool.handle(&fixture.app, &fixture.recorder, &received);
             std.debug.assert(handled == .taken);
         }
 
@@ -125,13 +125,13 @@ const quic_engine = &quic_support.engine_support.engine;
 /// Passes each event the TCP engine reports to the router, as a program's loop does.
 fn take_tcp(reported: event.Event) void {
     if (reported == .body) body_events += 1;
-    _ = engine_router.handle(&engine_app, tcp_engine, reported);
+    _ = engine_router.handle(&engine_app, tcp_engine, &reported);
 }
 
 /// Passes each event the QUIC engine reports to the router.
 fn take_quic(reported: event.Event) void {
     if (reported == .body) body_events += 1;
-    _ = engine_router.handle(&engine_app, quic_engine, reported);
+    _ = engine_router.handle(&engine_app, quic_engine, &reported);
 }
 
 /// Starts the TCP engine with the router as its program, and accepts one cleartext connection.

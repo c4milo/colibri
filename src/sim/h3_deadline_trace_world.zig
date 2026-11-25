@@ -345,11 +345,11 @@ pub const World = struct {
 
     /// colibri takes `input`, reports every event it owes to the application, and sends.
     fn server_step(world: *World, input: server.Input) Error!void {
-        var rest = input;
+        var received: server.ReceiveResult = undefined;
+        world.endpoint.receive(input, world.now_ns, &received);
         for (0..limits.events_per_call_max) |_| {
-            const reported = world.endpoint.receive(rest, world.now_ns).event;
-            rest = .none;
-            world.note_event(reported orelse break);
+            world.note_event(received.event orelse break);
+            world.endpoint.receive(.none, world.now_ns, &received);
         } else return error.Stalled;
         if (world.endpoint.failed[0]) world.broken = true; // colibri failed it; `ended` comes later
         for (0..limits.sends_per_call_max) |_| {
