@@ -102,18 +102,20 @@ assertions stay on in production.
 
 colibri exports nothing of chapulin ([decision 162](decisions.md)). A program that calls chapulin
 itself, for example to check a JSON Web Signature, names chapulin in its own `build.zig.zon` at
-the commit colibri pins. Its build then asks for chapulin's object file with exactly the request
+the commit colibri pins. Its build then asks for chapulin's module with exactly the request
 colibri makes. Zig keys a dependency by its package and its options, so the two requests give
-one object file. A request that differs in one value fails the link with a duplicate symbol.
+one module. A request that differs in one value fails the link with a duplicate symbol.
 
-colibri pins chapulin v0.8.0, commit `c45f661d`. Its request for the object file for TLS over TCP
+colibri pins chapulin at commit `bda41cf6`, and asks it once ([decision 172](decisions.md)). The
+one module, `chapulin`, holds the object file for TLS over TCP as `chapulin.tcp`, and the one for
+QUIC as `chapulin.quic`. It defines `ch_assert_fail`, so the program defines no hook. The request
 names these options, and no other key. A host target is arm64 with NEON or x86-64 with SSE2.
 
 | Option | On a host target | On another target |
 | --- | --- | --- |
 | `target` | the target your build gives colibri, unchanged | the same |
 | `RAND` | `.session` | `.session` |
-| `TRANSPORT` | `.@"tcp-nonblocking"` | `.@"tcp-nonblocking"` |
+| `TRANSPORT` | `.nonblocking` | `.nonblocking` |
 | `ROLE` | `.both` | `.both` |
 | `TRUST` | `.webpki` | `.webpki` |
 | `EXPORTER` | `.on` | `.on` |
@@ -124,8 +126,9 @@ names these options, and no other key. A host target is arm64 with NEON or x86-6
 | `JWS` | `.on` | `.off` |
 | `SCRAM` | `.on` | `.off` |
 
-A release of colibri that changes the pin, an option or a key says so in its notes.
-`build/modules_chapulin.zig` holds the request, and the object file for QUIC beside it.
+chapulin gives `EXPORTER`, `TX_RECORD`, `DNSSEC`, `JWS` and `SCRAM` to the TCP object alone. A
+release of colibri that changes the pin, an option or a key says so in its notes.
+`build/modules_chapulin.zig` holds the request.
 
 ## What your program owns
 
