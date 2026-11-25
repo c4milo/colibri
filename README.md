@@ -33,69 +33,43 @@ The name is Spanish for hummingbird.
 
 ## Performance
 
-Three charts, each from one named run of `bench.yml` on the v0.19.0 tag, commit `4c41e44a`, on
-GitHub's `ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Each chart gives the first of its run's two
-jobs. Each server runs on a core of its own, and the load generator runs on two other cores.
-colibri's numbers come from its test-only servers ([design §9](docs/design.md)), which serve
-through the `server` module on Rotor's loop. [`docs/performance.md`](docs/performance.md) says how
-each number is measured and what limits it.
+Three charts, each from one named run of `bench.yml` on the v0.19.0 tag, on GitHub's
+`ubuntu-24.04-arm` runner, an Arm Neoverse-N2. Each server runs on a core of its own. colibri's
+numbers come from its test-only servers, which serve through the `server` module on Rotor's loop.
+[`docs/performance.md`](docs/performance.md#the-charts-of-the-readme) names each other server's
+version, reads each chart in full, and says how each number is measured and what limits it.
 
-Each other server is at its latest release, or at its latest commit where the project has no
-recent release:
-
-- nginx 1.31.9, from nginx.org's mainline packages, and h2o at commit `d3e43fc`.
-- hyper 1.12.0 on tokio 1.54.1, with rustls 0.23.46 on aws-lc-rs.
-- axum 0.8.9 on hyper, and over h3 on the h3 crate 0.0.8 and quinn 0.11.12.
-- http.zig at commit `1bb71ff`, which serves h11 alone.
-- Go 1.27.4's net/http, and fasthttp 1.79.0, which serves h11 alone.
-- chi 5.5.0, a router on net/http, and over h3 on quic-go 0.65.0.
-- Fastify 5.12.8 on Node 26.13.1.
-- quic-go's h3 server, from its QUIC Interop Runner image.
-
-**CPU time a request.** The time the server's threads ran, in user space and in the kernel, for
-each request of a load of many requests. Over h2, hyper takes 3.3 times colibri's time. Over h3,
-axum on quinn takes 2.8 times, and quic-go 11.0 times. Over h11, nginx takes 1.16 times. Over h11
-with TLS, fasthttp and hyper tie with colibri inside the noise. Over h11, colibri runs more
-instructions a request than nginx, hyper and fasthttp. But it makes 0.07 system calls a request
-against their two or three
+**CPU time a request.** Over h2, hyper takes 3.3 times colibri's time. Over h3, axum on quinn
+takes 2.8 times, and quic-go 11.0 times. Over h11, nginx takes 1.16 times. Over h11 with TLS,
+fasthttp and hyper tie with colibri inside the noise
 ([run 44625801787](https://github.com/c4milo/colibri/actions/runs/44625801787)).
 
 ![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.7 µs over h11, 8.1 µs over h11 with TLS, 1.5 µs over h2, 2.1 µs over h2 with TLS and 3.9 µs over h3; hyper takes 5.0 µs over h2; axum on quinn takes 10.9 µs over h3 and quic-go 43.1 µs](docs/images/cpu.svg)
 
-**Throughput.** h2load, or wrk for h11, loads each server at full speed for 10 s, with 32
-connections and 100 streams on each h2 or h3 connection. The chart gives the requests a second the
-load tool counted. In each load the server's core was busy 98% of the time or more, so each number
-is the limit of that server on one core. Over h2, colibri serves 1,051,350 requests a second, 4.8
-times hyper's. Over h2 with TLS it serves 4.2 times hyper's. Over h3 it serves 2.1 times axum's on
-quinn, and 9.3 times quic-go's. Over h11 with TLS it serves 1.11 times hyper's. Over h11, colibri
+**Throughput.** Over h2, colibri serves 1,051,350 requests a second on one core, 4.8 times
+hyper's. Over h3 it serves 2.1 times axum's on quinn, and 9.3 times quic-go's. Over h11, colibri
 and nginx tie inside nginx's spread of 10%
 ([run 44625817873](https://github.com/c4milo/colibri/actions/runs/44625817873)).
 
 ![Bars of the requests a second each server serves on one Neoverse-N2 core, by protocol: over h2 colibri serves 1,051,350, hyper 220,450 and h2o 187,880; over h3 colibri serves 281,150, axum on quinn 134,250 and quic-go 30,292; over h11 colibri serves 150,472 and nginx 136,697](docs/images/throughput.svg)
 
-**Latency.** oha sends GET requests over the GitHub API's routes at fixed rates, from 2,000 to
-320,000 a second, with its latency correction. The chart gives each server's p99 at each rate.
-Over h2 at 80,000 requests a second, colibri's p99 is 6.91 ms and axum's 22.49 ms, past the bound
-of 10 ms. At 40,000, colibri's is 1.05 ms, axum's 1.79 ms, and that of net/http with chi 845 ms.
-Over h3 at 20,000, colibri's is 2.44 ms, axum's 3.94 ms and that of quic-go with chi 16.80 ms.
-Over h11 at 80,000, axum's is 4.50 ms and colibri's 6.75 ms. Past 80,000, the load and not the
-server is the limit: over h2, oha reaches 93,429 requests a second against colibri, which serves
-1,051,350 under h2load
+**Latency.** The p99 at fixed rates, over the GitHub API's routes. Over h2 at 80,000 requests a
+second, colibri's is 6.91 ms and axum's 22.49 ms. Over h3 at 20,000, colibri's is 2.44 ms and
+axum's 3.94 ms. Over h11 at 80,000, axum's is 4.50 ms and colibri's 6.75 ms
 ([run 44625833094](https://github.com/c4milo/colibri/actions/runs/44625833094)).
 
 ![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri stays under it up to 80,000 requests a second over h11 and h2, 40,000 over h2 over TLS and 20,000 over h3; axum stays under it up to 80,000 over h11, 40,000 over h2 and h2 over TLS and 20,000 over h3](docs/images/latency.svg)
 
 ## Using colibri
 
-Add colibri to your `build.zig.zon`:
+Add colibri to your `build.zig.zon`. The lines below are those of `main`: until a release after
+v0.19.0 holds them, name a commit of `main` in place of the tag.
 
 ```sh
 zig fetch --save git+https://github.com/c4milo/colibri#v0.19.0
 ```
 
-Then import `colibri`, the one module the package exports ([decision 170](docs/decisions.md)).
-Its root names each of the sixteen other library modules: `colibri.server`, `colibri.client`,
-`colibri.tls`, and each protocol, such as `colibri.h2`.
+Import `colibri`, the one module the package exports ([decision 170](docs/decisions.md)):
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
@@ -103,25 +77,52 @@ exe.root_module.addImport("colibri", colibri.module("colibri"));
 ```
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
-assertions stay on in production.
+assertions stay on in production. `.rotor = true` fetches
+[Rotor](https://github.com/c4milo/rotor), the loop that `colibri.Server` and `colibri.Client` run
+on. A program that runs them on its own loop, or that drives one protocol by itself, leaves the
+option out and fetches no Rotor ([decision 159](docs/decisions.md)).
 
-`.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of the `.private` kind
-of `colibri.Server` and `colibri.Client` ([decision 159](docs/decisions.md)). A program that uses
-the protocol modules, or the `.hosted` kind on its own loop, leaves the option out and fetches no
-Rotor. Without the option, `.private` does not compile, and the compiler prints the line to add.
+Your program asks its CPU once, through [stdx](https://github.com/c4milo/stdx)'s `platform`
+module. Depend on stdx at the commit colibri's `build.zig.zon` pins, with colibri's options:
 
-Most programs use two modules. `server` answers requests and `client` sends them, behind one set
-of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
-version.
+```zig
+const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+exe.root_module.addImport("platform", stdx.module("platform"));
+```
 
-### A server that binds its port
+The root of `colibri` names each library module: `colibri.server`, `colibri.client`,
+`colibri.tls`, and each protocol, such as `colibri.h2` and `colibri.quic`:
 
-`colibri.Server` does a server's I/O for you ([decision 150](docs/decisions.md)). It binds one
-port, reads the certificate chain and the key from PEM text your program holds, and runs a router of
-`server.Router`, which `init` takes, on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2
-over TCP, and h3 over UDP on the same port. The section "A server with the router" shows how a
-program declares its routes. These lines are from
-[`examples/colibri_server.zig`](examples/colibri_server.zig):
+```zig
+const colibri = @import("colibri");
+// `colibri` names each library module, so the program imports no other module of colibri
+// (decision 170).
+const server = colibri.server;
+const client = colibri.client;
+const tls = colibri.tls;
+const platform = @import("platform");
+```
+
+colibri links [chapulin](https://github.com/c4milo/chapulin), its TLS stack. So every program
+that imports `colibri` defines chapulin's one hook, or its link fails with
+`undefined symbol: ch_assert_fail`:
+
+```zig
+/// chapulin's one hook. This program reports the failed assertion and stops.
+fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
+    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
+}
+
+comptime {
+    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
+```
+
+### A server
+
+`colibri.Server` binds one port and serves a router on it: h11 and h2 over TCP, and h3 over UDP
+on the same port. Each connection runs its own TLS handshake, and ALPN picks the version. These
+lines are from [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
@@ -142,65 +143,13 @@ defer thread.join();
 defer http_server.shutdown();
 ```
 
-`cpu_features` is what stdx's `platform.CpuFeatures.detect()` found, which your program asks once:
-the engine's codecs run on it, and colibri never asks the CPU itself
-([decision 169](docs/decisions.md)). The field has no default.
-
-`tls_buffer` holds the TLS session of each TCP connection over TLS at once. The program declares
-it as `var tls_buffer: [server.Config.tls_buffer_len(connections)]u8`, and a server that serves no
-TLS over TCP passes none ([decision 167](docs/decisions.md)).
-
-`run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
-did not close, and wipes the private key, the cookie key and the ticket key. `unix_seconds` dates
-the session tickets the server issues, so a client resumes a later connection (decision 161). This
-is the `.private` kind, on colibri's own loop. Every module but `colibri` does no I/O.
-
-### A server and a client on your own loop
-
-With the `.hosted` kind, your program runs the loop ([decision 159](docs/decisions.md)). The
-object does no I/O: each `turn` writes the operations that it needs, and your program gives back
-a completion for each. Your build fetches no Rotor. These lines are from
-[`examples/colibri_hosted.zig`](examples/colibri_hosted.zig):
-
-```zig
-const Server = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
-const Client = colibri.Client(.{ .quic = false, .tcp_connections = 1, .requests = 2 }, .hosted);
-```
-
-docs/usage.md's section "Host colibri on your own loop" gives the rules of a host, and
-[`examples/colibri_shared_rotor.zig`](examples/colibri_shared_rotor.zig) hosts both on one Rotor
-loop beside a timer of the program.
-
-### A client that runs its own loop
-
-`colibri.Client` does a client's I/O for you ([decision 153](docs/decisions.md) ruling 8). It owns
-the TCP sockets, a UDP socket of each family for h3 and Rotor's loop, and runs `client`'s pool. Your program
-hands it requests, and `run` gives each finished exchange to the handler that `init` took. These
-lines are from
-[`examples/colibri_server.zig`](examples/colibri_server.zig):
-
-```zig
-http_client.shutdown();
-try http_client.run();
-```
-
-`fetch` runs one exchange on the thread that calls it, and returns how it ended. It needs no
-handler:
-
-```zig
-const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
-```
-
-The pool opens TCP first by default, and h3 over QUIC only once TCP fails. With
-`.prefer = .quic` in its `protocols`, it tries h3 over QUIC first, and h2 or h11 over TCP when
-QUIC gets no answer ([decision 117](docs/decisions.md) as amended).
-
-### A server with the router
+`cpu` and `cpu_features` are what your program asked its CPU, and neither has a default: colibri
+never asks the CPU itself. `tls_buffer` holds the TLS session of each TCP connection. `run` serves
+on the thread that calls it until `shutdown`.
 
 A server declares its routes in a table, and `server.Router` builds the table at compile time. A
-route names a method, a path and the function that answers it. A path can hold parameters, such as
-`:name`, and a trailing wildcard. A table that hides a route, or that is malformed, does not
-compile. Middleware runs before each route, in table order. These lines are from
+path can hold parameters, such as `:name`, and a trailing wildcard. A table that hides a route,
+or that is malformed, does not compile. These lines are from
 [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
@@ -215,11 +164,9 @@ const routes = .{
 };
 ```
 
-A route's function takes the program's context, the request context, the request and the response
-([decision 163](docs/decisions.md)). The route's options name the types of its path parameters and
-of its query, as `.path` and `.query`. The router fills each struct by its field names, and the
-function reads the two from the request context. The function writes its response through a
-`std.Io.Writer`:
+A route's function takes the program's context, the request context, the request and the
+response. The router fills the route's path and query structs by their field names, and the
+function writes its response through a `std.Io.Writer`:
 
 ```zig
 /// The path and the query of `/greetings/:name`, which the route names as `.path` and `.query`.
@@ -236,228 +183,38 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
 }
 ```
 
-A function gets the whole request in one call ([decision 163](docs/decisions.md) ruling 4). A
-request with a body gets its call once the body ended, unless `header_bytes` is 0. The function
-reads the whole body through `request.body`, which never waits:
-
-```zig
-/// Sends the POST's content back. The router calls the function once the content ended, and
-/// `request.body` reads the whole content, which the request's entry holds. The read never waits.
-fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
-    try response.header("content-type", content_type);
-    _ = try request.body.streamRemaining(response.body());
-    try response.end();
-}
-```
-
-A request with no body gets its call at the head, and its `request.body` ends at once. For a
-request with a body, the router copies the header and holds the body until the call. A function
-does not see a trailer section. A middleware and a struct route's `on_request` run at the head,
-before the body. So for a request with a body, a read of `request.body` there fails. A struct
-route reads the body as it arrives instead, as the section "A stream route" shows.
-
-The request context is a `server.RequestContext`, the request's own object. Each callback of one
-request gets the same one: each middleware, the route and the error handler. It has four calls:
-
-- `id()` returns the request's id.
-- `values(T)` returns the request's values, for the whole request. The route table names their
-  type as `.Values`, a struct whose fields each have a default. Each request starts from those
-  defaults. A middleware writes there what it learns about the request, and the route reads it.
-- `path(P)` and `query(Q)` return the route's path parameters and its query. They answer during
-  the route's function alone, or during a struct route's `on_request` alone.
-
-The program owns the router's memory. `server.RouterOptions` sizes it for the requests the server
-holds at once, and the program places it once. `response_bytes`, `body_bytes` and `header_bytes`
-have no default, so a program names each one, 0 included. `header_bytes` bounds the copy of each
-request's header. With 0 the router copies no header. It then calls each function at the head,
-where a read of a body still to come fails. Above 0, a header past `header_bytes` gets 431 (RFC
-6585 §5), and a body past `body_bytes` gets 413:
-
-```zig
-/// The router's pool: an entry for each request at once. Each entry holds room for its response,
-/// for the POST's content and for the copy of the POST's header. The program places it once and
-/// does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
-var router: Router align(@alignOf(Router)) = undefined;
-```
-
-The `align(@alignOf(Router))` states the alignment the type already has. Zig 0.16's x86_64 backend
-can place a large global at a smaller alignment, so every global in colibri's examples states it,
-and `zig build lint` refuses one that does not.
-
-The program starts its router once, before the router's first event, with `init`. `init` writes
-the few fields that each entry reads first, and leaves each entry's buffers as they lie. `.{}` in
-its place copies the router's whole default value from the program's image, with the response,
-body and state memory of every entry ([#148](https://github.com/c4milo/colibri/issues/148)):
-
-```zig
-    // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
-    // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
-    router.init();
-```
-
-One `server.Engine` holds the server's TCP and QUIC connections. The program passes the engine
-what each socket read, and gets one event from each `receive`, in h11, h2 and h3 alike. It hands
-each event to the router. The router takes the events of a request, and hands back the events
-that are the program's I/O:
-
-```zig
-switch (router.handle(&app, &engine, event)) {
-    .taken => {},
-    .event => |other| switch (other) {
-        // A TCP connection owes its socket octets.
-        .send => |connection| try flush(connection, now_ns),
-        // RFC 9112 §9.6: the program closes only the write side of this TCP connection's
-        // socket, and passes on what the socket reads. The `close` follows.
-        .half_close => half_closes += 1,
-        // colibri reads and writes nothing more on this TCP connection. A program closes the
-        // socket once the socket has taken the octets `send_stream` returned, and owes the
-        // engine no call: the connection's `ended` follows by itself.
-        .close => closes += 1,
-        // The connection is over, and its slot takes a later socket or client.
-        .ended => |over| try count_ended(over, now_ns),
-        // The shut-down engine holds no connection.
-        .closed => engine_closed = true,
-        else => return error.ExchangeWrong,
-    },
-}
-```
-
-The router answers 404 when no route matches the path, 405 with an Allow field when no route
-matches the method, and 501 for a method it does not know. A GET route also answers HEAD.
-
-### A stream route
-
-A struct route is a stream ([decision 163](docs/decisions.md) ruling 6). It reads the body as it
-arrives, and it can answer before the body ends, as gRPC and Connect calls need. Its callbacks are
-`on_request` at the head, `on_data` at each body event, `next` when the response has room, and
-`on_finished` at the request's end. Each one writes the request's one `server.Response`.
-
-`on_data` reads through a `server.RequestBodyStream`:
-
-- `next()` gives each piece of the body that has arrived, with no copy, or null when no piece
-  waits.
-- `keep(len)` leaves the end of a piece unread. The next `next()` gives it joined with the octets
-  that arrive later, so a route reads a message that two events cut.
-- At the body's end, `next()` gives the kept octets once more as the last piece. A piece whose
-  length is the kept length is the last one, so a route reads a body with no length in place.
-- `ended()` turns true when `next()` returns null at the body's end.
-
-These lines are from [`examples/server_stream.zig`](examples/server_stream.zig). The route answers
-each gRPC message as soon as it is whole, and ends with `grpc-status` in the trailers:
-
-```zig
-/// Runs at each event of the request's body. It answers each message that a piece holds
-/// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
-/// again, joined with the octets that arrive later. Once the body ended, it ends the response.
-pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
-    // Bounded: each pass takes one piece.
-    for (0..pieces_per_event_max) |_| {
-        const piece = body.next() orelse break;
-        const cut = try answer_whole(state, piece, response);
-        state.kept = cut.len;
-        body.keep(state.kept);
-    }
-    if (!body.ended()) return;
-    // A body that ends inside a message cuts it short: the last piece held its octets again.
-    if (state.kept > 0) return error.MessageCut;
-    // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
-    try response.trailers(&grpc_ok);
-}
-```
-
 ### A client
 
-For each exchange a client places a request, and a response that holds the memory the answer goes
-into. These lines are from
-[`examples/client_exchange.zig`](examples/client_exchange.zig):
+`colibri.Client` owns the sockets and runs `client`'s connection pool, behind one set of calls
+for h11, h2 and h3. `fetch` runs one exchange on the thread that calls it, and returns how it
+ended. This line is from [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
-const get: client.Request = .{ .method = "GET", .path = "/greeting" };
-var get_response: client.Response align(@alignOf(client.Response)) = .{
-    .headers = .{ .buffer = &get_headers },
-    .body = &get_body,
-};
+const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
 ```
 
-It hands both to a pool. The pool asks for a QUIC or a TCP transport, and sends the
-request over the first connection that completes its handshake:
+The pool opens TCP first by default, and h3 over QUIC only once TCP fails. With
+`.prefer = .quic` it tries h3 over QUIC first.
 
-```zig
-const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
-// `init` builds the TLS configuration of each transport inside the pool, which stays in
-// place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
-// which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
-try pool.init(&pool_memory, &client_config, &known, receive_pool.storage());
-// `request` only takes a request and its response. The pool asks for a transport, and
-// sends the request over the first connection that completes its handshake, so a program asks
-// at once and never waits.
-_ = try pool.request(&get, &get_response);
-_ = try pool.request(&post, &post_response);
-```
+### The rest
 
-The program moves datagrams and octets between its sockets and the pool's `send_datagram`,
-`send_stream` and `receive`, and every exchange ends in one `finished` event, which names the
-request and the response:
+[`docs/usage.md`](docs/usage.md) walks through every part, and [`examples/`](examples/) holds a
+whole program for each, which `zig build examples` and CI run:
 
-```zig
-.finished => |ended| {
-    // The event names the request and the response, whose memory is the program's again.
-    std.debug.print("client: {s}: {s}, {d}\n", .{
-        ended.request.path, @tagName(ended.response.result), ended.response.status,
-    });
-    finished += 1;
-    // Every exchange has ended, so the client shuts the pool down.
-    if (finished == requests_count) pool.shutdown();
-},
-```
-
-[`docs/usage.md`](docs/usage.md) walks through both modules: the router, the request context,
-middleware, queries, request bodies, the client's pool, TLS, and the buffers each one needs.
-
-### One protocol by itself
-
-The protocol modules are there for a program that wants one version by itself. An h11 client
-writes each request into a buffer it owns, then sends it. These lines are from
-[`examples/h11_exchange.zig`](examples/h11_exchange.zig), where `link` stands in for the
-program's socket:
-
-```zig
-const get_len = try client.write_request(&output, "GET", "/greeting", &.{
-    .{ .name = "Host", .value = host },
-});
-try link.send(.client, output[0..get_len]);
-```
-
-It then hands colibri the octets that arrived, and gets at most one event per call:
-
-```zig
-const input = try link.receive(.client);
-const step = try client.receive(input, &.{});
-if (step.event) |event| switch (event) {
-    .response => |response| {
-        try read_status(@intFromEnum(response.line.status));
-        if (ends_with_head(response.body)) ended += 1;
-    },
-    .data => |data| try read_body(data),
-    .end => ended += 1,
-    else => {},
-};
-link.consume(.client, step.consumed);
-```
-
-A call that consumes nothing and returns no event means colibri needs more octets. A response
-with no body ends with its head, so no `.end` follows it. An event's slices point into the input,
-so the example uses them before it lets the link drop the octets `step.consumed` counts. The
-response's field lines are in `client.section` until the next call. h2 and h3 follow the same
-shape: octets in, at most one event out, and the frames colibri owes written into your buffer.
-[`docs/usage.md`](docs/usage.md) walks through each protocol, TLS, and the buffers each one needs.
-
-[`examples/`](examples/) holds whole programs, each a client and a server run over
-[Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
-engine, a stream route that answers a gRPC-shaped call, a client whose pool tries QUIC first and
-then TCP, a client that streams its request body, a `colibri.Server` on a loopback port, and h11
-and h2 by themselves. `zig build examples` runs them, and CI does too.
+- **The router**: the request context, middleware, queries, request bodies, and the memory a
+  router takes.
+- **Stream routes**, which read a body as it arrives and can answer before it ends, as gRPC and
+  Connect calls need ([`examples/server_stream.zig`](examples/server_stream.zig)).
+- **Your own loop.** With the `.hosted` kind, `colibri.Server` and `colibri.Client` do no I/O:
+  each `turn` writes the operations it needs, and your program gives back a completion for each
+  ([`examples/colibri_hosted.zig`](examples/colibri_hosted.zig)).
+- **The engine and the pool by themselves.** `server.Engine` and `client.ConnectionPool` own no
+  socket: your program moves the octets and the datagrams
+  ([`examples/server_exchange.zig`](examples/server_exchange.zig),
+  [`examples/client_exchange.zig`](examples/client_exchange.zig)).
+- **One protocol by itself.** `colibri.h11`, `colibri.h2`, `colibri.h3` and `colibri.quic` each
+  take octets in, give at most one event out, and write the frames colibri owes into your buffer
+  ([`examples/h11_exchange.zig`](examples/h11_exchange.zig)).
 
 ## Conformance
 
@@ -472,53 +229,38 @@ printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
 
 ## How it is checked
 
-- **RFC citations.** A check that exists because an RFC requires it carries the RFC and the
-  section on the line that makes it. A lint refuses a validation without one.
+- **RFC citations.** A check that an RFC requires cites the RFC and the section on the line that
+  makes it, and a lint refuses a validation without one.
 - **Deterministic simulation.** A seeded network delays, drops, reorders and duplicates
-  datagrams, and marks them with ECN. Checks drive h11, h2, h3, QUIC, loss recovery and QPACK
-  through it, and each seed replays byte for byte in Debug and in ReleaseSafe.
-- **Models.** Twenty-one [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specifications in
-  [`spec/tla/`](spec/tla/) cover the h2 and h3 connections, flow control, QPACK's tables, key
-  installation, connection IDs, path validation, closing, probe timeouts, acknowledgments, CUBIC,
-  HyStart++, NewReno, BBRv3, Careful Resume, the server's deadlines and the client's exchanges. Each model also has configurations that remove one rule,
-  and TLC must find those violated. Seven simulator runs write their traces as TLA+, and TLC
-  checks that each trace is a behavior of its model.
-- **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of
-  QUIC's variable-length integer, packet number and ACK ranges, HPACK's and QPACK's prefixed
-  integer and Huffman code, QPACK's Required Insert Count encoding, and the arithmetic of CUBIC,
-  HyStart++, BBRv3 and the server's rate meter. The Zig tests read vectors the proved definitions
-  produce.
-- **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes with a manifest that names
-  each case's length, checksum and expected verdict, including the request smuggling shapes of
-  RFC 9112.
+  datagrams. Checks drive every protocol through it, and each seed replays byte for byte in Debug
+  and in ReleaseSafe.
+- **Models.** Twenty-one [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specifications
+  in [`spec/tla/`](spec/tla/) cover the connections, flow control, QPACK's tables, loss recovery,
+  the congestion controllers and the deadlines. Each has configurations that remove one rule,
+  which TLC must find violated, and TLC checks the traces of seven simulator runs against them.
+- **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of the
+  integer and Huffman codecs and of the congestion controllers' arithmetic. The Zig tests read
+  vectors that the proved definitions produce.
+- **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes, each case with its expected
+  verdict, the request smuggling shapes of RFC 9112 included.
 - **Mutation testing.** Every check is broken on purpose, and a test must fail. Each result is
   recorded as `CAUGHT` or `NOT CAUGHT` in the commit or in [`docs/design.md`](docs/design.md).
-- **Line coverage.** kcov counts the lines of the library that the tests run, through
-  `zig build line-coverage` on Linux ([decision 164](docs/decisions.md)). The badge above shows
-  the count of a named CI run. Zig compiles only the functions that code references, so the count
-  is of the lines that the tests compile.
-- **Fuzzing.** Every reader of a peer's octets has a fuzz property, run over its corpus and every
-  input of up to two octets. Input checks in the simulator edit what colibri's own writers
-  produce, to reach longer inputs.
+- **Fuzzing and line coverage.** Every reader of a peer's octets has a fuzz property. kcov counts
+  the lines of the library that the tests run, and the badge above shows a named CI run's count.
 - **Lints.** `zig build lint` refuses a heap allocation, a system call, a clock or random read
-  outside the test endpoints, an unbounded loop, a function above cognitive complexity 15, a
-  source file above 500 lines, and a slice indexed by a value a peer chose.
+  outside the test endpoints, an unbounded loop, a function above cognitive complexity 15, and a
+  source file above 500 lines.
 
-CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every module's tests in
-both build modes, the examples, the simulator in both build modes, the Lean proofs, line
-coverage, h2spec and the interop scripts in cleartext and over TLS, h3spec, the TLS handshakes
-against Go, and the QUIC checks against colibri and aioquic. Every push also runs the module tests
-on arm64, on Linux and on macOS. The TLA+ models and the traces run every night. The HTTP Garden
-and the QUIC Interop Runner, against quic-go, ngtcp2, neqo and quinn, run every Monday.
+CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every module's tests, the
+examples, the simulator, the Lean proofs, line coverage, h2spec, h3spec and the interop scripts.
+The TLA+ models run every night, and the HTTP Garden and the QUIC Interop Runner every Monday.
 
 ## Platforms
 
 CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26.04 and macOS 26
-on arm64. The HTTP Garden and the QUIC Interop Runner also run on Ubuntu 26.04 on x86-64.
-macOS on arm64 is also the development host, where every check runs, the TLS and QUIC ones
-included. Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does,
-but only these platforms are checked. `colibri` runs on Rotor, on Linux and macOS. Published
-performance numbers come from Linux alone.
+on arm64. Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does,
+but only these platforms are checked. `colibri.Server` and `colibri.Client` run on Rotor, on
+Linux and macOS. Published performance numbers come from Linux alone.
 
 ## Documentation
 

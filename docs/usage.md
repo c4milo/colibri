@@ -134,7 +134,10 @@ Four things follow for every other module:
 
 - **Your program owns every struct and buffer.** Declare a server's engine, a client's pool
   or a protocol module's connection where you like: in a static, in an array, or inside a larger
-  struct. Nothing points at the heap. Place large ones outside the stack.
+  struct. Nothing points at the heap. Place large ones outside the stack. A global states the
+  alignment its type already has, as in `var router: Router align(@alignOf(Router)) = undefined;`.
+  Zig 0.16's x86_64 backend can place a large global at a smaller alignment, so every global in
+  colibri's examples states it, and `zig build lint` refuses one that does not.
 - **Your program does the I/O.** Read octets from the socket, hand them to `receive`, and send
   the octets colibri puts in your buffer: a protocol module's `write_*` calls, and a server
   engine's `send_stream` and `send_datagram`. colibri never waits: when it needs more
