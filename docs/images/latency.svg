@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 620" width="840" height="620" role="img" aria-labelledby="t d">
 <title id="t">The p99 latency of each server at fixed rates, colibri against other servers</title>
-<desc id="d">p99 latency at each rate oha offers, with the bound of 10 ms. h11: colibri sustains 80,000 req/s, net/http + chi sustains 40,000 req/s, axum sustains 80,000 req/s, http.zig sustains 40,000 req/s, Fastify sustains 20,000 req/s; h2: colibri sustains 80,000 req/s, net/http + chi sustains 20,000 req/s, axum sustains 40,000 req/s, Fastify sustains 2,000 req/s; h2 over TLS: colibri sustains 40,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 40,000 req/s, Fastify sustains no rate; h3: colibri sustains 20,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 20,000 req/s.</desc>
+<desc id="d">p99 latency at each rate oha offers, with the bound of 10 ms. h11: colibri sustains 40,000 req/s, net/http + chi sustains 40,000 req/s, axum sustains 40,000 req/s, http.zig sustains 40,000 req/s, Fastify sustains 20,000 req/s; h2: colibri sustains 40,000 req/s, net/http + chi sustains 20,000 req/s, axum sustains 40,000 req/s, Fastify sustains 2,000 req/s; h2 over TLS: colibri sustains 40,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 40,000 req/s, Fastify sustains no rate; h3: colibri sustains 20,000 req/s, net/http + chi sustains 10,000 req/s, axum sustains 20,000 req/s.</desc>
 <style>
 svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --other:#a3a29c;
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; }
@@ -22,7 +22,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="sub" x="24" y="56">oha sends GET requests over the GitHub API's routes at fixed rates, with its latency correction. A filled point is a rate</text>
 <text class="sub" x="24" y="74">the server sustained: every answer 200, 95% of the rate reached, and p99 under 10 ms. chi is a router on Go's</text>
 <text class="sub" x="24" y="92">net/http, and over h3 runs on quic-go, and axum on quinn. Each server runs on a core of its own. One run of bench.yml</text>
-<text class="sub" x="24" y="110">measured all: run 44625833094, commit 4c41e44a, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
+<text class="sub" x="24" y="110">measured all: run 286, commit c1aceb59, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
 <rect x="24" y="132" width="12" height="12" rx="2" fill="var(--s1)"/>
 <text class="legend" x="42" y="142">colibri</text>
 <rect x="115" y="132" width="12" height="12" rx="2" fill="var(--s2)"/>
@@ -55,51 +55,51 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="350.7" y="358" text-anchor="middle">160k</text>
 <text class="tick" x="396.0" y="358" text-anchor="middle">320k</text>
 <text class="tick" x="396" y="374" text-anchor="end">requests a second offered</text>
-<polyline points="64.0,311.6 123.9,294.1 169.3,314.1 214.6,304.8 260.0,215.0 305.3,206.4 350.7,203.5 396.0,202.3" fill="none" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="64.0" cy="311.6" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="123.9" cy="294.1" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="169.3" cy="314.1" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="214.6" cy="304.8" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="260.0" cy="215.0" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="305.3" cy="206.4" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="350.7" cy="203.5" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="396.0" cy="202.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<polyline points="64.0,338.6 123.9,333.6 169.3,328.1 214.6,321.3 260.0,295.3 305.3,224.2 350.7,208.4 396.0,204.3" fill="none" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="64.0" cy="338.6" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="123.9" cy="333.6" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="169.3" cy="328.1" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="214.6" cy="321.3" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="260.0" cy="295.3" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="305.3" cy="224.2" r="4" fill="var(--surface)" stroke="var(--s4)" stroke-width="2"/>
-<circle cx="350.7" cy="208.4" r="4" fill="var(--surface)" stroke="var(--s4)" stroke-width="2"/>
+<polyline points="64.0,308.9 123.9,281.1 169.3,311.9 214.6,301.7 260.0,213.1 305.3,205.9 350.7,203.3 396.0,202.2" fill="none" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="64.0" cy="308.9" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="123.9" cy="281.1" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="169.3" cy="311.9" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="214.6" cy="301.7" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="260.0" cy="213.1" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="305.3" cy="205.9" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="350.7" cy="203.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="396.0" cy="202.2" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<polyline points="64.0,335.9 123.9,332.3 169.3,326.8 214.6,319.8 260.0,297.8 305.3,225.0 350.7,208.3 396.0,204.3" fill="none" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="64.0" cy="335.9" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="123.9" cy="332.3" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="169.3" cy="326.8" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="214.6" cy="319.8" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="260.0" cy="297.8" r="4" fill="var(--s4)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="305.3" cy="225.0" r="4" fill="var(--surface)" stroke="var(--s4)" stroke-width="2"/>
+<circle cx="350.7" cy="208.3" r="4" fill="var(--surface)" stroke="var(--s4)" stroke-width="2"/>
 <circle cx="396.0" cy="204.3" r="4" fill="var(--surface)" stroke="var(--s4)" stroke-width="2"/>
-<polyline points="64.0,339.6 123.9,335.9 169.3,331.7 214.6,324.3 260.0,314.9 305.3,292.4 350.7,213.4 396.0,205.8" fill="none" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="64.0" cy="339.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="123.9" cy="335.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="169.3" cy="331.7" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="214.6" cy="324.3" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="260.0" cy="314.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="305.3" cy="292.4" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="350.7" cy="213.4" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="396.0" cy="205.8" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<polyline points="64.0,335.9 123.9,330.6 169.3,323.3 214.6,313.5 260.0,304.2 305.3,226.4 350.7,208.5 396.0,204.3" fill="none" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="64.0" cy="335.9" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="123.9" cy="330.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="169.3" cy="323.3" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="214.6" cy="313.5" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="260.0" cy="304.2" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="305.3" cy="226.4" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="350.7" cy="208.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="396.0" cy="204.3" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<polyline points="64.0,340.8 123.9,336.7 169.3,332.3 214.6,325.0 260.0,313.1 305.3,287.1 350.7,212.9 396.0,205.8" fill="none" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="64.0" cy="340.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="123.9" cy="336.7" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="169.3" cy="332.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="214.6" cy="325.0" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="260.0" cy="313.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="305.3" cy="287.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="350.7" cy="212.9" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="396.0" cy="205.8" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<polyline points="64.0,338.6 123.9,335.1 169.3,330.1 214.6,322.4 260.0,312.1 305.3,277.6 350.7,211.6 396.0,205.3" fill="none" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="64.0" cy="338.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="123.9" cy="335.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="169.3" cy="330.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="214.6" cy="322.4" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="260.0" cy="312.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="305.3" cy="277.6" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="350.7" cy="211.6" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="396.0" cy="205.3" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<polyline points="64.0,333.6 123.9,328.6 169.3,322.4 214.6,311.9 260.0,302.5 305.3,224.0 350.7,208.1 396.0,204.2" fill="none" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="64.0" cy="333.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="123.9" cy="328.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="169.3" cy="322.4" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="214.6" cy="311.9" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="260.0" cy="302.5" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="305.3" cy="224.0" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="350.7" cy="208.1" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="396.0" cy="204.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<polyline points="64.0,337.6 123.9,335.1 169.3,331.1 214.6,323.6 260.0,311.0 305.3,281.1 350.7,210.9 396.0,205.5" fill="none" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="64.0" cy="337.6" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="123.9" cy="335.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="169.3" cy="331.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="214.6" cy="323.6" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="260.0" cy="311.0" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="305.3" cy="281.1" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="350.7" cy="210.9" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="396.0" cy="205.5" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
 <text class="panel" x="444" y="178">h2</text>
 <line x1="484" y1="342.0" x2="816" y2="342.0" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="478" y="346.0" text-anchor="end">0.1 ms</text>
@@ -122,42 +122,42 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="770.7" y="358" text-anchor="middle">160k</text>
 <text class="tick" x="816.0" y="358" text-anchor="middle">320k</text>
 <text class="tick" x="816" y="374" text-anchor="end">requests a second offered</text>
-<polyline points="484.0,292.5 543.9,270.2 589.3,271.3 634.6,219.9 680.0,207.5 725.3,203.9 770.7,202.5 816.0,201.8" fill="none" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="484.0" cy="292.5" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="543.9" cy="270.2" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="589.3" cy="271.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="634.6" cy="219.9" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="680.0" cy="207.5" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="725.3" cy="203.9" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="770.7" cy="202.5" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<polyline points="484.0,291.2 543.9,265.8 589.3,268.3 634.6,218.4 680.0,207.0 725.3,203.8 770.7,202.4 816.0,201.8" fill="none" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="484.0" cy="291.2" r="4" fill="var(--s5)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="543.9" cy="265.8" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="589.3" cy="268.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="634.6" cy="218.4" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="680.0" cy="207.0" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="725.3" cy="203.8" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="770.7" cy="202.4" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
 <circle cx="816.0" cy="201.8" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<polyline points="484.0,281.4 543.9,291.3 589.3,298.9 634.6,304.9 680.0,304.4 725.3,271.4 770.7,210.5 816.0,204.9" fill="none" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="484.0" cy="281.4" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="543.9" cy="291.3" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="589.3" cy="298.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="634.6" cy="304.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="680.0" cy="304.4" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="725.3" cy="271.4" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="770.7" cy="210.5" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="816.0" cy="204.9" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<polyline points="484.0,329.6 543.9,321.6 589.3,309.4 634.6,302.2 680.0,224.2 725.3,208.2 770.7,204.2 816.0,202.6" fill="none" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="484.0" cy="329.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="543.9" cy="321.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="589.3" cy="309.4" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="634.6" cy="302.2" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="680.0" cy="224.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="725.3" cy="208.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="770.7" cy="204.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="816.0" cy="202.6" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<polyline points="484.0,337.6 543.9,334.3 589.3,330.1 634.6,323.3 680.0,311.4 725.3,286.8 770.7,212.6 816.0,205.6" fill="none" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="484.0" cy="337.6" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="543.9" cy="334.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="589.3" cy="330.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="634.6" cy="323.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="680.0" cy="311.4" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="725.3" cy="286.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="770.7" cy="212.6" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="816.0" cy="205.6" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<polyline points="484.0,281.5 543.9,291.0 589.3,298.6 634.6,304.1 680.0,303.2 725.3,231.0 770.7,208.9 816.0,204.4" fill="none" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="484.0" cy="281.5" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="543.9" cy="291.0" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="589.3" cy="298.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="634.6" cy="304.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="680.0" cy="303.2" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="725.3" cy="231.0" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="770.7" cy="208.9" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="816.0" cy="204.4" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<polyline points="484.0,327.7 543.9,319.6 589.3,309.1 634.6,300.3 680.0,221.5 725.3,207.8 770.7,204.1 816.0,202.5" fill="none" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="484.0" cy="327.7" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="543.9" cy="319.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="589.3" cy="309.1" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="634.6" cy="300.3" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="680.0" cy="221.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="725.3" cy="207.8" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="770.7" cy="204.1" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="816.0" cy="202.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<polyline points="484.0,335.9 543.9,332.3 589.3,328.1 634.6,321.3 680.0,309.2 725.3,281.5 770.7,211.3 816.0,205.2" fill="none" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="484.0" cy="335.9" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="543.9" cy="332.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="589.3" cy="328.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="634.6" cy="321.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="680.0" cy="309.2" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="725.3" cy="281.5" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="770.7" cy="211.3" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="816.0" cy="205.2" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
 <text class="panel" x="24" y="400">h2 over TLS</text>
 <line x1="64" y1="564.0" x2="396" y2="564.0" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="58" y="568.0" text-anchor="end">0.1 ms</text>
@@ -180,42 +180,42 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="350.7" y="580" text-anchor="middle">160k</text>
 <text class="tick" x="396.0" y="580" text-anchor="middle">320k</text>
 <text class="tick" x="396" y="596" text-anchor="end">requests a second offered</text>
-<polyline points="64.0,497.3 123.9,487.3 169.3,490.3 214.6,433.9 260.0,427.5 305.3,425.2 350.7,424.2 396.0,423.7" fill="none" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="64.0" cy="497.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="123.9" cy="487.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="169.3" cy="490.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="214.6" cy="433.9" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="260.0" cy="427.5" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="305.3" cy="425.2" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<circle cx="350.7" cy="424.2" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<polyline points="64.0,496.5 123.9,483.1 169.3,488.9 214.6,433.2 260.0,427.3 305.3,425.1 350.7,424.1 396.0,423.7" fill="none" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="64.0" cy="496.5" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="123.9" cy="483.1" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="169.3" cy="488.9" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="214.6" cy="433.2" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="260.0" cy="427.3" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="305.3" cy="425.1" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
+<circle cx="350.7" cy="424.1" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
 <circle cx="396.0" cy="423.7" r="4" fill="var(--surface)" stroke="var(--s5)" stroke-width="2"/>
-<polyline points="64.0,555.0 123.9,550.6 169.3,542.3 214.6,530.2 260.0,515.1 305.3,491.6 350.7,433.6 396.0,427.3" fill="none" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="64.0" cy="555.0" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="123.9" cy="550.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="169.3" cy="542.3" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="214.6" cy="530.2" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="260.0" cy="515.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="305.3" cy="491.6" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="350.7" cy="433.6" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="396.0" cy="427.3" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<polyline points="64.0,541.1 123.9,532.8 169.3,522.0 214.6,501.5 260.0,446.3 305.3,430.1 350.7,426.2 396.0,424.6" fill="none" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="64.0" cy="541.1" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="123.9" cy="532.8" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="169.3" cy="522.0" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="214.6" cy="501.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="260.0" cy="446.3" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="305.3" cy="430.1" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="350.7" cy="426.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="396.0" cy="424.6" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<polyline points="64.0,556.3 123.9,553.1 169.3,545.6 214.6,530.7 260.0,513.9 305.3,491.1 350.7,433.0 396.0,427.3" fill="none" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="64.0" cy="556.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="123.9" cy="553.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="169.3" cy="545.6" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="214.6" cy="530.7" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="260.0" cy="513.9" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="305.3" cy="491.1" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="350.7" cy="433.0" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="396.0" cy="427.3" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<polyline points="64.0,551.1 123.9,546.6 169.3,534.7 214.6,529.6 260.0,515.2 305.3,489.5 350.7,432.4 396.0,426.9" fill="none" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="64.0" cy="551.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="123.9" cy="546.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="169.3" cy="534.7" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="214.6" cy="529.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="260.0" cy="515.2" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="305.3" cy="489.5" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="350.7" cy="432.4" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="396.0" cy="426.9" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<polyline points="64.0,540.7 123.9,530.9 169.3,521.6 214.6,500.4 260.0,443.9 305.3,429.7 350.7,426.1 396.0,424.5" fill="none" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="64.0" cy="540.7" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="123.9" cy="530.9" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="169.3" cy="521.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="214.6" cy="500.4" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="260.0" cy="443.9" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="305.3" cy="429.7" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="350.7" cy="426.1" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="396.0" cy="424.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<polyline points="64.0,553.1 123.9,543.8 169.3,532.8 214.6,530.1 260.0,510.1 305.3,474.4 350.7,431.7 396.0,427.2" fill="none" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="64.0" cy="553.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="123.9" cy="543.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="169.3" cy="532.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="214.6" cy="530.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="260.0" cy="510.1" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="305.3" cy="474.4" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="350.7" cy="431.7" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="396.0" cy="427.2" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
 <text class="panel" x="444" y="400">h3</text>
 <line x1="484" y1="564.0" x2="816" y2="564.0" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="478" y="568.0" text-anchor="end">0.1 ms</text>
@@ -238,31 +238,31 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="770.7" y="580" text-anchor="middle">160k</text>
 <text class="tick" x="816.0" y="580" text-anchor="middle">320k</text>
 <text class="tick" x="816" y="596" text-anchor="end">requests a second offered</text>
-<polyline points="484.0,551.6 543.9,545.6 589.3,539.8 634.6,516.1 680.0,497.0 725.3,439.3 770.7,428.9 816.0,425.7" fill="none" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="484.0" cy="551.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="543.9" cy="545.6" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="589.3" cy="539.8" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="634.6" cy="516.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="680.0" cy="497.0" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="725.3" cy="439.3" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="770.7" cy="428.9" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<circle cx="816.0" cy="425.7" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
-<polyline points="484.0,537.7 543.9,529.3 589.3,510.2 634.6,497.2 680.0,441.9 725.3,429.4 770.7,425.9 816.0,424.5" fill="none" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="484.0" cy="537.7" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="543.9" cy="529.3" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="589.3" cy="510.2" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="634.6" cy="497.2" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="680.0" cy="441.9" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="725.3" cy="429.4" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="770.7" cy="425.9" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<circle cx="816.0" cy="424.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
-<polyline points="484.0,553.7 543.9,548.8 589.3,542.8 634.6,522.4 680.0,500.7 725.3,440.8 770.7,430.0 816.0,430.1" fill="none" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="484.0" cy="553.7" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="543.9" cy="548.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="589.3" cy="542.8" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="634.6" cy="522.4" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="680.0" cy="500.7" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="725.3" cy="440.8" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="770.7" cy="430.0" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
-<circle cx="816.0" cy="430.1" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<polyline points="484.0,545.9 543.9,544.1 589.3,534.4 634.6,512.9 680.0,494.0 725.3,436.8 770.7,428.3 816.0,425.5" fill="none" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="484.0" cy="545.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="543.9" cy="544.1" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="589.3" cy="534.4" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="634.6" cy="512.9" r="4" fill="var(--s3)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="680.0" cy="494.0" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="725.3" cy="436.8" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="770.7" cy="428.3" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<circle cx="816.0" cy="425.5" r="4" fill="var(--surface)" stroke="var(--s3)" stroke-width="2"/>
+<polyline points="484.0,537.1 543.9,527.7 589.3,508.6 634.6,494.5 680.0,438.4 725.3,428.6 770.7,425.6 816.0,424.3" fill="none" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="484.0" cy="537.1" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="543.9" cy="527.7" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="589.3" cy="508.6" r="4" fill="var(--s2)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="634.6" cy="494.5" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="680.0" cy="438.4" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="725.3" cy="428.6" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="770.7" cy="425.6" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<circle cx="816.0" cy="424.3" r="4" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/>
+<polyline points="484.0,546.3 543.9,545.9 589.3,535.4 634.6,514.5 680.0,497.1 725.3,438.0 770.7,429.6 816.0,429.5" fill="none" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="484.0" cy="546.3" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="543.9" cy="545.9" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="589.3" cy="535.4" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="634.6" cy="514.5" r="4" fill="var(--s1)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="680.0" cy="497.1" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="725.3" cy="438.0" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="770.7" cy="429.6" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
+<circle cx="816.0" cy="429.5" r="4" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/>
 </svg>
