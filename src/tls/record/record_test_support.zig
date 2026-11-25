@@ -2,7 +2,7 @@
 //! server of one TCP object, run against each other in memory over the test identity of
 //! `src/testing/testdata/`.
 const std = @import("std");
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin_tcp");
 const testdata = @import("testdata");

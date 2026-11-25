@@ -5,7 +5,7 @@
 //! and frees it once the peer acknowledges it (`step`).
 const std = @import("std");
 const assert = std.debug.assert;
-const codec = @import("codec");
+const codec = @import("stdx").codec;
 const http = @import("http");
 const event = @import("../event.zig");
 const coding_pool = @import("coding_pool.zig");
@@ -98,7 +98,7 @@ pub const Stepped = struct {
 pub const steps_max: usize = 2;
 
 const testing = std.testing;
-const gzip = @import("gzip");
+const gzip = @import("stdx").compress.gzip;
 const constants = @import("../constants.zig");
 
 /// A pool, and a decoder that reads its output back, outside any stack frame. Test-only.

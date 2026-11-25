@@ -38,8 +38,7 @@ pub fn add_testdata(
 /// of the client's decoding (decision 101). The packaged client encodes nothing.
 pub fn client_test_root(b: *std.Build, packaged: *std.Build.Module, testdata: *std.Build.Module, stdx: *std.Build.Dependency) *std.Build.Module {
     const module = test_root(b, packaged, testdata);
-    module.addImport("gzip", stdx.module("gzip"));
-    module.addImport("zlib", stdx.module("zlib"));
+    module.addImport("stdx", stdx.module("stdx"));
     return module;
 }
 

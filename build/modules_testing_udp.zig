@@ -42,13 +42,10 @@ pub fn add(
     server_keylog.addImport("quic", graph.quic);
     server_keylog.addImport("tls", graph.tls_keylog);
     server_keylog.addImport("tls_provider", graph.tls_provider);
-    server_keylog.addImport("codec", graph.stdx.module("codec"));
-    server_keylog.addImport("platform", graph.stdx.module("platform"));
-    server_keylog.addImport("gzip", graph.stdx.module("gzip"));
-    server_keylog.addImport("zlib", graph.stdx.module("zlib"));
+    server_keylog.addImport("stdx", graph.stdx.module("stdx"));
     testing_udp.addImport("server", server_keylog);
     // Decision 97 as amended: the endpoint asks its CPU once, through stdx's `platform`.
-    testing_udp.addImport("platform", graph.stdx.module("platform"));
+    testing_udp.addImport("stdx", graph.stdx.module("stdx"));
     testing_udp.link_libc = true;
     return testing_udp;
 }

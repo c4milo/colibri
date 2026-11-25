@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{ .name = "consumer-hosted", .root_module = program(b, "main.zig", target) });
     // Decision 170: `colibri` is the one module of the package, and its root names `h11` and `tls`.
     exe.root_module.addImport("colibri", colibri.module("colibri"));
-    exe.root_module.addImport("platform", stdx.module("platform"));
+    exe.root_module.addImport("stdx", stdx.module("stdx"));
     b.step("run", "Run the hosted consumer").dependOn(&b.addRunArtifact(exe).step);
 
     // Decision 159: a program that names `.private` in a build with no Rotor does not compile.

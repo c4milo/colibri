@@ -14,8 +14,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
 const client = @import("client");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const content_coding_plan = @import("content_coding_plan.zig");
 const content_coding_run = @import("content_coding_run.zig");
 

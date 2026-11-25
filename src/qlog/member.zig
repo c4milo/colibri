@@ -3,8 +3,8 @@
 //! so each writer here writes the name and then the value.
 const std = @import("std");
 const assert = std.debug.assert;
-const json = @import("json");
-const CpuFeatures = @import("platform").CpuFeatures;
+const json = @import("stdx").encoding.json;
+const CpuFeatures = @import("stdx").platform.CpuFeatures;
 const constants = @import("constants.zig");
 
 const TextWriter = @import("batch.zig").Batch;

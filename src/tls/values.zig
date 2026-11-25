@@ -7,7 +7,7 @@
 //! The clock, a ticket to offer and the source of randomness belong to each connection, so they
 //! are not here: a session's `start` takes them.
 const std = @import("std");
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 const constants = @import("constants.zig");
 
 /// The source a session's randomness comes from, which the caller passes to each session's `start`

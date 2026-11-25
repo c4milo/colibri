@@ -10,7 +10,7 @@
 //! peers states it only where it knows its thread runs in that mode.
 const std = @import("std");
 const builtin = @import("builtin");
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 const tls = @import("tls");
 
 /// The description the first call made, which every later call returns.

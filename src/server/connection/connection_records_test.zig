@@ -277,7 +277,7 @@ test "decision 91: a transport that closed gives back the decoder its coded body
 }
 
 test "decision 169: an h11 request's decoder runs on the configuration's CPU features" {
-    const gzip = @import("gzip");
+    const gzip = @import("stdx").compress.gzip;
     const sets = [_]@TypeOf(support.config.cpu_features){ .none(), .target() };
     for (sets, [_]@TypeOf(support.config.cpu_features){ sets[1], sets[0] }) |cpu_features, other| {
         decoders.init();

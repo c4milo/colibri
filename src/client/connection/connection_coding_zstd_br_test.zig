@@ -4,7 +4,7 @@
 //! with its head. Split out of `connection_coding_test.zig` for length.
 const std = @import("std");
 const h2 = @import("h2");
-const gzip = @import("gzip");
+const gzip = @import("stdx").compress.gzip;
 const support = @import("connection_test_support.zig");
 const coding_support = @import("../coding_test_support.zig");
 const coding_pool = @import("../coding_pool.zig");

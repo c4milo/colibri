@@ -11,8 +11,8 @@ const h2 = colibri.h2;
 const tls = colibri.tls;
 const server_module = colibri.server;
 const client_module = colibri.client;
-const gzip = @import("gzip");
-const platform = @import("platform");
+const gzip = @import("stdx").compress.gzip;
+const platform = @import("stdx").platform;
 
 var client: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var h2_client: h2.Connection align(@alignOf(h2.Connection)) = undefined;
@@ -125,7 +125,7 @@ pub fn main() !void {
 
     try check_tls();
 
-    // stdx's gzip, which colibri's package exports (decision 101), codes content and decodes it.
+    // stdx's gzip, from stdx's one module, codes content and decodes it.
     gzip_encoder.init(.target());
     const coded_len = try gzip_encoder.encode_all("colibri", &coded);
     gzip_decoder.init(cpu_features);

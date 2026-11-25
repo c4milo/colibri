@@ -2,7 +2,7 @@
 //! request offers gzip first with a decoder taken, and a response coded in gzip, zstd or br decodes
 //! into the response's body.
 const std = @import("std");
-const gzip = @import("gzip");
+const gzip = @import("stdx").compress.gzip;
 const http = @import("http");
 const support = @import("quic_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");

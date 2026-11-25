@@ -17963,6 +17963,18 @@ instructions and draws a different CPU from run to run.
 
 ## 13. Risks
 
+- **Step 74 — colibri takes stdx's one module, 2026-11-25** ([decision 171](decisions.md)). No
+  public name changes. stdx is pinned at `b643d58`, whose package exports `stdx` alone.
+  - `build/modules.zig` and the test roots give each module that read stdx the one import
+    `stdx`. Each source writes `@import("stdx").compress.gzip`, `.compress.zlib`,
+    `.compress.zstd`, `.compress.brotli`, `.encoding.json`, `.codec` or `.platform`.
+  - The examples, `tools/consumer/` and `tools/consumer_hosted/` import `stdx` and write
+    `@import("stdx").platform`. README.md and docs/usage.md show the same lines.
+  - No check changes, so no mutation ran: a module that names a retired module does not
+    compile.
+  - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
+    failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
+    `tools/consumer_check.sh`, with stdx from Zig's cache.
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on

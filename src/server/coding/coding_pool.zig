@@ -9,10 +9,10 @@
 //! and the calls that reach its slots.
 const std = @import("std");
 const assert = std.debug.assert;
-const codec = @import("codec");
-const platform = @import("platform");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const codec = @import("stdx").codec;
+const platform = @import("stdx").platform;
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const http = @import("http");
 const constants = @import("../constants.zig");
 const coding_ring = @import("coding_ring.zig");

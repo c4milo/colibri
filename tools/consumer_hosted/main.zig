@@ -7,7 +7,7 @@ const std = @import("std");
 const colibri = @import("colibri");
 const h11 = colibri.h11;
 const tls = colibri.tls;
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 
 var connection: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var output: [256]u8 = undefined;

@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("batch.zig").Batch;
-const CpuFeatures = @import("platform").CpuFeatures;
+const CpuFeatures = @import("stdx").platform.CpuFeatures;
 const quic_frame = @import("quic_frame.zig");
 const VantagePoint = @import("log.zig").VantagePoint;
 

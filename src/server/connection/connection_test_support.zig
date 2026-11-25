@@ -11,8 +11,8 @@ const http = @import("http");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;

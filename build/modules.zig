@@ -131,10 +131,9 @@ pub fn add(
     const stdx = b.dependency("stdx", .{ .target = target, .release = optimize == .ReleaseSafe });
 
     const qlog = library(b, "qlog", target, optimize);
-    qlog.addImport("json", stdx.module("json"));
+    qlog.addImport("stdx", stdx.module("stdx"));
     // Decision 102 as amended: the caller passes the CPU features stdx's JSON writer may use, a
     // type of stdx's `platform` (stdx's decision 40 as amended on 2026-11-24).
-    qlog.addImport("platform", stdx.module("platform"));
 
     const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);
@@ -176,12 +175,9 @@ pub fn add(
     h11.addImport("tls_provider", tls_provider);
     // Decisions 90 and 91: stdx decodes the gzip and deflate transfer codings. `codec` carries
     // the streaming contract both decoders share.
-    h11.addImport("codec", stdx.module("codec"));
+    h11.addImport("stdx", stdx.module("stdx"));
     // The CPU features the decoders run on, a type of stdx's `platform` (stdx's decision 40 as
     // amended on 2026-11-24). h11 names the type and never probes.
-    h11.addImport("platform", stdx.module("platform"));
-    h11.addImport("gzip", stdx.module("gzip"));
-    h11.addImport("zlib", stdx.module("zlib"));
 
     // Decision 97: `tls` fills `tls_provider.Provider` from chapulin's sessions. No HTTP module
     // imports it, so a cleartext program never links chapulin.
@@ -192,7 +188,7 @@ pub fn add(
     tls.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
     tls.addImport("chapulin_quic", chapulin_quic_object(b, target, .off).module("chapulin"));
     // Decision 97 as amended: the values take stdx's `platform.Cpu`, and `tls` never probes.
-    tls.addImport("platform", stdx.module("platform"));
+    tls.addImport("stdx", stdx.module("stdx"));
     const chapulin_quic_keylog = chapulin_quic_object(b, target, .on);
     const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
     tls_keylog.addImport("tls_provider", tls_provider);
@@ -205,7 +201,7 @@ pub fn add(
     const dnssec = library(b, "dnssec", target, optimize);
     dnssec.addImport("core", core);
     dnssec.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
-    tls_keylog.addImport("platform", stdx.module("platform"));
+    tls_keylog.addImport("stdx", stdx.module("stdx"));
 
     // Decision 100: `server` answers requests over h11 and h2 behind one set of calls, and drives
     // `tls` itself. With `client`, it is the one module above the protocol modules.
@@ -220,11 +216,8 @@ pub fn add(
     server.addImport("h3", h3);
     server.addImport("quic", quic);
     // Decision 101: the server codes response content with stdx's encoders.
-    server.addImport("codec", stdx.module("codec"));
+    server.addImport("stdx", stdx.module("stdx"));
     // The CPU features the encoders run on, a type of stdx's `platform`, as h11 takes it.
-    server.addImport("platform", stdx.module("platform"));
-    server.addImport("gzip", stdx.module("gzip"));
-    server.addImport("zlib", stdx.module("zlib"));
     // Decision 100: `client` sends requests over h11 and h2 behind one set of calls, and drives
     // `tls` itself, as `server` does.
     const client = library(b, "client", target, optimize);
@@ -238,8 +231,7 @@ pub fn add(
     client.addImport("quic", quic);
     client.addImport("h3", h3);
     // Decision 101 as amended: the client decodes `zstd` and `br` with stdx's decoders.
-    client.addImport("zstd", stdx.module("zstd"));
-    client.addImport("brotli", stdx.module("brotli"));
+    client.addImport("stdx", stdx.module("stdx"));
 
     // Decision 159: Rotor is a lazy package, and the option `rotor` is the one signal a dependent
     // can give before Zig decides the fetch. Its default is true at colibri's own root and false
@@ -284,8 +276,7 @@ pub fn add(
     sim_run.addImport("h11", h11);
     // The owner's ruling of 2026-09-26 for design §8 step 15c: the h11 coding check codes the bodies
     // it sends with stdx's encoders, because no colibri writer codes one (decision 91).
-    sim_run.addImport("gzip", stdx.module("gzip"));
-    sim_run.addImport("zlib", stdx.module("zlib"));
+    sim_run.addImport("stdx", stdx.module("stdx"));
     // Decision 105, ruled by the owner on 2026-09-28: the client trace run drives the `client`
     // module's QUIC and TCP connections against servers over `tls`, so the simulator links chapulin
     // and seeds every handshake from the seed.
@@ -327,7 +318,7 @@ pub fn add(
     // Design §8 step 17a: the h11 and h2 server of §9 runs each connection on `server`.
     testing.addImport("server", server);
     // Decision 97 as amended: each program probes its CPU once, in src/testing/cpu.zig.
-    testing.addImport("platform", stdx.module("platform"));
+    testing.addImport("stdx", stdx.module("stdx"));
     testing.addAnonymousImport("github_routes", github_routes);
     testing.addAnonymousImport("kubernetes_sample_routes", kubernetes_sample_routes);
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
@@ -345,7 +336,7 @@ pub fn add(
     testing_client.addImport("client", client);
     // The client session's tests run the client against §9's server, which runs on `server`.
     testing_client.addImport("server", server);
-    testing_client.addImport("platform", stdx.module("platform"));
+    testing_client.addImport("stdx", stdx.module("stdx"));
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
@@ -359,7 +350,7 @@ pub fn add(
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls_provider", tls_provider);
     testing_tls.addImport("tls", tls);
-    testing_tls.addImport("platform", stdx.module("platform"));
+    testing_tls.addImport("stdx", stdx.module("stdx"));
     testing_tls.link_libc = true;
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
@@ -369,7 +360,7 @@ pub fn add(
     testing_tls_server.addImport("h2", h2);
     testing_tls_server.addImport("tls_provider", tls_provider);
     testing_tls_server.addImport("tls", tls);
-    testing_tls_server.addImport("platform", stdx.module("platform"));
+    testing_tls_server.addImport("stdx", stdx.module("stdx"));
     testing_tls_server.link_libc = true;
 
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
@@ -392,7 +383,7 @@ pub fn add(
     // `ch_keylog` reads the hook through the QUIC object's module.
     testing_quic.addImport("tls", tls_keylog);
     testing_quic.addImport("chapulin", chapulin_quic_keylog.module("chapulin"));
-    testing_quic.addImport("platform", stdx.module("platform"));
+    testing_quic.addImport("stdx", stdx.module("stdx"));
     testing_quic.link_libc = true;
 
     return .{

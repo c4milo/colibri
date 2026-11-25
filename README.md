@@ -89,7 +89,7 @@ module. Depend on stdx at the commit colibri's `build.zig.zon` pins, with colibr
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true });
-exe.root_module.addImport("platform", stdx.module("platform"));
+exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 
 The root of `colibri` names each library module: `colibri.server`, `colibri.client`,
@@ -102,7 +102,7 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 ```
 
 colibri links [chapulin](https://github.com/c4milo/chapulin), its TLS stack. So every program

@@ -35,7 +35,7 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 ```
 
 The rest of this guide writes `server.Router`, `client.Request` and `h2.Connection` with such
@@ -77,17 +77,19 @@ const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package exports nothing of stdx ([decision 170](decisions.md)). A program asks its CPU once
-through stdx's `platform` module: `platform.CpuFeatures.detect()` for each configuration's
+through `@import("stdx").platform`, since stdx exports the one module `stdx`
+([decision 171](decisions.md)): `platform.CpuFeatures.detect()` for each configuration's
 `cpu_features`, and `platform.probe()` for TLS ([decision 97](decisions.md)). Depend on stdx at the
 commit colibri's `build.zig.zon` pins, and give it the options colibri gives it, so both reach one
 `platform` module and one `platform.Cpu`:
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true });
-exe.root_module.addImport("platform", stdx.module("platform"));
+exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 
-A program that codes content itself takes `gzip`, `zlib`, `zstd` or `brotli` from the same stdx.
+A program that codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the
+same stdx.
 
 `colibri` links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack. So every
 program that imports `colibri` defines chapulin's one hook, `ch_assert_fail`, a program in

@@ -29,7 +29,7 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("platform");
+const platform = @import("stdx").platform;
 // chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
 

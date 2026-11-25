@@ -8,8 +8,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const h11 = @import("h11");
 const sim = @import("sim");
 

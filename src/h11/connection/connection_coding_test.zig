@@ -4,8 +4,8 @@
 const std = @import("std");
 const core = @import("core");
 const http = @import("http");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const coding = @import("../coding.zig");
 const connection = @import("connection.zig");
 

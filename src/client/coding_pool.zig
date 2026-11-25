@@ -6,8 +6,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
-const zstd = @import("zstd");
-const brotli = @import("brotli");
+const zstd = @import("stdx").compress.zstd;
+const brotli = @import("stdx").compress.brotli;
 const constants = @import("constants.zig");
 
 /// The CPU features the decoders run on, which the caller states once, in the configuration's

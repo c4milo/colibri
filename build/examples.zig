@@ -59,7 +59,7 @@ pub fn add(
 /// of `src/testing/testdata/` (the owner's ruling of 2026-09-28): it stands in for the certificate
 /// and the key a program loads, and no packaged module imports it.
 fn add_tls(module: *std.Build.Module, graph: modules.Modules, testdata: *std.Build.Module) void {
-    module.addImport("platform", graph.stdx.module("platform"));
+    module.addImport("stdx", graph.stdx.module("stdx"));
     module.addImport("testdata", testdata);
     // `getentropy`, the source each session draws from.
     module.link_libc = true;

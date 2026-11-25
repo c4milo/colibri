@@ -4,8 +4,8 @@
 const std = @import("std");
 const h2 = @import("h2");
 const h11 = @import("h11");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const support = @import("connection_test_support.zig");
 
 const testing = std.testing;

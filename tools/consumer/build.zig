@@ -25,12 +25,11 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("colibri", colibri.module("colibri"));
     // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`, from
     // the stdx colibri pins and with the options colibri gives it, so both reach one module and one
-    // `platform.Cpu`, the probe colibri's `tls.Cpu` holds.
+    // `platform.Cpu`, the probe colibri's `tls.Cpu` holds. stdx exports the one module `stdx`
+    // (decision 171), so the program writes `@import("stdx").platform`, and codes content with
+    // `@import("stdx").compress.gzip`.
     const stdx = b.dependency("stdx", .{ .target = target, .release = true });
-    exe.root_module.addImport("platform", stdx.module("platform"));
-    // Decision 170: colibri's package exports nothing of stdx, so a program that codes content
-    // itself takes the codec from the same stdx.
-    exe.root_module.addImport("gzip", stdx.module("gzip"));
+    exe.root_module.addImport("stdx", stdx.module("stdx"));
     // Decision 170: the package exports `colibri` alone. tools/consumer_check.sh passes
     // `-Dnamed-module=h2` and requires the build to stop, because the package has no module of
     // that name.

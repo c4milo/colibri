@@ -11,10 +11,10 @@
 //! such as a zlib preset dictionary (RFC 1950 §2.3), is refused.
 const std = @import("std");
 const assert = std.debug.assert;
-const codec = @import("codec");
-const platform = @import("platform");
-const gzip = @import("gzip");
-const zlib = @import("zlib");
+const codec = @import("stdx").codec;
+const platform = @import("stdx").platform;
+const gzip = @import("stdx").compress.gzip;
+const zlib = @import("stdx").compress.zlib;
 const constants = @import("constants.zig");
 const message = @import("message/message.zig");
 

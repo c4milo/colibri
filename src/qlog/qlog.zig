@@ -10,7 +10,7 @@ const std = @import("std");
 
 /// stdx's JSON module (decision 102 as amended). Every record is one text of a JSON text sequence,
 /// and its `TextReader` reads one back.
-pub const json = @import("json");
+pub const json = @import("stdx").encoding.json;
 pub const constants = @import("constants.zig");
 
 /// Every file of the module. None of these is exported: the names below are.
@@ -32,7 +32,7 @@ const files = struct {
 pub const TextWriter = @import("batch.zig").Batch;
 /// The CPU features stdx's JSON writer may use, which a log's caller passes to `Log.init`
 /// (decision 102 as amended), as it passes them to h11's decoder pool (decision 98).
-pub const CpuFeatures = @import("platform").CpuFeatures;
+pub const CpuFeatures = @import("stdx").platform.CpuFeatures;
 pub const Error = files.member.Error;
 pub const Log = files.log.Log;
 pub const Trace = files.log.Trace;
