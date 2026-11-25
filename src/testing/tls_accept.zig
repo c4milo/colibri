@@ -4,23 +4,13 @@
 //! the others belong to the h2 server, the h2 client and the client-side handshake check.
 const std = @import("std");
 
-pub const hooks = @import("tls/hooks.zig");
 pub const check_file = @import("tls/check_file.zig");
 pub const accept_check = @import("tls/accept_check.zig");
-
-comptime {
-    // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
-    // `ch_assert_fail`, and `tls/hooks.zig` exports it. Zig analyses a file only when something
-    // references it, and in a build with no tests nothing here does, so the export would be missing
-    // and the link would fail. This reference is what forces the analysis.
-    _ = hooks;
-}
 
 pub const main = accept_check.main;
 
 test {
     std.testing.refAllDecls(@This());
-    _ = hooks;
     _ = check_file;
     _ = accept_check;
 }

@@ -67,14 +67,10 @@ const exchange_rounds_max = 8;
 /// Events one side reads in one round, at most.
 const events_per_round_max = 16;
 
-/// chapulin's one hook, which a program that imports `colibri` defines: its failed assertions
-/// are the program's to report.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+/// chapulin's module calls this when one of its assertions fails, in place of its own report
+/// (decision 172). A program that declares no such function gets chapulin's panic.
+pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
+    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 
 /// The source each TLS session draws from, which the program passes to `start`: here the operating

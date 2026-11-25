@@ -15,15 +15,6 @@ const std = @import("std");
 const colibri = @import("colibri");
 const dnssec = colibri.dnssec;
 
-/// chapulin's one hook, which every program that imports `colibri` defines (decisions 94 and 170).
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-}
-
 /// RFC 6605 §6.1: the DNSKEY's flags and key, its key tag, and the RRSIG over the A record.
 const key_flags: u16 = 257;
 const key_tag: u16 = 55648;

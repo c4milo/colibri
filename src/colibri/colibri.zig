@@ -79,6 +79,15 @@ pub const Failure = files.host.Failure;
 pub const Wait = files.host.Wait;
 pub const Turn = files.host.Turn;
 
+comptime {
+    // A program that imports `colibri` links chapulin's objects through `tls` and `dnssec`, though
+    // it may name neither. Zig analyses a file only when something references it, so these
+    // references run each root's comptime block, which keeps chapulin's `ch_assert_fail`
+    // (decision 172).
+    _ = tls;
+    _ = dnssec;
+}
+
 test "decision 115: the root exports the names design §8 steps 37, 42, 44 and 73 list" {
     // Step 37a adds `Server`, `ServerConfig`, `Identity` and `InitError`, and 37b `RunError`.
     // Step 42c adds `Client` and `ClientConfig`, and the owner's rulings of 2026-11-06 add
@@ -121,5 +130,4 @@ test "decision 115: the root exports the names design §8 steps 37, 42, 44 and 7
 test {
     @import("std").testing.refAllDecls(files);
     _ = constants;
-    _ = @import("test_hooks.zig");
 }

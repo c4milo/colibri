@@ -3,7 +3,7 @@
 //! all. A device object holds no DNSSEC, so there `algorithm` names none.
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 const protocol = @import("constants.zig").protocol;
 
 /// Whether the object colibri links holds chapulin's DNSSEC calls: a host object does.

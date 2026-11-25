@@ -5,7 +5,6 @@
 const std = @import("std");
 
 pub const udp = @import("udp.zig");
-pub const hooks = @import("tls/hooks.zig");
 pub const keylog = @import("quic/keylog.zig");
 pub const memset = @import("memset.zig");
 pub const quic_session = @import("quic/quic_session.zig");
@@ -26,11 +25,9 @@ pub const udp_h3_files = @import("quic/udp/udp_h3_files.zig");
 pub const udp_resume = @import("quic/udp/udp_resume.zig");
 
 comptime {
-    // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
-    // files export. Zig analyses a file only when something references it, so these keep the
-    // exports in a build with no tests. `memset.zig` exports the `memset` of the program
-    // `tools/h3load.sh` loads.
-    _ = hooks;
+    // chapulin's QUIC object imports `ch_keylog`, which `keylog.zig` exports. Zig analyses a file
+    // only when something references it, so these keep the exports in a build with no tests.
+    // `memset.zig` exports the `memset` of the program `tools/h3load.sh` loads.
     _ = keylog;
     _ = memset;
 }
@@ -40,7 +37,6 @@ pub const main = udp_run.main;
 test {
     std.testing.refAllDecls(@This());
     _ = udp;
-    _ = hooks;
     _ = keylog;
     _ = memset;
     _ = quic_session;

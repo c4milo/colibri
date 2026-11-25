@@ -11,7 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
-const chapulin = @import("chapulin_quic");
+const chapulin = @import("chapulin").quic;
 const constants = @import("../constants.zig");
 const quic_provider = @import("quic_provider.zig");
 

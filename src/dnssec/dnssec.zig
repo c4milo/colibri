@@ -27,6 +27,13 @@ pub const algorithm = files.algorithm.algorithm;
 pub const digest_type = files.digest_type.digest_type;
 pub const verify = files.verify.verify;
 
+comptime {
+    // chapulin's module exports `ch_assert_fail` from a comptime block, and Zig runs that block
+    // only when something references the module. The library links chapulin's objects whenever a
+    // program imports this module, so this reference keeps the export beside them (decision 172).
+    _ = @import("chapulin");
+}
+
 test "decision 115: the root exports the names code outside the module uses" {
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
@@ -38,7 +45,5 @@ test "decision 115: the root exports the names code outside the module uses" {
 
 test {
     std.testing.refAllDecls(files);
-    // The hook a test binary defines, as every program that links chapulin does.
-    _ = @import("test_hooks.zig");
     _ = @import("dnssec_test.zig");
 }

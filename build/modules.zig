@@ -24,8 +24,7 @@ const std = @import("std");
 const modules_colibri = @import("modules_colibri.zig");
 const modules_chapulin = @import("modules_chapulin.zig");
 
-const chapulin_tcp_object = modules_chapulin.tcp_object;
-const chapulin_quic_object = modules_chapulin.quic_object;
+const chapulin_pair_object = modules_chapulin.pair_object;
 pub const host_object = modules_chapulin.host_object;
 
 /// Each module's root is the file named after its directory (`src/core/core.zig`), which lists
@@ -73,14 +72,14 @@ pub const Modules = struct {
     colibri: *std.Build.Module,
     /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
     /// of one transport define the same names.
-    chapulin_tcp: *std.Build.Dependency,
+    chapulin: *std.Build.Dependency,
     /// `tls` again, over the objects built `KEYLOG=on`: its tests seal records under the traffic
     /// secrets chapulin logs, such as a peer's KeyUpdate, which no chapulin session sends in record
     /// mode, and `src/testing/`'s QUIC endpoints, which write the secrets to SSLKEYLOGFILE, import
     /// it as `tls`. Test-only.
     tls_keylog: *std.Build.Module,
     /// The QUIC object `tls_keylog` links, which the QUIC endpoints' `ch_keylog` reads the hook of.
-    chapulin_quic_keylog: *std.Build.Dependency,
+    chapulin_keylog: *std.Build.Dependency,
     /// The codecs of decision 90, which the test-only instance of `server` imports as `server`
     /// does.
     stdx: *std.Build.Dependency,
@@ -181,26 +180,25 @@ pub fn add(
 
     // Decision 97: `tls` fills `tls_provider.Provider` from chapulin's sessions. No HTTP module
     // imports it, so a cleartext program never links chapulin.
-    const chapulin_tcp = chapulin_tcp_object(b, target, .off);
+    // Decision 172: one request for chapulin, whose module carries both objects.
+    const chapulin = chapulin_pair_object(b, target, .off);
     const tls = library(b, "tls", target, optimize);
     tls.addImport("tls_provider", tls_provider);
     tls.addImport("crypto", crypto);
-    tls.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
-    tls.addImport("chapulin_quic", chapulin_quic_object(b, target, .off).module("chapulin"));
+    tls.addImport("chapulin", chapulin.module("chapulin"));
     // Decision 97 as amended: the values take stdx's `platform.Cpu`, and `tls` never probes.
     tls.addImport("stdx", stdx.module("stdx"));
-    const chapulin_quic_keylog = chapulin_quic_object(b, target, .on);
+    const chapulin_keylog = chapulin_pair_object(b, target, .on);
     const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
     tls_keylog.addImport("tls_provider", tls_provider);
     tls_keylog.addImport("crypto", crypto);
-    tls_keylog.addImport("chapulin_tcp", chapulin_tcp_object(b, target, .on).module("chapulin"));
-    tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
+    tls_keylog.addImport("chapulin", chapulin_keylog.module("chapulin"));
 
     // Decision 142: chapulin's DNSSEC checks, over the TCP object `tls` links, so a program that
     // links both links one object.
     const dnssec = library(b, "dnssec", target, optimize);
     dnssec.addImport("core", core);
-    dnssec.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
+    dnssec.addImport("chapulin", chapulin.module("chapulin"));
     tls_keylog.addImport("stdx", stdx.module("stdx"));
 
     // Decision 100: `server` answers requests over h11 and h2 behind one set of calls, and drives
@@ -382,7 +380,7 @@ pub fn add(
     // Design §8 step 16b: its sessions are `tls`'s, over the `KEYLOG=on` objects, and its
     // `ch_keylog` reads the hook through the QUIC object's module.
     testing_quic.addImport("tls", tls_keylog);
-    testing_quic.addImport("chapulin", chapulin_quic_keylog.module("chapulin"));
+    testing_quic.addImport("chapulin", chapulin_keylog.module("chapulin"));
     testing_quic.addImport("stdx", stdx.module("stdx"));
     testing_quic.link_libc = true;
 
@@ -404,9 +402,9 @@ pub fn add(
         .client = client,
         .colibri = colibri,
         .dnssec = dnssec,
-        .chapulin_tcp = chapulin_tcp,
+        .chapulin = chapulin,
         .tls_keylog = tls_keylog,
-        .chapulin_quic_keylog = chapulin_quic_keylog,
+        .chapulin_keylog = chapulin_keylog,
         .stdx = stdx,
         .sim = sim,
         .sim_run = sim_run,

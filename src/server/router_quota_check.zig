@@ -8,7 +8,7 @@
 
 test {
     _ = @import("router/router_quota_test.zig");
-    // The hook a test binary defines, as every program that links chapulin does. The `server`
-    // module imports `tls`, which links chapulin.
-    _ = @import("test_hooks.zig");
+    // The `server` module's imports link chapulin's objects through `tls`. This reference runs the
+    // comptime block of `tls`'s root, which keeps chapulin's `ch_assert_fail` (decision 172).
+    _ = @import("tls");
 }

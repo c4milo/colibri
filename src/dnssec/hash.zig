@@ -3,7 +3,7 @@
 //! hashes; colibri allocates nothing, and the caller places the state.
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 const protocol = @import("constants.zig").protocol;
 const algorithm_file = @import("algorithm.zig");
 const digest_type_file = @import("digest_type.zig");

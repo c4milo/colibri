@@ -15,7 +15,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin_quic");
+const chapulin = @import("chapulin").quic;
 const constants = @import("../constants.zig");
 
 const c = chapulin.c;

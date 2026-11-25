@@ -31,15 +31,6 @@ var hosted_client: Client align(@alignOf(Client)) = undefined;
 // The room of the operations one turn writes: a host sizes it by `operations_max`.
 var operations: [Server.operations_max + Client.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
 
-/// chapulin's one hook, which a program that imports `colibri` defines.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-}
-
 /// The source each TLS session draws from. A hosted object has no default source (decision 150
 /// ruling 9 as amended), so the program passes the operating system's `getentropy`.
 extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;

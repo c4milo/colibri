@@ -1,23 +1,11 @@
 //! What a program that runs TLS over colibri defines once, which the examples over TLS and QUIC
 //! share. It is not an example of colibri by itself.
 //!
-//! colibri draws no random octet and reports no failure of its own accord (non-negotiable 5):
-//! - chapulin, the TLS stack behind `tls`, calls `ch_assert_fail` when one of its assertions
-//!   fails, and the program defines it, because how a program reports a failure is the program's
-//!   choice (decision 94);
-//! - each connection draws every random value from the source the program passes it. A program
-//!   passes its operating system's entropy, as here. A test passes a seeded generator, and the
-//!   connection then replays octet for octet.
+//! colibri draws no random octet of its own accord (non-negotiable 5). Each connection draws every
+//! random value from the source the program passes it. A program passes its operating system's
+//! entropy, as here. A test passes a seeded generator, and the connection then replays octet for
+//! octet.
 const std = @import("std");
-
-/// chapulin's one hook. This program reports the failed assertion and stops.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-}
 
 /// macOS and glibc declare `getentropy` in `unistd.h`, and Zig's `std.c` exposes it on neither.
 extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;

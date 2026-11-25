@@ -13,7 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 
 const c = chapulin.c;
 const provider_module = tls_provider.provider;

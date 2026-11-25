@@ -6,7 +6,7 @@
 //! object that does.
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 const support = @import("record_test_support.zig");
 
 const c = chapulin.c;

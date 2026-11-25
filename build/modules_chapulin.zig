@@ -8,20 +8,28 @@ const Suite = enum { chacha, aesgcm };
 const Keylog = enum { on, off };
 const Setting = enum { on, off };
 
-/// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
-/// compiled from the pinned package with `RAND=session`, where each session draws from the source its
-/// caller passes (decision 94 as amended on 2026-09-27). `SUITE=aesgcm` adds RFC 9846
-/// §9.1's mandatory TLS_AES_128_GCM_SHA256, and `TX_RECORD=16384` lets a record carry TLS's largest
-/// plaintext (RFC 9846 §5.1). `TRUST=webpki` is the one client trust mode that compiles ALPN in,
-/// without which no client negotiates h2 (RFC 9113 §3.1). The package also translates the public
-/// headers under the defines its object compiled with, so the declarations colibri reads always
-/// match the object it links. The library's object is `KEYLOG=off` (decision 94); only the tests
-/// of `tls_keylog` build one `on`.
-pub fn tcp_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
+/// The chapulin package the library links, asked for once (decision 172): chapulin's
+/// `TRANSPORT=nonblocking`, both of its nonblocking objects of one configuration in one module
+/// `chapulin`, whose `tcp` is decision 97's TCP object and whose `quic` its QUIC object. The
+/// module defines `ch_assert_fail`, so a program that links colibri defines no hook (chapulin's
+/// decision 245). Every object is compiled from the pinned package with `RAND=session`, where each
+/// session draws from the source its caller passes (decision 94 as amended on 2026-09-27).
+/// - `ROLE=both TRUST=webpki`: `TRUST=webpki` is the one client trust mode that compiles ALPN in,
+///   without which no client negotiates h2 (RFC 9113 §3.1).
+/// - `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, which is also the only
+///   kind of suite h3spec offers.
+/// - `EXPORTER=on`, `TX_RECORD=16384`, and `DNSSEC`, `JWS` and `SCRAM` on a host target, reach the
+///   TCP object alone: chapulin gives the record layer's axes to it (chapulin's decision 245).
+///   `TX_RECORD=16384` lets a record carry TLS's largest plaintext (RFC 9846 §5.1).
+/// - The library's objects are `KEYLOG=off` (decision 94). Only the test-only images of
+///   `tls_keylog` ask for `on`, which hands each traffic secret to `ch_keylog`.
+/// The package also translates the public headers under the defines each object compiled with,
+/// so the declarations colibri reads always match the object it links.
+pub fn pair_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
     return b.dependency("chapulin", .{
         .target = target,
         .RAND = .session,
-        .TRANSPORT = .@"tcp-nonblocking",
+        .TRANSPORT = .nonblocking,
         .ROLE = .both,
         .TRUST = .webpki,
         .EXPORTER = .on,
@@ -63,21 +71,4 @@ pub fn host_object(target: std.Build.ResolvedTarget) bool {
         .x86_64 => std.Target.x86.featureSetHas(cpu.features, .sse2),
         else => false,
     };
-}
-
-/// Decision 97's QUIC object: `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`, compiled from the
-/// pinned package with `RAND=session` (decision 94 as amended), with the suite choice of the TCP
-/// object. `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, which is also the
-/// only kind of suite h3spec offers. The library's object is `KEYLOG=off`; `tls_keylog` builds one
-/// `on`, which hands the tests and the endpoints each traffic secret.
-pub fn quic_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
-    return b.dependency("chapulin", .{
-        .target = target,
-        .RAND = .session,
-        .TRANSPORT = .@"quic-nonblocking",
-        .ROLE = .both,
-        .TRUST = .webpki,
-        .SUITE = suite_of(target),
-        .KEYLOG = keylog,
-    });
 }

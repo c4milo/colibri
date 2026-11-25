@@ -40,8 +40,9 @@ The architecture depends on every rule in this section.
    packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
    and packet protection key; colibri never holds one and never chooses a cipher suite.
    Randomness is the consumer's: chapulin is built `RAND=session`, each session draws from the
-   `std.Random` its caller passes to `start` and from nothing else, and the program that links
-   colibri defines `ch_assert_fail` (decision 94 as amended). `colibri.Server` alone draws from
+   `std.Random` its caller passes to `start` and from nothing else, and chapulin's module
+   defines `ch_assert_fail`, which a program may replace with `chapulinAssertFail` in its root
+   file (decision 172). `colibri.Server` alone draws from
    the operating system when its program passes no source (decision 150 ruling 9).
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
@@ -592,11 +593,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   `bench/router/competitors/convert_routes.py` wrote from published API descriptions, each pinned
   in its `<table>_routes.LICENSE` (design §8 step 13h). It needs Docker, and Zig 0.17 for http.zig; it is not part of `tools/ci.sh`, and its
   numbers are never published.
-- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
-  the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
-  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, with `DNSSEC`,
+- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build asks the package once, for
+  `TRANSPORT=nonblocking RAND=session ROLE=both TRUST=webpki` (decision 172). That one module holds
+  two objects: the TCP object, `chapulin.tcp`, with `EXPORTER=on TX_RECORD=16384`, and `DNSSEC`,
   `JWS` and `SCRAM` on for a host target and off for another (decisions 142 and 162), and the QUIC
-  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. colibri exports nothing of
+  object, `chapulin.quic`. colibri exports nothing of
   chapulin: a program that calls chapulin names it at colibri's pin, with colibri's request
   (decision 162, docs/usage.md). On x86-64 and arm64 each is
   chapulin's host object, `SUITE=aesgcm` with no `AES`, `WIDEMUL` or `CHACHA` value: it holds every
@@ -612,15 +613,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
   `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC
   endpoints, and `tls_keylog`'s tests, through `tls_keylog`, whose objects are built `KEYLOG=on`
-  so a capture can be decrypted. The package exports each object's module `chapulin`: chapulin's
-  Zig API (its `docs/zig.md`), which carries the object, with the public headers translated under
-  the object's own defines as its `c`. Because the module carries the object, nothing else may add
-  it: a second copy fails the link. A program that links `tls` defines chapulin's one hook,
-  `ch_assert_fail`, passes each session's `start` the `std.Random` it draws from, and passes each
-  configuration its `tls.Cpu`: the probe it takes once, at start, and its thread's timing. Each
-  image of `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s
-  octets (`src/testing/entropy.zig`) and the `tls.Cpu` `src/testing/cpu.zig` builds from stdx's
-  probe, taken once: it sets PSTATE.DIT on arm64 where the core has FEAT_DIT, and states the timing
+  so a capture can be decrypted. The package exports the module `chapulin`: chapulin's Zig API
+  (its `docs/zig.md`) for each object, which carries the object, with the public headers translated
+  under the object's own defines as its `c`. Because the module carries the objects, nothing else
+  may add one: a second copy fails the link. chapulin's module defines `ch_assert_fail` (decision
+  172). A program that links `tls` passes each session's `start` the `std.Random` it draws from,
+  and passes each configuration its `tls.Cpu`: the probe it takes once, at start, and its
+  thread's timing. Each image of `src/testing/` passes `getentropy`'s octets
+  (`src/testing/entropy.zig`) and the `tls.Cpu` `src/testing/cpu.zig` builds from stdx's probe, taken once: it sets PSTATE.DIT on arm64 where the core has FEAT_DIT, and states the timing
   on every arm64 and x86-64 core, though a virtual machine may hide FEAT_DIT and no program can
   read DOITM. A QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests
   describe the build target's probe with the timing stated, and run every description where the

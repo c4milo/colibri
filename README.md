@@ -104,18 +104,15 @@ const tls = colibri.tls;
 const platform = @import("stdx").platform;
 ```
 
-colibri links [chapulin](https://github.com/c4milo/chapulin), its TLS stack. So every program
-that imports `colibri` defines chapulin's one hook, or its link fails with
-`undefined symbol: ch_assert_fail`:
+colibri links [chapulin](https://github.com/c4milo/chapulin), its TLS stack, and a program
+defines nothing for it. A failed chapulin assertion stops the program with a panic. A program that
+reports the failure its own way declares this function in its root file:
 
 ```zig
-/// chapulin's one hook. This program reports the failed assertion and stops.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+/// chapulin's module calls this when one of its assertions fails, in place of its own report
+/// (decision 172). A program that declares no such function gets chapulin's panic.
+pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
+    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 ```
 

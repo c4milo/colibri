@@ -7,10 +7,6 @@ const std = @import("std");
 const server = @import("colibri").server;
 const tables = @import("tables.zig");
 
-comptime {
-    _ = @import("hook.zig");
-}
-
 const edge_counts = [_]usize{ 1, 2, 4, 8, 16, 64, 256 };
 
 /// The index that `literal` turns into "r999", which no table holds.

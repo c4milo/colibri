@@ -58,16 +58,16 @@ for named in h2 gzip; do
   fi
 done
 echo "consumer_check.sh: the package exports colibri alone, and no module named h2 or gzip"
-if zig build without-assert >"${scratch}/without-assert.log" 2>&1; then
-  echo "consumer_check.sh: a program with no ch_assert_fail linked" >&2
-  exit 1
-fi
-if ! grep -q "ch_assert_fail" "${scratch}/without-assert.log"; then
-  echo "consumer_check.sh: the link failed without naming ch_assert_fail:" >&2
+if ! zig build without-assert >"${scratch}/without-assert.log" 2>&1; then
+  echo "consumer_check.sh: a program that declares no chapulin hook did not link:" >&2
   tail -20 "${scratch}/without-assert.log" >&2
   exit 1
 fi
-echo "consumer_check.sh: a program with no ch_assert_fail does not link, and the linker names it"
+if ! nm zig-out/bin/without-assert | grep -E " T _?ch_assert_fail$" >/dev/null; then
+  echo "consumer_check.sh: the program does not define ch_assert_fail from chapulin's module" >&2
+  exit 1
+fi
+echo "consumer_check.sh: a program that declares no chapulin hook links, with chapulin's ch_assert_fail"
 # The control of the Rotor check below: this project passes `.rotor = true`, so Rotor's package is
 # among the ones Zig unpacked for it, under the name the check looks for.
 if ! ls zig-pkg | grep -q '^rotor-'; then

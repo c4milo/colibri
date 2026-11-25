@@ -52,11 +52,6 @@ pub const h2_stall_check = @import("h2_stall_check.zig");
 pub const endpoint_check = @import("endpoint/endpoint_check.zig");
 const run_main = @import("run_main.zig");
 
-comptime {
-    // chapulin's hook, which every program that links `tls` defines (decision 94).
-    _ = @import("tls_hooks.zig");
-}
-
 pub const main = run_main.main;
 
 test {

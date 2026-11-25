@@ -92,7 +92,7 @@ Verified against chapulin's tree on 2026-09-22, at its commit `8a32aeb`:
   RFC 9001 uses no TLS exporter. chapulin's decision 43.
 - It has a key log behind a build value. `KEYLOG=on` hands each of the four traffic secrets to
   `ch_keylog(io, label, client_random, secret)` as it derives them, in both roles and every
-  transport, QUIC included. The image defines `ch_keylog`, the way it defines `ch_assert_fail`,
+  transport, QUIC included. The image defines `ch_keylog`,
   so a build that turned the axis on and wired nothing fails to link. The labels are the NSS key log
   format's. A client in a raw or ca trust mode refuses the axis; `TRUST=webpki`, the server's
   `TRUST=none` and `ROLE=both` admit it. chapulin's decision 44 and INV-29.

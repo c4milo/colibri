@@ -40,9 +40,10 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the consumer").dependOn(&run.step);
 
-    // Design §8 step 16's check: a program that runs `colibri.tls` and defines no `ch_assert_fail`
-    // does not link. tools/consumer_check.sh builds this step and requires it to fail, naming the hook.
-    // The step installs the program, because Zig links an executable only when its file is used.
+    // Decision 172's check: a program that runs `colibri.tls` and declares no hook links, because
+    // chapulin's module defines `ch_assert_fail`. tools/consumer_check.sh builds this step and
+    // requires it to pass. The step installs the program, because Zig links an executable only
+    // when its file is used.
     const without_assert = b.addExecutable(.{
         .name = "without-assert",
         .root_module = b.createModule(.{
@@ -52,5 +53,5 @@ pub fn build(b: *std.Build) void {
         }),
     });
     without_assert.root_module.addImport("colibri", colibri.module("colibri"));
-    b.step("without-assert", "Link a program that uses tls and defines no ch_assert_fail").dependOn(&b.addInstallArtifact(without_assert, .{}).step);
+    b.step("without-assert", "Link a program that uses tls and declares no chapulin hook").dependOn(&b.addInstallArtifact(without_assert, .{}).step);
 }

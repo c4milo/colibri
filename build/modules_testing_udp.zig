@@ -29,7 +29,7 @@ pub fn add(
     testing_udp.addImport("h3", graph.h3);
     testing_udp.addImport("rotor", rotor);
     testing_udp.addImport("tls", graph.tls_keylog);
-    testing_udp.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
+    testing_udp.addImport("chapulin", graph.chapulin_keylog.module("chapulin"));
     // Design §8 step 17b: the h3 server runs on `server`, ruled by the owner on 2026-09-28. The
     // endpoint links `tls_keylog`'s objects, and a second chapulin object fails the link, so it
     // takes an instance of `server` over `tls_keylog`, which nothing packaged sees.

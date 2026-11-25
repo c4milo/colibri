@@ -5,10 +5,6 @@ const server = @import("colibri").server;
 const options = @import("options");
 const tables = @import("tables.zig");
 
-comptime {
-    _ = @import("hook.zig");
-}
-
 const case = @field(tables, @tagName(options.table));
 
 test "the table compiles and matches its path" {

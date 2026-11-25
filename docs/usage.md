@@ -91,9 +91,9 @@ exe.root_module.addImport("stdx", stdx.module("stdx"));
 A program that codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the
 same stdx.
 
-`colibri` links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack. So every
-program that imports `colibri` defines chapulin's one hook, `ch_assert_fail`, a program in
-cleartext too. The section "TLS" shows the hook.
+`colibri` links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, and a
+program defines nothing for it (decision 172). The section "TLS" shows how a program replaces
+chapulin's report of a failed assertion.
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
@@ -157,8 +157,7 @@ Four things follow for every other module:
   chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
   `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
-  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that imports
-  `colibri` defines chapulin's one hook, `ch_assert_fail`. A program that runs TLS passes the
+  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that runs TLS passes the
   source each session draws from: to `Engine.init`, to `ConnectionPool.start_tcp` and
   `start_quic`, and to each session it starts.
 
@@ -2549,16 +2548,16 @@ resets between two writes (decision 113). `shutdown` begins a graceful close.
 ## TLS
 
 The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take.
-`colibri` links chapulin for it, so a program that imports `colibri` defines chapulin's one hook,
-`ch_assert_fail`, which a failed chapulin assertion calls.
+`colibri` asks chapulin for one module that holds its TCP object and its QUIC object, and that
+module defines `ch_assert_fail`, which a failed chapulin assertion calls (decision 172). By default
+it panics with the condition and chapulin's source line. A program that reports the failure its
+own way declares `chapulinAssertFail` in its root file, and chapulin's module calls it:
 
 ```zig
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+/// chapulin's module calls this when one of its assertions fails, in place of its own report
+/// (decision 172). A program that declares no such function gets chapulin's panic.
+pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
+    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 ```
 

@@ -9,21 +9,11 @@
 //! the unit tests.
 const std = @import("std");
 
-pub const hooks = @import("tls/hooks.zig");
 pub const handshake_check = @import("tls/handshake_check.zig");
-
-comptime {
-    // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
-    // `ch_assert_fail`, and `tls/hooks.zig` exports it. Zig analyses a file only when something
-    // references it, and in a build with no tests nothing here does, so the export would be missing
-    // and the link would fail. This reference is what forces the analysis.
-    _ = hooks;
-}
 
 pub const main = handshake_check.main;
 
 test {
     std.testing.refAllDecls(@This());
-    _ = hooks;
     _ = handshake_check;
 }

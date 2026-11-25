@@ -6,8 +6,8 @@
 //! Record mode serves h2 and h11 over the TCP object (`record/`), and QUIC mode serves h3 over the
 //! QUIC object (`quic/`), filling `tls_provider.QuicProvider` and `crypto.Suite`. chapulin holds
 //! every key, and colibri passes it pointers to the caller's keys and never reads one
-//! (non-negotiable 2). Each session draws from the `Random` its caller passes to `start`, and the
-//! program defines chapulin's one remaining hook, `ch_assert_fail` (decision 94 as amended).
+//! (non-negotiable 2). Each session draws from the `Random` its caller passes to `start`. chapulin's
+//! module defines its one hook, `ch_assert_fail`, and a program may replace it (decision 172).
 //!
 //! This root is the module's API file (decision 115). It exports the names code outside the
 //! module uses: a type under its own name, a function or a constant under the namespace of its
@@ -68,6 +68,13 @@ pub const pem = struct {
     pub const anchors = files.pem.anchors;
 };
 
+comptime {
+    // chapulin's module exports `ch_assert_fail` from a comptime block, and Zig runs that block
+    // only when something references the module. The library links chapulin's objects whenever a
+    // program imports this module, so this reference keeps the export beside them (decision 172).
+    _ = @import("chapulin");
+}
+
 test "decision 115: the root exports the names code outside the module uses" {
     try @import("crypto").core.public_names.expect(@This(), &.{
         "constants", "Random",   "Cpu",        "Timing",
@@ -88,6 +95,4 @@ test {
     std.testing.refAllDecls(files);
     // Every name the root exports resolves, in each namespace it declares.
     _ = @import("crypto").core.public_names.reference(@This(), &.{});
-    // The hooks a test binary defines, as every program that links chapulin does.
-    _ = @import("test_hooks.zig");
 }

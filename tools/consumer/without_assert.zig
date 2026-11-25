@@ -1,6 +1,6 @@
-//! A program that runs `colibri.tls` and defines no `ch_assert_fail`, chapulin's one hook: the
-//! other half of design §8 step 16's check. The program must not link, and the linker must name the
-//! hook it lacks. tools/consumer_check.sh builds it and requires that failure.
+//! A program that runs `colibri.tls` and declares no chapulin hook. chapulin's module defines
+//! `ch_assert_fail`, so the program links (decision 172). tools/consumer_check.sh builds it, and
+//! never runs it.
 const std = @import("std");
 const tls = @import("colibri").tls;
 
@@ -10,13 +10,13 @@ var client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
 const empty_sequence = [_]u8{ 0x30, 0 };
 const now_seconds: u64 = 1_800_000_000;
 
-/// A source the program never draws from, because it never links.
+/// A source the program never draws from, because no check runs it.
 var source_state: u8 = 0;
 const source: std.Random = .{ .ptr = &source_state, .fillFn = fill_source };
 
 fn fill_source(_: *anyopaque, buffer: []u8) void {
     _ = buffer;
-    @panic("a program that does not link draws nothing");
+    @panic("a program no check runs draws nothing");
 }
 
 pub fn main() !void {

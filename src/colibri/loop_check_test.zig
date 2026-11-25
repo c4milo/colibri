@@ -132,15 +132,6 @@ fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: an
     response.status = .internal_server_error;
 }
 
-/// chapulin's one hook, which a program that links `tls` defines.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-}
-
 /// A source that fills each octet with 0. A program passes its own entropy.
 const Zero = struct {
     fn fill(_: *Zero, buffer: []u8) void {

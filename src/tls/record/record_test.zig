@@ -2,7 +2,7 @@
 //! of the library's TCP object run against each other in memory (`record_test_support.zig`).
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");

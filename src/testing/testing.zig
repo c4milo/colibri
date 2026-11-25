@@ -8,18 +8,13 @@
 //! (design §8 steps 4 and 15d).
 const std = @import("std");
 
-pub const hooks = @import("tls/hooks.zig");
 pub const memset = @import("memset.zig");
 pub const server_identity = @import("tls/server_identity.zig");
 pub const constants = @import("constants.zig");
 
 comptime {
-    // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
-    // `ch_assert_fail`, and `tls/hooks.zig` exports it. Zig analyses a file only when something
-    // references it, and in a build with no tests nothing here does, so the export would be missing
-    // and the link would fail. This reference is what forces the analysis. The one to `memset`
-    // keeps that file's export in the program `bench/run.sh` measures.
-    _ = hooks;
+    // Zig analyses a file only when something references it. This reference keeps `memset.zig`'s
+    // export in the program `bench/run.sh` measures.
     _ = memset;
 }
 
@@ -35,7 +30,6 @@ pub const main = server.main;
 
 test {
     std.testing.refAllDecls(@This());
-    _ = hooks;
     _ = memset;
     _ = server_identity;
     _ = constants;

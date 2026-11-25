@@ -3,7 +3,7 @@
 //! algorithm 1 is SHA-1 (RFC 5155 §5).
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin_tcp");
+const chapulin = @import("chapulin").tcp;
 const protocol = @import("constants.zig").protocol;
 const algorithm_file = @import("algorithm.zig");
 

@@ -273,6 +273,4 @@ test {
     // `zig build router-hidden-check` runs `router/router_hidden_test.zig` and
     // `router/router_quota_test.zig`, each in a binary of its own, because each compile takes
     // about a minute (the owner's rulings of 2026-10-14).
-    // The hook a test binary defines, as every program that links chapulin does.
-    _ = @import("test_hooks.zig");
 }

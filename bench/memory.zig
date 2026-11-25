@@ -78,16 +78,6 @@ pub fn main() !void {
     std.debug.print("{s}", .{try write_table(&output)});
 }
 
-/// chapulin's one hook, which every program that links `tls` defines (decision 94): a failed
-/// chapulin assertion ends the program. This one builds no session, so it never runs.
-fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
-    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
-
-comptime {
-    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-}
-
 test "docs/performance.md holds the table this build prints" {
     var output: [table_len_max]u8 = undefined;
     const table = try write_table(&output);
