@@ -6,7 +6,7 @@
 //! are trusted because the operator placed them.
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto.tls;
 const constants = @import("constants.zig");
 const values = @import("values.zig");
 const config = @import("config.zig");

@@ -33,9 +33,9 @@ The architecture depends on every rule in this section.
    `colibri` module binds and runs the loop on Rotor's own calls, in `src/colibri/rotor_host*.zig`
    alone (decision 159). Every other module stays as this rule says.
 2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
-   TLS stack and its packet protection, pinned by commit and hash in `build.zig.zon` and compiled
-   by colibri's build (decision 94, which amends decisions 8, 9, 10 and 48; design §8 step 16
-   carries the move). The two vtables `tls_provider.Provider` and `crypto.Suite` stay inside colibri, with
+   TLS stack and its packet protection (decision 94, which amends decisions 8, 9, 10 and 48;
+   design §8 step 16 carries the move). colibri reads it as `stdx.crypto`, from the stdx commit
+   `build.zig.zon` pins, and pins no chapulin of its own (decision 174). The two vtables `tls_provider.Provider` and `crypto.Suite` stay inside colibri, with
    two implementations: chapulin's, and the null ones in `src/sim/`, which are test-only, are never
    packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
    and packet protection key; colibri never holds one and never chooses a cipher suite.
@@ -302,8 +302,8 @@ tree. Design §11 holds the method and the numbers.
 ## Ask before
 
 - Changing a named limit: a value in a `constants_limits.zig`, whose test pins it (decision 137).
-- Adding a dependency. The library has two: chapulin, which it links for TLS and packet
-  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports, whose zstd and
+- Adding a dependency. The library has one: stdx, whose `crypto` is chapulin, which it links for
+  TLS and packet protection (decisions 94 and 174), whose gzip and deflate decoders h11 imports, whose zstd and
   brotli decoders the client imports, and whose JSON module qlog imports (decisions 90, 91, 101
   and 102). stdx's `platform` probes the CPU: a program
   calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
@@ -593,13 +593,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   `bench/router/competitors/convert_routes.py` wrote from published API descriptions, each pinned
   in its `<table>_routes.LICENSE` (design §8 step 13h). It needs Docker, and Zig 0.17 for http.zig; it is not part of `tools/ci.sh`, and its
   numbers are never published.
-- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build asks the package once, for
+- chapulin: stdx pins it, and colibri reads it as `stdx.crypto` (decision 174). colibri's build
+  gives stdx `.crypto = true`, and stdx asks chapulin once, for
   `TRANSPORT=nonblocking RAND=session ROLE=both TRUST=webpki` (decision 172). That one module holds
   two objects: the TCP object, `chapulin.tcp`, with `EXPORTER=on TX_RECORD=16384`, and `DNSSEC`,
   `JWS` and `SCRAM` on for a host target and off for another (decisions 142 and 162), and the QUIC
   object, `chapulin.quic`. colibri exports nothing of
-  chapulin: a program that calls chapulin names it at colibri's pin, with colibri's request
-  (decision 162, docs/usage.md). On x86-64 and arm64 each is
+  chapulin: a program that calls chapulin reads it as `stdx.crypto` from the stdx colibri pins,
+  with colibri's options (decisions 162 and 174, docs/usage.md). On x86-64 and arm64 each is
   chapulin's host object, `SUITE=aesgcm` with no `AES`, `WIDEMUL` or `CHACHA` value: it holds every
   fast path beside the portable code, and each session picks from the `tls.Cpu` its caller passes,
   which has no default: the `platform.Cpu` the program's one probe returned, and the `tls.Timing`
@@ -613,7 +614,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
   `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC
   endpoints, and `tls_keylog`'s tests, through `tls_keylog`, whose objects are built `KEYLOG=on`
-  so a capture can be decrypted. The package exports the module `chapulin`: chapulin's Zig API
+  so a capture can be decrypted. Those come from a second stdx, built with `crypto_keylog`, and
+  `build/modules_keylog.zig` makes the modules that read stdx again over it, since a file belongs
+  to one module of a compile alone (decision 174). The package exports the module `chapulin`: chapulin's Zig API
   (its `docs/zig.md`) for each object, which carries the object, with the public headers translated
   under the object's own defines as its `c`. Because the module carries the objects, nothing else
   may add one: a second copy fails the link. chapulin's module defines `ch_assert_fail` (decision
@@ -626,8 +629,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   describe the build target's probe with the timing stated, and run every description where the
   target has the instructions. `zig build
   test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES
-  instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
-  --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
+  instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. chapulin moves with a stdx
+  bump, to the chapulin commit that stdx pins.
 - TLS checks: `tools/tls_handshake.sh` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh` one with colibri as the server against a Go client,
   which also moves a record each way and ends on the client's `close_notify`. Each then runs a

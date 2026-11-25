@@ -87,7 +87,7 @@ Your program asks its CPU once, through [stdx](https://github.com/c4milo/stdx)'s
 module. Depend on stdx at the commit colibri's `build.zig.zon` pins, with colibri's options:
 
 ```zig
-const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
 exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 

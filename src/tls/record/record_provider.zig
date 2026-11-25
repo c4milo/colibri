@@ -13,14 +13,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto.tls;
 
 const c = chapulin.c;
 const provider_module = tls_provider.provider;
 
 /// Room for what a `read` sends: the alert a failed read raises (RFC 9846 §6). chapulin's `write`
 /// sends the answer to a KeyUpdate, so a `read` sends nothing else.
-pub const owed_len_max = chapulin.tcp.alert_record_len;
+pub const owed_len_max = chapulin.alert_record_len;
 
 /// RFC 9846 §4.3.1: chapulin speaks TLS 1.3 and nothing else.
 const tls_1_3 = tls_provider.constants.protocol.version_tls_1_3;
@@ -247,7 +247,7 @@ fn next_alert(role: anytype) ?tls_provider.AlertReport {
 /// fits, so an output too short for it is refused before chapulin is called.
 fn close_notify(role: anytype, output: []u8) provider_module.CloseError!usize {
     if (role.state.closed) return 0;
-    if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
+    if (output.len < chapulin.alert_record_len) return error.NoSpaceLeft;
     const written = role.session.end(output) catch unreachable;
     role.state.closed = true;
     return written;
@@ -272,7 +272,7 @@ pub const FailError = error{
 /// session fails. chapulin wipes the keys once it is called, so an output too short for the alert
 /// is refused before chapulin is called, as `close_notify` refuses one.
 pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailError!usize {
-    if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
+    if (output.len < chapulin.alert_record_len) return error.NoSpaceLeft;
     const written = role.session.fail(@enumFromInt(@intFromEnum(description)), output) catch |failure| return switch (failure) {
         // RFC 9846 §6.2: chapulin takes the error alerts alone, and the session stays as it was.
         error.Invalid => error.NotErrorAlert,
@@ -283,7 +283,7 @@ pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailEr
         // The output holds a whole alert record, which the check above made sure of.
         error.Io => unreachable,
     };
-    assert(written > 0 and written <= chapulin.tcp.alert_record_len);
+    assert(written > 0 and written <= chapulin.alert_record_len);
     return written;
 }
 

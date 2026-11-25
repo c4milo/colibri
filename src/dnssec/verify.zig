@@ -2,7 +2,7 @@
 //! wrote, under a DNSKEY's key. chapulin verifies; colibri holds no key of its own.
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto;
 const algorithm_file = @import("algorithm.zig");
 const hash_file = @import("hash.zig");
 

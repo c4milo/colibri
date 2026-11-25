@@ -2,7 +2,7 @@
 //! of the library's TCP object run against each other in memory (`record_test_support.zig`).
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto.tls;
 const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");
@@ -142,7 +142,7 @@ test "RFC 9846 §6: a record that does not authenticate fails, and its alert is 
     var short: [1]u8 = undefined;
     try testing.expectError(error.NoSpaceLeft, receiver.handshake_write(&short, 0));
     const written = try receiver.handshake_write(to_client.free(), 0);
-    try testing.expectEqual(chapulin.tcp.alert_record_len, written);
+    try testing.expectEqual(chapulin.alert_record_len, written);
     to_client.len += written;
     try testing.expectEqual(0, try receiver.handshake_write(to_client.free(), 0));
     try testing.expectError(error.TlsFailed, sender.decrypt_record(to_client.held(), scratch));

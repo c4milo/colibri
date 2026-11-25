@@ -18024,6 +18024,23 @@ instructions and draws a different CPU from run to run.
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache. Rotor's half ran
     `zig build test` there too, where each failure was an IPv6 test.
+- **Step 77 — colibri takes chapulin through stdx, 2026-11-25** ([decision 174](decisions.md)).
+  No public name changes. stdx is pinned at `ad15515e`, whose `stdx.crypto` is chapulin's one
+  module at `f29c066a`, and colibri's `build.zig.zon` names no chapulin.
+  - `build/modules_stdx.zig` asks stdx for `.crypto = true`, and `tls` and `dnssec` read
+    `@import("stdx").crypto`. `build/modules_chapulin.zig` is gone.
+  - `build/modules_keylog.zig` makes `qlog`, `quic`, `h3`, `h11` and `tls` again over a second
+    stdx with `crypto_keylog`, for the QUIC endpoints and `tls_keylog`'s tests.
+  - The root of `qlog` and `h11`'s `coding.zig` reference `stdx.crypto`, so their test binaries
+    keep chapulin's `ch_assert_fail` beside the objects that stdx links.
+  - README.md, docs/usage.md and the consumers pass stdx `.crypto = true`.
+  - Mutations, each CAUGHT: `qlog`'s root without its reference fails `zig build test-qlog` on an
+    undefined `ch_assert_fail`, `coding.zig` without its reference fails `zig build test-h11` the
+    same way, and the library's request naming `crypto_keylog = false` gives a dependent a second
+    stdx, which `tools/consumer_check.sh` refuses.
+  - Run on x86-64 Linux: `zig build test`, 4,278 of 4,280, with 1 skipped and the IPv6 test
+    failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
+    `tools/consumer_check.sh`, with the packages from Zig's cache.
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on

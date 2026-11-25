@@ -30,20 +30,14 @@
             .hash = "N-V-__8AACPGUgeB6kOEJXkaQuKfDvAXxeXYW9wcU6TpfDty",
             .lazy = true,
         },
-        // The TLS stack and the packet protection (decision 94), compiled from source with
-        // `RAND=session` in each configuration colibri uses (design §8 step 16). The library's
-        // `tls` module imports it, so it is not lazy: a project that depends on colibri fetches it
-        // too.
-        .chapulin = .{
-            .url = "git+https://github.com/c4milo/chapulin#bda41cf6bfa38436a40c8a252610957c47eb3b5b",
-            .hash = "chapulin-0.10.0-btv9NnAVPwCZRLdko4vhTnjcqeCa034tsWHgKjn267Nl",
-        },
-        // The decoders of the gzip and deflate transfer codings h11 reads (decisions 90 and 91,
-        // design §8 step 14). The library imports it, so it is not lazy: a project that depends on
-        // colibri fetches it too.
+        // The codecs h11, the server and the client code content with (decisions 90, 91 and 101),
+        // the JSON writer of qlog (decision 102), the CPU probe's types (decision 97), and
+        // chapulin, the TLS stack and the packet protection, as `stdx.crypto` (decision 174). The
+        // library imports it, so it is not lazy: a project that depends on colibri fetches it, and
+        // stdx fetches chapulin for it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#b643d581762bf1273b37d1ec41b5e42d8062b992",
-            .hash = "stdx-0.3.0-BD60tmbTWgCw57shekeCHdudd5t82i8Nn2Ad0yzpAFQv",
+            .url = "git+https://github.com/c4milo/stdx#ad15515e98c5d4de4514b8c8ef3c194c6d6e0615",
+            .hash = "stdx-0.3.0-BD60tsvjXAADz-STEfby279IxevTinudEa9g7CksH3uB",
         },
     },
     .paths = .{

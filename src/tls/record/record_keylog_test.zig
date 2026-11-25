@@ -6,7 +6,7 @@
 //! object that does.
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto.tls;
 const support = @import("record_test_support.zig");
 
 const c = chapulin.c;
@@ -143,7 +143,7 @@ test "RFC 9846 §4.7.3: a KeyUpdate that asks is answered in front of the next r
     // chapulin sends the answer from `write`, so no handshake octet is owed.
     try testing.expectEqual(0, try receiver.handshake_write(&output_storage, 0));
     // An output that holds the answer and no record of data takes nothing.
-    const answer_len = chapulin.tcp.key_update_record_len;
+    const answer_len = chapulin.key_update_record_len;
     try testing.expectError(error.NoSpaceLeft, receiver.encrypt_record("after", output_storage[0..answer_len]));
     // Empty plaintext writes nothing, and the answer stays owed.
     const empty = try receiver.encrypt_record("", &output_storage);
@@ -178,7 +178,7 @@ test "RFC 9846 §4.7.3: two KeyUpdates in a row that ask get one answer" {
     }
     // One KeyUpdate under the server's first keys, and the data one generation on.
     const sealed = try receiver.encrypt_record("after", &output_storage);
-    const answer_len = chapulin.tcp.key_update_record_len;
+    const answer_len = chapulin.key_update_record_len;
     var inner: [content_len_max]u8 = undefined;
     const answer = open(Keys.init(logged.server), 0, output_storage[0..answer_len], &inner).?;
     try testing.expectEqualSlices(u8, &key_update_not_requested, answer.content);
@@ -194,7 +194,7 @@ test "RFC 9846 §4.7.3: the close_notify after a KeyUpdate that asks has no answ
     // The answer is owed only before application data. The alert is the one record written, under
     // the server's first keys.
     const written = try receiver.send_close_notify(&output_storage);
-    try testing.expectEqual(chapulin.tcp.alert_record_len, written);
+    try testing.expectEqual(chapulin.alert_record_len, written);
     var inner: [content_len_max]u8 = undefined;
     const alert = open(Keys.init(logged.server), 0, output_storage[0..written], &inner).?;
     try testing.expectEqual(content_alert, alert.content_type);
@@ -233,7 +233,7 @@ test "RFC 9846 §5.1: a KeyUpdate that does not end its record fails the connect
     try testing.expectError(error.TlsFailed, receiver.decrypt_record(update, &support.scratch));
     // Only the alert is owed: the record failed before the first KeyUpdate took effect.
     const owed = try receiver.handshake_write(&output_storage, 0);
-    try testing.expectEqual(chapulin.tcp.alert_record_len, owed);
+    try testing.expectEqual(chapulin.alert_record_len, owed);
 }
 
 test "RFC 9846 §4.7.3: a KeyUpdate asking for neither answer fails with illegal_parameter" {
@@ -262,7 +262,7 @@ test "a run of KeyUpdates past chapulin's limit fails the read as KeyUpdates, an
     try testing.expectError(error.KeyUpdates, receiver.decrypt_record(past, &support.scratch));
     // The alert alone is owed, under the server's first keys: no answer was sent.
     const owed_len = try receiver.handshake_write(&output_storage, 0);
-    try testing.expectEqual(chapulin.tcp.alert_record_len, owed_len);
+    try testing.expectEqual(chapulin.alert_record_len, owed_len);
     var inner: [content_len_max]u8 = undefined;
     const alert = open(Keys.init(logged.server), 0, output_storage[0..owed_len], &inner).?;
     try testing.expectEqual(content_alert, alert.content_type);

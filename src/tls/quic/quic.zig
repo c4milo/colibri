@@ -11,7 +11,7 @@
 const std = @import("std");
 const tls_provider = @import("tls_provider");
 const crypto = @import("crypto");
-const chapulin = @import("chapulin").quic;
+const chapulin = @import("stdx").crypto.quic;
 const constants = @import("../constants.zig");
 const values = @import("../values.zig");
 const config_module = @import("../config.zig");
@@ -29,11 +29,11 @@ pub const token_key_len = quic_suite.token_key_len;
 /// The version a client's session starts in when neither its configuration nor the ticket it
 /// offers names one (decision 111): version 1 (RFC 9000 §15). It is the oldest version colibri's
 /// `quic` speaks, which RFC 9368 §2.5 suggests as a client's original version.
-const original_version_default: chapulin.quic.Version = .v1;
+const original_version_default: chapulin.Version = .v1;
 
 /// The version a ticket's connection negotiated, which RFC 9369 §5 binds it to, or null for no
 /// ticket, a ticket a TCP connection issued, or a version colibri does not run.
-fn ticket_version(resumption: ?values.Resumption) ?chapulin.quic.Version {
+fn ticket_version(resumption: ?values.Resumption) ?chapulin.Version {
     const offer = resumption orelse return null;
     const named = std.enums.fromInt(crypto.suite.Version, offer.ticket.quic_version) orelse return null;
     return @enumFromInt(@intFromEnum(named));
@@ -47,7 +47,7 @@ pub const Error = error{
 };
 
 pub const Client = struct {
-    session: chapulin.quic.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
+    session: chapulin.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The values this connection starts from, which chapulin reads when its session starts.
@@ -141,7 +141,7 @@ pub const Client = struct {
 };
 
 pub const Server = struct {
-    session: chapulin.quic.Server(constants.limits.receive_len, config_module.server_limits_of(chapulin)),
+    session: chapulin.Server(constants.limits.receive_len, config_module.server_limits_of(chapulin)),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.
@@ -193,7 +193,7 @@ pub const Server = struct {
 
     /// chapulin's `choose_version` (its decision 79), once the client's transport parameters are
     /// here and before anything is sent. The hook's context is the provider's state, this server's.
-    fn choose_version(context: ?*anyopaque) chapulin.quic.Version {
+    fn choose_version(context: ?*anyopaque) chapulin.Version {
         const state: *State = @ptrCast(@alignCast(context.?));
         const server: *Server = @fieldParentPtr("state", state);
         const chooser = state.chooser.?;
@@ -224,8 +224,8 @@ test "design §8 step 63: a server session takes the server's limits, and a clie
     // A server's limits hold no trust anchors, which only a client fills.
     const server_limits = comptime config_module.server_limits_of(chapulin);
     try std.testing.expectEqual(0, server_limits.anchors_max);
-    try std.testing.expect(@FieldType(Server, "session") == chapulin.quic.Server(constants.limits.receive_len, server_limits));
-    try std.testing.expect(@FieldType(Client, "session") == chapulin.quic.Client(constants.limits.receive_len, config_module.limits_of(chapulin)));
+    try std.testing.expect(@FieldType(Server, "session") == chapulin.Server(constants.limits.receive_len, server_limits));
+    try std.testing.expect(@FieldType(Client, "session") == chapulin.Client(constants.limits.receive_len, config_module.limits_of(chapulin)));
 }
 
 test "decision 115: a client's and a server's public calls are these" {

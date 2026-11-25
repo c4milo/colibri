@@ -24,28 +24,27 @@ pub fn add(
     testing_udp.addAnonymousImport("github_routes", .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") });
     testing_udp.addAnonymousImport("kubernetes_sample_routes", .{ .root_source_file = b.path("bench/router/competitors/kubernetes_sample_routes.txt") });
     testing_udp.addImport("h2", graph.h2);
-    testing_udp.addImport("quic", graph.quic);
+    testing_udp.addImport("quic", graph.keylog.quic);
     // The h3 server and client of design §9, ruled by the owner on 2026-09-24.
-    testing_udp.addImport("h3", graph.h3);
+    testing_udp.addImport("h3", graph.keylog.h3);
     testing_udp.addImport("rotor", rotor);
     testing_udp.addImport("tls", graph.tls_keylog);
-    testing_udp.addImport("chapulin", graph.chapulin_keylog.module("chapulin"));
     // Design §8 step 17b: the h3 server runs on `server`, ruled by the owner on 2026-09-28. The
     // endpoint links `tls_keylog`'s objects, and a second chapulin object fails the link, so it
     // takes an instance of `server` over `tls_keylog`, which nothing packaged sees.
     const server_keylog = create(b, "src/server/server.zig", target, optimize);
     server_keylog.addImport("core", graph.core);
     server_keylog.addImport("http", graph.http);
-    server_keylog.addImport("h11", graph.h11);
+    server_keylog.addImport("h11", graph.keylog.h11);
     server_keylog.addImport("h2", graph.h2);
-    server_keylog.addImport("h3", graph.h3);
-    server_keylog.addImport("quic", graph.quic);
+    server_keylog.addImport("h3", graph.keylog.h3);
+    server_keylog.addImport("quic", graph.keylog.quic);
     server_keylog.addImport("tls", graph.tls_keylog);
     server_keylog.addImport("tls_provider", graph.tls_provider);
-    server_keylog.addImport("stdx", graph.stdx.module("stdx"));
+    server_keylog.addImport("stdx", graph.keylog.stdx.module("stdx"));
     testing_udp.addImport("server", server_keylog);
     // Decision 97 as amended: the endpoint asks its CPU once, through stdx's `platform`.
-    testing_udp.addImport("stdx", graph.stdx.module("stdx"));
+    testing_udp.addImport("stdx", graph.keylog.stdx.module("stdx"));
     testing_udp.link_libc = true;
     return testing_udp;
 }

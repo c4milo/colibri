@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const colibri = b.dependency("colibri", .{ .target = target, .release = true });
     // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`,
     // from the stdx colibri pins.
-    const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+    const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
 
     const exe = b.addExecutable(.{ .name = "consumer-hosted", .root_module = program(b, "main.zig", target) });
     // Decision 170: `colibri` is the one module of the package, and its root names `h11` and `tls`.

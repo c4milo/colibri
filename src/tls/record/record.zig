@@ -10,7 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto.tls;
 const constants = @import("../constants.zig");
 const values = @import("../values.zig");
 const config_module = @import("../config.zig");
@@ -25,7 +25,7 @@ pub const State = record_provider.State;
 /// Octets of a sealed alert record, chapulin's `alert_record_len` (RFC 9846 §5.2, §6). A client's
 /// `handshake` reads the server's flight only into an output with this much room left, so the
 /// alert a refused flight owes fits the call that fails.
-pub const alert_record_len: usize = chapulin.tcp.alert_record_len;
+pub const alert_record_len: usize = chapulin.alert_record_len;
 
 /// Why `Client.fail` or `Server.fail` sent no alert.
 pub const FailError = record_provider.FailError;
@@ -54,7 +54,7 @@ pub const Progress = struct {
 };
 
 pub const Client = struct {
-    session: chapulin.tcp.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
+    session: chapulin.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
@@ -193,7 +193,7 @@ pub const Client = struct {
 };
 
 pub const Server = struct {
-    session: chapulin.tcp.Server(constants.limits.receive_len, config_module.server_limits_of(chapulin)),
+    session: chapulin.Server(constants.limits.receive_len, config_module.server_limits_of(chapulin)),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
@@ -278,8 +278,8 @@ test "design §8 step 63: a server session takes the server's limits, and a clie
     // A server's limits hold no trust anchors, which only a client fills.
     const server_limits = comptime config_module.server_limits_of(chapulin);
     try std.testing.expectEqual(0, server_limits.anchors_max);
-    try std.testing.expect(@FieldType(Server, "session") == chapulin.tcp.Server(constants.limits.receive_len, server_limits));
-    try std.testing.expect(@FieldType(Client, "session") == chapulin.tcp.Client(constants.limits.receive_len, config_module.limits_of(chapulin)));
+    try std.testing.expect(@FieldType(Server, "session") == chapulin.Server(constants.limits.receive_len, server_limits));
+    try std.testing.expect(@FieldType(Client, "session") == chapulin.Client(constants.limits.receive_len, config_module.limits_of(chapulin)));
 }
 
 test "decision 115: a client's and a server's public calls are these" {

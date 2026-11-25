@@ -81,54 +81,32 @@ through `@import("stdx").platform`, since stdx exports the one module `stdx`
 ([decision 171](decisions.md)): `platform.CpuFeatures.detect()` for each configuration's
 `cpu_features`, and `platform.probe()` for TLS ([decision 97](decisions.md)). Depend on stdx at the
 commit colibri's `build.zig.zon` pins, and give it the options colibri gives it, so both reach one
-`platform` module and one `platform.Cpu`:
+stdx module. A second stdx fails the build, since Zig puts a file in one module alone:
 
 ```zig
-const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
 exe.root_module.addImport("stdx", stdx.module("stdx"));
 ```
 
 A program that codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the
 same stdx.
 
-`colibri` links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, and a
-program defines nothing for it (decision 172). The section "TLS" shows how a program replaces
-chapulin's report of a failed assertion.
-
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
-### Naming chapulin beside colibri
+### chapulin, through stdx
 
-colibri exports nothing of chapulin ([decision 162](decisions.md)). A program that calls chapulin
-itself, for example to check a JSON Web Signature, names chapulin in its own `build.zig.zon` at
-the commit colibri pins. Its build then asks for chapulin's module with exactly the request
-colibri makes. Zig keys a dependency by its package and its options, so the two requests give
-one module. A request that differs in one value fails the link with a duplicate symbol.
+colibri links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, as
+`stdx.crypto` ([decision 174](decisions.md)). stdx alone asks chapulin for its module, with the
+option `.crypto = true` that colibri passes, so a program that links stdx links one chapulin. The
+module defines `ch_assert_fail`, so the program defines nothing for it
+([decision 172](decisions.md)). The section "TLS" shows how a program replaces chapulin's report of
+a failed assertion.
 
-colibri pins chapulin at commit `bda41cf6`, and asks it once ([decision 172](decisions.md)). The
-one module, `chapulin`, holds the object file for TLS over TCP as `chapulin.tcp`, and the one for
-QUIC as `chapulin.quic`. It defines `ch_assert_fail`, so the program defines no hook. The request
-names these options, and no other key. A host target is arm64 with NEON or x86-64 with SSE2.
-
-| Option | On a host target | On another target |
-| --- | --- | --- |
-| `target` | the target your build gives colibri, unchanged | the same |
-| `RAND` | `.session` | `.session` |
-| `TRANSPORT` | `.nonblocking` | `.nonblocking` |
-| `ROLE` | `.both` | `.both` |
-| `TRUST` | `.webpki` | `.webpki` |
-| `EXPORTER` | `.on` | `.on` |
-| `SUITE` | `.aesgcm` | `.chacha` |
-| `TX_RECORD` | `"16384"` | `"16384"` |
-| `KEYLOG` | `.off` | `.off` |
-| `DNSSEC` | `.on` | `.off` |
-| `JWS` | `.on` | `.off` |
-| `SCRAM` | `.on` | `.off` |
-
-chapulin gives `EXPORTER`, `TX_RECORD`, `DNSSEC`, `JWS` and `SCRAM` to the TCP object alone. A
-release of colibri that changes the pin, an option or a key says so in its notes.
-`build/modules_chapulin.zig` holds the request.
+A program that calls chapulin itself, for example to check a JSON Web Signature, reads it from the
+same stdx: `@import("stdx").crypto.jws`, `.dnssec`, `.scram`, `.hash`, and the sessions of
+`.tls` and `.quic`. It names no chapulin package of its own. stdx's `build/crypto.zig` holds the
+request, and stdx's `src/crypto/README.md` names each call.
 
 ## What your program owns
 

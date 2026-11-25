@@ -3,11 +3,11 @@
 //! all. A device object holds no DNSSEC, so there `algorithm` names none.
 const std = @import("std");
 const assert = std.debug.assert;
-const chapulin = @import("chapulin").tcp;
+const chapulin = @import("stdx").crypto;
 const protocol = @import("constants.zig").protocol;
 
 /// Whether the object colibri links holds chapulin's DNSSEC calls: a host object does.
-pub const available = @hasDecl(chapulin.c, "ch_dnssec_verify");
+pub const available = @hasDecl(chapulin.tls.c, "ch_dnssec_verify");
 
 pub const Algorithm = enum(u8) {
     rsasha256 = protocol.algorithm_rsasha256,
@@ -32,10 +32,10 @@ pub fn chapulin_of(chosen: Algorithm) chapulin.dnssec.Algorithm {
 
 comptime {
     if (available) {
-        assert(protocol.algorithm_rsasha256 == chapulin.c.CH_DNSSEC_ALG_RSASHA256);
-        assert(protocol.algorithm_rsasha512 == chapulin.c.CH_DNSSEC_ALG_RSASHA512);
-        assert(protocol.algorithm_ecdsap256sha256 == chapulin.c.CH_DNSSEC_ALG_ECDSAP256SHA256);
-        assert(protocol.algorithm_ecdsap384sha384 == chapulin.c.CH_DNSSEC_ALG_ECDSAP384SHA384);
-        assert(protocol.algorithm_ed25519 == chapulin.c.CH_DNSSEC_ALG_ED25519);
+        assert(protocol.algorithm_rsasha256 == chapulin.tls.c.CH_DNSSEC_ALG_RSASHA256);
+        assert(protocol.algorithm_rsasha512 == chapulin.tls.c.CH_DNSSEC_ALG_RSASHA512);
+        assert(protocol.algorithm_ecdsap256sha256 == chapulin.tls.c.CH_DNSSEC_ALG_ECDSAP256SHA256);
+        assert(protocol.algorithm_ecdsap384sha384 == chapulin.tls.c.CH_DNSSEC_ALG_ECDSAP384SHA384);
+        assert(protocol.algorithm_ed25519 == chapulin.tls.c.CH_DNSSEC_ALG_ED25519);
     }
 }

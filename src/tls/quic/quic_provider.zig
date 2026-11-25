@@ -15,24 +15,24 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin").quic;
+const chapulin = @import("stdx").crypto.quic;
 const constants = @import("../constants.zig");
 
 const c = chapulin.c;
 const provider_module = tls_provider.quic_provider;
 const Level = tls_provider.Level;
-const level_count = chapulin.quic.level_count;
+const level_count = chapulin.level_count;
 
 comptime {
     // RFC 9001 §4.1.4: colibri's levels are chapulin's, value for value.
     assert(level_count == tls_provider.core.levels_count);
     for ([_]Level{ .initial, .handshake, .application }) |level| {
-        assert(@intFromEnum(level) == @intFromEnum(@field(chapulin.quic.Level, @tagName(level))));
+        assert(@intFromEnum(level) == @intFromEnum(@field(chapulin.Level, @tagName(level))));
     }
 }
 
 /// chapulin's name for a level colibri names.
-pub fn level_of(level: Level) chapulin.quic.Level {
+pub fn level_of(level: Level) chapulin.Level {
     return @enumFromInt(@intFromEnum(level));
 }
 
@@ -176,7 +176,7 @@ fn client_in(role: anytype, level: Level, data: []const u8) !void {
 
 fn server_in(role: anytype, level: Level, data: []const u8) !void {
     const state = &role.state;
-    var outgoing: chapulin.quic.Outgoing = .{ .buffers = undefined };
+    var outgoing: chapulin.Outgoing = .{ .buffers = undefined };
     for (&outgoing.buffers, &state.outgoing, state.outgoing_len) |*buffer, *storage, len| buffer.* = storage[len..];
     defer for (&state.outgoing_len, outgoing.written) |*len, written| {
         len.* += written;

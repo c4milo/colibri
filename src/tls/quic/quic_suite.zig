@@ -11,7 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
-const chapulin = @import("chapulin").quic;
+const chapulin = @import("stdx").crypto.quic;
 const constants = @import("../constants.zig");
 const quic_provider = @import("quic_provider.zig");
 
@@ -23,12 +23,12 @@ const level_of = quic_provider.level_of;
 comptime {
     // colibri's directions and key sets are chapulin's, value for value.
     for ([_]crypto.Direction{ .read, .write }) |direction| {
-        assert(@intFromEnum(direction) == @intFromEnum(@field(chapulin.quic.Direction, @tagName(direction))));
+        assert(@intFromEnum(direction) == @intFromEnum(@field(chapulin.Direction, @tagName(direction))));
     }
     assert(crypto.constants.protocol.retry_integrity_tag_len == c.GCM_TAG);
     // colibri's versions are chapulin's, value for value (RFC 9000 §15, RFC 9369 §3.1).
     for (std.enums.values(suite_module.Version)) |named| {
-        assert(@intFromEnum(named) == @intFromEnum(@field(chapulin.quic.Version, @tagName(named))));
+        assert(@intFromEnum(named) == @intFromEnum(@field(chapulin.Version, @tagName(named))));
     }
 }
 
@@ -39,7 +39,7 @@ const packet_number_len_mask: u8 = 0x03;
 /// chapulin's name for `named`, which the comptime block above holds to the same value. Each
 /// packet call names its own version, which chapulin derives the keys, salt and Retry key of
 /// (RFC 9001 §5.2, §5.8; RFC 9369 §3.3).
-fn chapulin_version(named: suite_module.Version) chapulin.quic.Version {
+fn chapulin_version(named: suite_module.Version) chapulin.Version {
     return @enumFromInt(@intFromEnum(named));
 }
 
@@ -219,7 +219,7 @@ fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseud
     _ = context;
     // RFC 9369 §3.3.3: chapulin refuses only a version it derives no Retry key for, and a server
     // over it then sends no Retry.
-    chapulin.quic.retry_tag(chapulin_version(named), pseudo_packet, tag) catch return error.Unsupported;
+    chapulin.retry_tag(chapulin_version(named), pseudo_packet, tag) catch return error.Unsupported;
 }
 
 /// A session mints no token: a server writes its Retry with `Retry`, before the session exists.
@@ -278,8 +278,8 @@ fn retry_token_write(context: *anyopaque, named: suite_module.Version, address: 
     const retry: *const Retry = @ptrCast(@alignCast(context));
     // RFC 9000 §17.2: a connection ID holds at most 20 bytes, and chapulin's IDs hold as many.
     comptime assert(crypto.constants.protocol.connection_id_len_max <= c.CH_QUIC_DCID_MAX);
-    const cids = chapulin.quic.RetryConnectionIds.init(ids.original_destination_slice(), ids.retry_source_slice()) catch unreachable;
-    return chapulin.quic.token_mint(retry.key, chapulin_version(named), address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
+    const cids = chapulin.RetryConnectionIds.init(ids.original_destination_slice(), ids.retry_source_slice()) catch unreachable;
+    return chapulin.token_mint(retry.key, chapulin_version(named), address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
         error.Cap => error.NoSpaceLeft,
         // RFC 9000 §8.1.4: an address longer than chapulin binds.
         error.Invalid => error.Unsupported,
@@ -288,7 +288,7 @@ fn retry_token_write(context: *anyopaque, named: suite_module.Version, address: 
 
 fn retry_token_check(context: *const anyopaque, named: suite_module.Version, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
     const retry: *const Retry = @ptrCast(@alignCast(context));
-    const found = chapulin.quic.token_check(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
+    const found = chapulin.token_check(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
     return switch (found) {
         .retry => |cids| .{ .retry = .init(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
         // RFC 9000 §8.1.3: not a Retry token, which leaves the client's address unvalidated.

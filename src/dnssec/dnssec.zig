@@ -30,8 +30,9 @@ pub const verify = files.verify.verify;
 comptime {
     // chapulin's module exports `ch_assert_fail` from a comptime block, and Zig runs that block
     // only when something references the module. The library links chapulin's objects whenever a
-    // program imports this module, so this reference keeps the export beside them (decision 172).
-    _ = @import("chapulin");
+    // program imports this module, so this reference keeps the export beside them (decisions 172
+    // and 174).
+    _ = @import("stdx").crypto;
 }
 
 test "decision 115: the root exports the names code outside the module uses" {

@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
     // `platform.Cpu`, the probe colibri's `tls.Cpu` holds. stdx exports the one module `stdx`
     // (decision 171), so the program writes `@import("stdx").platform`, and codes content with
     // `@import("stdx").compress.gzip`.
-    const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+    const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
     exe.root_module.addImport("stdx", stdx.module("stdx"));
     // Decision 170: the package exports `colibri` alone. tools/consumer_check.sh passes
     // `-Dnamed-module=h2` and requires the build to stop, because the package has no module of

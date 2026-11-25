@@ -4,7 +4,7 @@
 //! may read the operating system's entropy; the library may not, and does not (invariant 5).
 const std = @import("std");
 const tls = @import("tls");
-const chapulin = @import("chapulin").quic;
+const chapulin = @import("stdx").crypto.quic;
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
 const identity_files = @import("../../tls/server_identity.zig");
