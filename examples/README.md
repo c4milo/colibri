@@ -1,7 +1,7 @@
 # Examples
 
 Each file here is a complete program of the kind a project that depends on colibri writes. It
-imports the library modules by the names a dependent uses, and runs a colibri client and a colibri
+imports `colibri`, the one module a dependent reaches, and runs a colibri client and a colibri
 server against each other.
 
 | Example | What it shows |

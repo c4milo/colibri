@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = if (fast) .ReleaseFast else .ReleaseSafe,
     });
-    module.addImport("server", colibri.module("server"));
-    module.addImport("http", colibri.module("http"));
+    // Decision 170: `colibri` is the one module of the package, and names `server` and `http`.
+    module.addImport("colibri", colibri.module("colibri"));
     // run.sh copies the table it measures here as routes.txt.
     module.addAnonymousImport("routes.txt", .{ .root_source_file = b.path("routes.txt") });
     const bench = b.addExecutable(.{ .name = "router-bench", .root_module = module });

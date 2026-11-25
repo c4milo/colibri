@@ -8,8 +8,9 @@
 //! router of `server_exchange.zig` does. It runs over the stream link, on the server's loop. `docs/usage.md` shows the server's calls with
 //! the server example, so the comments here are short.
 const std = @import("std");
-const server = @import("server");
-const tls = @import("tls");
+const colibri = @import("colibri");
+const server = colibri.server;
+const tls = colibri.tls;
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");

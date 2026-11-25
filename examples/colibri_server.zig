@@ -32,13 +32,14 @@
 //! Run it with `zig build example-colibri_server`, or every example with `zig build examples`.
 const std = @import("std");
 const colibri = @import("colibri");
-// `colibri` re-exports the modules `server` and `client`, so the program imports neither by name.
+// `colibri` names each library module, so the program imports no other module of colibri
+// (decision 170).
 const server = colibri.server;
 const client = colibri.client;
-const tls = @import("tls");
+const tls = colibri.tls;
 const platform = @import("platform");
 const identity = @import("testdata");
-// chapulin's hook, which every program that links `tls` defines.
+// chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
 
 comptime {

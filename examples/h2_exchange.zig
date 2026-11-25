@@ -13,8 +13,19 @@
 //!
 //! Run it with `zig build example-h2_exchange`, or every example with `zig build examples`.
 const std = @import("std");
-const h2 = @import("h2");
+const colibri = @import("colibri");
+const h2 = colibri.h2;
 const link_module = @import("link.zig");
+
+/// chapulin's one hook. `colibri` links chapulin for its `tls` module, so every program that
+/// imports `colibri` defines the hook, a program in cleartext too (decisions 94 and 170).
+fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
+    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
+}
+
+comptime {
+    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
 
 const Connection = h2.Connection;
 const Link = link_module.Link;

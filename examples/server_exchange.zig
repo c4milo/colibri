@@ -38,9 +38,10 @@
 //!
 //! Run it with `zig build example-server_exchange`, or every example with `zig build examples`.
 const std = @import("std");
+const colibri = @import("colibri");
 const assert = std.debug.assert;
-const server = @import("server");
-const tls = @import("tls");
+const server = colibri.server;
+const tls = colibri.tls;
 const platform = @import("platform");
 const identity = @import("testdata");
 const program = @import("tls_program.zig");

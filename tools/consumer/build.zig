@@ -14,34 +14,35 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    // Decision 100: `server` and `client` put one set of calls over every version, and `tls` holds
-    // the values their handshakes take. `colibri` binds a port and runs `server` (decision 150). The
-    // protocol modules follow, for a program that drives one version by itself.
+    // Decision 170: `colibri` is the one module of the package. Its root names each library
+    // module, so the program writes `colibri.server`, `colibri.client`, `colibri.tls` and
+    // `colibri.h2`, and imports no other module of colibri.
     // Decision 159: `.rotor = true` asks for Rotor, the loop of the `.private` kind of
     // `colibri.Server` and `colibri.Client`, which this program uses. A program that uses the
     // protocol modules or the `.hosted` kind alone leaves the option out, and fetches no Rotor
     // (`tools/consumer_hosted/`).
     const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
-    exe.root_module.addImport("server", colibri.module("server"));
-    exe.root_module.addImport("client", colibri.module("client"));
-    exe.root_module.addImport("tls", colibri.module("tls"));
     exe.root_module.addImport("colibri", colibri.module("colibri"));
-    exe.root_module.addImport("h11", colibri.module("h11"));
-    exe.root_module.addImport("http", colibri.module("http"));
-    exe.root_module.addImport("h2", colibri.module("h2"));
-    // Decision 101: colibri's package exports stdx's codecs.
-    exe.root_module.addImport("gzip", colibri.module("gzip"));
     // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`, from
     // the stdx colibri pins and with the options colibri gives it, so both reach one module and one
     // `platform.Cpu`, the probe colibri's `tls.Cpu` holds.
     const stdx = b.dependency("stdx", .{ .target = target, .release = true });
     exe.root_module.addImport("platform", stdx.module("platform"));
+    // Decision 170: colibri's package exports nothing of stdx, so a program that codes content
+    // itself takes the codec from the same stdx.
+    exe.root_module.addImport("gzip", stdx.module("gzip"));
+    // Decision 170: the package exports `colibri` alone. tools/consumer_check.sh passes
+    // `-Dnamed-module=h2` and requires the build to stop, because the package has no module of
+    // that name.
+    if (b.option([]const u8, "named-module", "Ask colibri's package for a module of this name")) |name| {
+        _ = colibri.module(name);
+    }
 
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the consumer").dependOn(&run.step);
 
-    // Design §8 step 16's check: a program that links `tls` and defines no `ch_assert_fail` does
-    // not link. tools/consumer_check.sh builds this step and requires it to fail, naming the hook.
+    // Design §8 step 16's check: a program that runs `colibri.tls` and defines no `ch_assert_fail`
+    // does not link. tools/consumer_check.sh builds this step and requires it to fail, naming the hook.
     // The step installs the program, because Zig links an executable only when its file is used.
     const without_assert = b.addExecutable(.{
         .name = "without-assert",
@@ -51,6 +52,6 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    without_assert.root_module.addImport("tls", colibri.module("tls"));
+    without_assert.root_module.addImport("colibri", colibri.module("colibri"));
     b.step("without-assert", "Link a program that uses tls and defines no ch_assert_fail").dependOn(&b.addInstallArtifact(without_assert, .{}).step);
 }

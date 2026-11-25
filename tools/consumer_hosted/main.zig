@@ -1,19 +1,19 @@
 //! The program the hosted consumer project builds (decision 159). It reaches `h11` and the
-//! `.hosted` kind of `colibri.Server` and `colibri.Client` through the modules colibri exports,
-//! in a build with no Rotor. The program is the host of each object: it calls `turn`, reads the
+//! `.hosted` kind of `colibri.Server` and `colibri.Client` through `colibri`, the one module
+//! colibri exports (decision 170), in a build with no Rotor. The program is the host of each object: it calls `turn`, reads the
 //! operations each one wrote, and gives back each completion. It opens no socket, so it starts
 //! each object, stops it, and ends the one operation in flight.
 const std = @import("std");
-const h11 = @import("h11");
-const tls = @import("tls");
-const platform = @import("platform");
 const colibri = @import("colibri");
+const h11 = colibri.h11;
+const tls = colibri.tls;
+const platform = @import("platform");
 
 var connection: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var output: [256]u8 = undefined;
 
 // A `colibri.Server` of one TCP connection on this program's loop, and the router that `init`
-// takes. `colibri.server` is the module `server`, which the root of `colibri` re-exports.
+// takes. `colibri.server` is the module `server`, which the root of `colibri` names.
 const Server = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
 var hosted_server: Server align(@alignOf(Server)) = undefined;
 const routes = .{
@@ -31,7 +31,7 @@ var hosted_client: Client align(@alignOf(Client)) = undefined;
 // The room of the operations one turn writes: a host sizes it by `operations_max`.
 var operations: [Server.operations_max + Client.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
 
-/// chapulin's one hook, which a program that links colibri's `tls` defines.
+/// chapulin's one hook, which a program that imports `colibri` defines.
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }

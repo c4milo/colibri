@@ -34,13 +34,7 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step {
     const step = b.step("colibri-hosted-check", "Require .hosted to build with no Rotor, and .private to fail with colibri's message");
-    const colibri = modules_colibri.add_without_rotor(b, .{
-        .core = graph.core,
-        .http = graph.http,
-        .server = graph.server,
-        .client = graph.client,
-        .tls = graph.tls,
-    }, target, optimize);
+    const colibri = modules_colibri.add_without_rotor(b, modules_colibri.imports_of(graph), target, optimize);
     for (cases) |case| {
         const options = b.addOptions();
         options.addOption([]const u8, "case", case.name);

@@ -15,8 +15,9 @@
 //! loop. `docs/usage.md` shows the client's calls with the client example, so the comments here
 //! are short.
 const std = @import("std");
-const client = @import("client");
-const tls = @import("tls");
+const colibri = @import("colibri");
+const client = colibri.client;
+const tls = colibri.tls;
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");

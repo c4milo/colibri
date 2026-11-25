@@ -9,11 +9,26 @@
 //! - `.hosted` runs on the program's loop, which calls `turn` and `complete` with the seven types
 //!   from `SocketId` to `Turn`.
 //!
-//! The root re-exports the modules `client` and `server` (decision 156 ruling 14). So a program
-//! that imports `colibri` writes `colibri.client.Request` and `colibri.server.Router`, and needs
-//! no import of its own for either module.
-pub const client = @import("client");
+//! `colibri` is the one module that the package exports (decision 170). The root names each of
+//! the sixteen other library modules, so a program imports `colibri` alone and writes
+//! `colibri.server.Router`, `colibri.tls.Cpu` or `colibri.h2.Connection`. It names nothing of
+//! stdx: a program depends on stdx itself for `platform` (decision 97 as amended).
+pub const core = @import("core");
+pub const wire = @import("wire");
+pub const http = @import("http");
+pub const tls_provider = @import("tls_provider");
+pub const tls = @import("tls");
+pub const dnssec = @import("dnssec");
+pub const crypto = @import("crypto");
+pub const qlog = @import("qlog");
+pub const hpack = @import("hpack");
+pub const qpack = @import("qpack");
+pub const quic = @import("quic");
+pub const h2 = @import("h2");
+pub const h3 = @import("h3");
+pub const h11 = @import("h11");
 pub const server = @import("server");
+pub const client = @import("client");
 pub const constants = @import("constants.zig");
 
 const files = struct {
@@ -64,23 +79,34 @@ pub const Failure = files.host.Failure;
 pub const Wait = files.host.Wait;
 pub const Turn = files.host.Turn;
 
-test "decision 115: the root exports the names design §8 steps 37, 42 and 44 list" {
+test "decision 115: the root exports the names design §8 steps 37, 42, 44 and 73 list" {
     // Step 37a adds `Server`, `ServerConfig`, `Identity` and `InitError`, and 37b `RunError`.
     // Step 42c adds `Client` and `ClientConfig`, and the owner's rulings of 2026-11-06 add
     // `ClientCapacity` (decision 153 ruling 9). Step 44d makes `Server` and `Client` type
     // functions of a capacity and a kind, removes `ServerOf` and `ClientOf` (decision 156 ruling
     // 1), and adds the seven types of the host's contract (decision 159). Step 44i re-exports
-    // the modules `client` and `server` (decision 156 ruling 14).
-    const public_names = @import("core").public_names;
+    // the modules `client` and `server` (decision 156 ruling 14). Step 73 re-exports the
+    // fourteen other library modules, since the package exports `colibri` alone (decision 170).
+    const public_names = core.public_names;
     try public_names.expect(@This(), &.{
-        "client",      "server",    "constants",  "Server",         "ServerConfig", "Identity",
-        "InitError",   "RunError",  "Client",     "ClientCapacity", "ClientConfig", "SocketId",
-        "OperationId", "Operation", "Completion", "Failure",        "Wait",         "Turn",
+        "core",         "wire",     "http",        "tls_provider", "tls",        "dnssec",
+        "crypto",       "qlog",     "hpack",       "qpack",        "quic",       "h2",
+        "h3",           "h11",      "server",      "client",       "constants",  "Server",
+        "ServerConfig", "Identity", "InitError",   "RunError",     "Client",     "ClientCapacity",
+        "ClientConfig", "SocketId", "OperationId", "Operation",    "Completion", "Failure",
+        "Wait",         "Turn",
     });
     // Each re-export is the module itself, so a type has one identity by either path.
     const testing = @import("std").testing;
-    try testing.expect(client.Request == @import("client").Request);
-    try testing.expect(server.Request == @import("server").Request);
+    const modules = .{
+        .{ core, @import("core") },                 .{ wire, @import("wire") }, .{ http, @import("http") },
+        .{ tls_provider, @import("tls_provider") }, .{ tls, @import("tls") },   .{ dnssec, @import("dnssec") },
+        .{ crypto, @import("crypto") },             .{ qlog, @import("qlog") }, .{ hpack, @import("hpack") },
+        .{ qpack, @import("qpack") },               .{ quic, @import("quic") }, .{ h2, @import("h2") },
+        .{ h3, @import("h3") },                     .{ h11, @import("h11") },   .{ server, @import("server") },
+        .{ client, @import("client") },
+    };
+    inline for (modules) |pair| try testing.expect(pair[0] == pair[1]);
     // The owner's ruling 7 of 2026-11-10 adds `InitError` (decision 159 as amended).
     const server_names = &.{ "InitError", "operations_max", "sockets_max", "listener", "datagram", "init", "deinit", "port", "run", "turn", "complete", "set_ticket_key", "shutdown", "stopped" };
     try public_names.expect(Server(.{}, .private), server_names);

@@ -41,7 +41,8 @@
 //!
 //! Run it with `zig build example-server_stream`, or every example with `zig build examples`.
 const std = @import("std");
-const server = @import("server");
+const colibri = @import("colibri");
+const server = colibri.server;
 const program = @import("tls_program.zig");
 const peer = @import("server_stream_peer.zig");
 const link_module = @import("link.zig");

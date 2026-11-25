@@ -12,9 +12,10 @@
 //!
 //! Run it with `zig build example-dnssec_check`, or every example with `zig build examples`.
 const std = @import("std");
-const dnssec = @import("dnssec");
+const colibri = @import("colibri");
+const dnssec = colibri.dnssec;
 
-/// chapulin's one hook, which every program that links colibri's chapulin object defines.
+/// chapulin's one hook, which every program that imports `colibri` defines (decisions 94 and 170).
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }

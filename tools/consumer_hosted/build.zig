@@ -15,9 +15,8 @@ pub fn build(b: *std.Build) void {
     const stdx = b.dependency("stdx", .{ .target = target, .release = true });
 
     const exe = b.addExecutable(.{ .name = "consumer-hosted", .root_module = program(b, "main.zig", target) });
+    // Decision 170: `colibri` is the one module of the package, and its root names `h11` and `tls`.
     exe.root_module.addImport("colibri", colibri.module("colibri"));
-    exe.root_module.addImport("tls", colibri.module("tls"));
-    exe.root_module.addImport("h11", colibri.module("h11"));
     exe.root_module.addImport("platform", stdx.module("platform"));
     b.step("run", "Run the hosted consumer").dependOn(&b.addRunArtifact(exe).step);
 

@@ -8,8 +8,9 @@
 //! 404. `docs/usage.md` shows the server's calls with the server example, so the comments here
 //! are short.
 const std = @import("std");
-const server = @import("server");
-const http = @import("http");
+const colibri = @import("colibri");
+const server = colibri.server;
+const http = colibri.http;
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
 

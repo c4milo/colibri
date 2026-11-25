@@ -1,5 +1,5 @@
-//! What a program that links colibri's `tls` module defines once, which the examples over TLS and
-//! QUIC share. It is not an example of colibri by itself.
+//! What a program that runs TLS over colibri defines once, which the examples over TLS and QUIC
+//! share. It is not an example of colibri by itself.
 //!
 //! colibri draws no random octet and reports no failure of its own accord (non-negotiable 5):
 //! - chapulin, the TLS stack behind `tls`, calls `ch_assert_fail` when one of its assertions

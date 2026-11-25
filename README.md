@@ -93,15 +93,12 @@ Add colibri to your `build.zig.zon`:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.19.0
 ```
 
-Then import the modules you use. Each of the seventeen library modules is exported by name:
-`core`, `wire`, `http`, `tls_provider`, `tls`, `dnssec`, `crypto`, `qlog`, `hpack`, `qpack`,
-`quic`, `h2`, `h3`, `h11`, `server`, `client` and `colibri`.
+Then import `colibri`, the one module the package exports ([decision 170](docs/decisions.md)).
+Its root names each of the sixteen other library modules: `colibri.server`, `colibri.client`,
+`colibri.tls`, and each protocol, such as `colibri.h2`.
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
-exe.root_module.addImport("server", colibri.module("server"));
-exe.root_module.addImport("client", colibri.module("client"));
-exe.root_module.addImport("tls", colibri.module("tls"));
 exe.root_module.addImport("colibri", colibri.module("colibri"));
 ```
 

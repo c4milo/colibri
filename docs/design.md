@@ -73,7 +73,7 @@ h2, h3, tls, rotor <- testing_udp
 h2, quic, tls    <- testing_quic
 core, qpack      <- testing_qif
 core, http, h11, h2, h3, quic, tls <- client, server
-core, http, server, client, tls, rotor (lazy, decision 159) <- colibri
+each of the sixteen other library modules, rotor (lazy, decision 159) <- colibri
 testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and client compile from
 ```
 
@@ -95,7 +95,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `dnssec` | DNSSEC's signature checks and DS digests over chapulin's TCP object, the one `tls` links ([decision 142](decisions.md)) | `core` for its tests' lists, and chapulin's TCP object, built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
 | `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
 | `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
-| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | `core`, `http`, `server`, `client`, `tls`, and Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
+| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | Each of the sixteen other library modules, which its root names: it is the one module the package exports ([decision 170](decisions.md)). And Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
@@ -17687,6 +17687,42 @@ library.
     chapulin taken from Zig's cache.
   - **Not run yet:** `bench/run.sh`, whose input `h2-coded-many` takes an encoder for each
     response. The `Bench` workflow runs it when a person starts it.
+- **Step 73 — the package exports `colibri` alone, 2026-11-25.** The owner asked that a program
+  import one module ([decision 170](decisions.md)).
+  - **Public names.** The root of `colibri` gains fourteen: `core`, `wire`, `http`,
+    `tls_provider`, `tls`, `dnssec`, `crypto`, `qlog`, `hpack`, `qpack`, `quic`, `h2`, `h3` and
+    `h11`, beside `server` and `client` of step 44i. Each is the module itself. A program that
+    depends on colibri needs them, because the package now exports no other module. The root's
+    list test holds the 32 names, and requires each of the sixteen to be its module.
+  - **The build.** `modules.library` creates each library module with `createModule`, and
+    `modules_colibri.add` alone calls `addModule`. `colibri` imports the sixteen others.
+    `build/modules_exports.zig`, which exported stdx's codecs, is gone. The module graph of §3
+    keeps every other edge, so `zig build test-<module>` and the QUIC simulator's graph with no
+    HTTP module are as before.
+  - **The programs.** Each program of `examples/` imports `colibri` alone and binds its names:
+    `const server = colibri.server;`. `h11_exchange` and `h2_exchange` now define
+    `ch_assert_fail`: `colibri` links chapulin for `tls`, and neither linked it before.
+    `tools/consumer/`, `tools/consumer_hosted/`, `bench/router/` and
+    `bench/router/competitors/colibri/` import `colibri` alone too. `tools/consumer/` takes
+    stdx's `gzip` from stdx.
+  - **The check.** `tools/consumer/build.zig` asks the package for a module by name with
+    `-Dnamed-module`. `tools/consumer_check.sh` asks for `h2` and for `gzip`, and requires each
+    build to stop with Zig's "unable to find module".
+  - **Mutations: 5, each CAUGHT.** Against `zig build test-colibri`, by the root's list test:
+    `h2` naming the module `h3`; `dnssec` not named; and one more public name. Against
+    `tools/consumer_check.sh`: each library module exported by name again; and stdx's `gzip`
+    exported again.
+  - **The documents.** docs/usage.md's "Adding colibri" and README.md show the one import.
+  - **Each dependent changes at its next bump.** cocuyo, stompy and connect-zig ask the package
+    for modules by name. Each then asks for `colibri` alone, and its sources name
+    `colibri.<module>`. A program of theirs in cleartext defines `ch_assert_fail`.
+  - **Run on x86-64 Linux, in a container with no IPv6:** `zig build test`, 4,276 of 4,278
+    tests, with 1 skipped and 1 failed; `zig build examples`, 10 of 11; `tools/doc_snippets.sh`;
+    and `tools/consumer_check.sh`, whose fetch of stdx Zig's cache stood in for, since the
+    container reaches no GitHub. The one test and the one example that fail open an IPv6
+    socket, as in step 72. The first build of `bench/router/` passed. Its timed rounds need
+    `/usr/bin/time`, which the container lacks.
+  - **Not run:** the checks of `tools/ci.sh` that need Docker or a network peer, which CI runs.
 
 ## 9. Test-only entry points
 
