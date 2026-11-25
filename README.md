@@ -67,7 +67,7 @@ axum's 4.89 ms. Over h11 at 80,000, colibri's is 5.90 ms and axum's 6.57 ms
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.21.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.22.0
 ```
 
 Import `colibri`, the one module the package exports ([decision 170](docs/decisions.md)):
