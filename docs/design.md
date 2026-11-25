@@ -17098,8 +17098,14 @@ library.
       change with them. No public name is added or removed, so no names list changes.
     - The judge measures 58b against 58a. A change that breaks every program's loop must win
       past the noise.
-  - **58b, built 2026-11-25** (decision 165 as amended that day). The judge's verdict decides
-    whether it stays in v0.20.0.
+  - **58b, built 2026-11-25** (decision 165 as amended that day). The owner admitted it into
+    v0.20.0 for its shape, after the judge found it neutral.
+    - The judge measured the change against `dfc50213`, the files of `main` before it, in two
+      jobs with the h11 inputs ([run 45605444855](https://github.com/c4milo/colibri/actions/runs/45605444855)).
+      No input left the noise in either job. In user instructions h2-many gave 10,401.5 and
+      10,397.8 in the first job, and 10,401.2 and 10,396.0 in the second. h11-many gave 1.0006
+      and 1.0089 of the base, within noise of 5.32% and 5.83%. The copies 58b removes do not
+      show in the judge's counts.
     - `server.Engine(capacity).receive` takes `result: *server.ReceiveResult` and returns nothing.
       `State.receive` writes `consumed` and `event` in place, and writes null when it reports
       nothing.

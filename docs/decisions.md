@@ -8234,6 +8234,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      copies no event it does not take. A program switches on `other.*`. The alternative refused:
      `Handled.event` by value, which copies 160 octets back on each `send`, `close` and `ended`.
 
+     **Amended again by the owner on 2026-11-25:** 58b ships in v0.20.0 for its shape, and not for
+     a win of the judge. The judge measured it neutral: every input within the noise in both jobs
+     ([run 45605444855](https://github.com/c4milo/colibri/actions/runs/45605444855)). The owner
+     admitted it under TigerStyle: the program owns the storage of each result, as decision 158
+     ruling 1 gives a program the storage of a large struct, and no call copies a 160-octet value
+     in or out. The rule that a change of every program's loop must win past the noise yields to
+     that ruling for this change alone.
+
 166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
      from v0.19.0, as ruled first; amended the same day to sizes colibri sets itself.** Ruled by
      the owner on 2026-11-18, for the last item of
