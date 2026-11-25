@@ -228,11 +228,12 @@ is added to the root and to the list in its test, which prints the name that dif
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The seventeen
-  library modules are exported by name, so a dependent reaches them with `dependency.module`
-  (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
-  `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not
-  by review. The graph is design §3 and the rest of the design depends on it — read it before
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The package
+  exports one of the seventeen library modules, `colibri`, whose root names the sixteen others. So
+  a dependent calls `dependency.module("colibri")`, and reaches each module as `colibri.<name>`
+  (decision 170). The simulator, the corpus and `src/testing/` are not library modules. A module
+  can only `@import` what `build.zig` gives it, so the dependency direction is enforced by the
+  build and not by review. The graph is design §3 and the rest of the design depends on it — read it before
   adding a module or an edge.
 - The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `h11`, `hpack` or
   `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP module
@@ -253,11 +254,11 @@ is added to the root and to the list in its test, which prints the name that dif
   (decisions 150 and 159). Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
   58 and 83).
-- `examples/` holds programs a project that depends on colibri would write, importing the library
-  modules by name. They run on Rotor's loop over an in-memory link, and every one opens no socket
-  except two. `examples/colibri_server.zig` binds loopback through `colibri`, and
-  `examples/colibri_shared_rotor.zig` binds it in the program's own adapter of `.hosted`
-  objects (decision 159). `zig build examples` runs every one (decision 96 as amended).
+- `examples/` holds programs a project that depends on colibri would write. Each imports
+  `colibri` alone, as a dependent does (decision 170). They run on Rotor's loop over an in-memory
+  link, and every one opens no socket except two. `examples/colibri_server.zig` binds loopback
+  through `colibri`, and `examples/colibri_shared_rotor.zig` binds it in the program's own
+  adapter of `.hosted` objects (decision 159). `zig build examples` runs every one (decision 96 as amended).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -763,9 +764,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   `tools/doc_snippets.sh` requires every Zig block in README.md, docs/usage.md and
   examples/README.md to be a verbatim excerpt of an example, of `tools/consumer/` or of
   `tools/consumer_hosted/`. `tools/consumer_check.sh` builds and runs `tools/consumer/` as a
-  project that depends on colibri as a package and passes `.rotor = true`. It then builds and
-  runs `tools/consumer_hosted/`, a project of a protocol module and the `.hosted` kind alone,
-  with a global cache that starts empty. That build must fetch no Rotor and no other lazy
+  project that depends on colibri as a package and passes `.rotor = true`. It requires a build
+  that asks the package for `h2` or for `gzip` to stop, since the package exports `colibri` alone
+  (decision 170). It then builds and runs `tools/consumer_hosted/`, a project of `colibri.h11`
+  and the `.hosted` kind alone, with a global cache that starts empty. That build must fetch no Rotor and no other lazy
   package, and its program that names `.private` must fail to compile with colibri's message
   (decision 159, design §8 step 44j). `tools/ci.sh` runs all three.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;

@@ -15,7 +15,8 @@
 //! each `take` whose `put` has not come. It holds a few hosts in storage the program owns, with
 //! no allocator, and counts the calls, which `server_exchange.zig` checks.
 const std = @import("std");
-const server = @import("server");
+const colibri = @import("colibri");
+const server = colibri.server;
 
 /// The clients whose sets the table holds at once. A program sizes it for the clients it expects.
 const entries_max = 4;

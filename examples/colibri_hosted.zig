@@ -28,11 +28,11 @@ const assert = std.debug.assert;
 const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
-const tls = @import("tls");
+const tls = colibri.tls;
 const platform = @import("platform");
 const identity = @import("testdata");
 const link_module = @import("link.zig");
-// chapulin's hook, which every program that links `tls` defines.
+// chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
 
 comptime {

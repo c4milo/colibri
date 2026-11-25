@@ -4,7 +4,7 @@
 //! k is one of `edge_counts`. The path is the first edge, the middle edge, the last edge, or
 //! "/r999", which no edge holds.
 const std = @import("std");
-const server = @import("server");
+const server = @import("colibri").server;
 const tables = @import("tables.zig");
 
 comptime {

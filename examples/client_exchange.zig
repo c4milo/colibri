@@ -44,8 +44,9 @@
 //!
 //! Run it with `zig build example-client_exchange`, or every example with `zig build examples`.
 const std = @import("std");
-const client = @import("client");
-const tls = @import("tls");
+const colibri = @import("colibri");
+const client = colibri.client;
+const tls = colibri.tls;
 const platform = @import("platform");
 const identity = @import("testdata");
 const program = @import("tls_program.zig");

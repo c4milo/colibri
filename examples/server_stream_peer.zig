@@ -14,7 +14,8 @@
 //! leave the server before the request's body ends. `client_stream.zig` shows the client's calls,
 //! so the comments here are short.
 const std = @import("std");
-const client = @import("client");
+const colibri = @import("colibri");
+const client = colibri.client;
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
 

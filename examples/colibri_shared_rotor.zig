@@ -28,9 +28,9 @@ const rotor = @import("rotor");
 const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
-const tls = @import("tls");
+const tls = colibri.tls;
 const platform = @import("platform");
-// chapulin's hook, which every program that links `tls` defines.
+// chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
 
 comptime {

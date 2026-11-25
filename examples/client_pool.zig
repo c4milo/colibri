@@ -32,8 +32,9 @@
 //!
 //! Run it with `zig build example-client_pool`, or every example with `zig build examples`.
 const std = @import("std");
+const colibri = @import("colibri");
 const assert = std.debug.assert;
-const client = @import("client");
+const client = colibri.client;
 const program = @import("tls_program.zig");
 const peer = @import("client_pool_peer.zig");
 const link_module = @import("link_streams.zig");

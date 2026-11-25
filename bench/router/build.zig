@@ -33,8 +33,8 @@ pub fn build(b: *std.Build) void {
         .target = host,
         .optimize = .Debug,
     });
-    compile_module.addImport("server", colibri_debug.module("server"));
-    compile_module.addImport("http", colibri_debug.module("http"));
+    // Decision 170: `colibri` is the one module of the package, and names `server` and `http`.
+    compile_module.addImport("colibri", colibri_debug.module("colibri"));
     compile_module.addOptions("options", options);
     const compile_test = b.addTest(.{ .name = "compile-time", .root_module = compile_module });
     b.step("compile", "Compile one table in a Debug test binary and run it").dependOn(&b.addRunArtifact(compile_test).step);
@@ -46,8 +46,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = .ReleaseSafe,
     });
-    probe_module.addImport("server", colibri.module("server"));
-    probe_module.addImport("http", colibri.module("http"));
+    probe_module.addImport("colibri", colibri.module("colibri"));
     const probe = b.addExecutable(.{ .name = "probe", .root_module = probe_module });
     b.step("probe", "Install the run-time probe").dependOn(&b.addInstallArtifact(probe, .{}).step);
 }

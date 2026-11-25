@@ -1,17 +1,18 @@
-//! The program the consumer project builds: it reaches h11, h2, tls, server, client, colibri and
-//! stdx's gzip through the modules colibri exports, writes a request, reads a response, starts a
+//! The program the consumer project builds: it reaches h11, h2, tls, server and client through
+//! `colibri`, the one module colibri exports (decision 170), and stdx's gzip through stdx. It
+//! writes a request, reads a response, starts a
 //! TLS handshake, codes content, moves a request through the client and the server's engine,
 //! binds a `colibri.Server` on a loopback port, and prepares a `colibri.Client` for it. This shows
 //! that the modules link and run for a project that depends on colibri.
 const std = @import("std");
-const h11 = @import("h11");
-const h2 = @import("h2");
-const tls = @import("tls");
-const gzip = @import("gzip");
-const server_module = @import("server");
-const client_module = @import("client");
-const platform = @import("platform");
 const colibri = @import("colibri");
+const h11 = colibri.h11;
+const h2 = colibri.h2;
+const tls = colibri.tls;
+const server_module = colibri.server;
+const client_module = colibri.client;
+const gzip = @import("gzip");
+const platform = @import("platform");
 
 var client: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var h2_client: h2.Connection align(@alignOf(h2.Connection)) = undefined;
@@ -49,7 +50,7 @@ const bound_routes = .{
         .{ .get, "/", on_root },
     },
 };
-// `colibri.server` is the module `server`, which the root of `colibri` re-exports.
+// `colibri.server` is the module `server`, which the root of `colibri` names.
 const BoundRouter = colibri.server.Router(void, bound_routes, .{ .requests = 1, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
 var router: BoundRouter align(@alignOf(BoundRouter)) = undefined;
 var router_context: void = {};
@@ -64,7 +65,7 @@ const exchange_rounds_max = 8;
 /// Events one side reads in one round, at most.
 const events_per_round_max = 16;
 
-/// chapulin's one hook, which a program that links colibri's `tls` defines: its failed assertions
+/// chapulin's one hook, which a program that imports `colibri` defines: its failed assertions
 /// are the program's to report.
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });

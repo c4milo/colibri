@@ -7,8 +7,9 @@
 //! `/greeting` with a greeting. `docs/usage.md` shows the server's calls with the server example,
 //! so the comments here are short.
 const std = @import("std");
+const colibri = @import("colibri");
 const assert = std.debug.assert;
-const server = @import("server");
+const server = colibri.server;
 const program = @import("tls_program.zig");
 const link_module = @import("link_streams.zig");
 

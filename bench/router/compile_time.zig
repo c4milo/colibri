@@ -1,7 +1,7 @@
 //! The compile-time probe: one table of `tables.zig`, which `-Dtable` names, in a Debug test
 //! binary. `compile_time.sh` times `zig build compile` for each table.
 const std = @import("std");
-const server = @import("server");
+const server = @import("colibri").server;
 const options = @import("options");
 const tables = @import("tables.zig");
 

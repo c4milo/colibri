@@ -4,8 +4,8 @@
 //! and prints the nanoseconds of one match.
 //!   router-bench <rounds>
 const std = @import("std");
-const http = @import("http");
-const server = @import("server");
+const http = @import("colibri").http;
+const server = @import("colibri").server;
 
 comptime {
     _ = @import("hook.zig");

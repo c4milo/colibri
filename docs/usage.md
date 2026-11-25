@@ -15,31 +15,46 @@ Depend on a release tag, or on a commit for a change made since:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.19.0
 ```
 
-In `build.zig`, import the modules your program uses. Most programs take these three, and a
-protocol module is imported the same way:
+In `build.zig`, import `colibri`, the one module the package exports
+([decision 170](decisions.md)). These lines are from
+[`tools/consumer/build.zig`](../tools/consumer/build.zig):
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
-exe.root_module.addImport("server", colibri.module("server"));
-exe.root_module.addImport("client", colibri.module("client"));
-exe.root_module.addImport("tls", colibri.module("tls"));
 exe.root_module.addImport("colibri", colibri.module("colibri"));
 ```
+
+The module's root names each library module. Your program reaches each one through it, and may
+bind a short name of its own. These lines are from
+[`examples/colibri_server.zig`](../examples/colibri_server.zig):
+
+```zig
+const colibri = @import("colibri");
+// `colibri` names each library module, so the program imports no other module of colibri
+// (decision 170).
+const server = colibri.server;
+const client = colibri.client;
+const tls = colibri.tls;
+const platform = @import("platform");
+```
+
+The rest of this guide writes `server.Router`, `client.Request` and `h2.Connection` with such
+names.
 
 `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of the `.private` kind
 of `colibri.Server` and `colibri.Client` ([decision 159](decisions.md)). Rotor is a lazy package,
 and the default of the option is false. Without it, `.private` does not compile, and the compiler
 prints the line to add.
 
-A program that uses the protocol modules, or the `.hosted` kind of `colibri` on its own loop,
-leaves `.rotor` out. Its build fetches chapulin and stdx, and no Rotor. This line is from
+A program that uses the protocol modules alone, or the `.hosted` kind of `colibri` on its own
+loop, leaves `.rotor` out. Its build fetches chapulin and stdx, and no Rotor. This line is from
 [`tools/consumer_hosted/build.zig`](../tools/consumer_hosted/build.zig):
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 ```
 
-The library is seventeen modules, each exported by name:
+`colibri` names sixteen modules, and holds `colibri.Server` and `colibri.Client` itself:
 
 | Module | What it holds |
 | --- | --- |
@@ -61,17 +76,22 @@ The library is seventeen modules, each exported by name:
 | `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)), and `colibri.Client`, which runs `client`'s pool on Rotor's loop ([decision 153](decisions.md) ruling 8). It is the one module that does I/O. |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
-The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
-colibri pins ([decision 101](decisions.md)).
-
-A program that uses TLS probes its CPU through stdx's `platform` module
-([decision 97](decisions.md)). Depend on stdx at the commit colibri's `build.zig.zon` pins, and
-give it the options colibri gives it, so both reach one `platform` module and one `platform.Cpu`:
+The package exports nothing of stdx ([decision 170](decisions.md)). A program asks its CPU once
+through stdx's `platform` module: `platform.CpuFeatures.detect()` for each configuration's
+`cpu_features`, and `platform.probe()` for TLS ([decision 97](decisions.md)). Depend on stdx at the
+commit colibri's `build.zig.zon` pins, and give it the options colibri gives it, so both reach one
+`platform` module and one `platform.Cpu`:
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true });
 exe.root_module.addImport("platform", stdx.module("platform"));
 ```
+
+A program that codes content itself takes `gzip`, `zlib`, `zstd` or `brotli` from the same stdx.
+
+`colibri` links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack. So every
+program that imports `colibri` defines chapulin's one hook, `ch_assert_fail`, a program in
+cleartext too. The section "TLS" shows the hook.
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
@@ -132,11 +152,10 @@ Four things follow for every other module:
   chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
   `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
-  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that links
-  `tls` defines chapulin's one hook, `ch_assert_fail`, and passes the source each session draws
-  from: to `Engine.init`, to `ConnectionPool.start_tcp` and `start_quic`, and to each session it
-  starts.
-  A program that imports none of `tls`, `server` and `client` never links chapulin.
+  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that imports
+  `colibri` defines chapulin's one hook, `ch_assert_fail`. A program that runs TLS passes the
+  source each session draws from: to `Engine.init`, to `ConnectionPool.start_tcp` and
+  `start_quic`, and to each session it starts.
 
 A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
@@ -2522,9 +2541,9 @@ resets between two writes (decision 113). `shutdown` begins a graceful close.
 
 ## TLS
 
-The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take. A
-program that links it defines chapulin's one hook, `ch_assert_fail`, which a failed chapulin
-assertion calls.
+The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take.
+`colibri` links chapulin for it, so a program that imports `colibri` defines chapulin's one hook,
+`ch_assert_fail`, which a failed chapulin assertion calls.
 
 ```zig
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {

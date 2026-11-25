@@ -246,7 +246,24 @@ pub fn add(
     // for a dependent, which then fetches no Rotor.
     const rotor_wanted = b.option(bool, "rotor", rotor_option_description) orelse (b.pkg_hash.len == 0);
     const rotor: ?*std.Build.Module = if (rotor_wanted) rotor_module(b, target, optimize) else null;
-    const colibri = modules_colibri.add(b, .{ .core = core, .http = http, .server = server, .client = client, .tls = tls }, rotor, target, optimize);
+    const colibri = modules_colibri.add(b, .{
+        .core = core,
+        .wire = wire,
+        .http = http,
+        .tls_provider = tls_provider,
+        .tls = tls,
+        .dnssec = dnssec,
+        .crypto = crypto,
+        .qlog = qlog,
+        .hpack = hpack,
+        .qpack = qpack,
+        .quic = quic,
+        .h2 = h2,
+        .h3 = h3,
+        .h11 = h11,
+        .server = server,
+        .client = client,
+    }, rotor, target, optimize);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
@@ -429,17 +446,18 @@ pub fn rotor_module(
     return rotor.module("rotor");
 }
 
-/// One module of the packaged library, exported by name so a project that depends on colibri
-/// reaches it with `dependency.module("<name>")`, carrying the imports given here. Its root is
-/// `src/<name>/<name>.zig`. The simulator, the corpus and the test-only endpoints stay
-/// unexported: they are not the library.
+/// One module of the packaged library, carrying the imports given here. Its root is
+/// `src/<name>/<name>.zig`. The package does not export it by name: a dependent reaches it as
+/// `colibri.<name>`, through the one module that `modules_colibri.add` exports (decision 170,
+/// which amends decision 86). The simulator, the corpus and the test-only endpoints are not the
+/// library, and `colibri` does not name them.
 pub fn library(
     b: *std.Build,
     comptime name: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
-    return b.addModule(name, .{
+    return b.createModule(.{
         .root_source_file = b.path("src/" ++ name ++ "/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,

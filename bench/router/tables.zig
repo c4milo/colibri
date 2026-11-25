@@ -1,8 +1,8 @@
 //! The route tables of the probes. Each table of `compile_time.zig` has a name that `build.zig`
 //! lists, and a path that one of its routes matches.
 const std = @import("std");
-const http = @import("http");
-const server = @import("server");
+const http = @import("colibri").http;
+const server = @import("colibri").server;
 
 pub const Entry = struct { http.method.Standard, []const u8, *const Route };
 

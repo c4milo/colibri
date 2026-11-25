@@ -29,7 +29,8 @@
 //!
 //! Run it with `zig build example-client_stream`, or every example with `zig build examples`.
 const std = @import("std");
-const client = @import("client");
+const colibri = @import("colibri");
+const client = colibri.client;
 const program = @import("tls_program.zig");
 const peer = @import("client_stream_peer.zig");
 const link_module = @import("link.zig");
