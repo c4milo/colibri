@@ -11,6 +11,7 @@ const testdata = @import("testdata");
 const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
 const rotor_host = @import("rotor_host.zig");
+const rotor_host_udp = @import("rotor_host_udp.zig");
 const support = @import("test_support.zig");
 const server_support = @import("server_test_support.zig");
 
@@ -71,6 +72,20 @@ test "design §8 step 37c: an identity opens UDP on the listener's port, which A
     try testing.expectEqual(test_server.port(), local.port);
     // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
     try testing.expectEqual(test_server.port(), test_server.engine_config.h3_alternative.?.port);
+}
+
+test "decision 173: a second server's UDP socket shares the port, and only one that asks" {
+    var counter: support.Counter = .{};
+    try init_with_identity(&counter);
+    defer test_server.deinit();
+    const address = try rotor.sync.local_address(test_server.host.descriptor_of(datagram_id));
+    // https://github.com/c4milo/colibri/issues/155: a second server on the port opens its UDP
+    // socket with the server's options, and the bind succeeds.
+    const second = try rotor.sync.open_datagram(address.family, &address, rotor_host_udp.server_socket_options);
+    defer rotor.sync.close_now(second);
+    try testing.expectEqual(test_server.port(), (try rotor.sync.local_address(second)).port);
+    // A client's options do not share, so another program cannot take the port by mistake.
+    try testing.expectError(error.AddressInUse, rotor.sync.open_datagram(address.family, &address, rotor_host_udp.socket_options));
 }
 
 test "design §8 step 37: deinit closes the listener and the UDP socket, and wipes both keys" {

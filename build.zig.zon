@@ -18,8 +18,8 @@
         // `colibri` with `.hosted`, never fetches it. A project that uses `.private` passes
         // `.rotor = true` to `b.dependency("colibri", ...)`.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor#f2890f5283fd5577243f6472648a05dda7a7f4e6",
-            .hash = "rotor-0.11.0-YZkxRH0dJwBgz9oa8yO6YOTVtpFTnV6Iiz7C0OwjTffl",
+            .url = "git+https://github.com/c4milo/rotor#af06860db3c56180557dc7d7e10ab51c58c43094",
+            .hash = "rotor-0.11.0-YZkxRGc9JwCI6Lyp1nPvw5o6XKWk8KoXi3ciP7CwKEtW",
             .lazy = true,
         },
         // The QPACK vectors of qpackers/qifs, which tools/qpack_vectors.zig decodes (decisions 25

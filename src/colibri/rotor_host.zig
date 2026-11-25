@@ -138,7 +138,7 @@ fn host_listen(self: anytype, socket: host.SocketId, text: []const u8, port: u16
 fn host_bind_datagram(self: anytype, socket: host.SocketId, text: []const u8, port: u16) errors.BindError!void {
     const address = try address_of(text, port);
     assert(address.port == port);
-    try open_datagram(self, socket, &address);
+    try open_datagram(self, socket, &address, udp.server_socket_options);
 }
 
 /// Opens the UDP socket `socket` on every interface of `family`, on a port the system chooses:
@@ -148,11 +148,16 @@ fn host_bind_datagram_any(self: anytype, socket: host.SocketId, family: Family) 
         .ipv4 => rotor.Address.ipv4(@splat(0), 0),
         .ipv6 => rotor.Address.ipv6(@splat(0), 0, 0),
     };
-    try open_datagram(self, socket, &address);
+    try open_datagram(self, socket, &address, udp.socket_options);
 }
 
-fn open_datagram(self: anytype, socket: host.SocketId, address: *const rotor.Address) errors.DatagramBindError!void {
-    const taken = try rotor.sync.open_datagram(address.family, address, udp.socket_options);
+fn open_datagram(
+    self: anytype,
+    socket: host.SocketId,
+    address: *const rotor.Address,
+    options: rotor.sync.DatagramOptions,
+) errors.DatagramBindError!void {
+    const taken = try rotor.sync.open_datagram(address.family, address, options);
     self.opened(socket, taken);
 }
 

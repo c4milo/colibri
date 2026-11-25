@@ -308,8 +308,10 @@ client runs a full handshake. This excerpt is from `examples/colibri_hosted.zig`
     std.crypto.secureZero(u8, &next_ticket_key);
 ```
 
-A program that wants more cores starts more servers on one port: each one binds with
-SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
+A program that wants more cores starts more servers on one port: each one binds its TCP listener
+and its UDP socket with SO_REUSEPORT ([decision 173](decisions.md)). Linux sends each UDP datagram
+to one server by a hash of its addresses and ports. So an h3 connection whose client address
+changes can reach a server that does not hold it, and the client then opens a new connection. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
 UDP_SEGMENT and one system call a tick on Linux. The example fetches from the server through
 `colibri.Client`, over h11, h2 and h3. With every version allowed, the client opens TCP first,
 and h3 needs `.prefer = .quic`.

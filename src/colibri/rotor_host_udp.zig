@@ -26,8 +26,15 @@ comptime {
     assert(@alignOf(Datagrams) <= rotor.memory_alignment);
 }
 
-/// The options a UDP socket opens with: Linux coalesces what arrives.
+/// The options a client's UDP socket opens with: Linux coalesces what arrives.
 pub const socket_options: rotor.sync.DatagramOptions = .{ .coalesce = builtin.os.tag == .linux };
+
+/// The options a server's UDP socket opens with. It shares its port with the UDP sockets of other
+/// servers, as its listener does, so several servers serve h3 on one port (decision 173).
+pub const server_socket_options: rotor.sync.DatagramOptions = .{
+    .coalesce = socket_options.coalesce,
+    .reuse_port = true,
+};
 
 pub const Datagrams = struct {
     /// The receive buffers, and the group the loop knows them by. The field is larger than the

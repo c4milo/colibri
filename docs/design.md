@@ -18006,6 +18006,20 @@ instructions and draws a different CPU from run to run.
   - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache.
+- **Step 76 — a server's UDP socket shares its port, 2026-11-25** ([decision 173](decisions.md),
+  [#155](https://github.com/c4milo/colibri/issues/155)). No public name changes. Rotor is pinned at
+  `af06860`, whose `DatagramOptions` takes `reuse_port`.
+  - `rotor_host_udp.zig` gives a server's UDP socket `server_socket_options`, which asks for
+    `reuse_port`, and a client's socket keeps `socket_options`.
+  - The test "decision 173: a second server's UDP socket shares the port, and only one that asks"
+    opens a second socket with the server's options on a running server's port, and one with a
+    client's options, which the kernel refuses.
+  - Mutations, each CAUGHT by `zig build test-colibri`: the server's socket opened with a client's
+    options, and `server_socket_options` without `reuse_port`.
+  - Run on x86-64 Linux: `zig build test`, 4,278 of 4,280, with 1 skipped and the IPv6 test
+    failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
+    `tools/consumer_check.sh`, with the packages from Zig's cache. Rotor's half ran
+    `zig build test` there too, where each failure was an IPv6 test.
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on
