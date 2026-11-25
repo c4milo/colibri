@@ -325,16 +325,20 @@ serves 1.22 times nginx's, past nginx's spread of 16%
 
 **Latency.** oha sends GET requests over the GitHub API's routes at fixed rates, from 2,000 to
 320,000 a second, with its latency correction. The chart gives each server's p99 at each rate.
-Over h2 at 40,000 requests a second, colibri's p99 is 1.24 ms, axum's 1.96 ms, and that of
-net/http with chi 1,037 ms. At 80,000, colibri's is 10.42 ms, past the bound of 10 ms, with rounds
-from 8.86 to 12.49 ms, and axum's 502 ms. Over h3 at 20,000, colibri's is 4.48 ms, axum's 5.04 ms
-and that of quic-go with chi 20.67 ms. Over h11 at 80,000, colibri's is 10.70 ms and axum's 14.01
-ms. At 80,000, oha's threads ran on 1.27 cores against colibri, and colibri's core was busy 39% of
-the time over h2. Past 80,000, the load and not the server is the limit: over h2, oha reaches
-86,293 requests a second against colibri, which serves 1,062,860 under h2load
-([run 45630168558](https://github.com/c4milo/colibri/actions/runs/45630168558)).
+Over h2 at 80,000 requests a second, colibri's p99 is 9.05 ms and axum's 146.31 ms. At 40,000,
+colibri's is 1.20 ms, axum's 1.90 ms, and that of net/http with chi 1,038 ms. Over h3 at 20,000,
+colibri's is 3.49 ms, axum's 4.89 ms and that of quic-go with chi 20.62 ms. Over h11 at 80,000,
+colibri's is 5.90 ms and axum's 6.57 ms
+([run 45658737912](https://github.com/c4milo/colibri/actions/runs/45658737912)).
 
-![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri and axum each stay under it up to 40,000 requests a second over h11, h2 and h2 over TLS and 20,000 over h3](images/latency.svg)
+colibri's p99 over h2 at 80,000 sits at the bound. Four jobs of two runs on v0.20.0 measured 7.65,
+9.05, 10.42 and 11.51 ms, so two sustained the rate and two did not
+([run 45630168558](https://github.com/c4milo/colibri/actions/runs/45630168558) and run
+45658737912). At that rate oha's threads ran on more than one core, and colibri's core was busy a
+third of the time. Past 80,000, the load and not the server is the limit: over h2, oha reaches
+87,070 requests a second against colibri, which serves 1,062,860 under h2load.
+
+![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri stays under it up to 80,000 requests a second over h11 and h2, 40,000 over h2 over TLS and 20,000 over h3; axum stays under it up to 80,000 over h11, 40,000 over h2 and h2 over TLS and 20,000 over h3](images/latency.svg)
 
 ## Memory per connection
 

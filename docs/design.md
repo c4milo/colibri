@@ -5829,7 +5829,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       For v0.20.0, on `c1aceb59`, they come from job 1 of
       [45630159962](https://github.com/c4milo/colibri/actions/runs/45630159962), the competitors;
       [45630164036](https://github.com/c4milo/colibri/actions/runs/45630164036), the throughput;
-      and [45630168558](https://github.com/c4milo/colibri/actions/runs/45630168558), the latency.
+      and [45658737912](https://github.com/c4milo/colibri/actions/runs/45658737912), the latency.
+      The latency of the first run on the tag,
+      [45630168558](https://github.com/c4milo/colibri/actions/runs/45630168558), put colibri's p99
+      over h2 at 80,000 at 10.42 ms, past the bound. The owner asked for a second run, whose job 1
+      the chart gives, and docs/performance.md states the four jobs' range.
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
       synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
       ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
