@@ -12,7 +12,7 @@ under [`src/testing/`](../src/testing/) run every protocol over real sockets.
 Depend on a release tag, or on a commit for a change made since:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.19.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.20.0
 ```
 
 In `build.zig`, import `colibri`, the one module the package exports
