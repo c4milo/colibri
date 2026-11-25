@@ -18,13 +18,6 @@ const zlib = @import("stdx").compress.zlib;
 const constants = @import("constants.zig");
 const message = @import("message/message.zig");
 
-comptime {
-    // stdx links chapulin's objects when its option `crypto` is on, as colibri's build turns it
-    // on, and chapulin's module exports `ch_assert_fail` only when something references it. This
-    // reference keeps the export beside the objects in a program that codes content (decision 174).
-    _ = @import("stdx").crypto;
-}
-
 /// The CPU features the decoders run on, which the caller states once, in `Options.cpu_features`
 /// (decision 169).
 pub const CpuFeatures = platform.CpuFeatures;

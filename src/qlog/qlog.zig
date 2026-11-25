@@ -116,13 +116,6 @@ pub const h3_event = struct {
     pub const setting = files.h3_event.setting;
 };
 
-comptime {
-    // stdx links chapulin's objects when its option `crypto` is on, as colibri's build turns it
-    // on, and chapulin's module exports `ch_assert_fail` only when something references it. This
-    // reference keeps the export beside the objects in a program of this module (decision 174).
-    _ = @import("stdx").crypto;
-}
-
 test "decision 115: the root exports the names code outside the module uses" {
     const expected = [_][]const u8{
         "json",              "constants",          "TextWriter", "CpuFeatures",
