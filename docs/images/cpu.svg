@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 799" width="840" height="799" role="img" aria-labelledby="t d">
 <title id="t">colibri takes the least CPU time a request in h11, h2, h2 over TLS and h3, and ties for it in h11 over TLS</title>
-<desc id="d">colibri takes the least CPU time a request in h11, h2, h2 over TLS and h3, and ties for it in h11 over TLS. h11: colibri 6.2 µs, fasthttp 8.0 µs, Fastify 38.4 µs, h2o 13.7 µs, http.zig 18.9 µs, hyper 7.8 µs, net/http 14.3 µs, nginx 7.3 µs; h11 over TLS: colibri 7.9 µs, fasthttp 8.1 µs, Fastify 63.3 µs, h2o 14.3 µs, hyper 8.4 µs, net/http 15.2 µs, nginx 11.0 µs; h2: colibri 1.5 µs, Fastify 51.3 µs, h2o 6.2 µs, hyper 4.9 µs, net/http 32.4 µs, nginx 9.4 µs; h2 over TLS: colibri 2.2 µs, Fastify 54.6 µs, h2o 7.1 µs, hyper 5.3 µs, net/http 34.2 µs, nginx 6.7 µs; h3: colibri 3.9 µs, axum 11.3 µs, quic-go 44.0 µs.</desc>
+<desc id="d">colibri takes the least CPU time a request in h11, h2, h2 over TLS and h3, and ties for it in h11 over TLS. h11: colibri 6.5 µs, fasthttp 8.2 µs, Fastify 40.9 µs, h2o 13.4 µs, http.zig 19.2 µs, hyper 8.4 µs, net/http 14.9 µs, nginx 8.0 µs; h11 over TLS: colibri 8.1 µs, fasthttp 8.2 µs, Fastify 69.7 µs, h2o 14.5 µs, hyper 8.4 µs, net/http 15.5 µs, nginx 11.2 µs; h2: colibri 1.5 µs, Fastify 52.8 µs, h2o 6.3 µs, hyper 5.0 µs, net/http 33.1 µs, nginx 9.5 µs; h2 over TLS: colibri 2.2 µs, Fastify 56.6 µs, h2o 7.1 µs, hyper 5.5 µs, net/http 35.1 µs, nginx 6.8 µs; h3: colibri 3.9 µs, axum 11.4 µs, quic-go 45.0 µs.</desc>
 <style>
 svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --other:#a3a29c;
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; }
@@ -23,43 +23,39 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="sub" x="24" y="78">The time the server's threads ran, in user space and in the kernel, over the requests of the load. Shorter is better.</text>
 <text class="sub" x="24" y="96">Each server runs on a core of its own. From two other cores, wrk sends 16 connections, and h2load 16 of 10 streams each.</text>
 <text class="sub" x="24" y="114">Over h3, axum serves through quinn and the h3 crate.</text>
-<text class="sub" x="24" y="132">One run of bench.yml measured all: run 284, commit c1aceb59, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
+<text class="sub" x="24" y="132">One run of bench.yml measured all: run 288, commit 5847a115, Neoverse-N2, Linux 7.0.0-1017-azure.</text>
 <text class="panel" x="24" y="180">h11</text>
 <line x1="128.0" y1="190" x2="128.0" y2="405" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="128.0" y="420" text-anchor="middle">0</text>
-<line x1="168.0" y1="190" x2="168.0" y2="405" stroke="var(--grid)" stroke-width="1"/>
-<text class="tick" x="168.0" y="420" text-anchor="middle">10</text>
-<line x1="208.0" y1="190" x2="208.0" y2="405" stroke="var(--grid)" stroke-width="1"/>
-<text class="tick" x="208.0" y="420" text-anchor="middle">20</text>
-<line x1="248.0" y1="190" x2="248.0" y2="405" stroke="var(--grid)" stroke-width="1"/>
-<text class="tick" x="248.0" y="420" text-anchor="middle">30</text>
-<line x1="288.0" y1="190" x2="288.0" y2="405" stroke="var(--grid)" stroke-width="1"/>
-<text class="tick" x="288.0" y="420" text-anchor="middle">40</text>
+<line x1="181.3" y1="190" x2="181.3" y2="405" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="181.3" y="420" text-anchor="middle">20</text>
+<line x1="234.7" y1="190" x2="234.7" y2="405" stroke="var(--grid)" stroke-width="1"/>
+<text class="tick" x="234.7" y="420" text-anchor="middle">40</text>
 <text class="tick" x="404" y="420" text-anchor="end">µs a request</text>
 <text class="row" x="120" y="207.0" text-anchor="end">colibri</text>
-<path d="M128,194 h20.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-20.6 z" fill="var(--s1)"/>
-<text class="val" x="158.6" y="207.0">6.2 µs</text>
+<path d="M128,194 h13.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-13.3 z" fill="var(--s1)"/>
+<text class="val" x="151.3" y="207.0">6.5 µs</text>
 <text class="row" x="120" y="234.0" text-anchor="end">nginx</text>
-<path d="M128,221 h25.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-25.1 z" fill="var(--other)"/>
-<text class="val" x="163.1" y="234.0">7.3 µs, 1.18× colibri</text>
-<text class="row" x="120" y="261.0" text-anchor="end">hyper</text>
-<path d="M128,248 h27.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-27.1 z" fill="var(--other)"/>
-<text class="val" x="165.1" y="261.0">7.8 µs, 1.26× colibri</text>
-<text class="row" x="120" y="288.0" text-anchor="end">fasthttp</text>
-<path d="M128,275 h27.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-27.9 z" fill="var(--other)"/>
-<text class="val" x="165.9" y="288.0">8.0 µs, 1.29× colibri</text>
+<path d="M128,221 h17.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-17.4 z" fill="var(--other)"/>
+<text class="val" x="155.4" y="234.0">8.0 µs, 1.24× colibri</text>
+<text class="row" x="120" y="261.0" text-anchor="end">fasthttp</text>
+<path d="M128,248 h17.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-17.8 z" fill="var(--other)"/>
+<text class="val" x="155.8" y="261.0">8.2 µs, 1.26× colibri</text>
+<text class="row" x="120" y="288.0" text-anchor="end">hyper</text>
+<path d="M128,275 h18.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-18.3 z" fill="var(--other)"/>
+<text class="val" x="156.3" y="288.0">8.4 µs, 1.29× colibri</text>
 <text class="row" x="120" y="315.0" text-anchor="end">h2o</text>
-<path d="M128,302 h50.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-50.8 z" fill="var(--other)"/>
-<text class="val" x="188.8" y="315.0">13.7 µs, 2.22× colibri</text>
+<path d="M128,302 h31.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-31.7 z" fill="var(--other)"/>
+<text class="val" x="169.7" y="315.0">13.4 µs, 2.07× colibri</text>
 <text class="row" x="120" y="342.0" text-anchor="end">net/http</text>
-<path d="M128,329 h53.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-53.4 z" fill="var(--other)"/>
-<text class="val" x="191.4" y="342.0">14.3 µs, 2.33× colibri</text>
+<path d="M128,329 h35.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-35.8 z" fill="var(--other)"/>
+<text class="val" x="173.8" y="342.0">14.9 µs, 2.31× colibri</text>
 <text class="row" x="120" y="369.0" text-anchor="end">http.zig</text>
-<path d="M128,356 h71.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-71.8 z" fill="var(--other)"/>
-<text class="val" x="209.8" y="369.0">18.9 µs, 3.08× colibri</text>
+<path d="M128,356 h47.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-47.1 z" fill="var(--other)"/>
+<text class="val" x="185.1" y="369.0">19.2 µs, 2.96× colibri</text>
 <text class="row" x="120" y="396.0" text-anchor="end">Fastify</text>
-<path d="M128,383 h149.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-149.5 z" fill="var(--other)"/>
-<text class="val" x="287.5" y="396.0">38.4 µs, 6.23× colibri</text>
+<path d="M128,383 h105.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-105.1 z" fill="var(--other)"/>
+<text class="val" x="243.1" y="396.0">40.9 µs, 6.32× colibri</text>
 <text class="panel" x="432" y="180">h11 over TLS</text>
 <line x1="536.0" y1="190" x2="536.0" y2="378" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="536.0" y="393" text-anchor="middle">0</text>
@@ -71,26 +67,26 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="656.0" y="393" text-anchor="middle">60</text>
 <text class="tick" x="812" y="393" text-anchor="end">µs a request</text>
 <text class="row" x="528" y="207.0" text-anchor="end">colibri</text>
-<path d="M536,194 h11.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-11.7 z" fill="var(--s1)"/>
-<text class="val" x="557.7" y="207.0">7.9 µs</text>
+<path d="M536,194 h12.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.2 z" fill="var(--s1)"/>
+<text class="val" x="558.2" y="207.0">8.1 µs</text>
 <text class="row" x="528" y="234.0" text-anchor="end">fasthttp</text>
-<path d="M536,221 h12.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.3 z" fill="var(--other)"/>
-<text class="val" x="558.3" y="234.0">8.1 µs, 1.03× colibri</text>
+<path d="M536,221 h12.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.4 z" fill="var(--other)"/>
+<text class="val" x="558.4" y="234.0">8.2 µs, 1.01× colibri</text>
 <text class="row" x="528" y="261.0" text-anchor="end">hyper</text>
-<path d="M536,248 h12.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.7 z" fill="var(--other)"/>
-<text class="val" x="558.7" y="261.0">8.4 µs, 1.06× colibri</text>
+<path d="M536,248 h12.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.8 z" fill="var(--other)"/>
+<text class="val" x="558.8" y="261.0">8.4 µs, 1.04× colibri</text>
 <text class="row" x="528" y="288.0" text-anchor="end">nginx</text>
-<path d="M536,275 h18.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-18.0 z" fill="var(--other)"/>
-<text class="val" x="564.0" y="288.0">11.0 µs, 1.40× colibri</text>
+<path d="M536,275 h18.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-18.3 z" fill="var(--other)"/>
+<text class="val" x="564.3" y="288.0">11.2 µs, 1.38× colibri</text>
 <text class="row" x="528" y="315.0" text-anchor="end">h2o</text>
-<path d="M536,302 h24.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-24.5 z" fill="var(--other)"/>
-<text class="val" x="570.5" y="315.0">14.3 µs, 1.81× colibri</text>
+<path d="M536,302 h25.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-25.0 z" fill="var(--other)"/>
+<text class="val" x="571.0" y="315.0">14.5 µs, 1.79× colibri</text>
 <text class="row" x="528" y="342.0" text-anchor="end">net/http</text>
-<path d="M536,329 h26.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-26.4 z" fill="var(--other)"/>
-<text class="val" x="572.4" y="342.0">15.2 µs, 1.93× colibri</text>
+<path d="M536,329 h27.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-27.0 z" fill="var(--other)"/>
+<text class="val" x="573.0" y="342.0">15.5 µs, 1.91× colibri</text>
 <text class="row" x="528" y="369.0" text-anchor="end">Fastify</text>
-<path d="M536,356 h122.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-122.6 z" fill="var(--other)"/>
-<text class="val" x="668.6" y="369.0">63.3 µs, 8.05× colibri</text>
+<path d="M536,356 h135.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-135.4 z" fill="var(--other)"/>
+<text class="val" x="681.4" y="369.0">69.7 µs, 8.60× colibri</text>
 <text class="panel" x="24" y="454">h2</text>
 <line x1="128.0" y1="464" x2="128.0" y2="625" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="128.0" y="640" text-anchor="middle">0</text>
@@ -102,23 +98,23 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="288.0" y="640" text-anchor="middle">60</text>
 <text class="tick" x="404" y="640" text-anchor="end">µs a request</text>
 <text class="row" x="120" y="481.0" text-anchor="end">colibri</text>
-<path d="M128,468 h2.0 a1.998,1.998 0 0 1 1.998,1.998 v14.004 a1.998,1.998 0 0 1 -1.998,1.998 h-2.0 z" fill="var(--s1)"/>
-<text class="val" x="138.0" y="481.0">1.5 µs</text>
+<path d="M128,468 h2.0 a2.0353333333333334,2.0353333333333334 0 0 1 2.0353333333333334,2.0353333333333334 v13.929333333333332 a2.0353333333333334,2.0353333333333334 0 0 1 -2.0353333333333334,2.0353333333333334 h-2.0 z" fill="var(--s1)"/>
+<text class="val" x="138.1" y="481.0">1.5 µs</text>
 <text class="row" x="120" y="508.0" text-anchor="end">hyper</text>
-<path d="M128,495 h9.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-9.0 z" fill="var(--other)"/>
-<text class="val" x="147.0" y="508.0">4.9 µs, 3.26× colibri</text>
+<path d="M128,495 h9.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-9.3 z" fill="var(--other)"/>
+<text class="val" x="147.3" y="508.0">5.0 µs, 3.27× colibri</text>
 <text class="row" x="120" y="535.0" text-anchor="end">h2o</text>
-<path d="M128,522 h12.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.5 z" fill="var(--other)"/>
-<text class="val" x="150.5" y="535.0">6.2 µs, 4.13× colibri</text>
+<path d="M128,522 h12.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-12.7 z" fill="var(--other)"/>
+<text class="val" x="150.7" y="535.0">6.3 µs, 4.11× colibri</text>
 <text class="row" x="120" y="562.0" text-anchor="end">nginx</text>
-<path d="M128,549 h21.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-21.2 z" fill="var(--other)"/>
-<text class="val" x="159.2" y="562.0">9.4 µs, 6.30× colibri</text>
+<path d="M128,549 h21.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-21.4 z" fill="var(--other)"/>
+<text class="val" x="159.4" y="562.0">9.5 µs, 6.24× colibri</text>
 <text class="row" x="120" y="589.0" text-anchor="end">net/http</text>
-<path d="M128,576 h82.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-82.5 z" fill="var(--other)"/>
-<text class="val" x="220.5" y="589.0">32.4 µs, 21.6× colibri</text>
+<path d="M128,576 h84.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-84.2 z" fill="var(--other)"/>
+<text class="val" x="222.2" y="589.0">33.1 µs, 21.7× colibri</text>
 <text class="row" x="120" y="616.0" text-anchor="end">Fastify</text>
-<path d="M128,603 h132.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-132.9 z" fill="var(--other)"/>
-<text class="val" x="270.9" y="616.0">51.3 µs, 34.2× colibri</text>
+<path d="M128,603 h136.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-136.9 z" fill="var(--other)"/>
+<text class="val" x="274.9" y="616.0">52.8 µs, 34.6× colibri</text>
 <text class="panel" x="432" y="454">h2 over TLS</text>
 <line x1="536.0" y1="464" x2="536.0" y2="625" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="536.0" y="640" text-anchor="middle">0</text>
@@ -130,23 +126,23 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="696.0" y="640" text-anchor="middle">60</text>
 <text class="tick" x="812" y="640" text-anchor="end">µs a request</text>
 <text class="row" x="528" y="481.0" text-anchor="end">colibri</text>
-<path d="M536,468 h2.9 a2.9153333333333333,2.9153333333333333 0 0 1 2.9153333333333333,2.9153333333333333 v12.169333333333334 a2.9153333333333333,2.9153333333333333 0 0 1 -2.9153333333333333,2.9153333333333333 h-2.9 z" fill="var(--s1)"/>
+<path d="M536,468 h2.9 a2.9139999999999997,2.9139999999999997 0 0 1 2.9139999999999997,2.9139999999999997 v12.172 a2.9139999999999997,2.9139999999999997 0 0 1 -2.9139999999999997,2.9139999999999997 h-2.9 z" fill="var(--s1)"/>
 <text class="val" x="547.8" y="481.0">2.2 µs</text>
 <text class="row" x="528" y="508.0" text-anchor="end">hyper</text>
-<path d="M536,495 h10.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-10.2 z" fill="var(--other)"/>
-<text class="val" x="556.2" y="508.0">5.3 µs, 2.43× colibri</text>
+<path d="M536,495 h10.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-10.6 z" fill="var(--other)"/>
+<text class="val" x="556.6" y="508.0">5.5 µs, 2.50× colibri</text>
 <text class="row" x="528" y="535.0" text-anchor="end">nginx</text>
-<path d="M536,522 h13.8 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-13.8 z" fill="var(--other)"/>
-<text class="val" x="559.8" y="535.0">6.7 µs, 3.06× colibri</text>
+<path d="M536,522 h14.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-14.1 z" fill="var(--other)"/>
+<text class="val" x="560.1" y="535.0">6.8 µs, 3.11× colibri</text>
 <text class="row" x="528" y="562.0" text-anchor="end">h2o</text>
 <path d="M536,549 h15.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-15.0 z" fill="var(--other)"/>
-<text class="val" x="561.0" y="562.0">7.1 µs, 3.26× colibri</text>
+<text class="val" x="561.0" y="562.0">7.1 µs, 3.27× colibri</text>
 <text class="row" x="528" y="589.0" text-anchor="end">net/http</text>
-<path d="M536,576 h87.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-87.2 z" fill="var(--other)"/>
-<text class="val" x="633.2" y="589.0">34.2 µs, 15.6× colibri</text>
+<path d="M536,576 h89.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-89.6 z" fill="var(--other)"/>
+<text class="val" x="635.6" y="589.0">35.1 µs, 16.1× colibri</text>
 <text class="row" x="528" y="616.0" text-anchor="end">Fastify</text>
-<path d="M536,603 h141.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-141.5 z" fill="var(--other)"/>
-<text class="val" x="687.5" y="616.0">54.6 µs, 25.0× colibri</text>
+<path d="M536,603 h146.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-146.9 z" fill="var(--other)"/>
+<text class="val" x="692.9" y="616.0">56.6 µs, 25.9× colibri</text>
 <text class="panel" x="24" y="674">h3</text>
 <line x1="128.0" y1="684" x2="128.0" y2="764" stroke="var(--grid)" stroke-width="1"/>
 <text class="tick" x="128.0" y="779" text-anchor="middle">0</text>
@@ -156,12 +152,12 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 <text class="tick" x="234.7" y="779" text-anchor="middle">40</text>
 <text class="tick" x="404" y="779" text-anchor="end">µs a request</text>
 <text class="row" x="120" y="701.0" text-anchor="end">colibri</text>
-<path d="M128,688 h6.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-6.3 z" fill="var(--s1)"/>
-<text class="val" x="144.3" y="701.0">3.9 µs</text>
+<path d="M128,688 h6.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-6.5 z" fill="var(--s1)"/>
+<text class="val" x="144.5" y="701.0">3.9 µs</text>
 <text class="row" x="120" y="728.0" text-anchor="end">axum</text>
-<path d="M128,715 h26.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-26.2 z" fill="var(--other)"/>
-<text class="val" x="164.2" y="728.0">11.3 µs, 2.93× colibri</text>
+<path d="M128,715 h26.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-26.4 z" fill="var(--other)"/>
+<text class="val" x="164.4" y="728.0">11.4 µs, 2.89× colibri</text>
 <text class="row" x="120" y="755.0" text-anchor="end">quic-go</text>
-<path d="M128,742 h113.3 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-113.3 z" fill="var(--other)"/>
-<text class="val" x="251.3" y="755.0">44.0 µs, 11.4× colibri</text>
+<path d="M128,742 h116.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-116.1 z" fill="var(--other)"/>
+<text class="val" x="254.1" y="755.0">45.0 µs, 11.4× colibri</text>
 </svg>
