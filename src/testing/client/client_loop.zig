@@ -30,6 +30,7 @@ const client_tls = @import("../tls/client_tls.zig");
 const pool_loop = @import("pool_loop.zig");
 const pool_tcp = @import("pool_tcp.zig");
 const entropy = @import("../entropy.zig");
+const cpu = @import("../cpu.zig");
 const alpn = @import("../alpn.zig");
 
 const Run = client_options.Run;
@@ -305,9 +306,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .authority = run.authority,
         .protocols = versions_of(&run),
         .tcp_connections = client_options.pool_tcp_connections(&run),
-        // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri
-        // (decision 169).
-        .cpu_features = client.CpuFeatures.detect(),
+        // The CPU features stdx's decoders use: the ones the program's context holds, asked of
+        // the CPU once, and not in colibri (decision 169).
+        .cpu_features = cpu.features(),
     };
     if (run.coded) {
         decoders.init();

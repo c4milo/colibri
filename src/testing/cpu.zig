@@ -16,30 +16,35 @@ const entropy = @import("entropy.zig");
 var made: ?stdx.crypto.Context align(@alignOf(?stdx.crypto.Context)) = null;
 
 /// The program's one context: the CPU features detected once, and the operating system's
-/// entropy. It sets the calling thread's timing first.
+/// entropy. It sets the calling thread's timing first. The first call makes the context, so a
+/// program makes that call before it starts a second thread.
 pub fn crypto() stdx.crypto.Context {
-    if (made) |context| {
-        set_timing();
-        return context;
-    }
-    const context = stdx.crypto.init(platform.CpuFeatures.detect(), entropy.random());
-    made = context;
-    set_timing();
+    const context = made orelse first: {
+        const first = stdx.crypto.init(platform.CpuFeatures.detect(), entropy.random());
+        made = first;
+        break :first first;
+    };
+    _ = platform.set_data_independent_timing(context.features, true);
     return context;
 }
 
 /// Sets PSTATE.DIT on the calling thread where the core has FEAT_DIT, as a program does on each
 /// thread that runs TLS (decision 175). Elsewhere it does nothing.
 pub fn set_timing() void {
-    const features = if (made) |context| context.features else platform.CpuFeatures.detect();
-    _ = platform.set_data_independent_timing(features, true);
+    _ = crypto();
+}
+
+/// The CPU features the program detected once, which its codecs take beside its TLS values
+/// (decision 169).
+pub fn features() platform.CpuFeatures {
+    return crypto().features;
 }
 
 /// Prints the features `crypto` holds, which decide the suites a program's TLS sessions hold, and
 /// whether the calling thread's timing is data-independent, under the program's name.
 pub fn print(program: []const u8) void {
-    const features = crypto().features;
-    std.debug.print("{s}: cpu aes {}, pclmul {}, pmull {}, dit {}, sha256 {}, sha512 {}, sha3 {}, timing {}\n", .{ program, features.aes, features.pclmul, features.pmull, features.dit, features.sha256, features.sha512, features.sha3, platform.data_independent_timing(features) });
+    const held = features();
+    std.debug.print("{s}: cpu aes {}, pclmul {}, pmull {}, dit {}, sha256 {}, sha512 {}, sha3 {}, timing {}\n", .{ program, held.aes, held.pclmul, held.pmull, held.dit, held.sha256, held.sha512, held.sha3, platform.data_independent_timing(held) });
 }
 
 const testing = std.testing;
@@ -48,6 +53,7 @@ test "decision 175: an arm64 thread with FEAT_DIT runs with PSTATE.DIT set, and 
     const context = crypto();
     try testing.expectEqual(platform.CpuFeatures.detect(), context.features);
     if (builtin.cpu.arch == .aarch64 and context.features.dit) try testing.expect(platform.data_independent_timing(context.features));
-    // Every later call returns the first context.
+    // Every later call returns the first context, and the codecs take its features.
     try testing.expectEqual(context.random.ptr, crypto().random.ptr);
+    try testing.expectEqual(context.features, features());
 }

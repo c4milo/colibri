@@ -9,6 +9,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
+const cpu = @import("../../cpu.zig");
 const hq_file = @import("../hq/hq_file.zig");
 
 const Log = quic.qlog.Log;
@@ -42,9 +43,9 @@ pub const Qlog = struct {
             std.debug.print("quic-udp: no qlog file could be created in {s}\n", .{held});
             return null;
         };
-        // The endpoint runs where it was started, so it asks the CPU, as
-        // `src/testing/server/server_worker.zig` does for its decoders (decision 102 as amended).
-        qlog.log = Log.init(&qlog.buffer, quic.qlog.CpuFeatures.detect());
+        // The features the program's context holds, asked of the CPU once, as
+        // `src/testing/server/server_worker.zig` passes its decoders (decision 102 as amended).
+        qlog.log = Log.init(&qlog.buffer, cpu.features());
         const trace: quic.qlog.Trace = .{
             .vantage_point = vantage_point_of(role),
             // Quic-events §1.1: the original destination connection ID groups a connection's

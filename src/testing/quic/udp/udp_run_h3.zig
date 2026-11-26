@@ -23,6 +23,7 @@ const server = @import("server");
 const constants = @import("../../constants.zig");
 const udp = @import("../../udp.zig");
 const entropy = @import("../../entropy.zig");
+const cpu = @import("../../cpu.zig");
 const check_file = @import("../../tls/check_file.zig");
 const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
@@ -94,7 +95,8 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
 fn start(asked: udp_arguments.Server, started_ns: u64) void {
     qlog_directory = asked.qlogdir;
     engine_config = .{
-        .cpu_features = .detect(),
+        // The features the program's context holds, asked of the CPU once (decision 169).
+        .cpu_features = cpu.features(),
         .tls = udp_identity.server_identity(),
         .ecn = asked.ecn,
         .idle_timeout_ms = asked.idle_ms orelse constants.quic_idle_timeout_ms,

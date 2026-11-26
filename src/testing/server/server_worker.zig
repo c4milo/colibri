@@ -124,9 +124,9 @@ pub fn start(index: usize) server.StartError!void {
     worker.touched = Touched.initEmpty();
     worker.decoders.init();
     worker.config = .{
-        // The CPU features stdx's codecs use, asked of the CPU once, here and not in colibri
-        // (decision 169).
-        .cpu_features = server.CpuFeatures.detect(),
+        // The CPU features stdx's codecs use: the ones the program's context holds, asked of the
+        // CPU once, and not in colibri (decision 169).
+        .cpu_features = cpu.features(),
         .tls = server_mode.identity,
         .tls_buffer = if (server_mode.identity == null) &.{} else &worker.tls_buffer,
         .protocols = server_mode.versions,
