@@ -2,9 +2,9 @@
  "version": 1,
  "chart": "latency",
  "machine": "Neoverse-N2",
- "run": "292",
- "commit": "2ab43623",
- "release": "v0.21.0",
+ "run": "296",
+ "commit": "3ac8c7bc",
+ "release": "v0.22.0",
  "values": {
   "h11": {
    "label": "h11",

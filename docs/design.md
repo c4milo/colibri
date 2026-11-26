@@ -5839,6 +5839,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       which measured `5847a115` before the tag moved to `2ab43623`, whose code is the same;
       [45726731806](https://github.com/c4milo/colibri/actions/runs/45726731806), the throughput;
       and [45726735781](https://github.com/c4milo/colibri/actions/runs/45726735781), the latency.
+      For v0.22.0, on `3ac8c7bc`, they come from job 1 of
+      [45898056242](https://github.com/c4milo/colibri/actions/runs/45898056242), the competitors;
+      [45898059688](https://github.com/c4milo/colibri/actions/runs/45898059688), the throughput;
+      and [45898063826](https://github.com/c4milo/colibri/actions/runs/45898063826), the latency.
+      They are the first charts that mark colibri's changes since the previous release (13u).
     - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`, draws each chart from
       synthetic reports. At the redraw, nineteen mutations, each CAUGHT: the bars not ordered, or
       ordered the wrong way; the ratio inverted; one digit after the point under ten; a tie that
