@@ -204,9 +204,9 @@ pub fn main(init: std.process.Init) !void {
     // PSTATE.DIT on each thread that runs TLS, where an arm64 core has FEAT_DIT, and stdx then
     // states the thread's timing to chapulin. On x86-64 stdx states it for every core.
     var secure: SecureRandom = .{ .io = init.io };
-    const features: platform.CpuFeatures = .detect();
-    _ = platform.set_data_independent_timing(features, true);
-    const crypto = stdx.crypto.init(features, secure.random());
+    const cpu_features: platform.CpuFeatures = .detect();
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     started_ns = link.now_ns(.server);
     try start_server(crypto);
     // The key's scalar is a secret, which the program wipes once no session uses it.

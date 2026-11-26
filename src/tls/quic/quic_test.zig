@@ -464,8 +464,8 @@ fn initial_flights(client_seed: u64, server_seed: u64, flights: *InitialFlights)
     var server_stream: random_support.Stream = .{ .state = server_seed };
     // Decision 175: each configuration's context holds the source its sessions draw from.
     var offered = support.web_pki;
-    offered.crypto = @import("stdx").crypto.init(identity.features, client_stream.random());
-    try support.configure(offered, .{ .crypto = @import("stdx").crypto.init(identity.features, server_stream.random()) });
+    offered.crypto = @import("stdx").crypto.init(identity.cpu_features, client_stream.random());
+    try support.configure(offered, .{ .crypto = @import("stdx").crypto.init(identity.cpu_features, server_stream.random()) });
     try client.start(&support.client_config, identity.now_seconds, null);
     defer client.close();
     server.start(&support.server_config, identity.now_seconds, .v1);

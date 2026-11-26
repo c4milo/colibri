@@ -18102,6 +18102,10 @@ instructions and draws a different CPU from run to run.
   - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
     octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
     grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
+  - **Names.** `qlog.Log`'s field `features` is `cpu_features`, as are the parameters and locals
+    that hold a `CpuFeatures` in qlog, the `tls` tests and the examples. That finishes the owner's
+    ruling of 2026-11-22 for colibri (https://github.com/c4milo/colibri/issues/144). stdx's
+    `Context.features` is stdx's name, and keeps it.
   - **Mutations: 10.** Eight were CAUGHT at once, and two were NOT CAUGHT until a test was written.
     - `zig build test-server`: the engine draws a connection's first ID from another source, and
       a QUIC connection its spare IDs. Each is CAUGHT by "decision 175: the engine and its

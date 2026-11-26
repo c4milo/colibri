@@ -2764,8 +2764,8 @@ send the content behind them on the request stream. Each h3 call that writes or 
 takes the instant, as QUIC's calls do.
 
 To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` over a buffer
-with `Log.init(buffer, features)`, write its header with `Log.start`, and pass it as the `qlog`
-option of both the QUIC connection and the h3 connection, so one trace holds both. `features` is
+with `Log.init(buffer, cpu_features)`, write its header with `Log.start`, and pass it as the `qlog`
+option of both the QUIC connection and the h3 connection, so one trace holds both. `cpu_features` is
 `qlog.CpuFeatures.detect()`, called once, or `qlog.CpuFeatures.target()`: colibri never asks the CPU
 itself, and the records are the same octets either way. colibri appends one record per event; your
 program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls

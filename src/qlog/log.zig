@@ -37,7 +37,7 @@ pub const Log = struct {
     buffer: []u8,
     /// The CPU features stdx's JSON writer may use, which the caller chose (decision 102 as
     /// amended). The records are the same octets for every value (stdx's invariant 5).
-    features: CpuFeatures,
+    cpu_features: CpuFeatures,
     /// Octets of whole records, from the start of `buffer`, that the caller has not taken.
     len: usize = 0,
     /// Events dropped because they did not fit.
@@ -48,9 +48,9 @@ pub const Log = struct {
 
     /// A log over `buffer`, written with `features`: `CpuFeatures.detect()`, what the CPU has, or
     /// `CpuFeatures.target()`, what the build target guarantees. colibri never asks the CPU itself.
-    pub fn init(buffer: []u8, features: CpuFeatures) Log {
+    pub fn init(buffer: []u8, cpu_features: CpuFeatures) Log {
         assert(buffer.len >= constants.limits.log_len_min);
-        return .{ .buffer = buffer, .features = features };
+        return .{ .buffer = buffer, .cpu_features = cpu_features };
     }
 
     /// Writes the header record, which main schema §5 puts first, and starts the clock of the
@@ -59,7 +59,7 @@ pub const Log = struct {
     pub fn start(log: *Log, trace: Trace, now_ns: u64) Error!void {
         assert(!log.started);
         assert(trace.event_schemas.len > 0);
-        var text = TextWriter.init(log.buffer[log.len..], .sequence, log.features);
+        var text = TextWriter.init(log.buffer[log.len..], .sequence, log.cpu_features);
         try text.begin_object();
         try member.string(&text, "file_schema", file_schema);
         try member.string(&text, "serialization_format", serialization_format);
@@ -84,7 +84,7 @@ pub const Log = struct {
         assert(log.started);
         assert(now_ns >= log.start_ns);
         const time_ns = now_ns - log.start_ns;
-        const len = write_event(log.buffer[log.len..], log.features, tuple, name, time_ns, data) catch {
+        const len = write_event(log.buffer[log.len..], log.cpu_features, tuple, name, time_ns, data) catch {
             log.dropped += 1;
             return;
         };
@@ -133,8 +133,8 @@ fn write_trace(text: *TextWriter, trace: Trace) Error!void {
 
 /// One event record into `buffer`, and its length. Nothing is committed until it all fit, so a
 /// failed record leaves only scratch past the log's length.
-fn write_event(buffer: []u8, features: CpuFeatures, tuple: u32, name: []const u8, time_ns: u64, data: anytype) Error!usize {
-    var text = TextWriter.init(buffer, .sequence, features);
+fn write_event(buffer: []u8, cpu_features: CpuFeatures, tuple: u32, name: []const u8, time_ns: u64, data: anytype) Error!usize {
+    var text = TextWriter.init(buffer, .sequence, cpu_features);
     try text.begin_object();
     try member.milliseconds(&text, "time", time_ns);
     try member.string(&text, "name", name);

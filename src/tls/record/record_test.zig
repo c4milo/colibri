@@ -469,7 +469,7 @@ const FirstFlights = struct {
 fn first_flights(client_seed: u64, server_seed: u64, flights: *FirstFlights) !void {
     var client_stream: random_support.Stream = .{ .state = client_seed };
     var server_stream: random_support.Stream = .{ .state = server_seed };
-    try support.configure(support.web_pki_under(stdx.crypto.init(support.features, client_stream.random())), .{ .crypto = stdx.crypto.init(support.features, server_stream.random()) });
+    try support.configure(support.web_pki_under(stdx.crypto.init(support.cpu_features, client_stream.random())), .{ .crypto = stdx.crypto.init(support.cpu_features, server_stream.random()) });
     try client.start(&support.client_config, support.now_seconds, null);
     defer client.close();
     try server.start(&support.server_config, support.now_seconds);

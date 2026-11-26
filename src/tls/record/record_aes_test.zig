@@ -32,21 +32,21 @@ test "decision 175: a configuration keeps its context whole, the features and th
     if (comptime !support.takes_cpu) return;
     // Bounded by the feature sets a test may run under, at most two, and by four sets that hold
     // one SHA instruction each or an N2's MIDR_EL1.
-    for (support.feature_sets) |features| try expect_converted(features);
-    for (support.features_with_sha) |features| try expect_converted(features);
+    for (support.feature_sets) |cpu_features| try expect_converted(cpu_features);
+    for (support.features_with_sha) |cpu_features| try expect_converted(cpu_features);
 }
 
 /// Configures both sides under `features` and checks what each configuration kept of the context,
 /// which each session's `init` takes: the features whole, an N2's MIDR_EL1 too, and the source.
-fn expect_converted(features: platform.CpuFeatures) !void {
-    const crypto = support.context_of(features);
+fn expect_converted(cpu_features: platform.CpuFeatures) !void {
+    const crypto = support.context_of(cpu_features);
     try support.configure(web_pki_under(crypto), .{ .crypto = crypto });
     for ([_]stdx.crypto.Context{ support.client_config.crypto, support.server_config.crypto }) |kept| {
-        try testing.expect(std.meta.eql(features, kept.features));
+        try testing.expect(std.meta.eql(cpu_features, kept.features));
         try testing.expectEqual(crypto.random.ptr, kept.random.ptr);
     }
     // A set of features without the AES instructions claims none.
-    if (!features.aes) try testing.expect(!support.aes_claimed(crypto));
+    if (!cpu_features.aes) try testing.expect(!support.aes_claimed(crypto));
 }
 
 test "decision 175: each pair of feature sets runs AES-256-GCM when both claim the AES instructions, and ChaCha20 otherwise" {
@@ -69,7 +69,7 @@ test "decision 175: features without the AES instructions refuse a suite order t
     // refuses an order for one that holds ChaCha20 alone.
     if (!support.takes_cpu or !support.aes_gcm) return;
     const order = [_]u16{tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256};
-    const crypto = support.context_of(support.features_without_aes);
+    const crypto = support.context_of(support.cpu_features_without_aes);
     var offered = support.offering(&order);
     offered.crypto = crypto;
     try support.configure(offered, .{ .suites = &order, .crypto = crypto });
@@ -87,8 +87,8 @@ test "decision 175: features without the AES instructions refuse a suite order t
 }
 
 test "decision 175: every feature set a test may run under carries records each way" {
-    for (support.feature_sets) |features| {
-        const crypto = support.context_of(features);
+    for (support.feature_sets) |cpu_features| {
+        const crypto = support.context_of(cpu_features);
         try support.configure(web_pki_under(crypto), .{ .crypto = crypto });
         try support.handshake_both(null);
         const sealed = try client.provider().encrypt_record("probe", support.to_server.free());
@@ -100,6 +100,6 @@ test "decision 175: every feature set a test may run under carries records each 
 comptime {
     // The tests' own features are a set they may run under, or lack only the AES instructions.
     var found = false;
-    for (support.feature_sets) |features| found = found or std.meta.eql(features, support.features) or std.meta.eql(features, support.features_without_aes);
+    for (support.feature_sets) |cpu_features| found = found or std.meta.eql(cpu_features, support.cpu_features) or std.meta.eql(cpu_features, support.cpu_features_without_aes);
     std.debug.assert(found);
 }

@@ -36,13 +36,13 @@ pub const key: values.Key = p256_key: {
 pub const now_seconds: u64 = testdata.now_seconds;
 /// The CPU features the tests describe: the build target's, since a test runs where it was built
 /// (decision 175). No test's result depends on its timing.
-pub const features: platform.CpuFeatures = .target();
+pub const cpu_features: platform.CpuFeatures = .target();
 /// The build target's features without the AES instructions and the carry-less multiply, under
 /// which no session runs AES-GCM.
-pub const features_without_aes: platform.CpuFeatures = without_aes(features);
+pub const cpu_features_without_aes: platform.CpuFeatures = without_aes(cpu_features);
 /// The context the tests' configurations hold: the build target's features and the stream the tests
 /// share.
-pub const crypto: Context = context_of(features);
+pub const crypto: Context = context_of(cpu_features);
 
 /// A context of `described` and the stream the tests share, as a program makes one at start.
 pub fn context_of(described: platform.CpuFeatures) Context {
@@ -158,7 +158,7 @@ pub fn holds_aes_gcm(context: Context) bool {
 /// The features a test may run a session under. Features with the AES instructions need the
 /// instructions, which the build target has or does not, so a target without them runs the
 /// features without them alone.
-pub const feature_sets: []const platform.CpuFeatures = if (takes_cpu and features.aes) &.{ features, features_without_aes } else &.{features_without_aes};
+pub const feature_sets: []const platform.CpuFeatures = if (takes_cpu and cpu_features.aes) &.{ cpu_features, cpu_features_without_aes } else &.{cpu_features_without_aes};
 
 /// The suites a session under the tests' context holds: the three colibri admits with AES-GCM, and
 /// ChaCha20 alone without it.

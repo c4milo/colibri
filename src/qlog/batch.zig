@@ -25,9 +25,9 @@ pub const Batch = struct {
     octets: [constants.limits.batch_octets_len]u8,
     octets_len: usize,
 
-    pub fn init(output: []u8, framing: json.Framing, features: CpuFeatures) Batch {
+    pub fn init(output: []u8, framing: json.Framing, cpu_features: CpuFeatures) Batch {
         return .{
-            .text = json.TextWriter.init(output, framing, features),
+            .text = json.TextWriter.init(output, framing, cpu_features),
             .items = undefined,
             .len = 0,
             .octets = undefined,
