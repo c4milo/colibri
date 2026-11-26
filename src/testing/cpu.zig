@@ -5,7 +5,9 @@
 //!
 //! So each thread that runs TLS calls `set_timing` first, which sets PSTATE.DIT on arm64 where the
 //! core has FEAT_DIT. A virtual machine may hide FEAT_DIT from its guest, as the bench runner's
-//! does. There stdx states no timing, and the sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
+//! does. stdx then takes it from the MIDR of a core it lists, the runner's Neoverse N2 among them
+//! (stdx's decision 40 as amended). Elsewhere stdx states no timing, and the sessions hold
+//! TLS_CHACHA20_POLY1305_SHA256 alone.
 const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");

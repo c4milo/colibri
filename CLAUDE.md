@@ -628,7 +628,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   TLS value. Each image of `src/testing/` makes its context in `src/testing/cpu.zig`, of stdx's
   `CpuFeatures.detect()`, taken once, and of `getentropy`'s octets (`src/testing/entropy.zig`).
   Each thread that runs TLS sets PSTATE.DIT on arm64 where the core has FEAT_DIT. A virtual
-  machine may hide FEAT_DIT, and there the sessions hold ChaCha20 alone. A QUIC image defines
+  machine may hide FEAT_DIT. stdx then takes it from the MIDR of a core it lists, such as the
+  Neoverse N2 of GitHub's arm64 runners (stdx's decision 40 as amended), and elsewhere the
+  sessions hold ChaCha20 alone. A QUIC image defines
   `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests describe the build target's features,
   `CpuFeatures.target()`, with and without the AES instructions, and run each set where the
   target has the instructions. `zig build test-tls test-tls-keylog -Dcpu=<model>` runs the `tls`
