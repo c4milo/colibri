@@ -69,7 +69,7 @@ pub const Config = struct {
     ecn: bool = false,
     /// QUIC connections alone: the congestion controller each one runs (decisions 133, 136 and
     /// 143), BBRv3 by default, CUBIC, or RFC 9002's NewReno. Under BBRv3 each connection draws its
-    /// probe waits from the program's source.
+    /// probe waits from the source of the context in `tls` (decision 175).
     congestion_controller: quic.CongestionController = .bbr,
     /// QUIC connections alone: the idle timeout the server advertises (RFC 9000 §10.1), in
     /// milliseconds.
@@ -122,9 +122,9 @@ pub const Built = struct {
 };
 
 /// Builds the TLS configuration of each transport the engine serves, checks that its key signs,
-/// and fills what each connection borrows. `random` is the program's source, which each check
-/// draws from for an RSA-PSS salt.
-pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Random) StartError!Served {
+/// and fills what each connection borrows. Each check draws an RSA-PSS salt from the random
+/// source of the context in `config.tls` (decision 175).
+pub fn build(config: *const Config, counts: Counts, built: Built) StartError!Served {
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
     assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.limits.concurrent_streams_max);
@@ -149,15 +149,15 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     try config.timeouts.validate();
     const units = serves_quic or (serves_tcp and (config.tls != null or config.protocols.h2));
     if (units) try config.timeouts.validate_units();
-    if (serves_quic) try build_quic(config, built, random);
-    if (serves_tcp) try build_tcp(config, built, random);
+    if (serves_quic) try build_quic(config, built);
+    if (serves_tcp) try build_tcp(config, built);
     return .{ .tcp = serves_tcp, .quic = serves_quic };
 }
 
 /// The protocol a QUIC connection's handshake names (RFC 9114 §3.1).
 const alpn_h3 = [_][]const u8{"h3"};
 
-fn build_quic(config: *const Config, built: Built, random: tls.Random) StartError!void {
+fn build_quic(config: *const Config, built: Built) StartError!void {
     var values = config.tls.?;
     values.alpn = &alpn_h3;
     built.quic_tls.init(values) catch |failure| switch (failure) {
@@ -165,7 +165,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         error.TooManyProtocols, error.TooManyAnchors => unreachable,
         else => |refused| return refused,
     };
-    try built.quic_tls.check(random);
+    try built.quic_tls.check();
     built.quic.* = .{
         .tls = built.quic_tls,
         .ecn = config.ecn,
@@ -188,7 +188,7 @@ const alpn_both = [_][]const u8{ &tls_provider.constants.protocol.alpn_h2, tls_p
 const alpn_h2 = [_][]const u8{&tls_provider.constants.protocol.alpn_h2};
 const alpn_h11 = [_][]const u8{tls_provider.constants.protocol.alpn_http_1_1};
 
-fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError!void {
+fn build_tcp(config: *const Config, built: Built) StartError!void {
     built.tcp.cleartext = .{
         .tls = null,
         .protocols = config.protocols,
@@ -210,7 +210,7 @@ fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError
         error.TooManyProtocols, error.TooManyAnchors => unreachable,
         else => |refused| return refused,
     };
-    try built.tcp_tls.check(random);
+    try built.tcp_tls.check();
     built.tcp.secure.tls = built.tcp_tls;
 }
 
@@ -286,7 +286,7 @@ test "decision 169: each connection of an engine takes the configuration's CPU f
     try support.connect();
     try testing.expectEqual(features_stated, support.served.config.cpu_features);
     tcp_only_config = .{ .cpu_features = features_stated, .protocols = .{ .h2 = false } };
-    try tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
+    try tcp_only.init(&tcp_only_config, .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
     try testing.expectEqual(features_stated, tcp_only.tcp_configs.cleartext.cpu_features);
     try testing.expectEqual(features_stated, tcp_only.tcp_configs.secure.cpu_features);
 }
@@ -298,7 +298,7 @@ threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
 fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartError!void {
     tcp_only_config = .{ .cpu_features = .none(), .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
-    return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
+    return tcp_only.init(&tcp_only_config, .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
 }
 
 test "decision 110 as amended: units are judged only where a body may arrive in them" {

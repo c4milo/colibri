@@ -30,10 +30,9 @@ const IdleHandler = struct {
 };
 
 test "decision 159: a client stops once its cancelled receive of datagrams had its final completion" {
-    var counter: support.Counter = .{};
     var handler: IdleHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
     try testing.expectEqual(1, turned.operations);

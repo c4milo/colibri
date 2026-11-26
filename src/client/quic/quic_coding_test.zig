@@ -32,7 +32,7 @@ fn start_coding() !void {
     const storage = tcp_support.pool.storage();
     support.config.codings = &tcp_support.codings;
     support.config.decoders = storage;
-    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);
+    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.now_seconds, support.now_ns, null);
 }
 
 /// A client that offers `zstd` and `br`, each pool of one decoder free, and its server.
@@ -42,7 +42,7 @@ fn start_zstd_br() !void {
     support.config.codings = &zstd_br;
     support.config.zstd_decoders = coding_support.zstd_pool.storage();
     support.config.br_decoders = coding_support.br_pool.storage();
-    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);
+    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.now_seconds, support.now_ns, null);
 }
 
 const zstd_br = [_]http.content_coding.Coding{ .zstd, .br };
@@ -112,7 +112,7 @@ test "decision 169: an h3 response's decoder, each gzip member of it, runs on th
         decoder.init(cpu_features);
         const expected = decoder.crc32_path;
         decoder.init(other);
-        try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);
+        try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.now_seconds, support.now_ns, null);
         gzip_encoder.init(.none());
         // RFC 1952 §2.2: each member decodes to the text once.
         const member_len = try gzip_encoder.encode_all(text, &coded_room);

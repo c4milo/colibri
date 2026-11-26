@@ -24,5 +24,5 @@ pub fn read(storage: *Anchors, prefix: []const u8, hostname: []const u8) !tls.Cl
     const name = try check_file.read_part(prefix, ".name", &storage.name);
     const spki = try check_file.read_part(prefix, ".spki", &storage.spki);
     storage.anchors[0] = .{ .subject = name, .spki = spki };
-    return .{ .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } }, .cpu = cpu.probe() };
+    return .{ .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } }, .crypto = cpu.crypto() };
 }

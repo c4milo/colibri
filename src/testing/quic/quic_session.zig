@@ -51,12 +51,12 @@ pub const Session = union(enum) {
         switch (how) {
             .client => |client| {
                 session.* = .{ .client = undefined };
-                try session.client.start(client.config, entropy.random(), client.now_seconds, client.resumption);
+                try session.client.start(client.config, client.now_seconds, client.resumption);
                 session.client.set_keylog_context(keylog);
             },
             .server => |server| {
                 session.* = .{ .server = undefined };
-                session.server.start(server.config, entropy.random(), server.now_seconds, server.version);
+                session.server.start(server.config, server.now_seconds, server.version);
                 session.server.set_keylog_context(keylog);
             },
         }

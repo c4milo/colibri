@@ -14,7 +14,6 @@ const test_client = &fixture.test_client;
 /// Fetches `/stream` once over a client of `protocols`, from a server over TLS when `secure` is
 /// set, with a UDP socket when `udp` is set.
 fn fetch_stream(protocols: client.Protocols, secure: bool, udp: bool, handler: *fixture.Handler) !void {
-    var counter: support.Counter = .{};
     try fixture.start_server(secure, udp);
     defer fixture.stop_server();
     var pool = fixture.pool_config(protocols, secure);
@@ -22,7 +21,6 @@ fn fetch_stream(protocols: client.Protocols, secure: bool, udp: bool, handler: *
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.port()),
         .pool = pool,
-        .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
     }, handler);
     defer test_client.deinit();

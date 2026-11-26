@@ -11,8 +11,9 @@
 //!
 //! `colibri` is the one module that the package exports (decision 170). The root names each of
 //! the sixteen other library modules, so a program imports `colibri` alone and writes
-//! `colibri.server.Router`, `colibri.tls.Cpu` or `colibri.h2.Connection`. It names nothing of
-//! stdx: a program depends on stdx itself for `platform` (decision 97 as amended).
+//! `colibri.server.Router`, `colibri.tls.Client` or `colibri.h2.Connection`. It names nothing of
+//! stdx: a program depends on stdx itself for `platform` and for the `crypto.Context` its TLS
+//! values hold (decisions 97 as amended and 175).
 pub const core = @import("core");
 pub const wire = @import("wire");
 pub const http = @import("http");

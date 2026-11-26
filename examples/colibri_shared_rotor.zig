@@ -29,7 +29,8 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 // chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
 
@@ -247,7 +248,7 @@ var exchanges: Exchanges align(@alignOf(Exchanges)) = .{};
 const Timer = enum { idle, armed, fired };
 var timer: Timer align(@alignOf(Timer)) = .idle;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     _ = try loop.tick(&events, 0);
@@ -260,20 +261,21 @@ pub fn main() !void {
     ipv4_addresses = .{.init(&ipv4_loopback, 0)};
     ipv6_addresses = .{.init(&ipv6_loopback, 0)};
 
-    const random = tls.Random.init(&generator, fill);
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    // The CPU features the codecs run on, which the program also asks once and states in each
-    // configuration (decision 169).
+    // The random source of a hosted server's context: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for the codecs (decision 169) and for TLS.
     const cpu_features: platform.CpuFeatures = .detect();
+    // A hosted server takes the program's one context (decision 175). This one serves cleartext,
+    // so its sessions draw nothing, and the client in cleartext takes none.
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     // Each object starts at the loop's instant. A cleartext client judges no date, so the
     // example names a fixed second in place of a reading of the system's clock.
     const now: colibri.server.Timestamp = .{ .unix_seconds = 1_800_000_000, .monotonic_ns = loop.now_ns() };
     router.init();
-    try hosted_server.init(&.{ .cpu = cpu, .random = random, .now = now, .engine = .{ .cpu_features = cpu_features, .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
+    try hosted_server.init(&.{ .crypto = crypto, .now = now, .engine = .{ .cpu_features = cpu_features, .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &ipv4_addresses, .port = port },
         .pool = .{ .cpu_features = cpu_features, .authority = "localhost", .protocols = .{ .h2 = false, .h3 = false } },
-        .random = random,
         .now = now,
     }, &exchanges);
     try request(0);
@@ -294,13 +296,22 @@ pub fn main() !void {
     std.debug.print("colibri_shared_rotor: one GET to 127.0.0.1, then one to ::1, on port {d}\n", .{port});
 }
 
-/// The source of randomness: one seed, as `colibri_hosted.zig` uses. A real program passes its
-/// operating system's entropy.
-var generator: std.Random.DefaultPrng align(@alignOf(std.Random.DefaultPrng)) = .init(0x5eed);
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
 
-fn fill(state: *std.Random.DefaultPrng, buffer: []u8) void {
-    state.fill(buffer);
-}
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 
 fn request(index: usize) !void {
     exchanges.responses[index] = .{ .body = &exchanges.bodies[index] };

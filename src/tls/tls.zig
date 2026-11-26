@@ -6,8 +6,9 @@
 //! Record mode serves h2 and h11 over the TCP object (`record/`), and QUIC mode serves h3 over the
 //! QUIC object (`quic/`), filling `tls_provider.QuicProvider` and `crypto.Suite`. chapulin holds
 //! every key, and colibri passes it pointers to the caller's keys and never reads one
-//! (non-negotiable 2). Each session draws from the `Random` its caller passes to `start`. chapulin's
-//! module defines its one hook, `ch_assert_fail`, and a program may replace it (decision 172).
+//! (non-negotiable 2). Each session draws from the random source of the `stdx.crypto.Context` its
+//! configuration holds (decision 175). chapulin's module defines its one hook, `ch_assert_fail`,
+//! and a program may replace it (decision 172).
 //!
 //! This root is the module's API file (decision 115). It exports the names code outside the
 //! module uses: a type under its own name, a function or a constant under the namespace of its
@@ -24,9 +25,6 @@ const files = struct {
     pub const pem = @import("pem.zig");
 };
 
-pub const Random = files.values.Random;
-pub const Cpu = files.values.Cpu;
-pub const Timing = files.values.Timing;
 pub const Anchor = files.values.Anchor;
 pub const Pin = files.values.Pin;
 pub const Trust = files.values.Trust;
@@ -77,12 +75,13 @@ comptime {
 }
 
 test "decision 115: the root exports the names code outside the module uses" {
+    // Decision 175 takes out `Random`, `Cpu` and `Timing`: the values hold the program's
+    // `stdx.crypto.Context` in their place.
     try @import("crypto").core.public_names.expect(@This(), &.{
-        "constants", "Random",   "Cpu",        "Timing",
-        "Anchor",    "Pin",      "Trust",      "Client",
-        "Server",    "Ticket",   "Resumption", "SignatureScheme",
-        "Key",       "Identity", "record",     "quic",
-        "pem",
+        "constants",       "Anchor", "Pin",      "Trust",
+        "Client",          "Server", "Ticket",   "Resumption",
+        "SignatureScheme", "Key",    "Identity", "record",
+        "quic",            "pem",
     });
     try @import("crypto").core.public_names.expect(pem, &.{ "Error", "chain", "key", "anchors" });
     try @import("crypto").core.public_names.expect(record, &.{

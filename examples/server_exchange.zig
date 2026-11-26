@@ -42,7 +42,8 @@ const colibri = @import("colibri");
 const assert = std.debug.assert;
 const server = colibri.server;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const peers = @import("server_peers.zig");
@@ -183,15 +184,18 @@ pub fn main() !void {
     try link.init();
     defer link.deinit();
     datagram_link.init(&link.loops);
-    // A program probes its CPU once and says what mode its thread runs in, and passes both to every
-    // TLS configuration. This one sets no mode, so its sessions run ChaCha20 alone; one whose
-    // thread set PSTATE.DIT on arm64 states `.data_independent`.
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    // A program detects its CPU features once, and makes one `stdx.crypto` context of them and
+    // its source of randomness, which every TLS configuration holds (decision 175). It sets
+    // PSTATE.DIT on each thread that runs TLS, where an arm64 core has FEAT_DIT, and stdx then
+    // states the thread's timing to chapulin. On x86-64 stdx states it for every core.
+    const features: platform.CpuFeatures = .detect();
+    _ = platform.set_data_independent_timing(features, true);
+    const crypto = stdx.crypto.init(features, program.random());
     started_ns = link.now_ns(.server);
-    try start_server(cpu);
+    try start_server(crypto);
     // The key's scalar is a secret, which the program wipes once no session uses it.
     defer key.wipe();
-    try peers.init(&link, &datagram_link, cpu);
+    try peers.init(&link, &datagram_link, crypto);
     try accept_closed();
     for (0..turns_max) |_| {
         try peers.turn();
@@ -204,7 +208,7 @@ pub fn main() !void {
     return error.ExchangeUnfinished;
 }
 
-fn start_server(cpu: tls.Cpu) !void {
+fn start_server(crypto: stdx.crypto.Context) !void {
     // RFC 9846 §4.3.2's cookie key, and the key that seals the tickets of §4.7.1, which a server
     // draws once.
     program.fill(&cookie_key);
@@ -213,22 +217,22 @@ fn start_server(cpu: tls.Cpu) !void {
     // chain, the end-entity first, and the key the end-entity certificate carries. `pem.key` takes
     // the key's scheme, here ecdsa_secp256r1_sha256, from the file.
     const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
-    try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
+    try tls.pem.key(crypto, identity.key_pem, chain[0], &key);
     identities[0] = .{ .chain = chain, .key = &key };
     // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
     // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
     router.init();
     engine_config = .{
-        // The CPU features the engine's codecs run on. The program asks its CPU once, here, and
-        // colibri never asks it (decision 169).
-        .cpu_features = .detect(),
+        // The CPU features the engine's codecs run on: the context's, which the program detected
+        // once. colibri never asks the CPU (decision 169).
+        .cpu_features = crypto.features,
         // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{
             .identities = &identities,
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
-            .cpu = cpu,
+            .crypto = crypto,
         },
         .tls_buffer = &tls_buffer,
         // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
@@ -237,15 +241,16 @@ fn start_server(cpu: tls.Cpu) !void {
         // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
         .h3_alternative = .{ .port = peers.server_port },
         // Decision 143: each QUIC connection runs BBRv3, the default, and `.cubic` chooses CUBIC.
-        // BBRv3 draws its probe waits from the source `init` takes.
+        // BBRv3 draws its probe waits from the context's source.
         .congestion_controller = .bbr,
         // Decision 149: RFC 9959's saved sets, which the program keeps (`server_resume.zig`).
         .resumes = resumes.provider(),
     };
     const now_ns = link.now_ns(.server);
     // One engine for every socket the program accepts and for its UDP socket, in storage the
-    // program owns. `init` checks that the key signs.
-    try engine.init(&engine_config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
+    // program owns. `init` checks that the key signs, and every value the engine draws comes from
+    // the context's source.
+    try engine.init(&engine_config, .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
     // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
     // names the connection in every later call and event. Null says the engine starts no
     // connection, and a program then closes the socket.

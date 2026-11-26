@@ -220,7 +220,7 @@ pub fn main() !void {
     // Each value has its default but the CPU features, which the program asks of its CPU once.
     engine_config = .{ .cpu_features = .detect() };
     // Cleartext needs no Unix time: no certificate is judged and no ticket is issued.
-    try engine.init(&engine_config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+    try engine.init(&engine_config, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
     router.init();
     // The listener accepts the socket the client connects. The link stands where the socket would
     // be, so it is connected from the start.

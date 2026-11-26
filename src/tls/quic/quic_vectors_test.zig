@@ -188,10 +188,10 @@ fn start_client(version: crypto.suite.Version) !crypto.Suite {
     try test_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "example.com" } },
         .alpn = &.{"hq-interop"},
-        .cpu = identity.cpu,
+        .crypto = identity.crypto,
     });
     test_config.values.quic_version = @enumFromInt(@intFromEnum(version));
-    try test_session.start(&test_config, identity.random(), identity.now_seconds, null);
+    try test_session.start(&test_config, identity.now_seconds, null);
     try test_session.provider().set_transport_params(placeholder_parameters);
     const suite = test_session.suite();
     try suite.vtable.install_initial_keys(suite.context, .client, &client_dcid);

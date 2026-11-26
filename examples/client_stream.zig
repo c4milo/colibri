@@ -247,7 +247,7 @@ fn open_socket(open: client.Open) !void {
     socket = open.connection;
     // The link stands where the socket would be: the server's listener accepts it.
     try peer.accept();
-    pool.start_tcp(open.connection, program.random(), 0, null) catch return error.ExchangeWrong;
+    pool.start_tcp(open.connection, 0, null) catch return error.ExchangeWrong;
 }
 
 fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {

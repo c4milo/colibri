@@ -58,7 +58,7 @@ core   <- wire   <- hpack <- h2
 core   <- http   <- h2, h3, h11
 core   <- tls_provider <- h2, h11, quic, tls
 chapulin <- tls, dnssec, tls_keylog, testing_quic, testing_udp
-stdx   <- h11, sim_run, client, server
+stdx   <- h11, sim_run, client, server, tls, colibri
 core   <- crypto <- quic, tls
 core   <- dnssec
 stdx   <- qlog   <- quic, h3
@@ -95,7 +95,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `dnssec` | DNSSEC's signature checks and DS digests over chapulin's TCP object, the one `tls` links ([decision 142](decisions.md)) | `core` for its tests' lists, and chapulin's TCP object, built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
 | `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
 | `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
-| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | Each of the sixteen other library modules, which its root names: it is the one module the package exports ([decision 170](decisions.md)). And Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
+| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | Each of the sixteen other library modules, which its root names: it is the one module the package exports ([decision 170](decisions.md)). stdx, for the `stdx.crypto.Context` a server's configuration takes ([decision 175](decisions.md)). And Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
@@ -18047,6 +18047,71 @@ instructions and draws a different CPU from run to run.
   - Run on x86-64 Linux: `zig build test`, 4,278 of 4,280, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache.
+- **Step 78 — colibri takes the program's `stdx.crypto.Context` once, 2026-11-26**
+  ([decision 175](decisions.md)). stdx is pinned at `9dd95be8`, whose `stdx.crypto` wraps
+  chapulin's sessions and options, and whose `platform` holds `CpuFeatures` alone. chapulin stays
+  at `f29c066a`.
+  - **Public names.** The root of `tls` loses `Random`, `Cpu` and `Timing`, and its list test
+    holds the 14 names left. These fields and parameters change, which each dependent builds
+    against:
+    - `tls.Client.cpu` and `tls.Server.cpu` leave, and `crypto: stdx.crypto.Context` joins each,
+      with no default.
+    - `tls.record.ClientConfig`, `tls.record.ServerConfig`, `tls.quic.ClientConfig` and
+      `tls.quic.ServerConfig` gain `crypto`, and their `values` are stdx's options, with no
+      `cpu` and no `random`. `tls.quic.Client` and `tls.quic.Server` gain `crypto` too.
+    - `start` of `tls.record.Client`, `tls.record.Server`, `tls.quic.Client` and
+      `tls.quic.Server` loses `random`, and `check` of each `ServerConfig` loses its argument.
+      `tls.pem.key` takes the context in place of the CPU.
+    - `server.Engine.init(config, now)`, `client.ConnectionPool.start_tcp(connection,
+      now_seconds, resumption)` and `start_quic(now_seconds, now_ns, resumption)` lose `random`.
+    - `colibri.ServerConfig` loses `cpu` and `random`, and gains `crypto: ?stdx.crypto.Context =
+      null`. A hosted server's configuration loses both and gains `crypto` with no default.
+      `colibri.ClientConfig` and a hosted client's configuration lose `random`.
+  - **The code.** `src/tls/config.zig` keeps the context beside stdx's options, and each
+    session's `init` takes it. colibri's own map of a probe to chapulin's description of the CPU
+    is gone. The engine (`engine_connections.zig`), its QUIC connections
+    (`quic_connection_internal.zig`), the pool (`pool_calls.zig`) and the client's QUIC
+    connection draw from the context in their configuration's TLS values, and assert a TLS value
+    on each path that draws. `colibri.Server` makes a context of `engine.cpu_features` and the
+    system's entropy when its program passes none (`server_kinds.zig`). The module `colibri`
+    imports stdx (`build/modules_colibri.zig`). The determinism lint exempts no file of `src/`
+    now, since no file names `std.Random`.
+  - **The tests.** The tests of `tls` describe the build target's `CpuFeatures`, with and without
+    AES, and an N2's MIDR_EL1, and check that a configuration keeps its context whole. The tests of
+    a probe's `not_known` and of a timing `not_stated` are gone, since neither is an input now.
+    `src/testing/cpu.zig` makes each test-only program's context, and sets PSTATE.DIT on each
+    thread that runs TLS. The simulator's TLS values hold contexts over the streams each side drew
+    from before, and its cleartext runs give no source.
+  - **The examples.** `colibri_hosted`, `colibri_shared_rotor`, `tools/consumer/` and
+    `tools/consumer_hosted/` draw from `io.randomSecure`, and halt when a draw fails. The other
+    examples make their context over `tls_program.zig`'s `getentropy`. README.md and
+    docs/usage.md show the lines.
+  - **Pinned values.** None moved. The engine passed its own source to each session before, so
+    one source fed both already, and each run of the simulator keeps its order of draws. The censuses
+    of `zig build test-sim-run` and its crc32 values are as before.
+  - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
+    octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
+    grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
+  - **Mutations: 10.** Eight were CAUGHT at once, and two were NOT CAUGHT until a test was written.
+    - `zig build test-server`: the engine draws a connection's first ID from another source, and
+      a QUIC connection its spare IDs. Each is CAUGHT by "decision 175: the engine and its
+      connections draw each ID from the context in its TLS values".
+    - `zig build test-tls`: a client configuration and a server configuration each keep a
+      context of another source, a record client starts its session under one, and a client
+      configuration drops the context's features. Each is CAUGHT.
+    - `zig build test-colibri`: a `.private` server ignores its program's context. CAUGHT. A
+      hosted server ignores it: NOT CAUGHT, and "decision 175: a hosted server draws its keys from
+      the context its program gives" now catches it.
+    - `zig build test-client`: the pool draws a QUIC connection's IDs from another source.
+      CAUGHT. The client's QUIC connection draws its probe waits from another source: NOT CAUGHT
+      there, though the client trace run of `zig build test-sim-run` caught it. "decision 175: the
+      client draws its BBR probe waits from the context in its TLS values" now catches it.
+  - **Run on x86-64 Linux, in a container with no IPv6:** `zig build test`, 4,275 of 4,277, with
+    1 skipped and the IPv6 test failed; `zig build examples`, 10 of 11, the IPv6 example failed;
+    `zig build lint`; `tools/doc_snippets.sh`; and `tools/consumer_check.sh`, with stdx and
+    chapulin from Zig's cache.
+  - **Not run:** the checks of `tools/ci.sh` that need Docker or a network peer, and every arm64
+    host, where PSTATE.DIT decides the suite. CI runs them.
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on

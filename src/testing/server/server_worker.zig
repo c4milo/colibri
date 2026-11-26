@@ -18,6 +18,7 @@ const h11 = @import("h11");
 const server = @import("server");
 const constants = @import("../constants.zig");
 const entropy = @import("../entropy.zig");
+const cpu = @import("../cpu.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
 const server_mode = @import("server_mode.zig");
 const server_session = @import("server_session.zig");
@@ -148,7 +149,7 @@ pub fn start(index: usize) server.StartError!void {
 fn begin(worker: *Worker, now: server.Timestamp) server.StartError!void {
     // A Unix time pairs with an instant a tick read: the monotonic clock is past 0 by then.
     assert(now.unix_seconds == 0 or now.monotonic_ns > 0);
-    try worker.session.init(&worker.config, entropy.random(), now);
+    try worker.session.init(&worker.config, now);
     switch (server_mode.routes_mode) {
         .none => {},
         .github => {
@@ -166,6 +167,8 @@ fn begin(worker: *Worker, now: server.Timestamp) server.StartError!void {
 /// until the process is stopped.
 pub fn run(index: usize) !void {
     const worker = &workers[index];
+    // Decision 175: each thread that runs TLS sets its own timing, which stdx states to chapulin.
+    cpu.set_timing();
     // Rotor's rule: the loop belongs to the thread that starts it.
     try worker.loop.init(&worker.loop_memory, &loop_options);
     defer worker.loop.deinit();

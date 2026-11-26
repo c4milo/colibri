@@ -2,7 +2,9 @@
 //! server of one TCP object, run against each other in memory over the test identity of
 //! `src/testing/testdata/`.
 const std = @import("std");
-const platform = @import("stdx").platform;
+const builtin = @import("builtin");
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const tls_provider = @import("tls_provider");
 const chapulin = @import("stdx").crypto.tls;
 const testdata = @import("testdata");
@@ -10,6 +12,9 @@ const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");
 const random_support = @import("../random_test_support.zig");
+
+/// The program's one `stdx.crypto.init(features, random)`, which `values.Client.crypto` holds.
+const Context = stdx.crypto.Context;
 
 pub const leaf = testdata.leaf;
 pub const root = testdata.root;
@@ -29,34 +34,64 @@ pub const key: values.Key = p256_key: {
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU the tests describe: the build target's answers on the AES and the SHA instructions,
-/// since a test runs where it was built, and the thread's mode stated `data_independent`. No test's
-/// result depends on its timing, and the statement lets a session run the paths a program runs.
-pub const cpu: values.Cpu = described(if (testdata.aes_instructions_present) .yes else .no, sha_answer, .data_independent);
-/// A description under which a session runs the AES instructions, and those under which it does
-/// not: a probe that does not say yes, and a mode the program does not state.
-pub const cpu_with_aes: values.Cpu = described(.yes, sha_answer, .data_independent);
-pub const cpu_without_aes: values.Cpu = described(.no, sha_answer, .data_independent);
-pub const cpu_unknown: values.Cpu = described(.not_known, sha_answer, .data_independent);
-pub const cpu_not_stated: values.Cpu = described(.yes, .yes, .not_stated);
-/// Descriptions whose probe says yes on one SHA instruction each, whatever the build target has, so
-/// a claim made from another answer shows. The tests convert them to chapulin's claims and run no
-/// session under them.
-pub const cpus_with_sha = [_]values.Cpu{
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }),
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .yes, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }),
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .yes, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }),
-};
+/// The CPU features the tests describe: the build target's, since a test runs where it was built
+/// (decision 175). No test's result depends on its timing.
+pub const features: platform.CpuFeatures = .target();
+/// The build target's features without the AES instructions and the carry-less multiply, under
+/// which no session runs AES-GCM.
+pub const features_without_aes: platform.CpuFeatures = without_aes(features);
+/// The context the tests' configurations hold: the build target's features and the stream the tests
+/// share.
+pub const crypto: Context = context_of(features);
 
-fn with_sha(probe: platform.Cpu) values.Cpu {
-    return .{ .probe = probe, .timing = .data_independent };
+/// A context of `described` and the stream the tests share, as a program makes one at start.
+pub fn context_of(described: platform.CpuFeatures) Context {
+    return stdx.crypto.init(described, random_support.stream.random());
 }
 
-/// The build target's answer on the SHA-256, SHA-512 and SHA-3 instructions.
-const sha_answer: platform.Answer = if (testdata.sha_instructions_present) .yes else .no;
+fn without_aes(described: platform.CpuFeatures) platform.CpuFeatures {
+    var cleared = described;
+    cleared.aes = false;
+    cleared.pclmul = false;
+    cleared.pmull = false;
+    return cleared;
+}
 
-fn described(aes_clmul: platform.Answer, sha: platform.Answer, timing: values.Timing) values.Cpu {
-    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha, .sha512 = sha, .sha3 = sha, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, .timing = timing };
+/// Features that hold one SHA instruction each, whatever the build target has, and features of an
+/// Arm Neoverse N2, whose MIDR_EL1 stdx reads (decision 175). The tests convert them and check that
+/// the configurations keep them whole, and run no session under them.
+pub const features_with_sha = [_]platform.CpuFeatures{
+    .{ .sha256 = true },
+    .{ .sha512 = true },
+    .{ .sha3 = true },
+    .{ .aes = true, .pmull = true, .sha3 = true, .dit = true, .midr = .{ .implementer = arm_implementer, .variant = 0, .architecture = midr_architecture, .part = neoverse_n2_part, .revision = 0 } },
+};
+/// MIDR_EL1's fields of an Arm Neoverse N2: Arm's implementer code, the architecture field that
+/// names the ID registers, and the N2's part number (Arm's technical reference manual of the N2).
+const arm_implementer = 0x41;
+const midr_architecture = 0xf;
+const neoverse_n2_part = 0xd49;
+
+/// Sets PSTATE.DIT on the test's thread where the core has FEAT_DIT, as a program does on each
+/// thread that runs TLS (decision 175). stdx then states the thread's timing to chapulin on arm64,
+/// and a session runs the AES instructions where the features hold them. Elsewhere it does
+/// nothing.
+pub fn set_timing() void {
+    _ = platform.set_data_independent_timing(platform.CpuFeatures.detect(), true);
+}
+
+/// Whether stdx's description of the CPU claims the AES instructions for a session under
+/// `context`, by stdx's rule (its decision 87 as amended): the timing stated, on every x86-64 core
+/// and on an arm64 thread whose PSTATE.DIT is set, and the features holding AES and the carry-less
+/// multiply of the architecture. A test reads it to know the suite a handshake runs.
+pub fn aes_claimed(context: Context) bool {
+    set_timing();
+    const held = context.features;
+    return switch (builtin.cpu.arch) {
+        .x86_64 => held.aes and held.pclmul,
+        .aarch64 => held.dit and platform.data_independent_timing(held) and held.aes and held.pmull,
+        else => false,
+    };
 }
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;
@@ -114,21 +149,22 @@ pub const Wire = struct {
 pub const aes_gcm = @hasField(chapulin.c.ch_srv_cfg, "cipher_suites");
 pub const takes_cpu = @hasField(chapulin.c.ch_cfg, "cpu");
 
-/// Whether a session given the description `described_cpu` holds AES-GCM: an object with AES-GCM,
-/// where the probe says `yes` and the mode is stated when the object takes the description.
-pub fn holds_aes_gcm(described_cpu: values.Cpu) bool {
-    const stated = described_cpu.probe.aes_clmul == .yes and described_cpu.timing == .data_independent;
-    return aes_gcm and (!takes_cpu or stated);
+/// Whether a session whose configuration holds `context` holds AES-GCM: an object with AES-GCM,
+/// where stdx's description claims the AES instructions when the object takes a description.
+pub fn holds_aes_gcm(context: Context) bool {
+    return aes_gcm and (!takes_cpu or aes_claimed(context));
 }
 
-/// The descriptions a test may run a session under. A probe that says yes needs the instructions,
-/// which the build target has or does not, so a target without them runs the others alone. A mode
-/// not stated runs none of them, whatever the probe says.
-pub const cpus: []const values.Cpu = if (takes_cpu and cpu.probe.aes_clmul == .yes) &.{ cpu_with_aes, cpu_without_aes, cpu_unknown, cpu_not_stated } else &.{ cpu_without_aes, cpu_unknown, cpu_not_stated };
+/// The features a test may run a session under. Features with the AES instructions need the
+/// instructions, which the build target has or does not, so a target without them runs the
+/// features without them alone.
+pub const feature_sets: []const platform.CpuFeatures = if (takes_cpu and features.aes) &.{ features, features_without_aes } else &.{features_without_aes};
 
-/// The suites a session under the tests' answer holds: the three colibri admits with AES-GCM, and
+/// The suites a session under the tests' context holds: the three colibri admits with AES-GCM, and
 /// ChaCha20 alone without it.
-pub const suites_held: []const u16 = if (holds_aes_gcm(cpu)) &tls_provider.constants.policy.cipher_suites_admitted else &.{chacha};
+pub fn suites_held() []const u16 {
+    return if (holds_aes_gcm(crypto)) &tls_provider.constants.policy.cipher_suites_admitted else &.{chacha};
+}
 pub const chacha = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256;
 
 /// A server order naming `suite` alone, or none in an object that holds one suite and no order.
@@ -138,13 +174,15 @@ pub fn order_of(suite: *const [1]u16) []const u16 {
 
 /// The suite chapulin's own order runs when neither side names one: AES-256-GCM first when both
 /// sessions hold AES-GCM (chapulin's decision 80), and ChaCha20 when either holds it alone.
-pub fn default_suite_of(client_cpu: values.Cpu, server_cpu: values.Cpu) u16 {
-    if (holds_aes_gcm(client_cpu) and holds_aes_gcm(server_cpu)) return tls_provider.constants.protocol.cipher_suite_aes_256_gcm_sha384;
+pub fn default_suite_of(client_crypto: Context, server_crypto: Context) u16 {
+    if (holds_aes_gcm(client_crypto) and holds_aes_gcm(server_crypto)) return tls_provider.constants.protocol.cipher_suite_aes_256_gcm_sha384;
     return chacha;
 }
 
-/// The suite chapulin's own order runs under the tests' answer on both sides.
-pub const default_suite: u16 = default_suite_of(cpu, cpu);
+/// The suite chapulin's own order runs under the tests' context on both sides.
+pub fn default_suite() u16 {
+    return default_suite_of(crypto, crypto);
+}
 
 /// `web_pki` with a client order naming `suite` alone, or none in an object with no order.
 pub fn offering(suite: *const [1]u16) values.Client {
@@ -162,11 +200,12 @@ pub const ServerChoice = struct {
     previous: ?*const [constants.protocol.server_key_len]u8 = null,
     /// The suites the server selects from, in its order; empty for chapulin's.
     suites: []const u16 = &.{},
-    /// The server's probe of its CPU.
-    cpu: values.Cpu = cpu,
+    /// The server's context.
+    crypto: Context = crypto,
 };
 
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
+    set_timing();
     try client_config.init(client_values);
     try server_config.init(.{
         .identities = &identities,
@@ -174,21 +213,23 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
         .ticket_key = if (choice.tickets) choice.key else null,
         .ticket_key_previous = if (choice.tickets) choice.previous else null,
         .alpn = &protocols,
-        .cpu = choice.cpu,
+        .crypto = choice.crypto,
         .cipher_suites = choice.suites,
     });
+}
+
+/// `web_pki` under the context `held`, whose source its sessions draw from (decision 175).
+pub fn web_pki_under(held: Context) values.Client {
+    var offered = web_pki;
+    offered.crypto = held;
+    return offered;
 }
 
 pub const web_pki: values.Client = .{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
     .alpn = &protocols,
-    .cpu = cpu,
+    .crypto = crypto,
 };
-
-/// The source each session of the tests draws from: the stream the tests share.
-pub fn random() values.Random {
-    return random_support.stream.random();
-}
 
 /// Starts both sides and runs the handshake until both complete, leaving in `to_client` what the
 /// server wrote after it, such as its ticket.
@@ -200,8 +241,8 @@ pub fn handshake_both(resumption: ?values.Resumption) !void {
 pub fn handshake_at(seconds: u64, resumption: ?values.Resumption) !void {
     to_server = .{};
     to_client = .{};
-    try client.start(&client_config, random(), seconds, resumption);
-    try server.start(&server_config, random(), seconds);
+    try client.start(&client_config, seconds, resumption);
+    try server.start(&server_config, seconds);
     for (0..handshake_rounds_max) |_| {
         if (!client.state.completed) {
             const progress = try client.handshake(to_client.held(), to_server.free());

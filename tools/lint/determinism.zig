@@ -47,19 +47,15 @@ const forbidden_callee_names = [_][]const u8{
     "toDeadline", "toTimestamp", "toDurationFromNow", "randomSecure",
 };
 
-/// The one file under `src/` outside `src/testing/` that may name `std.Random`: it names the type
-/// of the source a caller passes each TLS session, which colibri stores and never draws from
-/// (decision 94 as amended on 2026-09-27). It holds plain value types and no code.
-const values_path = "src/tls/values.zig";
-
-/// The configuration. It reads `src/` but `src/testing/` and `values_path`.
+/// The configuration. It reads `src/` but `src/testing/`. No file of it names `std.Random`: a
+/// type that holds the caller's source names it as `stdx.crypto.Context`'s field, the program's
+/// one context (decision 175).
 pub const config: forbidden_references.Config = .{
     .name = "determinism",
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
         .exclude_directories = &.{"src/testing"},
-        .exclude_paths = &.{values_path},
     },
     .prefixes = &forbidden_prefixes,
     .callee_names = &forbidden_callee_names,

@@ -39,11 +39,11 @@ The architecture depends on every rule in this section.
    two implementations: chapulin's, and the null ones in `src/sim/`, which are test-only, are never
    packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
    and packet protection key; colibri never holds one and never chooses a cipher suite.
-   Randomness is the consumer's: chapulin is built `RAND=session`, each session draws from the
-   `std.Random` its caller passes to `start` and from nothing else, and chapulin's module
-   defines `ch_assert_fail`, which a program may replace with `chapulinAssertFail` in its root
-   file (decision 172). `colibri.Server` alone draws from
-   the operating system when its program passes no source (decision 150 ruling 9).
+   Randomness is the consumer's: chapulin is built `RAND=session`, and each session, each engine
+   and each pool draws from the random source of the `stdx.crypto.Context` in its TLS values and
+   from nothing else (decision 175). chapulin's module defines `ch_assert_fail`, which a program
+   may replace with `chapulinAssertFail` in its root file (decision 172). `colibri.Server` alone
+   draws from the operating system when its program passes no context (decision 150 ruling 9).
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -305,11 +305,14 @@ tree. Design §11 holds the method and the numbers.
 - Adding a dependency. The library has one: stdx, whose `crypto` is chapulin, which it links for
   TLS and packet protection (decisions 94 and 174), whose gzip and deflate decoders h11 imports, whose zstd and
   brotli decoders the client imports, and whose JSON module qlog imports (decisions 90, 91, 101
-  and 102). stdx's `platform` probes the CPU: a program
-  calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
-  type alone and never probes. The package does not export it (decision 97 as amended).
+  and 102). stdx's `platform` detects the CPU's features: a program calls
+  `CpuFeatures.detect()` once and depends on stdx itself to do it, and passes the value to each
+  configuration and to `stdx.crypto.init`, whose `Context` each TLS value and `colibri.Server`'s
+  configuration hold (decision 175). colibri never detects. The package does not export stdx
+  (decision 97 as amended).
   It has no allocator at all (decision 35). `server` imports stdx's `json` module too (decision
-  151), and `colibri` imports Rotor for the loop of its `.private` kind, in
+  151), `colibri` imports stdx for the `crypto.Context` its server's configuration takes
+  (decision 175), and `colibri` imports Rotor for the loop of its `.private` kind, in
   `src/colibri/rotor_host*.zig` alone. Rotor is lazy: a dependent fetches it only when it passes
   `.rotor = true` (decisions 150 and 159). Five more are ruled for the
   tooling and the tests, and the library imports none of them except as above: pepegrillo, the
@@ -602,12 +605,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   chapulin: a program that calls chapulin reads it as `stdx.crypto` from the stdx colibri pins,
   with colibri's options (decisions 162 and 174, docs/usage.md). On x86-64 and arm64 each is
   chapulin's host object, `SUITE=aesgcm` with no `AES`, `WIDEMUL` or `CHACHA` value: it holds every
-  fast path beside the portable code, and each session picks from the `tls.Cpu` its caller passes,
-  which has no default: the `platform.Cpu` the program's one probe returned, and the `tls.Timing`
-  its thread runs in (decision 97 as amended for chapulin 0.2.0,
-  https://github.com/c4milo/colibri/issues/84). A session holds RFC 9846 §9.1's mandatory
-  TLS_AES_128_GCM_SHA256 only where the probe's `aes_clmul` is `yes` and the timing is
-  `data_independent`, and ChaCha20 alone otherwise. On any other target chapulin builds its device
+  fast path beside the portable code. stdx's sessions and options wrap chapulin's, and each
+  session's `init` takes the `stdx.crypto.Context` its configuration holds, which has no default:
+  the program's one `CpuFeatures.detect()` and its random source (decision 175). stdx maps the
+  features to chapulin's description of the CPU, and states the timing: on every x86-64 core, and
+  on an arm64 thread whose PSTATE.DIT is set, where the core has FEAT_DIT. A session holds RFC
+  9846 §9.1's mandatory TLS_AES_128_GCM_SHA256 only under that statement and where the features
+  hold AES and the carry-less multiply, and ChaCha20 alone otherwise. On any other target chapulin builds its device
   object, `SUITE=chacha` over its software AES, because chapulin refuses AES-GCM over software AES
   (chapulin's INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
   endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
@@ -620,16 +624,15 @@ Everything below exists. Change this section when a step adds or renames a comma
   (its `docs/zig.md`) for each object, which carries the object, with the public headers translated
   under the object's own defines as its `c`. Because the module carries the objects, nothing else
   may add one: a second copy fails the link. chapulin's module defines `ch_assert_fail` (decision
-  172). A program that links `tls` passes each session's `start` the `std.Random` it draws from,
-  and passes each configuration its `tls.Cpu`: the probe it takes once, at start, and its
-  thread's timing. Each image of `src/testing/` passes `getentropy`'s octets
-  (`src/testing/entropy.zig`) and the `tls.Cpu` `src/testing/cpu.zig` builds from stdx's probe, taken once: it sets PSTATE.DIT on arm64 where the core has FEAT_DIT, and states the timing
-  on every arm64 and x86-64 core, though a virtual machine may hide FEAT_DIT and no program can
-  read DOITM. A QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests
-  describe the build target's probe with the timing stated, and run every description where the
-  target has the instructions. `zig build
-  test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES
-  instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. chapulin moves with a stdx
+  172). A program that links `tls` makes one `stdx.crypto.Context` at start and puts it in each
+  TLS value. Each image of `src/testing/` makes its context in `src/testing/cpu.zig`, of stdx's
+  `CpuFeatures.detect()`, taken once, and of `getentropy`'s octets (`src/testing/entropy.zig`).
+  Each thread that runs TLS sets PSTATE.DIT on arm64 where the core has FEAT_DIT. A virtual
+  machine may hide FEAT_DIT, and there the sessions hold ChaCha20 alone. A QUIC image defines
+  `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests describe the build target's features,
+  `CpuFeatures.target()`, with and without the AES instructions, and run each set where the
+  target has the instructions. `zig build test-tls test-tls-keylog -Dcpu=<model>` runs the `tls`
+  tests on a CPU model without the AES instructions: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. chapulin moves with a stdx
   bump, to the chapulin commit that stdx pins.
 - TLS checks: `tools/tls_handshake.sh` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh` one with colibri as the server against a Go client,

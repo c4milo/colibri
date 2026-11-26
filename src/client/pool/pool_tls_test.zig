@@ -53,7 +53,7 @@ fn collect(pool: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), support.now_seconds, null);
+        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.now_seconds, null);
     }
     return error.TestUnexpectedResult;
 }

@@ -5,15 +5,21 @@
 //! caller places a configuration and does not move it after `init`: its values point into it.
 //!
 //! Each object's module is a type of its own, so each configuration is a function of the module:
-//! `record` takes the TCP object's and `quic` the QUIC object's.
+//! `record` takes the TCP object's, `stdx.crypto.tls`, and `quic` the QUIC object's,
+//! `stdx.crypto.quic`. Their options are stdx's, which hold no description of the CPU and no
+//! random source. A configuration keeps the program's `stdx.crypto.Context` beside them, and each
+//! session's `init` takes it, so stdx fills both from it and colibri maps no CPU of its own
+//! (decision 175).
 //!
 //! A conversion refuses only a list longer than the one it copies into. Every other rule is
 //! chapulin's, which a session's `start` or the server's `check` reports (design §8 step 16c).
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const values = @import("values.zig");
+
+/// The program's one `stdx.crypto.init(features, random)`, which `values.Client.crypto` holds.
+const Context = @import("stdx").crypto.Context;
 
 pub const Error = error{
     /// More anchors than `constants.limits.anchors_max`.
@@ -53,6 +59,9 @@ pub fn ClientConfig(comptime chapulin: type) type {
 
         anchors: [anchors_max]chapulin.TrustAnchor,
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
+        /// The program's context, which each session's `init` takes (decision 175): stdx maps its
+        /// features to chapulin's description of the CPU, and the session draws from its source.
+        crypto: Context,
         /// What each session starts from; `start` sets the clock and the ticket.
         values: chapulin.ClientOptions,
 
@@ -62,10 +71,11 @@ pub fn ClientConfig(comptime chapulin: type) type {
             assert(chapulin.build_matches());
             const alpn = try protocols(chapulin, client.alpn);
             const trust = try config.trust_of(client.trust);
+            // Decision 175: each session's `init` takes the context, and stdx fills chapulin's
+            // `cpu` and `random` from it, so every session of this configuration draws from its
+            // source.
+            config.crypto = client.crypto;
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq, .takes_tickets = client.takes_tickets };
-            // Decided when the object is built, so an object that takes no description of the
-            // CPU never names chapulin's `Cpu`, which exists in a host object alone.
-            if (comptime has_cpu(chapulin.ClientOptions)) config.values.cpu = cpu_of(chapulin, client.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
             } else if (client.cipher_suites.len > 0) {
@@ -110,11 +120,15 @@ pub fn ServerConfig(comptime chapulin: type) type {
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
+        /// The program's context, which each session's `init` and `check` take (decision 175).
+        crypto: Context,
         /// What each session starts from; `start` sets the clock.
         values: chapulin.ServerOptions,
 
         pub fn init(config: *Config, server: values.Server) ServerError!void {
             assert(chapulin.build_matches());
+            // Decision 175: each session's `init` takes the context, as a client's does.
+            config.crypto = server.crypto;
             config.values = .{
                 .cookie_key = server.cookie_key,
                 .ticket_key = server.ticket_key,
@@ -122,9 +136,6 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 .alpn = try protocols(chapulin, server.alpn),
                 .require_server_name = server.require_server_name,
             };
-            // Decided when the object is built, so an object that takes no description of the
-            // CPU never names chapulin's `Cpu`, which exists in a host object alone.
-            if (comptime has_cpu(chapulin.ServerOptions)) config.values.cpu = cpu_of(chapulin, server.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
@@ -138,14 +149,12 @@ pub fn ServerConfig(comptime chapulin: type) type {
         const has_suite_order = @TypeOf(@as(chapulin.ServerOptions, undefined).cipher_suites) != void;
 
         /// chapulin's `ch_srv_check`: each provisioned key signs, and the signature verifies. It
-        /// draws from `random`, for an RSA-PSS salt, and runs no I/O, so a program runs it once,
-        /// before it serves.
-        pub fn check(config: *const Config, random: values.Random) error{IdentityRefused}!void {
-            var checked = config.values;
-            checked.random = random;
+        /// draws from the random source of the values' context, for an RSA-PSS salt, and runs no
+        /// I/O, so a program runs it once, before it serves.
+        pub fn check(config: *const Config) error{IdentityRefused}!void {
             // RFC 9846 §4.5.2: a server's key signs its CertificateVerify, which its public key
             // must verify; a server with no identity has none.
-            checked.check() catch return error.IdentityRefused;
+            config.values.check(config.crypto) catch return error.IdentityRefused;
         }
     };
 }
@@ -171,39 +180,6 @@ fn no_clock(comptime chapulin: type) chapulin.Clock {
 fn answer_none(clock_io: ?*anyopaque) callconv(.c) u64 {
     assert(clock_io == null);
     return 0;
-}
-
-/// Whether an object's `Values`, chapulin's `ClientOptions` or `ServerOptions`, take the caller's
-/// description of its CPU, which a host object alone does (chapulin's decision 89, decision 97 as
-/// amended for chapulin 0.2.0).
-fn has_cpu(comptime Values: type) bool {
-    return @TypeOf(@as(Values, undefined).cpu) != void;
-}
-
-/// chapulin's description of the CPU from what the program said: each constant-time claim rests on
-/// the program's statement of the thread's mode, and the AES claim on the probe's `yes` as well,
-/// since `no` and `not_known` give no ground to run the instructions. chapulin refuses a session
-/// whose description is unset, and colibri's values have none unset. The SHA claims follow the
-/// AES rule on arm64 alone: chapulin refuses the SHA-512 and SHA-3 claims on x86-64, and its SHA-256
-/// claim there needs SSSE3 and SSE4.1 too, which stdx's probe does not answer. `avx2` and `vaes`
-/// stay false until the probe answers them (https://github.com/c4milo/stdx/issues/16).
-fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
-    const stated = cpu.timing == .data_independent;
-    const sha_stated = builtin.cpu.arch == .aarch64 and stated;
-    return .{
-        .constant_time_aes = stated and cpu.probe.aes_clmul == .yes,
-        .constant_time_multiply = stated,
-        .constant_time_sha256 = sha_stated and cpu.probe.sha256 == .yes,
-        .constant_time_sha512 = sha_stated and cpu.probe.sha512 == .yes,
-        .constant_time_sha3 = sha_stated and cpu.probe.sha3 == .yes,
-    };
-}
-
-/// What chapulin's PEM key call takes for the CPU: `cpu_of`'s description in a host object, and
-/// nothing in an object that takes none.
-pub fn cpu_value(comptime chapulin: type, cpu: values.Cpu) if (has_cpu(chapulin.ServerOptions)) ?chapulin.Cpu else void {
-    if (comptime !has_cpu(chapulin.ServerOptions)) return {};
-    return cpu_of(chapulin, cpu);
 }
 
 /// Copies a role's suite order into chapulin's list; an empty order keeps chapulin's own.

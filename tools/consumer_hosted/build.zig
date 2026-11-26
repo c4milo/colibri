@@ -35,7 +35,7 @@ fn program(b: *std.Build, root_source_file: []const u8, target: std.Build.Resolv
         .root_source_file = b.path(root_source_file),
         .target = target,
         .optimize = .ReleaseSafe,
-        // `getentropy`, the source each TLS session draws from.
+        // libc, which a program on an operating system links.
         .link_libc = true,
     });
 }

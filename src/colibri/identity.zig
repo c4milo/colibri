@@ -3,6 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
+const stdx = @import("stdx");
 const constants = @import("constants.zig");
 
 /// The server's certificate chain and key, as PEM text the program holds (decision 150 ruling 11).
@@ -42,13 +43,15 @@ pub const LoadError = error{
     IdentityInvalid,
 };
 
-/// Reads `identity` into `storage`, draws the cookie key from `random`, and returns the TLS values
-/// of a server that runs on `cpu`. It copies each ticket key of `keys`, or draws it when it is
-/// null: the cookie key first, then the ticket key, then the previous key (decision 161).
-pub fn load(identity: Identity, storage: *Storage, cpu: tls.Cpu, random: tls.Random, keys: TicketKeys) LoadError!tls.Server {
+/// Reads `identity` into `storage`, draws the cookie key from the source of `crypto`, and returns
+/// the TLS values of a server that holds `crypto` (decision 175). It copies each ticket key of
+/// `keys`, or draws it when it is null: the cookie key first, then the ticket key, then the
+/// previous key (decision 161).
+pub fn load(identity: Identity, storage: *Storage, crypto: stdx.crypto.Context, keys: TicketKeys) LoadError!tls.Server {
     const chain = tls.pem.chain(identity.chain, &storage.der, &storage.certificates) catch return error.IdentityInvalid;
     assert(chain.len > 0);
-    tls.pem.key(cpu, identity.key, chain[0], &storage.key) catch return error.IdentityInvalid;
+    tls.pem.key(crypto, identity.key, chain[0], &storage.key) catch return error.IdentityInvalid;
+    const random = crypto.random;
     storage.identities[0] = .{ .chain = chain, .key = &storage.key };
     // RFC 9846 §4.3.2: one cookie key for the server, drawn from the program's source.
     random.bytes(&storage.cookie_key);
@@ -65,7 +68,7 @@ pub fn load(identity: Identity, storage: *Storage, cpu: tls.Cpu, random: tls.Ran
         .cookie_key = &storage.cookie_key,
         .ticket_key = &storage.ticket_key,
         .ticket_key_previous = &storage.ticket_key_previous,
-        .cpu = cpu,
+        .crypto = crypto,
     };
 }
 
@@ -89,25 +92,25 @@ const testdata = @import("testdata");
 
 test "decision 150: a chain or a key that is not PEM is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.IdentityInvalid, load(.{ .chain = "not PEM", .key = testdata.key_pem }, &test_storage, support.cpu(), counter.random(), .{}));
-    try testing.expectError(error.IdentityInvalid, load(.{ .chain = testdata.chain_pem, .key = "not a key" }, &test_storage, support.cpu(), counter.random(), .{}));
+    try testing.expectError(error.IdentityInvalid, load(.{ .chain = "not PEM", .key = testdata.key_pem }, &test_storage, counter.crypto(), .{}));
+    try testing.expectError(error.IdentityInvalid, load(.{ .chain = testdata.chain_pem, .key = "not a key" }, &test_storage, counter.crypto(), .{}));
     // Neither refusal draws the cookie key.
     try testing.expectEqual(0, counter.next);
 }
 
 test "decision 150: the chain's own check refuses a chain that is not PEM" {
     var counter: support.Counter = .{};
-    _ = try load(.{ .chain = testdata.chain_pem, .key = testdata.key_pem }, &test_storage, support.cpu(), counter.random(), .{});
+    _ = try load(.{ .chain = testdata.chain_pem, .key = testdata.key_pem }, &test_storage, counter.crypto(), .{});
     defer test_storage.key.wipe();
     // The storage still holds the chain the key matches. So only the chain's check can refuse the
     // text, and the key's check cannot.
-    try testing.expectError(error.IdentityInvalid, load(.{ .chain = "not PEM", .key = testdata.key_pem }, &test_storage, support.cpu(), counter.random(), .{}));
+    try testing.expectError(error.IdentityInvalid, load(.{ .chain = "not PEM", .key = testdata.key_pem }, &test_storage, counter.crypto(), .{}));
 }
 
 test "decision 161: each ticket key is the program's copy, or drawn after the cookie key" {
     const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     var counter: support.Counter = .{};
-    const drawn = try load(identity, &test_storage, support.cpu(), counter.random(), .{});
+    const drawn = try load(identity, &test_storage, counter.crypto(), .{});
     defer test_storage.key.wipe();
     // The counter gives the cookie key 0 to 31, the ticket key 32 to 63, and the previous key 64
     // to 95.
@@ -117,7 +120,7 @@ test "decision 161: each ticket key is the program's copy, or drawn after the co
     try testing.expectEqual(3 * key_len, counter.next);
     const given: TicketKey = @splat(0xa5);
     const before: TicketKey = @splat(0x5a);
-    const copied = try load(identity, &test_storage, support.cpu(), counter.random(), .{ .current = given, .previous = before });
+    const copied = try load(identity, &test_storage, counter.crypto(), .{ .current = given, .previous = before });
     // The values point at the server's copies, not at the program's keys, and only the cookie key
     // is drawn.
     try testing.expectEqualSlices(u8, &given, copied.ticket_key.?);
@@ -131,7 +134,7 @@ test "chapulin's issue 220: a key change keeps the current key as the previous o
     const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     var counter: support.Counter = .{};
     const first: TicketKey = @splat(0x11);
-    const values = try load(identity, &test_storage, support.cpu(), counter.random(), .{ .current = first });
+    const values = try load(identity, &test_storage, counter.crypto(), .{ .current = first });
     defer test_storage.key.wipe();
     const second: TicketKey = @splat(0x22);
     change_ticket_key(&test_storage, &second);

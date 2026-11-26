@@ -39,9 +39,10 @@ pub fn attach_log(connection: *QuicConnection, log: *quic.qlog.Log, now_ns: u64)
 
 /// Starts the connection a client's first Initial asked for. `receive_pool` holds the client's
 /// octets until h3 reads them (decision 61), and no other connection uses it while this one
-/// runs. Every draw the handshake makes comes from `random`, and `now_seconds` is the instant
-/// the server's tickets are issued at, or 0 for none.
-pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, how: Start, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
+/// runs. Every draw the connection and its handshake make comes from the random source of the
+/// TLS configuration's context (decision 175), and `now_seconds` is the instant the server's
+/// tickets are issued at, or 0 for none.
+pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, how: Start, now_seconds: u64, now_ns: u64) StartError!void {
     assert(receive_pool.capacity > 0 and how.original_destination.len > 0);
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
@@ -73,10 +74,10 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.resets_sent = 0;
     connection.resets_sent_period_start_ns = now_ns;
     connection.resets_sent_passed = false;
-    connection.random = random;
     connection.spare_ids_issued = false;
     connection.route = how.route;
     connection.started_from = how.peer;
+    const random = random_of(connection);
     connection.transport.init(.{
         .role = .server,
         .version = how.version,
@@ -103,7 +104,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     });
     connection.send_scratch = .{};
     connection.h3.init(.{ .role = .server, .grease = how.grease });
-    connection.session.start(config.tls, random, now_seconds, how.version);
+    connection.session.start(config.tls, now_seconds, how.version);
     // Decision 111: a client that lists version 2 is switched to it (RFC 9368 §2.3).
     connection.session.set_version_chooser(quic.Connection.version_chooser(&connection.transport));
     try hand_over_parameters(connection);
@@ -256,8 +257,9 @@ fn issue_spare_ids(connection: *QuicConnection) void {
         var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         // RFC 9000 §5.1: an ID unlinkable to the others; §10.3: a token no one can guess.
         // Decision 157: an engine's table draws the ID into an entry of its own.
-        if (connection.route) |route| route.routes.issue(route.quic_index, connection.random, &id) else connection.random.bytes(&id);
-        connection.random.bytes(&token);
+        const random = random_of(connection);
+        if (connection.route) |route| route.routes.issue(route.quic_index, random, &id) else random.bytes(&id);
+        random.bytes(&token);
         _ = quic.Connection.issue_connection_ids(&connection.transport, &id, &token) catch {
             if (connection.route) |route| route.routes.forget_last(route.quic_index);
             return;
@@ -267,9 +269,19 @@ fn issue_spare_ids(connection: *QuicConnection) void {
 
 fn challenge_data(connection: *QuicConnection) quic.Connection.ChallengeData {
     var data: quic.Connection.ChallengeData = undefined;
-    connection.random.bytes(std.mem.asBytes(&data));
+    random_of(connection).bytes(std.mem.asBytes(&data));
     return data;
 }
+
+/// The program's source, which the connection's IDs, their reset tokens, each PATH_CHALLENGE's
+/// data and its handshake are drawn from (invariant 5): the random source of the context in the
+/// engine's TLS values, which the TLS configuration keeps for its sessions (decision 175).
+fn random_of(connection: *const QuicConnection) RandomSource {
+    return connection.config.tls.crypto.random;
+}
+
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+const RandomSource = @FieldType(@import("stdx").crypto.Context, "random");
 
 /// Starts h3 once the handshake completed (RFC 9114 §6.2.1). The server's ALPN list names "h3"
 /// alone, so a completed handshake selected it (RFC 9001 §8.1).

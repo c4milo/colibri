@@ -92,7 +92,7 @@ test "RFC 9000 §10.1.2: a connection awaiting a response sends a PING near its 
 test "RFC 9114 §5.1: a margin never runs past half the idle timeout" {
     try support.prepare(&support.alpn_h3, &support.alpn_h3, false);
     support.config.idle_timeout_ms = short_idle_timeout_ms;
-    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);
+    try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.now_seconds, support.now_ns, null);
     try answered_once();
     const acts_at = quic.Connection.idle_deadline_ns(&connection.transport).? - short_margin_ns;
     fire_at(acts_at - 1);

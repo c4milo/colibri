@@ -163,7 +163,7 @@ fn on_connected(state: anytype, slot: usize, result: host.Completion.Result, now
     var offered = state.tickets.take(.tcp, now_ns);
     defer if (offered) |*held| held.ticket.wipe();
     const resumption = if (offered) |*held| held.resumption(now_ns) else null;
-    state.pool.start_tcp(connection.handle, state.random, client_loop.unix_seconds(state, now_ns), resumption) catch {
+    state.pool.start_tcp(connection.handle, client_loop.unix_seconds(state, now_ns), resumption) catch {
         socket.failed = true;
         return;
     };

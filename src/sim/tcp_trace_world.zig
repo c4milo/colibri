@@ -130,11 +130,10 @@ pub const World = struct {
             world.client_config = .{ .cpu_features = .none(), .authority = identity.authority, .protocols = .{ .h11 = false } };
         }
         world.tls_random = Random.init(seed);
-        const source = tls.Random.init(&world.tls_random, fill);
         // Every handshake judges the chain at the identity's instant, so no run reads a clock. The
         // server's connection starts here, and the client's at the first request, which every plan
         // makes before any other action, so each draws what it drew before.
-        try world.endpoint.init(&world.endpoint_config, source, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = world.now_ns });
+        try world.endpoint.init(&world.endpoint_config, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = world.now_ns });
         world.accepted = world.endpoint.accept(.{ .tls = over_tls }, world.now_ns) orelse return error.StartRefused;
         const octets: [limits.ipv4_len]u8 = @splat(limits.address_octet);
         world.addresses = .{client.Address.init(&octets, 0)};
@@ -164,7 +163,7 @@ pub const World = struct {
     fn configure_tls(world: *World) void {
         world.endpoint_config = .{
             .cpu_features = .none(),
-            .tls = .{ .identities = &identity.identities, .cookie_key = &identity.cookie_key, .ticket_key = null, .cpu = identity.cpu },
+            .tls = .{ .identities = &identity.identities, .cookie_key = &identity.cookie_key, .ticket_key = null, .crypto = identity.crypto(.init(&world.tls_random, fill)) },
             .tls_buffer = &world.tls_buffer,
             // Decision 117: h2 alone, the one protocol the server's ALPN list then names.
             .protocols = .{ .h11 = false },
@@ -175,7 +174,7 @@ pub const World = struct {
             .protocols = .{ .h11 = false },
             .tls = .{
                 .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-                .cpu = identity.cpu,
+                .crypto = identity.crypto(.init(&world.tls_random, fill)),
             },
         };
     }
@@ -282,7 +281,7 @@ pub const World = struct {
         const asked = world.pool.receive(.none, world.now_ns).event orelse unreachable;
         assert(asked.open.transport == .tcp);
         world.connection = asked.open.connection;
-        world.pool.start_tcp(world.connection, tls.Random.init(&world.tls_random, fill), identity.now_seconds, null) catch {
+        world.pool.start_tcp(world.connection, identity.now_seconds, null) catch {
             world.broken = true;
             return;
         };

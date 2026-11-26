@@ -167,7 +167,7 @@ test "decision 111: a connection offered a ticket starts in the ticket's version
     // server had switched that connection to version 2.
     ticket.quic_version = 0x6b33_43cf;
     try support.prepare(&support.alpn_h3, &support.alpn_h3, true);
-    try connection.init(&support.config, support.client_pool.storage(), support.client_start, connection_support.stream.random(), connection_support.now_seconds, support.now_ns, .{ .ticket = &ticket, .age_ms = 0 });
+    try connection.init(&support.config, support.client_pool.storage(), support.client_start, connection_support.now_seconds, support.now_ns, .{ .ticket = &ticket, .age_ms = 0 });
     try testing.expectEqual(.v2, connection.session.original_version());
     try testing.expectEqual(.v2, connection.transport.versions.original);
 }

@@ -73,13 +73,13 @@ pub const Client = struct {
     const Provider = record_provider.Provider(Client);
 
     /// Stages the ClientHello, which the first `handshake` call writes. Every draw the session
-    /// makes comes from `random` (decision 94 as amended). `now_seconds` is the clock a Web PKI
-    /// chain is judged at, which the caller read (non-negotiable 3).
-    pub fn start(client: *Client, config: *const ClientConfig, random: values.Random, now_seconds: u64, resumption: ?values.Resumption) Error!void {
+    /// makes comes from the random source of the configuration's context (decision 175).
+    /// `now_seconds` is the clock a Web PKI chain is judged at, which the caller read
+    /// (non-negotiable 3).
+    pub fn start(client: *Client, config: *const ClientConfig, now_seconds: u64, resumption: ?values.Resumption) Error!void {
         client.state = .{};
         client.owed = true;
         var chosen = config.values;
-        chosen.random = random;
         client.instant = now_seconds;
         switch (chosen.trust) {
             .web_pki => |*judged| judged.clock = config_module.clock_at(chapulin, &client.instant),
@@ -96,7 +96,7 @@ pub const Client = struct {
         }
         // RFC 9846 §4.7.1: chapulin refuses a ticket past its ticket_lifetime or seven days old,
         // and any configuration it cannot run.
-        client.session.init(&chosen) catch return error.Refused;
+        client.session.init(config.crypto, &chosen) catch return error.Refused;
     }
 
     /// Writes what the client owes into `output`, then passes what the caller read to chapulin and
@@ -203,17 +203,17 @@ pub const Server = struct {
     const Provider = record_provider.Provider(Server);
 
     /// Prepares the session to read a ClientHello. A server speaks second, so nothing is written.
-    /// Every draw the session makes comes from `random` (decision 94 as amended). `now_seconds` is
-    /// the clock its tickets are issued and judged at, or 0 for none.
-    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64) Error!void {
+    /// Every draw the session makes comes from the random source of the configuration's context
+    /// (decision 175). `now_seconds` is the clock its tickets are issued and judged at, or 0 for
+    /// none.
+    pub fn start(server: *Server, config: *const ServerConfig, now_seconds: u64) Error!void {
         server.state = .{};
         var chosen = config.values;
-        chosen.random = random;
         server.instant = now_seconds;
         chosen.clock = config_module.clock_at(chapulin, &server.instant);
         // RFC 9846 §9.2: chapulin refuses values it cannot serve from, such as a cookie key missing
         // for the cookie extension that section makes mandatory.
-        server.session.init(&chosen, &server.server_name) catch return error.Refused;
+        server.session.init(config.crypto, &chosen, &server.server_name) catch return error.Refused;
     }
 
     /// Runs the handshake over what the caller read, and writes the server's flight into

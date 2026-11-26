@@ -250,6 +250,8 @@ pub fn add(
         .h11 = h11,
         .server = server,
         .client = client,
+        // Decision 175: a server's configuration takes the program's `stdx.crypto.Context`.
+        .stdx = stdx.module("stdx"),
     }, rotor, target, optimize);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);

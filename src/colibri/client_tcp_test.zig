@@ -15,10 +15,11 @@ const test_client = &fixture.test_client;
 fn start_client(protocols: client.Protocols, secure: bool, counter: *support.Counter, handler: anytype) !void {
     var pool = fixture.pool_config(protocols, secure);
     pool.protocols.h3 = false;
+    // Decision 175: a client over TLS draws from the context in its pool's TLS values.
+    if (pool.tls) |*values| values.crypto = counter.crypto();
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.port()),
         .pool = pool,
-        .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
     }, handler);
 }
@@ -191,11 +192,10 @@ test "design §8 step 42: a refused connect ends the exchange refused" {
     var listener = try address.listen(io, .{});
     const closed_port = listener.socket.address.getPort();
     listener.deinit(io);
-    var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(closed_port), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(closed_port), .pool = pool, .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -207,7 +207,6 @@ test "design §8 step 42: a refused connect ends the exchange refused" {
 }
 
 test "design §8 step 42: a chain judged after its notAfter ends the exchange refused" {
-    var counter: support.Counter = .{};
     try fixture.start_server(true, false);
     defer fixture.stop_server();
     var pool = fixture.pool_config(.{}, true);
@@ -217,7 +216,6 @@ test "design §8 step 42: a chain judged after its notAfter ends the exchange re
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.port()),
         .pool = pool,
-        .random = counter.random(),
         .unix_seconds = testdata.not_after_seconds + 1,
     }, &handler);
     defer test_client.deinit();
@@ -231,13 +229,12 @@ test "design §8 step 42: a chain judged after its notAfter ends the exchange re
 
 /// Fetches one greeting over TLS with the chain judged at `unix_seconds`, and returns the result.
 fn fetch_at(unix_seconds: u64) !client.Result {
-    var counter: support.Counter = .{};
     try fixture.start_server(true, false);
     defer fixture.stop_server();
     var pool = fixture.pool_config(.{}, true);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = pool, .random = counter.random(), .unix_seconds = unix_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = pool, .unix_seconds = unix_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -288,10 +285,9 @@ fn fetch_raw(action: PeerAction, method: []const u8, handler: *fixture.Handler) 
     defer listener.deinit(io);
     const thread = try std.Thread.spawn(.{}, raw_peer, .{ &listener, action });
     defer thread.join();
-    var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, handler);
+    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .unix_seconds = testdata.now_seconds }, handler);
     defer test_client.deinit();
     handler.method = method;
     try handler.request(1);
@@ -387,11 +383,10 @@ test "design §8 step 42: a run returns only once the socket has sent the h2 GOA
     defer listener.deinit(io);
     var read_goaway = false;
     const thread = try std.Thread.spawn(.{}, h2_peer, .{ &listener, &read_goaway });
-    var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h11 = false }, false);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();

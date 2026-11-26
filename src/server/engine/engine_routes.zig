@@ -5,8 +5,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
-const tls = @import("tls");
 const constants = @import("../constants.zig");
+
+/// The type of a context's random source, `stdx.crypto.Context.random`, which the engine draws
+/// each ID from (decision 175).
+const RandomSource = @FieldType(@import("stdx").crypto.Context, "random");
 
 const id_len = constants.policy.quic_id_len;
 const ids_max = quic.constants.limits.connection_ids_max;
@@ -62,7 +65,7 @@ pub const Routes = struct {
     /// Draws a new ID for the connection at `quic_index` into `id`, and gives it a free entry.
     /// RFC 9000 §5.1: the ID must not let an observer link it to the connection's other IDs.
     /// The draw names an entry at random, and the slot never appears in the ID.
-    pub fn issue(routes: *Routes, quic_index: u32, random: tls.Random, id: *[id_len]u8) void {
+    pub fn issue(routes: *Routes, quic_index: u32, random: RandomSource, id: *[id_len]u8) void {
         const held = &routes.held[quic_index];
         assert(held.len < ids_max);
         random.bytes(id);
@@ -163,8 +166,8 @@ const Same = struct {
         @memset(octets, same.byte);
     }
 
-    fn random(same: *Same) tls.Random {
-        return tls.Random.init(same, fill);
+    fn random(same: *Same) RandomSource {
+        return RandomSource.init(same, fill);
     }
 };
 

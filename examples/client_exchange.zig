@@ -47,7 +47,8 @@ const std = @import("std");
 const colibri = @import("colibri");
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const peer = @import("client_peer.zig");
@@ -189,12 +190,15 @@ pub fn main() !void {
     datagram_link.init(&link.loops);
     // The network drops every datagram.
     datagram_link.blocked = true;
-    // A program probes its CPU once and says what mode its thread runs in, and passes both to every
-    // TLS configuration. This one sets no mode, so its sessions run ChaCha20 alone; one whose
-    // thread set PSTATE.DIT on arm64 states `.data_independent`.
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    try peer.init(&link, cpu);
-    try start_client(cpu);
+    // A program detects its CPU features once, and makes one `stdx.crypto` context of them and
+    // its source of randomness, which every TLS configuration holds (decision 175). It sets
+    // PSTATE.DIT on each thread that runs TLS, where an arm64 core has FEAT_DIT, and stdx then
+    // states the thread's timing to chapulin. On x86-64 stdx states it for every core.
+    const features: platform.CpuFeatures = .detect();
+    _ = platform.set_data_independent_timing(features, true);
+    const crypto = stdx.crypto.init(features, program.random());
+    try peer.init(&link, crypto);
+    try start_client(crypto);
     try connect_refused();
     for (0..turns_max) |_| {
         try client_turn();
@@ -207,17 +211,19 @@ pub fn main() !void {
     return error.ExchangeUnfinished;
 }
 
-fn start_client(cpu: tls.Cpu) !void {
+fn start_client(crypto: stdx.crypto.Context) !void {
     // The CA certificates the client trusts, each its subject Name and SubjectPublicKeyInfo.
     const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
     // One configuration serves both transports. Its TLS value names no protocol: the pool
     // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
     // TCP first by default, and `.prefer = .quic` makes it open QUIC first.
     client_config = .{
-        // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
-        // colibri never asks it (decision 169).
-        .cpu_features = .detect(),
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
+        // The CPU features the pool's decoders run on: the context's, which the program detected
+        // once. colibri never asks the CPU (decision 169).
+        .cpu_features = crypto.features,
+        // Every value the pool draws, and every draw of its TLS sessions, comes from the
+        // context's source.
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .crypto = crypto },
         .authority = origin,
         .protocols = .{ .prefer = .quic },
     };
@@ -339,12 +345,12 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
     // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (open.transport) {
         // The UDP socket needs no connect.
-        .quic => pool.start_quic(program.random(), now_seconds, now_ns, null) catch {},
+        .quic => pool.start_quic(now_seconds, now_ns, null) catch {},
         .tcp => {
             // The link stands where the socket would be: the server's listener accepts the
             // socket the program connects.
             try peer.accept();
-            pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {};
+            pool.start_tcp(open.connection, now_seconds, null) catch {};
         },
     }
 }

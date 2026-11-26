@@ -31,13 +31,14 @@
             .lazy = true,
         },
         // The codecs h11, the server and the client code content with (decisions 90, 91 and 101),
-        // the JSON writer of qlog (decision 102), the CPU probe's types (decision 97), and
-        // chapulin, the TLS stack and the packet protection, as `stdx.crypto` (decision 174). The
-        // library imports it, so it is not lazy: a project that depends on colibri fetches it, and
-        // stdx fetches chapulin for it.
+        // the JSON writer of qlog (decision 102), the CPU features (decision 169), and chapulin,
+        // the TLS stack and the packet protection, as `stdx.crypto`, whose sessions take the
+        // program's `stdx.crypto.Context` (decisions 174 and 175). The library imports it, so it
+        // is not lazy: a project that depends on colibri fetches it, and stdx fetches chapulin for
+        // it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#5de7d89f0f2e3a18d291f6d808f6c51143e7fab2",
-            .hash = "stdx-0.3.0-BD60tvfnXAAA002yCni4HK7WUaEbLRPwYVAVw9GdIwow",
+            .url = "git+https://github.com/c4milo/stdx#9dd95be8e994a7a600aa1df6635ae0dc00b0bf5a",
+            .hash = "stdx-0.3.0-BD60thJKXQDGoqyQKYSMUIPbMfsfR5A7sTlN-srIjq2d",
         },
     },
     .paths = .{

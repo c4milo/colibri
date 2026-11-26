@@ -23,10 +23,11 @@ pub fn build(b: *std.Build) void {
     // (`tools/consumer_hosted/`).
     const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
     exe.root_module.addImport("colibri", colibri.module("colibri"));
-    // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`, from
-    // the stdx colibri pins and with the options colibri gives it, so both reach one module and one
-    // `platform.Cpu`, the probe colibri's `tls.Cpu` holds. stdx exports the one module `stdx`
-    // (decision 171), so the program writes `@import("stdx").platform`, and codes content with
+    // Decisions 97 as amended and 175: the program detects its CPU features through stdx's
+    // `platform`, and makes its one `stdx.crypto.Context`, from the stdx colibri pins and with the
+    // options colibri gives it, so both reach one module and one `stdx.crypto.Context`, the type
+    // colibri's TLS values hold. stdx exports the one module `stdx` (decision 171), so the
+    // program writes `@import("stdx").platform`, and codes content with
     // `@import("stdx").compress.gzip`.
     const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
     exe.root_module.addImport("stdx", stdx.module("stdx"));
@@ -53,5 +54,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     without_assert.root_module.addImport("colibri", colibri.module("colibri"));
+    // Its TLS value holds a `stdx.crypto.Context` (decision 175).
+    without_assert.root_module.addImport("stdx", stdx.module("stdx"));
     b.step("without-assert", "Link a program that uses tls and declares no chapulin hook").dependOn(&b.addInstallArtifact(without_assert, .{}).step);
 }

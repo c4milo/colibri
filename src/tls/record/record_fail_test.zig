@@ -82,7 +82,7 @@ test "RFC 9846 §6.2: fail refuses a closure alert, a value no alert holds and a
 test "RFC 9846 §6: fail sends nothing before the handshake completes or after close_notify" {
     try support.configure(support.web_pki, .{});
     to_server.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds, null);
+    try client.start(&support.client_config, support.now_seconds, null);
     try testing.expectError(error.NotConnected, client.fail(.internal_error, to_server.free()));
     // The refused call left the session as it was: the client still writes its ClientHello.
     try testing.expect((try client.handshake(&.{}, to_server.free())).written > 0);

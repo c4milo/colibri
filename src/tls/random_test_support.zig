@@ -1,7 +1,10 @@
-//! The source the `tls` tests pass to each session's `start` (decision 94 as amended on 2026-09-27):
+//! The source the `tls` tests' contexts hold, which each session draws from (decision 175):
 //! SplitMix64 from a seed, so every run of the tests draws the same key shares and nonces, and two
-//! streams from one seed draw the same octets. Nothing here is secret.
-const values = @import("values.zig");
+//! streams from one seed draw the same octets. Nothing here is secret, and a program never draws
+//! its keys from a seeded source.
+
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+const RandomSource = @FieldType(@import("stdx").crypto.Context, "random");
 
 /// The seed a test uses unless it varies it.
 pub const seed: u64 = 0x636f_6c69_6272_6921;
@@ -14,8 +17,8 @@ pub const Stream = struct {
 
     /// The source a session draws from, which points at this stream: the stream outlives the
     /// session.
-    pub fn random(self: *Stream) values.Random {
-        return values.Random.init(self, fill);
+    pub fn random(self: *Stream) RandomSource {
+        return RandomSource.init(self, fill);
     }
 
     fn fill(self: *Stream, buffer: []u8) void {

@@ -121,7 +121,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{&tls_provider.constants.protocol.alpn_h2},
-        .cpu = cpu.probe(),
+        .crypto = cpu.crypto(),
     }) catch |failure| {
         std.debug.print("tls-handshake: the configuration was refused: {t}\n", .{failure});
         std.process.exit(exit_failed);
@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const socket = try connect(asked.port);
     defer _ = std.c.close(socket);
 
-    client.start(&config, entropy.random(), asked.now_seconds, null) catch {
+    client.start(&config, asked.now_seconds, null) catch {
         std.debug.print("tls-handshake: chapulin refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };

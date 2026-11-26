@@ -228,6 +228,6 @@ test "RFC 9110 §10.1.1: a connection starts with no 100 owed" {
         .peer_source = &start_id,
         .grease = 0,
         .peer = support.client_address(),
-    }, tcp_support.stream.random(), 0, support.now_ns);
+    }, 0, support.now_ns);
     try testing.expect(!connection.continue_owed);
 }

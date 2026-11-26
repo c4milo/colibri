@@ -1,88 +1,53 @@
-//! The CPU colibri's TLS values take in the test-only programs (decision 97 as amended for
-//! chapulin 0.2.0, https://github.com/c4milo/colibri/issues/84): stdx's probe, taken once, and the
-//! mode the program's one thread runs in.
+//! The context colibri's TLS values take in the test-only programs (decision 175): stdx's
+//! `CpuFeatures.detect()`, taken once, and one `stdx.crypto.init` over the operating system's
+//! entropy (`entropy.zig`). stdx maps the features to chapulin's description of the CPU, and
+//! states the timing: on every x86-64 core, and on an arm64 thread whose PSTATE.DIT is set.
 //!
-//! On arm64 the program sets PSTATE.DIT on its thread where the core has FEAT_DIT, and then states
-//! the mode, which is true. A virtual machine may hide FEAT_DIT from its guest, as the bench
-//! runner's does, and on x86-64 no program can read DOITM, which the operating system sets. There
-//! the test programs state the mode anyway: nothing checks the statement, and it lets their sessions
-//! run the AES-GCM suites, which h3spec and the bench's h2load offer alone. A program serving real
-//! peers states it only where it knows its thread runs in that mode.
+//! So each thread that runs TLS calls `set_timing` first, which sets PSTATE.DIT on arm64 where the
+//! core has FEAT_DIT. A virtual machine may hide FEAT_DIT from its guest, as the bench runner's
+//! does. There stdx states no timing, and the sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
 const std = @import("std");
 const builtin = @import("builtin");
-const platform = @import("stdx").platform;
-const tls = @import("tls");
+const stdx = @import("stdx");
+const platform = stdx.platform;
+const entropy = @import("entropy.zig");
 
-/// The description the first call made, which every later call returns.
-var described: ?tls.Cpu align(@alignOf(?tls.Cpu)) = null;
+/// The context the first call made, which every later call returns.
+var made: ?stdx.crypto.Context align(@alignOf(?stdx.crypto.Context)) = null;
 
-pub fn probe() tls.Cpu {
-    if (described) |cpu| return cpu;
-    const found = platform.probe();
-    const cpu: tls.Cpu = .{ .probe = found, .timing = timing_of(found) };
-    described = cpu;
-    return cpu;
+/// The program's one context: the CPU features detected once, and the operating system's
+/// entropy. It sets the calling thread's timing first.
+pub fn crypto() stdx.crypto.Context {
+    if (made) |context| {
+        set_timing();
+        return context;
+    }
+    const context = stdx.crypto.init(platform.CpuFeatures.detect(), entropy.random());
+    made = context;
+    set_timing();
+    return context;
 }
 
-/// Prints the description `probe` gives, which decides the suites a program's TLS sessions hold
-/// (decision 97 as amended), under the program's name.
+/// Sets PSTATE.DIT on the calling thread where the core has FEAT_DIT, as a program does on each
+/// thread that runs TLS (decision 175). Elsewhere it does nothing.
+pub fn set_timing() void {
+    const features = if (made) |context| context.features else platform.CpuFeatures.detect();
+    _ = platform.set_data_independent_timing(features, true);
+}
+
+/// Prints the features `crypto` holds, which decide the suites a program's TLS sessions hold, and
+/// whether the calling thread's timing is data-independent, under the program's name.
 pub fn print(program: []const u8) void {
-    const cpu = probe();
-    const found = cpu.probe;
-    std.debug.print("{s}: cpu aes_clmul {t}, dit {t}, sha256 {t}, sha512 {t}, sha3 {t}, timing {t}\n", .{ program, found.aes_clmul, found.dit, found.sha256, found.sha512, found.sha3, cpu.timing });
-}
-
-/// The mode of the program's thread: on arm64 PSTATE.DIT, which this sets where the core has
-/// FEAT_DIT, and the test programs' statement on every arm64 and x86-64 core.
-fn timing_of(found: platform.Cpu) tls.Timing {
-    return switch (builtin.cpu.arch) {
-        .aarch64 => {
-            if (found.dit == .yes) set_dit();
-            return .data_independent;
-        },
-        .x86_64 => .data_independent,
-        else => .not_stated,
-    };
-}
-
-/// Arm's `MSR DIT, #1` (FEAT_DIT), encoded so an assembler without the feature takes it: from here
-/// on, the instructions Arm lists take a time independent of their data on this thread.
-fn set_dit() void {
-    asm volatile (".inst 0xd503415f" ::: .{ .memory = true });
+    const features = crypto().features;
+    std.debug.print("{s}: cpu aes {}, pclmul {}, pmull {}, dit {}, sha256 {}, sha512 {}, sha3 {}, timing {}\n", .{ program, features.aes, features.pclmul, features.pmull, features.dit, features.sha256, features.sha512, features.sha3, platform.data_independent_timing(features) });
 }
 
 const testing = std.testing;
 
-/// PSTATE.DIT's place in what `MRS x0, DIT` reads: bit 24.
-const dit_shift: u6 = 24;
-const dit_bit: u64 = @as(u64, 1) << dit_shift;
-
-/// Arm's `MRS x0, DIT`, encoded as `set_dit` encodes its instruction.
-fn dit_set() bool {
-    const value = asm volatile (".inst 0xd53b42a0"
-        : [value] "={x0}" (-> u64),
-    );
-    return value & dit_bit != 0;
-}
-
-test "decision 97: an arm64 thread with FEAT_DIT runs with PSTATE.DIT set, and every arm64 and x86-64 core states the mode" {
-    const cpu = probe();
-    switch (builtin.cpu.arch) {
-        .aarch64 => {
-            try testing.expectEqual(tls.Timing.data_independent, cpu.timing);
-            if (cpu.probe.dit == .yes) try testing.expect(dit_set());
-        },
-        .x86_64 => try testing.expectEqual(tls.Timing.data_independent, cpu.timing),
-        else => try testing.expectEqual(tls.Timing.not_stated, cpu.timing),
-    }
-}
-
-test "decision 97: a core whose probe finds no FEAT_DIT, as a virtual machine's may not, still states the mode" {
-    const expected: tls.Timing = switch (builtin.cpu.arch) {
-        .aarch64, .x86_64 => .data_independent,
-        else => .not_stated,
-    };
-    // Neither probe reaches `set_dit`, which a core without FEAT_DIT would refuse.
-    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .no, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }));
-    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }));
+test "decision 175: an arm64 thread with FEAT_DIT runs with PSTATE.DIT set, and the context keeps the features" {
+    const context = crypto();
+    try testing.expectEqual(platform.CpuFeatures.detect(), context.features);
+    if (builtin.cpu.arch == .aarch64 and context.features.dit) try testing.expect(platform.data_independent_timing(context.features));
+    // Every later call returns the first context.
+    try testing.expectEqual(context.random.ptr, crypto().random.ptr);
 }

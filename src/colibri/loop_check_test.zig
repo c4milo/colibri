@@ -2,9 +2,9 @@
 //! `zig build colibri-hosted-check` compiles three of them against `colibri` with no Rotor
 //! (build/colibri_hosted_check.zig, step 44k).
 //! It is a test file: it runs on one thread, and no library module imports it.
-//! A program compiles this file. It imports `colibri`, `server`, `client` and `tls` by the names
-//! that a dependent uses, and the root of `colibri` does not import it. The build option `case`
-//! names one case:
+//! A program compiles this file. It imports `colibri`, `server`, `client`, `tls` and `stdx` by the
+//! names that a dependent uses, and the root of `colibri` does not import it. The build option
+//! `case` names one case:
 //! - `hosted_init`: a `.hosted` client and server that call `init`, `turn`, `complete`,
 //!   `shutdown`, `stopped` and `deinit`. It must compile.
 //! - Each other compile case calls one function that its kind does not have. Its compile must fail
@@ -32,6 +32,7 @@ const colibri = @import("colibri");
 const server = @import("server");
 const client = @import("client");
 const tls = @import("tls");
+const stdx = @import("stdx");
 const case = @import("loop_case").case;
 
 /// The smallest objects of each kind: one TCP connection, no QUIC.
@@ -139,18 +140,16 @@ const Zero = struct {
     }
 };
 var zero: Zero align(@alignOf(Zero)) = .{};
-const zero_source: tls.Random = tls.Random.init(&zero, Zero.fill);
+const zero_source = @FieldType(stdx.crypto.Context, "random").init(&zero, Zero.fill);
 /// The instant of each hosted `init`: no Unix time, and the host's first instant.
 const started: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = 0 };
 /// An instant 1 s after `started`, and an `init` at it, for the cases of rule 6.
 const later_ns: u64 = 1_000_000_000;
 const later: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = later_ns };
 
-/// A CPU with no fast path, which each TLS configuration names.
-const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
-    .timing = .not_stated,
-};
+/// The context each server's configuration holds (decision 175): a CPU with no feature, and the
+/// source of zeros.
+const zero_crypto: stdx.crypto.Context = stdx.crypto.init(.none(), zero_source);
 
 /// The room of the operations that one turn writes.
 var operations: [HostedServer.operations_max + HostedClient.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
@@ -225,7 +224,7 @@ const stray_id: colibri.OperationId = @enumFromInt(std.math.maxInt(u32));
 const cases = struct {
     /// A hosted server and client that a host starts, turns and stops, with no socket.
     pub fn hosted_init() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
+        try hosted_server.init(&.{ .crypto = zero_crypto, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         const turned = hosted_server.turn(0, &operations);
         const accept = operations[0];
         if (turned.operations != 1 or accept.kind != .accept) return error.AcceptMissing;
@@ -234,7 +233,7 @@ const cases = struct {
         hosted_server.complete(&.{ .id = accept.id, .result = .canceled }, 0);
         if (!hosted_server.stopped()) return error.NotStopped;
         hosted_server.deinit();
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = started }, null);
         hosted_client.shutdown();
         _ = hosted_client.turn(0, &operations);
         if (!hosted_client.stopped()) return error.NotStopped;
@@ -275,14 +274,14 @@ const cases = struct {
 
     /// A completion of an operation that the client never wrote: a halt (decision 159, rule 6).
     pub fn halt_stray_completion() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = started }, null);
         _ = hosted_client.turn(0, &operations);
         hosted_client.complete(&.{ .id = stray_id, .result = .closed }, 0);
     }
 
     /// `deinit` while the server's accept is in flight: a halt (decision 159, rule 2).
     pub fn halt_deinit_early() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
+        try hosted_server.init(&.{ .crypto = zero_crypto, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         _ = hosted_server.turn(0, &operations);
         hosted_server.deinit();
     }
@@ -302,7 +301,7 @@ const halts = struct {
 
     /// Ends one exchange refused, so `handler`'s `on_finished` runs inside the last turn.
     fn refuse_inside_handler(handler: anytype) !void {
-        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, handler);
+        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = started }, handler);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(0, &operations);
         const connect = try written(first.operations, .connect);
@@ -325,7 +324,7 @@ const halts = struct {
     /// its own sends the request over loopback.
     pub fn halt_server_run_in_route() !void {
         route_call = .run;
-        try private_server.init(&.{ .cpu = cpu, .unix_seconds = started.unix_seconds, .random = zero_source, .engine = .{ .cpu_features = .none() } }, &reentrant_router, &context);
+        try private_server.init(&.{ .unix_seconds = started.unix_seconds, .crypto = zero_crypto, .engine = .{ .cpu_features = .none() } }, &reentrant_router, &context);
         const peer = try std.Thread.spawn(.{}, get_from, .{private_server.port()});
         peer.detach();
         try private_server.run();
@@ -334,7 +333,7 @@ const halts = struct {
     /// Sends one GET of `/` to `port` on loopback from a `.private` client. The server halts
     /// before it answers.
     fn get_from(port: u16) void {
-        private_client.init(&.{ .destination = loopback(port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
+        private_client.init(&.{ .destination = loopback(port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .unix_seconds = 0 }, null) catch return;
         _ = private_client.request(&get, &answer_of_get) catch return;
         private_client.run() catch return;
     }
@@ -373,7 +372,7 @@ const halts = struct {
 
     /// Gives a hosted server with `routed` the request `head`, so its route runs inside a turn.
     fn serve(routed: anytype, comptime head: []const u8) !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, routed, &context);
+        try hosted_server.init(&.{ .crypto = zero_crypto, .now = started, .engine = .{ .cpu_features = .none() } }, routed, &context);
         const first = hosted_server.turn(0, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);
@@ -386,13 +385,13 @@ const halts = struct {
 
     /// A hosted server whose first turn names an instant before the `now` of `init`.
     pub fn halt_server_turn_before_init() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = later, .engine = .{ .cpu_features = .none() } }, &router, &context);
+        try hosted_server.init(&.{ .crypto = zero_crypto, .now = later, .engine = .{ .cpu_features = .none() } }, &router, &context);
         _ = hosted_server.turn(later_ns - 1, &operations);
     }
 
     /// The accept's completion at an instant before the turn that wrote it.
     pub fn halt_server_complete_back() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
+        try hosted_server.init(&.{ .crypto = zero_crypto, .now = started, .engine = .{ .cpu_features = .none() } }, &router, &context);
         const first = hosted_server.turn(later_ns, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, later_ns - 1);
@@ -400,13 +399,13 @@ const halts = struct {
 
     /// A hosted client whose first turn names an instant before the `now` of `init`.
     pub fn halt_client_turn_before_init() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = later }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = later }, null);
         _ = hosted_client.turn(later_ns - 1, &operations);
     }
 
     /// The connect's completion at an instant before the turn that wrote it.
     pub fn halt_client_complete_back() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = started }, null);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(later_ns, &operations);
         const connect = try written(first.operations, .connect);
@@ -415,7 +414,7 @@ const halts = struct {
 
     /// A cancel at an instant before the last turn.
     pub fn halt_client_cancel_back() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .random = zero_source, .now = started }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() }, .now = started }, null);
         const id = try hosted_client.request(&get, &answer_of_get);
         _ = hosted_client.turn(later_ns, &operations);
         hosted_client.cancel(id, later_ns - 1);
@@ -436,7 +435,7 @@ const halts = struct {
     fn private_inside_handler(handler: anytype) !void {
         var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = .none() };
         pool.timeouts.connect_ns = connect_ns;
-        try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .random = zero_source, .unix_seconds = 0 }, handler);
+        try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .unix_seconds = 0 }, handler);
         _ = try private_client.request(&get, &answer_of_get);
         try private_client.run();
     }

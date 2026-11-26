@@ -69,7 +69,7 @@ pub fn init(stream: *Link) !void {
     link = stream;
     // Each value has its default but the CPU features, which the program asks of its CPU once.
     config = .{ .cpu_features = .detect() };
-    try engine.init(&config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = link.now_ns(.server) });
+    try engine.init(&config, .{ .unix_seconds = 0, .monotonic_ns = link.now_ns(.server) });
 }
 
 /// The listener accepts the socket the client connected.

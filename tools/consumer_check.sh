@@ -8,8 +8,8 @@
 # requires that the package exports no library module under its own name: a build that asks for
 # `h2` must stop. It then builds a program that runs `colibri.tls`
 # and defines no `ch_assert_fail`, chapulin's one hook, which must fail to link and name it (design
-# §8 step 16). No program defines `ch_rand_bytes`: each session draws from the source its `start`
-# takes (decision 94 as amended).
+# §8 step 16). No program defines `ch_rand_bytes`: each session draws from the source of the
+# `stdx.crypto.Context` its configuration holds (decision 175).
 #
 # tools/consumer/ uses the `.private` kind of the `colibri` module, so it passes `.rotor = true`
 # and its build fetches Rotor. The script then builds tools/consumer_hosted/, a second project,
@@ -41,8 +41,8 @@ tar -czf "${scratch}/colibri.tar.gz" -C "${scratch}/colibri" build.zig build.zig
 cp -R "${repository_root}/tools/consumer" "${scratch}/consumer"
 cd "${scratch}/consumer"
 zig fetch --save=colibri "${scratch}/colibri.tar.gz" >/dev/null
-# Decision 97 as amended on 2026-09-30: a program depends on stdx itself for `platform`, at the
-# commit colibri pins, so it shares colibri's stdx.
+# Decisions 97 as amended on 2026-09-30 and 175: a program depends on stdx itself for `platform`
+# and its `crypto.Context`, at the commit colibri pins, so it shares colibri's stdx.
 stdx_url="$(grep -o 'git+https://github.com/c4milo/stdx#[0-9a-f]*' "${repository_root}/build.zig.zon")"
 zig fetch --save=stdx "${stdx_url}" >/dev/null
 zig build run 2>&1 | tee "${scratch}/run.log"

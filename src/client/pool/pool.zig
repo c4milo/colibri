@@ -388,17 +388,18 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         }
 
         /// Starts the QUIC connection the `open` event asked for. The pool draws the
-        /// connection's grease value and its two IDs from `random` (decision 120), then every draw
-        /// its handshake makes comes from `random` too. `resumption` offers a ticket an earlier
-        /// QUIC connection took. A call on a pool with no QUIC does not compile (decision 124).
-        pub fn start_quic(pool: *Self, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
-            return pool_calls.start_quic(pool, random, now_seconds, now_ns, resumption);
+        /// connection's grease value and its two IDs from the random source of the context in
+        /// the pool's TLS values (decisions 120 and 175), then every draw its handshake makes
+        /// comes from that source too. `resumption` offers a ticket an earlier QUIC connection
+        /// took. A call on a pool with no QUIC does not compile (decision 124).
+        pub fn start_quic(pool: *Self, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
+            return pool_calls.start_quic(pool, now_seconds, now_ns, resumption);
         }
 
         /// Starts the TCP connection `connection`, which an `open` event asked for, as
-        /// `start_quic` does QUIC's.
-        pub fn start_tcp(pool: *Self, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-            return pool_calls.start_tcp(pool, connection, random, now_seconds, resumption);
+        /// `start_quic` does QUIC's. A connection in cleartext draws nothing.
+        pub fn start_tcp(pool: *Self, connection: ConnectionHandle, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+            return pool_calls.start_tcp(pool, connection, now_seconds, resumption);
         }
 
         /// The transport of `connection` closed on its own: the peer closed it, or it failed.

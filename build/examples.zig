@@ -9,8 +9,9 @@ const modules = @import("modules.zig");
 /// One program under `examples/`: its file without the extension, and whether it runs TLS.
 const Example = struct {
     name: []const u8,
-    /// A program over TLS asks the operating system for entropy, probes its CPU through stdx's
-    /// `platform`, and presents colibri's test identity.
+    /// A program over TLS asks the operating system for entropy, detects its CPU features through
+    /// stdx's `platform`, makes its one `stdx.crypto.Context`, and presents colibri's test
+    /// identity.
     tls: bool = false,
 };
 
@@ -54,10 +55,10 @@ pub fn add(
     }
 }
 
-/// What a program over TLS imports beside `colibri`: stdx's `platform`, which the program takes
-/// from stdx itself (decision 97 as amended), and the test identity. The identity is the one copy
-/// of `src/testing/testdata/` (the owner's ruling of 2026-09-28): it stands in for the certificate
-/// and the key a program loads, and no packaged module imports it.
+/// What a program over TLS imports beside `colibri`: stdx, whose `platform` and `crypto.Context`
+/// the program takes from stdx itself (decisions 97 as amended and 175), and the test identity.
+/// The identity is the one copy of `src/testing/testdata/` (the owner's ruling of 2026-09-28): it
+/// stands in for the certificate and the key a program loads, and no packaged module imports it.
 fn add_tls(module: *std.Build.Module, graph: modules.Modules, testdata: *std.Build.Module) void {
     module.addImport("stdx", graph.stdx.module("stdx"));
     module.addImport("testdata", testdata);

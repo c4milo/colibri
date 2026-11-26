@@ -30,13 +30,12 @@ pub const ClientConfig = struct {
     /// `set_destination` or `deinit` (decision 156 ruling 11).
     destination: client.Destination,
     /// What the pool starts from: the authority, the protocols, the TLS value, the codings and the
-    /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
+    /// timeouts. The TLS value holds the program's `stdx.crypto.Context`, whose source each TLS
+    /// session and each QUIC connection draws from (decision 175). A client in cleartext draws
+    /// nothing. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
     /// sets its `ecn`, because the client's host reads and sets each datagram's ECN codepoint
     /// (decision 68). `timeouts.connect_ns` bounds each TCP connect.
     pool: client.Config,
-    /// The source each TLS session and each QUIC connection draws from. Null draws from the
-    /// operating system's entropy (decision 150 ruling 9).
-    random: ?tls.Random = null,
     /// The seconds since 1970-01-01T00:00:00Z when `run` starts, which the program reads from its
     /// clock. The client reads no clock (non-negotiable 3), so the field has no default. A web
     /// PKI trust judges the dates of each chain at it, plus the time the loop has run since (RFC
@@ -94,7 +93,6 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         pub const datagram_ipv4: host.SocketId = client_loop.datagram_id(tcp_connections, .ipv4);
         pub const datagram_ipv6: host.SocketId = client_loop.datagram_id(tcp_connections, .ipv6);
 
-        random: tls.Random,
         unix_seconds: u64,
         /// The newest session ticket of each transport, which the next connection of that
         /// transport offers once (`client_tickets.zig`, decision 161).
@@ -352,13 +350,12 @@ fn tls_pool(protocols: client.Protocols) client.Config {
         .cpu_features = .none(),
         .authority = "localhost",
         .protocols = protocols,
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() },
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .crypto = support.crypto() },
     };
 }
 
 test "design §8 step 42: a cleartext client opens no UDP socket" {
-    var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(8080), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(8080), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
     try testing.expect(!test_client.udp.served);
@@ -368,10 +365,9 @@ test "design §8 step 42: a cleartext client opens no UDP socket" {
 }
 
 test "design §8 step 42: init takes the counts of the client's capacity" {
-    var counter: support.Counter = .{};
     var config: client.Config = .{ .cpu_features = .none(), .authority = "localhost", .tcp_connections = 3, .requests = 2 };
     config.protocols.h3 = false;
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = config, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = config, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expectEqual(1, test_client.pool.counts.tcp_connections);
     try testing.expectEqual(client.constants.limits.requests_max, test_client.pool.counts.requests);
@@ -379,22 +375,21 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
     try testing.expect(!config.ecn and test_client.pool_config.ecn);
 }
 
-test "decision 150 ruling 9: a client given no source draws from the system" {
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .unix_seconds = now_seconds }, null);
-    defer test_client.deinit();
-    var first: [32]u8 = undefined;
-    var second: [32]u8 = undefined;
-    test_client.random.bytes(&first);
-    test_client.random.bytes(&second);
-    // Two draws of thirty-two octets from the system differ.
-    try testing.expect(!std.mem.eql(u8, &first, &second));
+test "decision 175: a client's sessions draw from the context in its pool's TLS values" {
+    var counter: support.Counter = .{};
+    var pool = tls_pool(.{ .h3 = false });
+    pool.tls.?.crypto = counter.crypto();
+    try tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .unix_seconds = now_seconds }, null);
+    defer tcp_client.deinit();
+    // The pool keeps the program's context, which its TCP configuration keeps for its sessions.
+    try testing.expectEqual(@as(*anyopaque, &counter), tcp_client.pool_config.tls.?.crypto.random.ptr);
+    try testing.expectEqual(@as(*anyopaque, &counter), tcp_client.pool.tcp_tls.crypto.random.ptr);
 }
 
 test "decision 124: a client with no QUIC refuses h3" {
-    var counter: support.Counter = .{};
     // RFC 9114 §3.1: h3 runs over QUIC alone.
-    try testing.expectError(error.VersionUnavailable, tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }, null));
-    try tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try testing.expectError(error.VersionUnavailable, tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{}), .unix_seconds = now_seconds }, null));
+    try tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{ .h3 = false }), .unix_seconds = now_seconds }, null);
     defer tcp_client.deinit();
     try testing.expect(!tcp_client.udp.served);
 }
@@ -409,8 +404,7 @@ test {
 }
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
-    var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expect(!test_client.undrained);
     const request: client.Request = .{ .method = "GET", .path = "/" };
@@ -421,8 +415,7 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
 }
 
 test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
-    var counter: support.Counter = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .cpu_features = .none(), .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     test_client.connections = @splat(.empty);
     test_client.connections[0].started = true;

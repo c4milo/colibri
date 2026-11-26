@@ -8,8 +8,8 @@
 //! Every draw comes from the seed, through two generators. `random` gives the plan and the seed of
 //! each network. `tls_random` gives each QUIC connection's grease value and its two IDs, which the
 //! pool draws as `start_quic` begins (decision 120, invariant 5), and every TLS session's draws:
-//! the caller hands the pool and chapulin a `tls.Random` over it (decision 94 as amended). The
-//! run judges every certificate at the identity's instant.
+//! each TLS value of the run holds a context over it (decision 175). The run judges every
+//! certificate at the identity's instant.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -146,15 +146,15 @@ pub const World = struct {
         comptime assert(std.meta.fields(@TypeOf(world.plan.prefer)).len == std.meta.fields(Transport).len);
         world.pool_config = .{
             .cpu_features = .none(),
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cpu = identity.cpu },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .crypto = identity.crypto(tls_source(&world.tls_random)) },
             // TCP offers "h2" alone, and QUIC "h3". The plan names the transport that opens first.
             .protocols = .{ .h11 = false, .prefer = if (world.plan.prefer == .quic) .quic else .tcp },
             .authority = identity.authority,
             .quic_unadvertised = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,
         };
-        try world.quic_server.configure(&world.plan);
-        try world.tcp_server.configure();
+        try world.quic_server.configure(&world.plan, tls_source(&world.tls_random));
+        try world.tcp_server.configure(tls_source(&world.tls_random));
     }
 
     fn values(world: *World) client.Destination {
@@ -320,7 +320,7 @@ pub const World = struct {
             const delivery = world.network.receive(world.now_ns, .server) orelse break;
             @memcpy(world.crossing[0..delivery.octets.len], delivery.octets);
             if (world.quic_server.started or world.quic_open()) {
-                world.quic_server.receive(world.crossing[0..delivery.octets.len], tls_source(&world.tls_random), world.now_ns) catch {};
+                world.quic_server.receive(world.crossing[0..delivery.octets.len], world.now_ns) catch {};
             }
         }
         for (0..sim.constants.network_in_flight_max) |_| {
@@ -491,8 +491,8 @@ fn earliest(at: ?u64, candidate: ?u64) ?u64 {
 }
 
 /// The source a TLS session draws from: the simulator's generator, octet by octet.
-pub fn tls_source(random: *Random) tls.Random {
-    return tls.Random.init(random, fill);
+pub fn tls_source(random: *Random) identity.RandomSource {
+    return identity.RandomSource.init(random, fill);
 }
 
 fn fill(random: *Random, buffer: []u8) void {

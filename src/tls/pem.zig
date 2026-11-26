@@ -11,6 +11,9 @@ const constants = @import("constants.zig");
 const values = @import("values.zig");
 const config = @import("config.zig");
 
+/// The program's one `stdx.crypto.init(features, random)`, as `Server.crypto` holds it.
+const Context = @import("stdx").crypto.Context;
+
 /// A file chapulin refuses: a block of a label other than the call's, an encrypted key, a key that
 /// is not P-256 or that the leaf does not carry, or more than fits the rooms. The text lines
 /// around the blocks are skipped (RFC 7468 §2 and §5.2).
@@ -38,18 +41,18 @@ pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []co
 /// - mldsa87 for a PRIVATE KEY block that holds an ML-DSA-87 key (RFC 9881 §6), in an object that
 ///   holds chapulin's ML-DSA-87 slot.
 /// `leaf`, the end-entity certificate's DER, must carry the key's public key (RFC 9846 §4.5.2).
-/// `cpu` is the server's `Cpu`, which chapulin computes the public key under. A refused file
-/// leaves `key` with no scheme and zero keys. The program wipes `file` itself once the call
-/// returns.
-pub fn key(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) Error!void {
+/// `crypto` is the server's `stdx.crypto.Context`, whose CPU features chapulin computes the public
+/// key on (decision 175). A refused file leaves `key` with no scheme and zero keys. The program
+/// wipes `file` itself once the call returns.
+pub fn key(crypto: Context, file: []const u8, leaf: []const u8, into: *values.Key) Error!void {
     into.* = .{};
     // RFC 7468 §2 and §10, RFC 5958 §2, RFC 5915 §3 and §4, and RFC 9846 §4.5.2: chapulin skips
     // the text around the block, and refuses another label, another algorithm, and a key the leaf
     // does not carry. Each call is tried in turn, so the one that holds the key's algorithm reads it.
-    if (read_p256(cpu, file, leaf, into)) return;
-    if (read_rsa(cpu, file, leaf, into)) return;
+    if (read_p256(crypto, file, leaf, into)) return;
+    if (read_rsa(crypto, file, leaf, into)) return;
     if (comptime has_mldsa87) {
-        if (read_mldsa87(cpu, file, leaf, into)) return;
+        if (read_mldsa87(crypto, file, leaf, into)) return;
     }
     // RFC 7468 §10 and RFC 9881 §6: no call read the block as a key of its algorithm.
     return error.Invalid;
@@ -59,10 +62,10 @@ pub fn key(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Ke
 const has_mldsa87 = @hasDecl(chapulin.c, "ch_mldsa_key_from_pem");
 
 /// Reads a P-256 key into `into`. chapulin decodes into its own key, which this copies and wipes.
-fn read_p256(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+fn read_p256(crypto: Context, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.EcdsaP256Key = .{};
     defer read.wipe();
-    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    chapulin.init_from_pem(crypto, &read, file, leaf) catch return false;
     @memcpy(into.private_key[0..read.private_key.len], &read.private_key);
     @memcpy(into.public_key[0..read.public_key.len], &read.public_key);
     into.scheme = .ecdsa_secp256r1_sha256;
@@ -71,10 +74,10 @@ fn read_p256(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.
 
 /// Reads an RSA key into `into`: chapulin's `RsaKey` into the private room, whose alignment
 /// holds it, and the modulus into the public room.
-fn read_rsa(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+fn read_rsa(crypto: Context, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.RsaKey = .{};
     defer read.wipe();
-    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    chapulin.init_from_pem(crypto, &read, file, leaf) catch return false;
     const modulus = read.public_key();
     @memcpy(into.private_key[0..@sizeOf(chapulin.RsaKey)], std.mem.asBytes(&read));
     @memcpy(into.public_key[0..modulus.len], modulus);
@@ -83,10 +86,10 @@ fn read_rsa(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.K
 }
 
 /// Reads an ML-DSA-87 key into `into`, as `read_p256` reads a P-256 one.
-fn read_mldsa87(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+fn read_mldsa87(crypto: Context, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.MlDsa87Key = .{};
     defer read.wipe();
-    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    chapulin.init_from_pem(crypto, &read, file, leaf) catch return false;
     @memcpy(&into.private_key, &read.private_key);
     @memcpy(&into.public_key, &read.public_key);
     into.scheme = .mldsa87;

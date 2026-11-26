@@ -72,16 +72,16 @@ pub const QuicServer = struct {
     started: bool,
     h3_started: bool,
 
-    /// Prepares the server's TLS configuration for a seed: its ALPN names h3 unless the plan has
-    /// QUIC refused.
-    pub fn configure(server: *QuicServer, plan: *const Plan) !void {
+    /// Prepares the server's TLS configuration for a seed, whose sessions draw from `random`
+    /// (decision 175): its ALPN names h3 unless the plan has QUIC refused.
+    pub fn configure(server: *QuicServer, plan: *const Plan, random: identity.RandomSource) !void {
         const protocols: []const []const u8 = if (plan.quic == .refused) &alpn_other else &alpn_h3;
         try server.config.init(.{
             .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = protocols,
-            .cpu = identity.cpu,
+            .crypto = identity.crypto(random),
         });
     }
 
@@ -94,8 +94,8 @@ pub const QuicServer = struct {
     }
 
     /// Takes one datagram the client sent at `now_ns`: the first starts the connection.
-    pub fn receive(server: *QuicServer, octets: []u8, random: tls.Random, now_ns: u64) !void {
-        if (!server.started) try server.start(octets, random, now_ns);
+    pub fn receive(server: *QuicServer, octets: []u8, now_ns: u64) !void {
+        if (!server.started) try server.start(octets, now_ns);
         _ = quic.Connection.receive(&server.connection, server.session.suite(), server.session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server.scratch) catch return;
     }
 
@@ -160,7 +160,7 @@ pub const QuicServer = struct {
         return earliest;
     }
 
-    fn start(server: *QuicServer, first: []const u8, random: tls.Random, now_ns: u64) !void {
+    fn start(server: *QuicServer, first: []const u8, now_ns: u64) !void {
         const parsed = try quic.packet.header.read(first, id_len);
         const long = parsed.long;
         @memcpy(&server.original_id, long.dcid);
@@ -172,7 +172,7 @@ pub const QuicServer = struct {
             .identity = .{ .local_initial_source = &server_id, .original_destination = &server.original_id, .peer_initial_source = &server.peer_id },
             .receive = server.pool.storage(),
         });
-        server.session.start(&server.config, random, identity.now_seconds, .v1);
+        server.session.start(&server.config, identity.now_seconds, .v1);
         server.send_scratch = .{};
         var encoded: [parameters_len_max]u8 = undefined;
         var writer = quic.core.Writer.init(&encoded);

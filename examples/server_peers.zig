@@ -18,6 +18,7 @@ const std = @import("std");
 const colibri = @import("colibri");
 const client = colibri.client;
 const tls = colibri.tls;
+const stdx = @import("stdx");
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
@@ -148,11 +149,11 @@ var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
 
 /// Starts both peers on the links the example holds, and places their requests.
-pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
+pub fn init(stream: *Link, datagrams: *DatagramLink, crypto: stdx.crypto.Context) !void {
     stream_link = stream;
     datagram_link = datagrams;
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
-    start(&tcp_peer, cpu, .{}, false);
+    start(&tcp_peer, crypto, .{}, false);
     // No receive pool: the pool opens TCP alone.
     try tcp_peer.pool.init(&tcp_peer.pool_memory, &tcp_peer.config, &known, null);
     try tcp_peer.ask("GET", "/greeting", "");
@@ -163,15 +164,15 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     // A parameter matches one segment, so no route names this path.
     try tcp_peer.ask("GET", "/greetings", "");
     // h3 alone: the pool opens QUIC alone, and needs the receive pool for it.
-    start(&quic_peer, cpu, .{ .h11 = false, .h2 = false }, true);
+    start(&quic_peer, crypto, .{ .h11 = false, .h2 = false }, true);
     try quic_peer.pool.init(&quic_peer.pool_memory, &quic_peer.config, &known, receive_pool.storage());
     try quic_peer.ask("GET", "/greeting", "");
 }
 
-fn start(peer: *Peer, cpu: tls.Cpu, protocols: client.Protocols, keeps: bool) void {
+fn start(peer: *Peer, crypto: stdx.crypto.Context, protocols: client.Protocols, keeps: bool) void {
     peer.config = .{
-        .cpu_features = .detect(),
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        .cpu_features = crypto.features,
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
         .protocols = protocols,
         .authority = origin,
     };
@@ -281,8 +282,8 @@ fn open_transport(peer: *Peer, open: client.Open, now_ns: u64) void {
     peer.connection = open.connection;
     // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (open.transport) {
-        .tcp => peer.pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {},
-        .quic => peer.pool.start_quic(program.random(), now_seconds, now_ns, null) catch {},
+        .tcp => peer.pool.start_tcp(open.connection, now_seconds, null) catch {},
+        .quic => peer.pool.start_quic(now_seconds, now_ns, null) catch {},
     }
 }
 

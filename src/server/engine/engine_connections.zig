@@ -20,6 +20,8 @@ const PeerAddress = quic_connection.PeerAddress;
 const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+const RandomSource = @FieldType(@import("stdx").crypto.Context, "random");
 
 /// The caller's source of qlog logs, a provider the engine asks once for each connection it
 /// starts (decision 102 as amended). colibri writes the connection's QUIC and h3 events into the
@@ -52,7 +54,6 @@ pub const Connections = struct {
     config: *const engine_config.Config,
     /// What each QUIC connection borrows, which `engine_config.build` filled.
     quic: *const quic_connection.Config,
-    random: tls.Random,
     /// Unix seconds at `base_ns`, from which each connection's tickets count, or 0 for none.
     base_seconds: u64,
     base_ns: u64,
@@ -74,8 +75,9 @@ pub const Connections = struct {
         route_held: []engine_routes.Held,
     };
 
-    /// Holds no connection. Every value the engine draws comes from `random`.
-    pub fn init(held: *Connections, config: *const engine_config.Config, quic_config: *const quic_connection.Config, arrays: Arrays, slots: *engine_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    /// Holds no connection. Every value the engine draws comes from the random source of the
+    /// context in `config.tls` (decision 175).
+    pub fn init(held: *Connections, config: *const engine_config.Config, quic_config: *const quic_connection.Config, arrays: Arrays, slots: *engine_slots.Slots, now_seconds: u64, now_ns: u64) void {
         const connections = arrays.connections;
         const pools = arrays.pools;
         assert(connections.len == pools.len and slots.tcp_count + connections.len == slots.live.len);
@@ -83,7 +85,6 @@ pub const Connections = struct {
         held.* = .{
             .config = config,
             .quic = quic_config,
-            .random = random,
             .base_seconds = now_seconds,
             .base_ns = now_ns,
             .connections = connections,
@@ -93,6 +94,14 @@ pub const Connections = struct {
             .routes = undefined,
         };
         held.routes.init(arrays.route_entries, arrays.route_held);
+    }
+
+    /// The program's source: the random source of the context in the engine's TLS values
+    /// (decision 175). Only a QUIC path draws, and an engine starts no QUIC connection without
+    /// TLS values (RFC 9001 §4), so each path that draws has them.
+    fn random(held: *const Connections) RandomSource {
+        assert(held.config.tls != null);
+        return held.config.tls.?.crypto.random;
     }
 
     /// The QUIC connection slot `slot` holds.
@@ -197,7 +206,7 @@ pub const Connections = struct {
     /// Connection ID drawn at random, which the client addresses next.
     fn owe_retry(held: *Connections, retry: *const tls.quic.Retry, long: quic.packet.header.Long, address: []const u8, from: PeerAddress, now_ns: u64) void {
         var source: [constants.policy.quic_id_len]u8 = undefined;
-        held.random.bytes(&source);
+        held.random().bytes(&source);
         var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
         var packet: [quic.constants.protocol.datagram_len_min]u8 = undefined;
         const answered = quic.retry.answer(retry.suite(), .{
@@ -233,15 +242,15 @@ pub const Connections = struct {
             .original_destination = original_destination,
             .peer_source = peer_source,
             .retry_source = retry_source,
-            .grease = held.random.int(u64),
+            .grease = held.random().int(u64),
             .peer = from,
         };
         // RFC 9000 §7.2: the server chooses its own connection ID, unpredictable (§5.1), in an
         // entry of the table (decision 157).
-        held.routes.issue(quic_index, held.random, &how.local_id);
+        held.routes.issue(quic_index, held.random(), &how.local_id);
         const connection = held.at(handle.slot);
         const pool = held.pools[quic_index];
-        internal.start(connection, held.quic, pool, how, held.random, held.seconds_at(now_ns), now_ns) catch {
+        internal.start(connection, held.quic, pool, how, held.seconds_at(now_ns), now_ns) catch {
             held.routes.release(quic_index);
             held.slots.release(handle);
             return null;

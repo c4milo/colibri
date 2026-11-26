@@ -118,15 +118,15 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
             .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
-            .cpu = identity.cpu,
+            // Decision 175: the engine and its sessions draw from the server's stream.
+            .crypto = identity.crypto(identity.RandomSource.init(&storage.server_random, tcp_module.fill)),
         },
         .tls_buffer = &storage.tls_buffer,
         .idle_timeout_ms = limits.quic_idle_timeout_ms,
     };
     storage.server_random = Random.init(seed ^ limits.server_salt);
     storage.program_random = Random.init(seed ^ limits.program_salt);
-    const source = tls.Random.init(&storage.server_random, tcp_module.fill);
-    storage.endpoint.init(&storage.endpoint_config, source, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = route_module.ns_of(plan, 0) }) catch return error.ServerRefused;
+    storage.endpoint.init(&storage.endpoint_config, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = route_module.ns_of(plan, 0) }) catch return error.ServerRefused;
     storage.ledger.init();
     storage.program.init(&storage.endpoint, &storage.ledger);
     storage.tcp.init(seed);

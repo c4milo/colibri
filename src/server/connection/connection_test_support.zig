@@ -11,8 +11,9 @@ const http = @import("http");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
-const gzip = @import("stdx").compress.gzip;
-const zlib = @import("stdx").compress.zlib;
+const stdx = @import("stdx");
+const gzip = stdx.compress.gzip;
+const zlib = stdx.compress.zlib;
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
@@ -42,12 +43,17 @@ pub const key: tls.Key = p256_key: {
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU the tests describe: the build target's probe, since a test runs where it was built, and
-/// the thread's mode stated, which no test's result depends on (decision 97 as amended).
-pub const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
-    .timing = .data_independent,
-};
+/// The context the tests' TLS values hold (decision 175): the build target's CPU features, since a
+/// test runs where it was built, and the stream the sessions draw from. No test's result depends
+/// on the features.
+pub const crypto: stdx.crypto.Context = stdx.crypto.init(.target(), stream.random());
+
+/// Sets PSTATE.DIT on the test's thread where the core has FEAT_DIT, as a program does on each
+/// thread that runs TLS (decision 175), so stdx states the thread's timing to chapulin on arm64
+/// and a session runs AES-GCM there as it does on x86-64. Elsewhere it does nothing.
+pub fn set_timing() void {
+    _ = stdx.platform.set_data_independent_timing(stdx.platform.CpuFeatures.detect(), true);
+}
 
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
@@ -90,7 +96,7 @@ pub const input_len: usize = 65_536;
 /// allows that version alone, so the connection speaks it from the start (decision 117).
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
     config = .{ .cpu_features = .none(), .protocols = only(protocol), .h3_alternative = alternative, .limits = limits };
-    try connection.init(&config, null, stream.random(), 0, 0);
+    try connection.init(&config, null, 0, 0);
 }
 
 /// The versions that allow `protocol` alone among those a TCP connection speaks.
@@ -122,7 +128,7 @@ pub fn start_coding(protocol: connection_module.Protocol) !void {
 pub fn start_coding_on(protocol: connection_module.Protocol, cpu_features: coding_pool.CpuFeatures) !void {
     pool.init();
     config = .{ .cpu_features = cpu_features, .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
-    try connection.init(&config, null, stream.random(), 0, 0);
+    try connection.init(&config, null, 0, 0);
 }
 
 /// The gzip encoder of the pool's slot `index`, whose checksum path shows the CPU features it
@@ -187,6 +193,9 @@ pub fn drain() []const u8 {
     return output[0..written];
 }
 
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+pub const RandomSource = @FieldType(stdx.crypto.Context, "random");
+
 /// The source the sessions of the tests draw from.
 pub var stream: Stream align(@alignOf(Stream)) = .{ .state = seed };
 
@@ -198,8 +207,8 @@ pub const Stream = struct {
 
     /// The source a session draws from, which points at this stream: the stream outlives the
     /// session.
-    pub fn random(self: *Stream) tls.Random {
-        return tls.Random.init(self, fill);
+    pub fn random(self: *Stream) RandomSource {
+        return RandomSource.init(self, fill);
     }
 
     fn fill(self: *Stream, buffer: []u8) void {
@@ -243,20 +252,21 @@ pub fn start_tls(server_protocols: []const []const u8, client_protocols: []const
 
 /// The connection and the client of `start_tls`, before either has sent anything.
 pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const []const u8) !void {
+    set_timing();
     try server_config.init(.{
         .identities = &identities,
         .cookie_key = &cookie_key,
         .alpn = server_protocols,
-        .cpu = cpu,
+        .crypto = crypto,
     });
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
         .alpn = client_protocols,
-        .cpu = cpu,
+        .crypto = crypto,
     });
     config = .{ .cpu_features = .none(), .tls = &server_config, .h3_alternative = alternative };
-    try connection.init(&config, &tls_session, stream.random(), now_seconds, 0);
-    try client.start(&client_config, stream.random(), now_seconds, null);
+    try connection.init(&config, &tls_session, now_seconds, 0);
+    try client.start(&client_config, now_seconds, null);
     to_client_len = 0;
     client_saw_alert = false;
 }

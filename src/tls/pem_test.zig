@@ -61,20 +61,20 @@ test "RFC 7468 §2: the text lines around a chain's or a key's blocks are skippe
     for ([_][]const u8{ explained_key, explained_sec1 }) |file| {
         var key: values.Key = .{};
         defer key.wipe();
-        try pem.key(support.cpu, file, testdata.leaf, &key);
+        try pem.key(support.crypto, file, testdata.leaf, &key);
         try testing.expectEqualSlices(u8, testdata.public_key, key.public_key[0..testdata.public_key.len]);
         try testing.expectEqual(.ecdsa_secp256r1_sha256, key.scheme.?);
     }
     // A block of another label still refuses a key file.
     var refused: values.Key = .{};
-    try testing.expectError(error.Invalid, pem.key(support.cpu, key_and_certificate, testdata.leaf, &refused));
+    try testing.expectError(error.Invalid, pem.key(support.crypto, key_and_certificate, testdata.leaf, &refused));
 }
 
 test "RFC 5958 and RFC 5915: a key under either label reads into the test identity's key pair" {
     for ([_][]const u8{ testdata.key_pem, testdata.key_sec1_pem }) |file| {
         var key: values.Key = .{};
         defer key.wipe();
-        try pem.key(support.cpu, file, testdata.leaf, &key);
+        try pem.key(support.crypto, file, testdata.leaf, &key);
         try testing.expectEqualSlices(u8, testdata.private_key, key.private_key[0..testdata.private_key.len]);
         try testing.expectEqualSlices(u8, testdata.public_key, key.public_key[0..testdata.public_key.len]);
         try testing.expectEqual(.ecdsa_secp256r1_sha256, key.scheme.?);
@@ -85,8 +85,8 @@ test "RFC 5958 and RFC 5915: a key under either label reads into the test identi
 
 test "RFC 9846 §4.5.2: a key the leaf does not carry, or a file that holds none, is refused" {
     var key: values.Key = .{};
-    try testing.expectError(error.Invalid, pem.key(support.cpu, testdata.key_pem, testdata.root, &key));
-    try testing.expectError(error.Invalid, pem.key(support.cpu, testdata.chain_pem, testdata.leaf, &key));
+    try testing.expectError(error.Invalid, pem.key(support.crypto, testdata.key_pem, testdata.root, &key));
+    try testing.expectError(error.Invalid, pem.key(support.crypto, testdata.chain_pem, testdata.leaf, &key));
     // A refused key leaves nothing of itself in the caller's key, and no scheme.
     try testing.expectEqualSlices(u8, &@as([constants.protocol.mldsa87_private_key_len]u8, @splat(0)), &key.private_key);
     try testing.expectEqual(null, key.scheme);
@@ -112,7 +112,7 @@ test "issue 97: a server read from its PEM files and a client read from its bund
     const chain = try pem.chain(testdata.chain_pem, &der, &certificates);
     var key: values.Key = .{};
     defer key.wipe();
-    try pem.key(support.cpu, testdata.key_pem, chain[0], &key);
+    try pem.key(support.crypto, testdata.key_pem, chain[0], &key);
     const trusted = try pem.anchors(testdata.bundle_pem, &anchor_der, &anchors);
     var client_values = support.web_pki;
     client_values.trust = .{ .web_pki = .{ .anchors = trusted, .server_name = "localhost" } };
@@ -121,9 +121,9 @@ test "issue 97: a server read from its PEM files and a client read from its bund
         .identities = &.{.{ .chain = chain, .key = &key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
-    try support.server_config.check(support.random());
+    try support.server_config.check();
     try support.handshake_both(null);
     try testing.expect(support.client.provider().handshake_complete());
 }
@@ -137,13 +137,13 @@ test "decision 147: an ML-DSA-87 key reads with its scheme, and a leaf that does
     const chain = try pem.chain(testdata.mldsa87_chain_pem, &mldsa87_der, &mldsa87_certificates);
     var key: values.Key = .{};
     defer key.wipe();
-    try pem.key(support.cpu, testdata.mldsa87_key_pem, chain[0], &key);
+    try pem.key(support.crypto, testdata.mldsa87_key_pem, chain[0], &key);
     try testing.expectEqual(.mldsa87, key.scheme.?);
     // RFC 9881 §4: the leaf's subjectPublicKey is the ML-DSA-87 public key itself.
     try testing.expect(std.mem.indexOf(u8, chain[0], &key.public_key) != null);
     // RFC 9846 §4.5.2: the P-256 leaf carries another key, so the file is refused.
     var refused: values.Key = .{};
-    try testing.expectError(error.Invalid, pem.key(support.cpu, testdata.mldsa87_key_pem, testdata.leaf, &refused));
+    try testing.expectError(error.Invalid, pem.key(support.crypto, testdata.mldsa87_key_pem, testdata.leaf, &refused));
     try testing.expectEqual(null, refused.scheme);
 }
 
@@ -151,24 +151,24 @@ test "decision 147: a server holds one identity for each scheme, and chapulin's 
     const chain = try pem.chain(testdata.mldsa87_chain_pem, &mldsa87_der, &mldsa87_certificates);
     var key: values.Key = .{};
     defer key.wipe();
-    try pem.key(support.cpu, testdata.mldsa87_key_pem, chain[0], &key);
+    try pem.key(support.crypto, testdata.mldsa87_key_pem, chain[0], &key);
     try support.configure(support.web_pki, .{});
     const both = [_]values.Identity{ support.identities[0], .{ .chain = chain, .key = &key } };
-    try support.server_config.init(.{ .identities = &both, .cookie_key = &support.cookie_key, .alpn = &support.protocols, .cpu = support.cpu });
+    try support.server_config.init(.{ .identities = &both, .cookie_key = &support.cookie_key, .alpn = &support.protocols, .crypto = support.crypto });
     // Each identity fills chapulin's slot of its scheme, which a program never reads.
     try testing.expect(support.server_config.values.ecdsa_p256 != null);
     try testing.expectEqual(&key.private_key, support.server_config.values.mldsa87.?.private_key);
-    try support.server_config.check(support.random());
+    try support.server_config.check();
     // colibri's client offers no ML-DSA-87, so the handshake signs with the P-256 key.
     try support.handshake_both(null);
     try testing.expect(support.client.provider().handshake_complete());
     // Two of one scheme, and a key no call filled, are each refused.
     const twice = [_]values.Identity{ support.identities[0], support.identities[0] };
-    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
+    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice, .cookie_key = &support.cookie_key, .crypto = support.crypto }));
     const twice_mldsa87 = [_]values.Identity{ both[1], both[1] };
-    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_mldsa87, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
+    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_mldsa87, .cookie_key = &support.cookie_key, .crypto = support.crypto }));
     const unfilled: values.Key = .{};
-    try testing.expectError(error.IdentityUnfilled, support.server_config.init(.{ .identities = &.{.{ .chain = chain, .key = &unfilled }}, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
+    try testing.expectError(error.IdentityUnfilled, support.server_config.init(.{ .identities = &.{.{ .chain = chain, .key = &unfilled }}, .cookie_key = &support.cookie_key, .crypto = support.crypto }));
 }
 
 /// The DER room of the RSA chain: two certificates of about 1,000 octets each. Test-only.
@@ -179,13 +179,13 @@ test "decision 147: an RSA key reads with its scheme and its modulus, and a leaf
     const chain = try pem.chain(testdata.rsa_chain_pem, &rsa_der, &rsa_certificates);
     var key: values.Key = .{};
     defer key.wipe();
-    try pem.key(support.cpu, testdata.rsa_key_pem, chain[0], &key);
+    try pem.key(support.crypto, testdata.rsa_key_pem, chain[0], &key);
     try testing.expectEqual(.rsa_pss_rsae_sha256, key.scheme.?);
     // RFC 8017 §A.1.1: the leaf's RSAPublicKey holds the modulus, 384 octets for RSA-3072.
     try testing.expect(std.mem.indexOf(u8, chain[0], key.public_key[0..rsa_modulus_len]) != null);
     // RFC 9846 §4.5.2: the P-256 leaf carries another key, so the file is refused.
     var refused: values.Key = .{};
-    try testing.expectError(error.Invalid, pem.key(support.cpu, testdata.rsa_key_pem, testdata.leaf, &refused));
+    try testing.expectError(error.Invalid, pem.key(support.crypto, testdata.rsa_key_pem, testdata.leaf, &refused));
     try testing.expectEqual(null, refused.scheme);
 }
 
@@ -199,22 +199,22 @@ test "decision 147: a server holds a P-256, an RSA and an ML-DSA-87 identity, an
     defer rsa_key.wipe();
     var mldsa87_key: values.Key = .{};
     defer mldsa87_key.wipe();
-    try pem.key(support.cpu, testdata.rsa_key_pem, rsa_chain[0], &rsa_key);
-    try pem.key(support.cpu, testdata.mldsa87_key_pem, mldsa87_chain[0], &mldsa87_key);
+    try pem.key(support.crypto, testdata.rsa_key_pem, rsa_chain[0], &rsa_key);
+    try pem.key(support.crypto, testdata.mldsa87_key_pem, mldsa87_chain[0], &mldsa87_key);
     try support.configure(support.web_pki, .{});
     const all = [_]values.Identity{
         support.identities[0],
         .{ .chain = rsa_chain, .key = &rsa_key },
         .{ .chain = mldsa87_chain, .key = &mldsa87_key },
     };
-    try support.server_config.init(.{ .identities = &all, .cookie_key = &support.cookie_key, .alpn = &support.protocols, .cpu = support.cpu });
+    try support.server_config.init(.{ .identities = &all, .cookie_key = &support.cookie_key, .alpn = &support.protocols, .crypto = support.crypto });
     const rsa_pss = support.server_config.values.rsa_pss.?;
     try testing.expectEqual(@intFromPtr(&rsa_key.private_key), @intFromPtr(rsa_pss.private_key));
     try testing.expectEqualSlices(u8, rsa_key.public_key[0..rsa_modulus_len], rsa_pss.public_key);
-    try support.server_config.check(support.random());
+    try support.server_config.check();
     try support.handshake_both(null);
     try testing.expect(support.client.provider().handshake_complete());
     // RFC 9846 §4.5.1.2: two RSA identities are refused.
     const twice_rsa = [_]values.Identity{ all[1], all[1] };
-    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_rsa, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
+    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_rsa, .cookie_key = &support.cookie_key, .crypto = support.crypto }));
 }

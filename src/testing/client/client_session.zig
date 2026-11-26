@@ -66,9 +66,9 @@ pub const Session = struct {
     addresses: [1]client.Address,
     exchanges: [constants.requests_max]Exchange,
     requests_count: u32,
-    /// What each connection's start takes: the source its TLS session draws from, and the instant
-    /// chapulin judges the server's chain at, in seconds since 1970-01-01T00:00:00Z.
-    random: tls.Random,
+    /// What each connection's start takes: the instant chapulin judges the server's chain at, in
+    /// seconds since 1970-01-01T00:00:00Z. Its TLS session draws from the context in the pool's
+    /// TLS values (decision 175).
     now_seconds: u64,
     /// The instant the next step passes (design §4.2).
     now_ns: u64,
@@ -88,7 +88,6 @@ pub const Session = struct {
         config: *const client.Config,
         address: client.Address,
         port: u16,
-        random: tls.Random,
         now_seconds: u64,
         plans: []const Plan,
         bodies: *Bodies,
@@ -100,7 +99,6 @@ pub const Session = struct {
         session.addresses = .{address};
         try session.pool.init(memory, config, &.{ .addresses = &session.addresses, .port = port }, null);
         session.slots = config.tcp_connections;
-        session.random = random;
         session.now_seconds = now_seconds;
         session.now_ns = 0;
         session.closed = false;
@@ -151,7 +149,7 @@ pub const Session = struct {
     /// socket, since the pool owes no `close` for a connection that never started.
     pub fn started(session: *Session, slot: u32) bool {
         assert(slot < session.slots);
-        session.pool.start_tcp(session.connections[slot], session.random, session.now_seconds, null) catch return false;
+        session.pool.start_tcp(session.connections[slot], session.now_seconds, null) catch return false;
         return true;
     }
 
@@ -277,7 +275,7 @@ fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
 /// Starts the server's session with one connection accepted in cleartext. Test-only.
 fn test_start_server() !void {
     test_server_now_ns = 0;
-    try test_server.init(&test_server_config, entropy.random(), .{ .unix_seconds = 0, .monotonic_ns = test_server_now_ns });
+    try test_server.init(&test_server_config, .{ .unix_seconds = 0, .monotonic_ns = test_server_now_ns });
     try testing.expect(test_server.accept(0, false, null, test_server_now_ns));
 }
 
@@ -316,7 +314,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     test_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
-    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "POST", .path = "/upload", .content_len = content_len },
     }, &test_bodies);
@@ -338,7 +336,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     // Decision 117: the server names no version and reads h11 from the client's first octets.
     try test_start_server();
     test_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h2 = false } };
-    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "GET", .path = "/index.html", .content_len = 0 },
     }, &test_bodies);
@@ -359,7 +357,7 @@ const test_short_response = "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx";
 test "decision 119: one step reads every pipelined h11 response the socket holds" {
     client_exchange.fill_content();
     test_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h2 = false } };
-    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, 0, &(.{test_get} ** test_pipelined), &test_bodies);
     // The pool asks for its socket, which connects at once, and its connection writes the
     // requests.
     _ = test_client.step(0, test_to_client[0..0], &test_to_server);

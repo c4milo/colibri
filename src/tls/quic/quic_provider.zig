@@ -140,12 +140,13 @@ fn start_session(role: anytype, body: []const u8) provider_module.TransportParam
     // `KEYLOG=on` object's `ch_keylog` finds its log and a server's `choose_version` its chooser.
     role.chosen.context = state;
     const started = if (@TypeOf(role.*).is_client)
-        role.session.init(&role.chosen, local, &state.peer_parameters)
+        role.session.init(role.crypto, &role.chosen, local, &state.peer_parameters)
     else
-        role.session.init(&role.chosen, local, &state.peer_parameters, &role.server_name);
+        role.session.init(role.crypto, &role.chosen, local, &state.peer_parameters, &role.server_name);
     // RFC 9001 §4.8: chapulin refused the values, which fails the handshake before it starts.
     started catch return error.TlsFailed;
-    assert(role.session.hook.context == @as(?*anyopaque, state));
+    // stdx's session holds chapulin's, whose hook this reads (decision 175).
+    assert(role.session.session.hook.context == @as(?*anyopaque, state));
     // RFC 9001 §4.1.3: a client's ClientHello is staged now.
     if (@TypeOf(role.*).is_client) pull_staged(role);
 }

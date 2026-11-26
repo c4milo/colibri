@@ -146,7 +146,7 @@ pub fn server_identity() tls.Server {
         .identities = identities[0..identities_count],
         .cookie_key = &cookie_storage,
         .ticket_key = &ticket_key_storage,
-        .cpu = cpu.probe(),
+        .crypto = cpu.crypto(),
     };
 }
 
@@ -192,13 +192,13 @@ fn configure_client(asked: udp_arguments.Client) !void {
     const suites = client_suites(asked);
     if (asked.pin) {
         try read_key(prefix, ".pin", &pin_storage[0]);
-        try client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .cpu = cpu.probe(), .cipher_suites = suites });
+        try client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .crypto = cpu.crypto(), .cipher_suites = suites });
     } else {
         const anchors = [_]tls.Anchor{.{
             .subject = try check_file.read_part(prefix, ".name", &name_storage),
             .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
         }};
-        try client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .cpu = cpu.probe(), .cipher_suites = suites });
+        try client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .crypto = cpu.crypto(), .cipher_suites = suites });
     }
     // RFC 9368 §2.5: the client starts in version 1 and lists version 2, unless asked to start in 2.
     if (asked.v2) client_config.values.quic_version = .v2;
@@ -213,17 +213,17 @@ fn configure_server(asked: udp_arguments.Server) !void {
     identities[0] = .{ .chain = server_chain, .key = &key };
     identities_count = 1;
     if (asked.rsa_prefix) |rsa_prefix| {
-        identities[identities_count] = try identity_files.load_pem(rsa_prefix, .rsa_pss_rsae_sha256, &rsa_storage, cpu.probe());
+        identities[identities_count] = try identity_files.load_pem(rsa_prefix, .rsa_pss_rsae_sha256, &rsa_storage, cpu.crypto());
         identities_count += 1;
     }
     if (asked.mldsa87_prefix) |mldsa87_prefix| {
-        identities[identities_count] = try identity_files.load_pem(mldsa87_prefix, .mldsa87, &mldsa87_storage, cpu.probe());
+        identities[identities_count] = try identity_files.load_pem(mldsa87_prefix, .mldsa87, &mldsa87_storage, cpu.crypto());
         identities_count += 1;
     }
     var values = server_identity();
     values.alpn = &server_alpn;
     try server_config.init(values);
-    try server_config.check(entropy.random());
+    try server_config.check();
 }
 
 /// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.

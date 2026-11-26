@@ -37,23 +37,24 @@ pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: [
 /// The configuration of a server that selects from `server_protocols`, as `prepare_configs` makes
 /// it, for a client that converts its own values, as a pool does.
 pub fn prepare_server(server_protocols: []const []const u8, tickets: bool) !void {
+    support.set_timing();
     try server_config.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
 }
 
 /// The values of a client that trusts the root for `server_name` and names no protocol.
 pub fn client_values(server_name: []const u8) tls.Client {
-    return .{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } }, .cpu = support.cpu };
+    return .{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } }, .crypto = support.crypto };
 }
 
 /// Starts the server over `server_config`, with nothing in flight either way.
 pub fn start_server() !void {
-    try server.start(&server_config, support.stream.random(), support.now_seconds);
+    try server.start(&server_config, support.now_seconds);
     support.to_peer_len = 0;
     support.to_client_len = 0;
     support.events_len = 0;
@@ -65,7 +66,7 @@ pub fn start_server() !void {
 pub fn prepare_tls(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
     try prepare_configs(server_protocols, client_protocols, server_name, tickets);
     support.config = .{ .cpu_features = .none(), .authority = support.authority, .tls = &client_config };
-    try support.connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
+    try support.connection.init(&support.config, support.now_seconds, null, .{});
     try start_server();
 }
 

@@ -119,17 +119,18 @@ pub const Peer = struct {
     ids: Ids,
 
     /// Starts the peer's connection at `now_ns`, with the credit its plan gives its streams.
-    pub fn start(peer: *Peer, plan: *const Plan, random: tls.Random, now_ns: u64) Error!void {
+    /// Its TLS context draws from `random` (decision 175).
+    pub fn start(peer: *Peer, plan: *const Plan, random: identity.RandomSource, now_ns: u64) Error!void {
         return peer.start_with(plan, random, now_ns, ids_default);
     }
 
     /// As `start`, from the connection IDs `ids`.
-    pub fn start_with(peer: *Peer, plan: *const Plan, random: tls.Random, now_ns: u64, ids: Ids) Error!void {
+    pub fn start_with(peer: *Peer, plan: *const Plan, random: identity.RandomSource, now_ns: u64, ids: Ids) Error!void {
         peer.ids = ids;
         peer.config.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_h3,
-            .cpu = identity.cpu,
+            .crypto = identity.crypto(random),
         }) catch return error.PeerFailed;
         peer.connection.init(.{
             .role = .client,
@@ -142,7 +143,7 @@ pub const Peer = struct {
         peer.send_scratch = .{};
         peer.h3.init(.{ .role = .client, .grease = grease });
         peer.config.values.quic_version = .v1;
-        peer.session.start(&peer.config, random, identity.now_seconds, null) catch return error.PeerFailed;
+        peer.session.start(&peer.config, identity.now_seconds, null) catch return error.PeerFailed;
         var encoded: [parameters_len_max]u8 = undefined;
         var writer = quic.core.Writer.init(&encoded);
         quic.transport_parameters.write(&writer, &peer.connection.local_parameters, .client) catch return error.PeerFailed;

@@ -68,25 +68,26 @@ pub const TcpServer = struct {
     running: bool,
     handshaken: bool,
 
-    pub fn configure(server: *TcpServer) !void {
+    /// Prepares the server's TLS configuration, whose sessions draw from `random` (decision 175).
+    pub fn configure(server: *TcpServer, random: identity.RandomSource) !void {
         try server.config.init(.{
             .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = &alpn_h2,
-            .cpu = identity.cpu,
+            .crypto = identity.crypto(random),
         });
     }
 
     /// A fresh server for the run's connection `generation`, waiting for the ClientHello.
-    pub fn reset(server: *TcpServer, generation: u64, random: tls.Random) !void {
+    pub fn reset(server: *TcpServer, generation: u64) !void {
         server.generation = generation;
         server.input_used = 0;
         server.plain_used = 0;
         server.out_used = 0;
         server.requests_len = 0;
         server.handshaken = false;
-        try server.session.start(&server.config, random, identity.now_seconds);
+        try server.session.start(&server.config, identity.now_seconds);
         server.running = true;
     }
 

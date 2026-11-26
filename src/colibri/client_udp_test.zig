@@ -21,7 +21,6 @@ fn fetch(udp: bool, count: u32, handler: *fixture.Handler) !void {
 /// As `fetch`, with the pool's configuration speaking `protocols`.
 fn fetch_speaking(protocols: client.Protocols, udp: bool, count: u32, handler: *fixture.Handler) !void {
     const limit_ms: u64 = if (udp) fixture.watchdog_ms else fixture.unanswered_quic_watchdog_ms;
-    var counter: support.Counter = .{};
     try fixture.start_server(true, udp);
     defer fixture.stop_server();
     const pool = fixture.pool_config(protocols, true);
@@ -29,7 +28,6 @@ fn fetch_speaking(protocols: client.Protocols, udp: bool, count: u32, handler: *
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.port()),
         .pool = pool,
-        .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
     }, handler);
     defer test_client.deinit();
@@ -62,11 +60,10 @@ test "design §8 step 42: three exchanges go over one QUIC connection" {
 }
 
 test "design §8 step 42: twenty exchanges, one after another, go over one QUIC connection" {
-    var counter: support.Counter = .{};
     try fixture.start_server(true, true);
     defer fixture.stop_server();
     var handler: fixture.Handler = .{ .more = sequential_exchanges - 1, .stop_after = sequential_exchanges };
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = fixture.pool_config(.{ .prefer = .quic }, true), .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = fixture.pool_config(.{ .prefer = .quic }, true), .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     // More datagrams go each way than the UDP socket has batches, so each batch is sent again
     // once its send has ended.

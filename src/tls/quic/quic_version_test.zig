@@ -40,8 +40,8 @@ fn choose(context: *anyopaque, client_parameters: []const u8, own_parameters: []
 test "decision 111: a server's chooser picks version 2 once, and its own parameters name it" {
     try support.configure(support.web_pki, .{});
     var asked: Asked = .{};
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
-    server.start(&support.server_config, identity.random(), identity.now_seconds, .v1);
+    try client.start(&support.client_config, identity.now_seconds, null);
+    server.start(&support.server_config, identity.now_seconds, .v1);
     server.set_version_chooser(.{ .context = &asked, .choose = choose });
     try client.provider().set_transport_params(support.client_parameters);
     try server.provider().set_transport_params(support.server_parameters);

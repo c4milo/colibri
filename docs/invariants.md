@@ -100,15 +100,15 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 ### INV-5 — colibri draws only from the source its caller passes, and reads no uninitialised memory
 
 - **Claim.** colibri holds no generator and reads no uninitialised memory. Each unpredictable
-  value comes from the `std.Random` its caller passed, at `init` or at the call that starts a
-  connection. The server's engine draws its grease values, connection IDs, stateless reset
-  tokens and `PATH_CHALLENGE` data from it, and the intervals between the 1-RTT packet numbers
-  each QUIC connection skips (decision 123). A TLS session draws from it. From design §8 step 21c
-  a client's channel draws its connection IDs and grease value from it, and from step 20e its
-  skip intervals.
+  value comes from the random source of the `stdx.crypto.Context` its caller put in the TLS
+  values (decision 175). The server's engine draws its grease values, connection IDs, stateless
+  reset tokens and `PATH_CHALLENGE` data from it, and the intervals between the 1-RTT packet
+  numbers each QUIC connection skips (decision 123). A TLS session draws from it. From design §8
+  step 21c a client's channel draws its connection IDs and grease value from it, and from step
+  20e its skip intervals. A connection in cleartext draws nothing.
 - **Mechanism.** No source file outside `src/testing/` names `std.Random`, `std.crypto.random`
-  or a clock, except `src/tls/values.zig`, which names the type once as `tls.Random`. A function
-  that draws takes the source as a parameter or reads the one `init` was given. `undefined`
+  or a clock. A file that needs the source's type names it as `stdx.crypto.Context`'s field. A
+  function that draws reads the source of the context in its configuration's TLS values. `undefined`
   appears only in a declaration immediately followed by a full initialisation in the same
   function.
 - **Check.** Lint rule (`std.Random` denylist; `undefined` audited per site with a comment naming

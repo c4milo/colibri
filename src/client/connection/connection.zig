@@ -166,10 +166,10 @@ pub const Connection = struct {
     ticket: ?tls.Ticket,
 
     /// Prepares a connection the caller is opening, with nothing read or written. Over TLS, every
-    /// draw the handshake makes comes from `random`, `now_seconds` is the instant a Web PKI chain
-    /// is judged at, `resumption` offers a ticket an earlier connection took, and `start` says
-    /// what this connection carries.
-    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption, start: Start) StartError!void {
+    /// draw the handshake makes comes from the random source of the TLS configuration's context
+    /// (decision 175), `now_seconds` is the instant a Web PKI chain is judged at, `resumption`
+    /// offers a ticket an earlier connection took, and `start` says what this connection carries.
+    pub fn init(connection: *Connection, config: *const Config, now_seconds: u64, resumption: ?tls.Resumption, start: Start) StartError!void {
         assert(coding.codings_valid(config.codings, .init(config)));
         assert(config.authority.len > 0);
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
@@ -194,7 +194,7 @@ pub const Connection = struct {
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
             // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old.
-            connection.tls_client.start(tls_config, random, now_seconds, resumption) catch return error.TlsRefused;
+            connection.tls_client.start(tls_config, now_seconds, resumption) catch return error.TlsRefused;
         } else {
             internal.open_session(connection, cleartext);
         }

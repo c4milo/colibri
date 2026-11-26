@@ -7,7 +7,8 @@ const std = @import("std");
 const colibri = @import("colibri");
 const h11 = colibri.h11;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 
 var connection: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var output: [256]u8 = undefined;
@@ -31,21 +32,23 @@ var hosted_client: Client align(@alignOf(Client)) = undefined;
 // The room of the operations one turn writes: a host sizes it by `operations_max`.
 var operations: [Server.operations_max + Client.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
 
-/// The source each TLS session draws from. A hosted object has no default source (decision 150
-/// ruling 9 as amended), so the program passes the operating system's `getentropy`.
-extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
-const getentropy_len_max = 256;
-var entropy_state: u8 = 0;
-const entropy: std.Random = .{ .ptr = &entropy_state, .fillFn = fill_entropy };
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). A hosted server has no default source (decision 150 ruling 9 as
+/// amended). Each draw calls `io.randomSecure`, which is thread-safe, keeps no state that a fork
+/// copies, and has no weaker fallback. A draw that fails halts the program, so no session runs on
+/// bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
 
-fn fill_entropy(_: *anyopaque, buffer: []u8) void {
-    var filled: usize = 0;
-    while (filled < buffer.len) {
-        const part = @min(buffer.len - filled, getentropy_len_max);
-        if (getentropy(buffer[filled..].ptr, part) != 0) @panic("getentropy failed");
-        filled += part;
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
     }
-}
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 
 /// Unix seconds, which a program reads from its clock; colibri reads none.
 const now_seconds: u64 = 1_800_000_000;
@@ -55,10 +58,13 @@ const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_addresses = [_]colibri.client.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
 
-pub fn main() !void {
-    // The CPU features the codecs run on. The program asks its CPU once, and states them in each
-    // configuration (decision 169).
+pub fn main(init: std.process.Init) !void {
+    // The random source of every TLS session: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for its codecs (decision 169) and for TLS.
     const cpu_features: platform.CpuFeatures = .detect();
+    // The program's one context, which a hosted server takes (decision 175).
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     // A protocol module, which never needed Rotor.
     connection.init(.{ .role = .client, .cpu_features = cpu_features });
     const head_len = try connection.write_request(&output, "GET", "/", &.{
@@ -68,9 +74,8 @@ pub fn main() !void {
 
     // The server: its first turn writes the accept on the listener that a host opened. This
     // program opened none, so it stops the server, and ends the accept that the server cancels.
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     router.init();
-    try hosted_server.init(&.{ .cpu = cpu, .random = entropy, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 }, .engine = .{ .cpu_features = cpu_features } }, &router, &router_context);
+    try hosted_server.init(&.{ .crypto = crypto, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 }, .engine = .{ .cpu_features = cpu_features } }, &router, &router_context);
     const first = hosted_server.turn(0, &operations);
     if (first.operations != 1 or operations[0].kind != .accept) return error.AcceptMissing;
     const accept = operations[0].id;
@@ -84,7 +89,6 @@ pub fn main() !void {
     try hosted_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = server_port },
         .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false }, .cpu_features = cpu_features },
-        .random = entropy,
         .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 },
     }, null);
     hosted_client.shutdown();

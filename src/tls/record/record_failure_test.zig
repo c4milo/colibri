@@ -30,8 +30,8 @@ const server_hello_type: u8 = 2;
 fn start_and_hello() !void {
     to_server.* = .{};
     to_client.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds, null);
-    try server.start(&support.server_config, support.random(), support.now_seconds);
+    try client.start(&support.client_config, support.now_seconds, null);
+    try server.start(&support.server_config, support.now_seconds);
     to_server.len += (try client.handshake(&.{}, to_server.free())).written;
 }
 
@@ -70,7 +70,7 @@ test "RFC 9846 §6.2: a server that refuses its first message sends the alert in
 test "RFC 9846 §6.2: a client that refuses the server's chain sends the alert sealed" {
     // The leaf's own key is no anchor of the chain.
     const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
-    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
+    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .crypto = support.crypto }, .{});
     try start_and_hello();
     try server_flight();
     try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));

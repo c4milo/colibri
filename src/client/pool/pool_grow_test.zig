@@ -71,7 +71,7 @@ fn collect() !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open and starts) try pool.start_tcp(reported.open.connection, support.stream.random(), 0, null);
+        if (reported == .open and starts) try pool.start_tcp(reported.open.connection, 0, null);
     }
     return error.TestUnexpectedResult;
 }
@@ -93,7 +93,7 @@ fn give(connection: ConnectionHandle, octets: []const u8) !void {
         };
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open and starts) try pool.start_tcp(reported.open.connection, support.stream.random(), 0, null);
+        if (reported == .open and starts) try pool.start_tcp(reported.open.connection, 0, null);
     }
     return error.TestUnexpectedResult;
 }
@@ -136,7 +136,7 @@ test "decision 125: a second exchange opens a second h11 connection, once the fi
     try testing.expectEqual(1, count(.open));
     const one = find(.open, 0).?.open.connection;
     starts = true;
-    try pool.start_tcp(one, support.stream.random(), 0, null);
+    try pool.start_tcp(one, 0, null);
     try collect();
     // h11 in a pool of two slots takes one exchange at a time, so the second waits for a second
     // connection, in the other slot.
@@ -179,7 +179,7 @@ test "decision 125: a slot whose connect failed opens again only after an exchan
     starts = false;
     try collect();
     const one = find(.open, 0).?.open.connection;
-    try pool.start_tcp(one, support.stream.random(), 0, null);
+    try pool.start_tcp(one, 0, null);
     // The second slot's connect fails, and the attempt holds it tried.
     try collect();
     const failed = find(.open, 1).?.open.connection;
@@ -211,7 +211,7 @@ test "decision 125: a waiting exchange goes to the connection a cancelled exchan
     starts = false;
     try collect();
     const one = find(.open, 0).?.open.connection;
-    try pool.start_tcp(one, support.stream.random(), 0, null);
+    try pool.start_tcp(one, 0, null);
     try collect();
     pool.transport_closed(find(.open, 1).?.open.connection);
     try collect();
@@ -314,7 +314,7 @@ test "decision 125: two connections to one address that both fail skip no other 
     starts = false;
     try collect();
     const one = find(.open, 0).?.open.connection;
-    try pool.start_tcp(one, support.stream.random(), 0, null);
+    try pool.start_tcp(one, 0, null);
     // The first connection carries the first exchange, and two more open, both to the first
     // address. Both fail.
     try collect();

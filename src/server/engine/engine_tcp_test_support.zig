@@ -79,7 +79,7 @@ pub fn identity() tls.Server {
     return .{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     };
 }
 
@@ -100,7 +100,7 @@ pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessi
     client_saw_alert = false;
     program = null;
     instant_ns = now_ns;
-    try engine.init(&config, support.stream.random(), .{ .unix_seconds = support.now_seconds, .monotonic_ns = now_ns });
+    try engine.init(&config, .{ .unix_seconds = support.now_seconds, .monotonic_ns = now_ns });
 }
 
 /// Passes `octets` as what the socket of `handle` read, again until the engine consumed them or
@@ -229,12 +229,13 @@ pub fn id_of(handle: ConnectionHandle, number: u64) event.RequestId {
 
 /// Starts `connection_test_support`'s TLS client, which offers `protocols`. Test-only.
 pub fn start_client(protocols: []const []const u8) !void {
+    support.set_timing();
     try support.client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
-    try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
+    try support.client.start(&support.client_config, support.now_seconds, null);
 }
 
 /// Runs the TLS client's handshake against the connection `handle` names, until the client has

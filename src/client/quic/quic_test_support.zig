@@ -151,23 +151,24 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage, client_prot
 
 /// Starts the client's connection from `config` as `prepare` left it, or as a test then set it.
 pub fn init_connection(receive_pool: quic_connection.ReceiveStorage) !void {
-    try connection.init(&config, receive_pool, client_start, support.stream.random(), support.now_seconds, now_ns, null);
+    try connection.init(&config, receive_pool, client_start, support.now_seconds, now_ns, null);
 }
 
 /// The TLS configurations of `start`, the client's `config`, and a server that starts from the
 /// first datagram it takes, with time back at `start_ns`. No client connection is made.
 pub fn prepare(client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
+    support.set_timing();
     try client_tls.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = support.authority } },
         .alpn = client_protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     try server_tls.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     config = .{ .cpu_features = .none(), .tls = &client_tls, .authority = support.authority };
     now_ns = start_ns;
@@ -305,7 +306,7 @@ fn start_server(first: []const u8) !void {
         .identity = .{ .local_initial_source = &server_id, .original_destination = &server_original_id, .peer_initial_source = &server_peer_id },
         .receive = server_pool.storage(),
     });
-    server_session.start(&server_tls, support.stream.random(), support.now_seconds, .v1);
+    server_session.start(&server_tls, support.now_seconds, .v1);
     server_send_scratch = .{};
     var body: [parameters_len_max]u8 = undefined;
     var writer = quic.core.Writer.init(&body);

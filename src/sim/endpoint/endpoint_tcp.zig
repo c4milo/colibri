@@ -134,10 +134,11 @@ pub const Peers = struct {
     pub fn init(peers: *Peers, seed: u64) void {
         const octets: [ipv4_len]u8 = @splat(endpoint_octet);
         peers.addresses = .{client.Address.init(&octets, 0)};
-        // One TLS value serves both protocols: the pool names the ALPN ID `versions` allows.
+        // One TLS value serves both protocols: the pool names the ALPN ID `versions` allows. Each
+        // peer's pool takes it with a context over the peer's own stream, in `start`.
         const trust: tls.Client = .{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-            .cpu = identity.cpu,
+            .crypto = undefined,
         };
         peers.configs[@intFromEnum(Way.cleartext_h11)] = .{ .cpu_features = .none(), .authority = identity.authority, .protocols = .{ .h2 = false } };
         peers.configs[@intFromEnum(Way.cleartext_h2)] = .{ .cpu_features = .none(), .authority = identity.authority, .protocols = .{ .h11 = false } };
@@ -173,9 +174,12 @@ pub const Peers = struct {
         peer.ids = @splat(null);
         peer.close_reported = false;
         if (!Peer.played_by_client(plan)) return peer.hostile.start(&plan.behaviour);
-        const config = &peers.configs[@intFromEnum(way_of(plan))];
+        // Decision 175: the pool copies its configuration, and over TLS its sessions draw from
+        // the context of the peer's own stream.
+        var config = peers.configs[@intFromEnum(way_of(plan))];
+        if (config.tls) |*values| values.crypto = identity.crypto(identity.RandomSource.init(&peer.random, fill));
         // TCP alone: the pool is given no receive pool, so it offers no QUIC.
-        peer.client.init(&peer.client_memory, config, &.{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
+        peer.client.init(&peer.client_memory, &config, &.{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
         // Generation 0 names no connection until the pool's `open`.
         peer.connection = .{ .slot = 0, .generation = 0 };
         const behaviour = &plan.behaviour;
@@ -202,7 +206,7 @@ fn connect(peer: *Peer, now_ns: u64) Error!void {
     const asked = peer.client.receive(.none, now_ns);
     assert(asked.event.?.open.transport == .tcp);
     peer.connection = asked.event.?.open.connection;
-    peer.client.start_tcp(peer.connection, tls.Random.init(&peer.random, fill), identity.now_seconds, null) catch return error.PeerFailed;
+    peer.client.start_tcp(peer.connection, identity.now_seconds, null) catch return error.PeerFailed;
     // Bounded: `connected` in cleartext, and one `send`.
     for (0..connect_events_max + 1) |_| {
         const reported = peer.client.receive(.none, now_ns).event orelse return;

@@ -100,7 +100,6 @@ pub const Storage = struct {
     answers: [limits.requests_max]Answer,
     answers_len: u8,
     finished: u8,
-    tls_random: Random,
 };
 
 /// The instant every call passes: the run needs no clock.
@@ -147,9 +146,8 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
         storage.client_config.codings = plan.client_offers();
         storage.client_config.decoders = decoders;
     }
-    storage.tls_random = Random.init(content_seed);
-    const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.endpoint.init(&storage.endpoint_config, source, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+    // A cleartext engine and pool draw nothing (decision 175), so the run gives them no source.
+    try storage.endpoint.init(&storage.endpoint_config, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
     // A new endpoint has its one slot free.
     storage.accepted = storage.endpoint.accept(.{ .tls = false }, now_ns) orelse return error.ExchangeRefused;
     const octets: [ipv4_len]u8 = @splat(address_octet);
@@ -164,17 +162,17 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
         fill_content(storage.contents[index][0..planned.content_len], planned.compressible, content_seed +% index);
         try request(storage, planned, index);
     }
-    try connect(storage, source);
+    try connect(storage);
 }
 
 /// Reads the pool's `open`, and starts its connection on the socket it asked for. In cleartext
 /// the connection owes `connected` from its start, and the pool hands it the waiting exchanges
 /// as it reports it, so the first round's send carries them.
-fn connect(storage: *Storage, source: tls.Random) Error!void {
+fn connect(storage: *Storage) Error!void {
     const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
     storage.connection = asked.open.connection;
-    try storage.pool.start_tcp(storage.connection, source, 0, null);
+    try storage.pool.start_tcp(storage.connection, 0, null);
     const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
     // The connection owes the waiting requests (decision 125), which the run sends in its rounds.

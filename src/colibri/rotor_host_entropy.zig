@@ -1,12 +1,16 @@
-//! The source a `.private` server or client draws from when its program passes none (decision
-//! 150 ruling 9, which decision 159 keeps for `.private` alone): the operating system's entropy,
-//! with no state kept here, so one source serves every session. Linux gives it through the
-//! `getrandom` system call, which needs no libc. macOS gives it through `getentropy`, in the
-//! libSystem every macOS program links. It is a file of colibri's own Rotor host.
+//! The source a `.private` server draws from when its program passes no context (decision 150
+//! ruling 9, which decisions 159 and 175 keep for a `.private` server alone): the operating
+//! system's entropy, with no state kept here, so one source serves every session. Linux gives it
+//! through the `getrandom` system call, which needs no libc. macOS gives it through
+//! `getentropy`, in the libSystem every macOS program links. It is a file of colibri's own Rotor
+//! host.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const tls = @import("tls");
+const stdx = @import("stdx");
+
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+const RandomSource = @FieldType(stdx.crypto.Context, "random");
 
 /// The most octets one `getentropy` call fills (POSIX), and the size of each `getrandom` call.
 const call_len_max = 256;
@@ -45,7 +49,7 @@ fn fill_part(part: []u8) void {
 }
 
 /// The source a session draws from: `fill`, which keeps no state.
-pub fn random() tls.Random {
+pub fn random() RandomSource {
     return .{ .ptr = @constCast(&source_marker), .fillFn = fill_source };
 }
 

@@ -4,49 +4,14 @@
 //! the object borrows it. Each rule the values carry is chapulin's (its `cfg.h`, `webpki_cfg.h`
 //! and `srv_cfg.h`), and colibri checks none of them twice.
 //!
-//! The clock, a ticket to offer and the source of randomness belong to each connection, so they
-//! are not here: a session's `start` takes them.
+//! The program's `stdx.crypto.Context` is here (decision 175): its CPU features, which stdx maps
+//! to chapulin's description of the CPU, and its random source, which every session of the
+//! configuration and every draw of the engine or the pool that holds it fill from. The clock and
+//! a ticket to offer belong to each connection, so they are not here: a session's `start` takes
+//! them.
 const std = @import("std");
-const platform = @import("stdx").platform;
+const stdx_crypto = @import("stdx").crypto;
 const constants = @import("constants.zig");
-
-/// The source a session's randomness comes from, which the caller passes to each session's `start`
-/// (decision 94 as amended on 2026-09-27). Every draw chapulin makes for that session fills from
-/// it, so a caller that seeds it replays the session. colibri makes no generator and draws from
-/// none (non-negotiable 5): this is the one file under `src/` that names the type, which
-/// `tools/lint/determinism.zig` permits. The generator it points at outlives the session, and
-/// answers on the thread that drives the session.
-pub const Random = std.Random;
-
-/// What the program says of the CPU and the thread that drive a session (decision 97 as amended for
-/// chapulin 0.2.0, https://github.com/c4milo/colibri/issues/84): what its one probe of the CPU
-/// found, and the timing mode the thread runs in. A program probes once, at start, and passes the
-/// same value to every configuration. colibri reads it, probes nothing and sets no CPU mode.
-///
-/// A session runs the AES instructions and the carry-less multiply only where `probe.aes_clmul` is
-/// `yes` and `timing` is `data_independent`. Without both it runs no AES instruction and holds
-/// TLS_CHACHA20_POLY1305_SHA256 alone. It runs the native widening multiply, and X25519 on its wide
-/// field, only under `data_independent` (chapulin's `cpu_cfg.h`). An object built for an
-/// architecture other than x86-64 and arm64 runs the portable code, and there the value changes
-/// nothing.
-pub const Cpu = struct {
-    /// stdx's `platform.Cpu`, which `platform.probe()` returns.
-    probe: platform.Cpu,
-    /// The mode of the thread that drives each session, which only the program can state.
-    timing: Timing,
-};
-
-/// The timing mode of the thread that drives a session. Arm's A64 reference lists the AES
-/// instructions, PMULL and the widening multiplies as taking a time independent of their data while
-/// PSTATE.DIT is 1, and Intel's DOIT list names their x86-64 forms while the operating system has
-/// set DOITM. Neither mode is one a program can read on x86-64, and colibri checks neither.
-pub const Timing = enum {
-    /// The program states nothing about the thread's mode.
-    not_stated,
-    /// On arm64, a core with FEAT_DIT whose thread has set PSTATE.DIT. On x86-64, a part on
-    /// Intel's DOIT list whose operating system has set DOITM.
-    data_independent,
-};
 
 /// A root a client trusts: its subject Name and its SubjectPublicKeyInfo, each the whole DER TLV.
 pub const Anchor = struct {
@@ -81,8 +46,10 @@ pub const Client = struct {
     /// none, as `client.Pool` requires: it names the protocols its versions allow (decision
     /// 117).
     alpn: []const []const u8 = &.{},
-    /// The program's probe of its CPU; there is no default.
-    cpu: Cpu,
+    /// The program's one `stdx.crypto.init(features, random)` (decision 175). There is no
+    /// default. stdx maps its features to chapulin's description of the CPU, and each session
+    /// draws from its random source.
+    crypto: stdx_crypto.Context,
     /// Refuse a handshake whose key exchange is not X25519MLKEM768.
     require_pq: bool = false,
     /// Suites to offer, most preferred first, as RFC 9846 Appendix B.4 codepoints; empty for
@@ -180,8 +147,10 @@ pub const Server = struct {
     /// Protocols this server selects from, in its order (RFC 7301 §3.2). Empty for a server's
     /// endpoint, which names the protocols its versions allow (decision 119).
     alpn: []const []const u8 = &.{},
-    /// The program's probe of its CPU; there is no default.
-    cpu: Cpu,
+    /// The program's one `stdx.crypto.init(features, random)`, as `Client.crypto` is (decision
+    /// 175). There is no default. Each session and each identity check draws from its random
+    /// source.
+    crypto: stdx_crypto.Context,
     /// Refuse a ClientHello with no server_name (RFC 9846 §9.2).
     require_server_name: bool = false,
     /// Suites in this server's order, as RFC 9846 Appendix B.4 codepoints; empty for chapulin's.

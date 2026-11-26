@@ -10,7 +10,10 @@
 const std = @import("std");
 const modules = @import("modules.zig");
 
-/// The library modules `colibri` imports: each of the sixteen others, which its root names.
+/// The library modules `colibri` imports: each of the sixteen others, which its root names, and
+/// stdx's one module, whose `crypto.Context` a server's configuration takes and whose
+/// `crypto.init` a `.private` server calls when the program passes none (decision 175). The root
+/// names nothing of stdx (decision 170).
 pub const Imports = struct {
     core: *std.Build.Module,
     wire: *std.Build.Module,
@@ -28,14 +31,17 @@ pub const Imports = struct {
     h11: *std.Build.Module,
     server: *std.Build.Module,
     client: *std.Build.Module,
+    stdx: *std.Build.Module,
 };
 
 /// The imports of `colibri` out of the whole graph, each field by its name.
 pub fn imports_of(graph: modules.Modules) Imports {
     var imports: Imports = undefined;
     inline for (@typeInfo(Imports).@"struct".fields) |field| {
+        if (comptime std.mem.eql(u8, field.name, "stdx")) continue;
         @field(imports, field.name) = @field(graph, field.name);
     }
+    imports.stdx = graph.stdx.module("stdx");
     return imports;
 }
 

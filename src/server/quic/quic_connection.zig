@@ -180,9 +180,6 @@ pub const QuicConnection = struct {
     /// The request bodies the connection waits for, and the responses its peer has yet to take.
     bodies: quic_body.Bodies,
     sends: quic_sends.Sends,
-    /// The caller's source, which the connection IDs it issues, their reset tokens and each
-    /// PATH_CHALLENGE's data are drawn from (invariant 5).
-    random: tls.Random,
     /// Whether the spare connection IDs went out (`issue_spare_ids`).
     spare_ids_issued: bool,
     /// The engine's table its IDs go in, from `Start.route`.

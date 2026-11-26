@@ -128,7 +128,8 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
             .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
-            .cpu = identity.cpu,
+            // Decision 175: the engine and its sessions draw from the server's stream.
+            .crypto = identity.crypto(identity.RandomSource.init(&storage.server_random, fill)),
         },
         .idle_timeout_ms = limits.quic_idle_timeout_ms,
         .timeouts = plan.deadlines,
@@ -138,10 +139,10 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     const now_ns = ns_of(plan, 0);
     // Decision 110 as amended: an endpoint refuses limits a connection would refuse, and an
     // identity whose key does not sign.
-    storage.endpoint.init(&storage.endpoint_config, tls.Random.init(&storage.server_random, fill), .{ .unix_seconds = identity.now_seconds, .monotonic_ns = now_ns }) catch return error.ServerRefused;
+    storage.endpoint.init(&storage.endpoint_config, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = now_ns }) catch return error.ServerRefused;
     storage.ended = null;
     storage.link.init(plan.link_rate);
-    try storage.peer.start(plan, tls.Random.init(&storage.peer_random, fill), now_ns);
+    try storage.peer.start(plan, identity.RandomSource.init(&storage.peer_random, fill), now_ns);
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     storage.record = .{
         .wire = .init(),

@@ -6,6 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
 const tls = @import("tls");
+const stdx = @import("stdx");
 const identity_module = @import("identity.zig");
 const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
@@ -28,7 +29,9 @@ pub const private = struct {
     pub fn init(state: anytype, config: *const Config, quic_slots: bool) InitError!void {
         const listener = @TypeOf(state.*).listener;
         state.host.prepare();
-        state.random = config.random orelse entropy.random();
+        // Decision 150 ruling 9: a program that passes no context gets one of its engine's
+        // features and the operating system's entropy.
+        state.crypto = config.crypto orelse stdx.crypto.init(config.engine.cpu_features, entropy.random());
         // Decision 68: the server's own host reads each datagram's codepoint and sets the one the
         // engine names, so the engine reads ECN whatever the program set.
         state.engine_config.ecn = true;
@@ -38,7 +41,7 @@ pub const private = struct {
         state.unix_seconds = config.unix_seconds;
         // A server that `init` does not return keeps no private key, cookie key or ticket key.
         errdefer server_module.wipe_keys(state);
-        try load(state, config.identity, config.cpu, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
+        try load(state, config.identity, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
         const h3 = server_udp.served(quic_slots, config.identity != null);
         try server_bind.bind(&state.host, listener, @TypeOf(state.*).datagram, config.host, config.port, h3);
         errdefer state.host.close_open();
@@ -58,10 +61,10 @@ pub const hosted = struct {
     /// a literal, so it has no public name (decision 156 ruling 2).
     pub const Config = struct {
         identity: ?Identity = null,
-        cpu: tls.Cpu,
-        /// The program's source. A hosted server has no default (decision 150 ruling 9 as
+        /// The program's one `stdx.crypto.init(features, random)` (decision 175). A hosted server
+        /// has no default, since it draws from no system source (decision 150 ruling 9 as
         /// amended).
-        random: tls.Random,
+        crypto: stdx.crypto.Context,
         /// Two readings of the instant of `init`, which the program reads from its clocks. The
         /// engine starts at it: its deadlines count on the host's monotonic clock, which every
         /// later call passes, and with a ticket key its tickets carry the Unix seconds (decision
@@ -69,7 +72,7 @@ pub const hosted = struct {
         /// assume.
         now: server.Timestamp,
         /// The key the server seals its session tickets under, which it copies, or null to draw
-        /// one from `random` (decision 161). The server wipes its copy at `deinit`.
+        /// one from the context's source (decision 161). The server wipes its copy at `deinit`.
         ticket_key: ?[tls.constants.protocol.server_key_len]u8 = null,
         /// The key the server sealed its tickets under before `ticket_key`, as
         /// `ServerConfig.ticket_key_previous` is (decision 161 as amended).
@@ -97,7 +100,7 @@ pub const hosted = struct {
 
     /// Reads the identity and starts the engine at `config.now` (non-negotiable 3).
     pub fn init(state: anytype, config: *const Config, quic_slots: bool) InitError!void {
-        state.random = config.random;
+        state.crypto = config.crypto;
         state.listening = config.sockets.listener;
         const features = config.sockets.datagram;
         // Decision 159: a host that cannot read the codepoint leaves the engine's ECN off, so it
@@ -106,7 +109,7 @@ pub const hosted = struct {
         state.datagram_segments = if (features) |held| held.segments else false;
         errdefer server_module.wipe_keys(state);
         state.unix_seconds = config.now.unix_seconds;
-        try load(state, config.identity, config.cpu, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
+        try load(state, config.identity, .{ .current = config.ticket_key, .previous = config.ticket_key_previous });
         if (server_udp.served(quic_slots and features != null, config.identity != null)) state.udp.open(0, @TypeOf(state.*).datagram);
         try server_loop.start(state, config.now);
     }
@@ -119,8 +122,8 @@ pub const hosted = struct {
 };
 
 /// Reads `identity`, when the program gave one, into the engine's TLS values, with the ticket keys.
-fn load(state: anytype, identity: ?Identity, cpu: tls.Cpu, keys: identity_module.TicketKeys) identity_module.LoadError!void {
+fn load(state: anytype, identity: ?Identity, keys: identity_module.TicketKeys) identity_module.LoadError!void {
     assert(state.engine_config.tls == null);
     const held = identity orelse return;
-    state.engine_config.tls = try identity_module.load(held, &state.identity, cpu, state.random, keys);
+    state.engine_config.tls = try identity_module.load(held, &state.identity, state.crypto, keys);
 }

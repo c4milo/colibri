@@ -10,8 +10,8 @@
 //!
 //! The run goes in this order:
 //! 1. The program starts the server with the test identity and the router, and the client with
-//!    the server's destination and a pool over TLS. A hosted object takes the program's
-//!    source of randomness. Here it is one seed, so each run sends the same octets.
+//!    the server's destination and a pool over TLS. Both hold the program's one `stdx.crypto`
+//!    context: its CPU features, and the operating system's entropy (decision 175).
 //! 2. The program hands the client two GETs, and turns both objects until each exchange ended.
 //!    ALPN selects h2.
 //! 3. The program changes the server's ticket key between two calls. The tickets that the server
@@ -29,7 +29,8 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const identity = @import("testdata");
 const link_module = @import("link.zig");
 // chapulin's hook, which every program that imports `colibri` defines.
@@ -66,13 +67,22 @@ var link: link_module.Link align(@alignOf(link_module.Link)) = undefined;
 var hosted: Host align(@alignOf(Host)) = .{};
 var exchanges: Exchanges align(@alignOf(Exchanges)) = .{};
 
-/// The one seed of the run. A real program passes its operating system's entropy.
-const seed = 0x636f_6c69_6272_69;
-var generator: std.Random.DefaultPrng align(@alignOf(std.Random.DefaultPrng)) = .init(seed);
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
 
-fn fill(state: *std.Random.DefaultPrng, buffer: []u8) void {
-    state.fill(buffer);
-}
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 
 /// The origin the client names, the root it trusts for it, and the server's address, which no
 /// socket uses.
@@ -92,19 +102,22 @@ const internal_server_error: server.Status = .internal_server_error;
 const rounds_max = 4096;
 const operations_len = Server.operations_max + Server.sockets_max + Client.operations_max + Client.sockets_max;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     try link.init();
     defer link.deinit();
-    const random = tls.Random.init(&generator, fill);
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    // The CPU features the codecs run on, which the program also asks once and states in each
-    // configuration (decision 169).
+    // The random source of every TLS session: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for the codecs (decision 169) and for TLS.
     const cpu_features: platform.CpuFeatures = .detect();
+    // PSTATE.DIT on this thread, where the core has FEAT_DIT. stdx then states the thread's
+    // timing to chapulin. Elsewhere the call changes nothing.
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    // The program's one context, which the server and the client's TLS value hold (decision 175).
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     router.init();
     try hosted_server.init(&.{
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
-        .cpu = cpu,
-        .random = random,
+        .crypto = crypto,
         .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.server) },
         .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
     }, &router, &router_context);
@@ -114,9 +127,8 @@ pub fn main() !void {
             .cpu_features = cpu_features,
             .authority = origin,
             .protocols = .{ .h3 = false },
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
         },
-        .random = random,
         .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.client) },
     }, &exchanges);
     for (&exchanges.responses, &exchanges.bodies) |*response, *body| {
@@ -132,7 +144,7 @@ pub fn main() !void {
     // A server that runs for weeks changes its ticket key between two calls (decision 161 as
     // amended). The tickets sealed under the current key still resume until the next change.
     var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
-    generator.fill(&next_ticket_key);
+    crypto.random.bytes(&next_ticket_key);
     hosted_server.set_ticket_key(&next_ticket_key);
     std.crypto.secureZero(u8, &next_ticket_key);
     hosted_client.shutdown();

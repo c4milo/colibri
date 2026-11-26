@@ -316,15 +316,16 @@ fn start(protocols: client.Protocols) !void {
     try pair_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer },
-        .cpu = support.cpu(),
-        .random = counters[@intFromEnum(Side.server)].random(),
+        .crypto = counters[@intFromEnum(Side.server)].crypto(),
         .now = started,
         .sockets = .{ .datagram = .{} },
     }, &router, &context);
+    // Decision 175: the client's draws come from the context in its pool's TLS values.
+    var pool = fixture.pool_config(protocols, true);
+    pool.tls.?.crypto = counters[@intFromEnum(Side.client)].crypto();
     try pair_client.init(&.{
         .destination = fixture.loopback(fixture.https_port),
-        .pool = fixture.pool_config(protocols, true),
-        .random = counters[@intFromEnum(Side.client)].random(),
+        .pool = pool,
         .now = started,
         .datagram = .{ .ipv4 = .{} },
     }, &handler);

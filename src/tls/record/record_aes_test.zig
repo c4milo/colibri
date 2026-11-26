@@ -1,9 +1,11 @@
-//! Decision 97 as amended for chapulin 0.2.0 (https://github.com/c4milo/colibri/issues/84): a host
-//! object runs the AES instructions or ChaCha20 alone, as the CPU each session's caller describes
+//! Decisions 97 and 175 (https://github.com/c4milo/colibri/issues/84): a host object runs the AES
+//! instructions or ChaCha20 alone, as the description stdx maps from each configuration's context
 //! says. Split out of `record_test.zig` for length.
 const std = @import("std");
 const builtin = @import("builtin");
 const tls_provider = @import("tls_provider");
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const values = @import("../values.zig");
 const support = @import("record_test_support.zig");
 
@@ -17,12 +19,7 @@ fn expect_suite(suite: u16) !void {
     }
 }
 
-/// `web_pki` under the description `described`.
-fn web_pki_under(described: values.Cpu) values.Client {
-    var offered = support.web_pki;
-    offered.cpu = described;
-    return offered;
-}
+const web_pki_under = support.web_pki_under;
 
 test "decision 97: on x86-64 and arm64 the object takes the caller's description of its CPU and holds AES-GCM" {
     // chapulin builds its host object there, with `SUITE=aesgcm`, whatever the target's features.
@@ -31,73 +28,68 @@ test "decision 97: on x86-64 and arm64 the object takes the caller's description
     if (host) try testing.expect(support.aes_gcm);
 }
 
-test "decision 97: a description becomes chapulin's claims: AES and SHA under a yes and the mode, the multiply under the mode" {
+test "decision 175: a configuration keeps its context whole, the features and the random source" {
     if (comptime !support.takes_cpu) return;
-    // Bounded by the descriptions a test may run under, at most four.
-    for (support.cpus) |described| try expect_claims(described);
-    // A probe's yes on one SHA instruction gives that claim alone, and on arm64 alone.
-    for (support.cpus_with_sha) |described| try expect_claims(described);
+    // Bounded by the feature sets a test may run under, at most two, and by four sets that hold
+    // one SHA instruction each or an N2's MIDR_EL1.
+    for (support.feature_sets) |features| try expect_converted(features);
+    for (support.features_with_sha) |features| try expect_converted(features);
 }
 
-/// Configures both sides under `described` and checks the claims colibri gives chapulin.
-fn expect_claims(described: values.Cpu) !void {
-    try support.configure(web_pki_under(described), .{ .cpu = described });
-    const stated = described.timing == .data_independent;
-    // chapulin refuses the SHA-512 and SHA-3 claims on x86-64, and colibri makes none there.
-    const sha_stated = builtin.cpu.arch == .aarch64 and stated;
-    for ([_]@TypeOf(support.client_config.values.cpu){ support.client_config.values.cpu, support.server_config.values.cpu }) |converted| {
-        const claims = converted.?;
-        try testing.expectEqual(stated and described.probe.aes_clmul == .yes, claims.constant_time_aes);
-        try testing.expectEqual(stated, claims.constant_time_multiply);
-        try testing.expectEqual(sha_stated and described.probe.sha256 == .yes, claims.constant_time_sha256);
-        try testing.expectEqual(sha_stated and described.probe.sha512 == .yes, claims.constant_time_sha512);
-        try testing.expectEqual(sha_stated and described.probe.sha3 == .yes, claims.constant_time_sha3);
-        // https://github.com/c4milo/stdx/issues/16: stdx's probe answers neither yet.
-        try testing.expect(!claims.avx2 and !claims.vaes);
+/// Configures both sides under `features` and checks what each configuration kept of the context,
+/// which each session's `init` takes: the features whole, an N2's MIDR_EL1 too, and the source.
+fn expect_converted(features: platform.CpuFeatures) !void {
+    const crypto = support.context_of(features);
+    try support.configure(web_pki_under(crypto), .{ .crypto = crypto });
+    for ([_]stdx.crypto.Context{ support.client_config.crypto, support.server_config.crypto }) |kept| {
+        try testing.expect(std.meta.eql(features, kept.features));
+        try testing.expectEqual(crypto.random.ptr, kept.random.ptr);
     }
+    // A set of features without the AES instructions claims none.
+    if (!features.aes) try testing.expect(!support.aes_claimed(crypto));
 }
 
-test "decision 97: each pair of descriptions runs AES-256-GCM when both state the AES instructions, and ChaCha20 otherwise" {
-    // Bounded by the descriptions a test may run under, at most four on each side.
-    for (support.cpus) |client_cpu| {
-        for (support.cpus) |server_cpu| {
-            try support.configure(web_pki_under(client_cpu), .{ .cpu = server_cpu });
+test "decision 175: each pair of feature sets runs AES-256-GCM when both claim the AES instructions, and ChaCha20 otherwise" {
+    // Bounded by the feature sets a test may run under, at most two on each side.
+    for (support.feature_sets) |client_features| {
+        for (support.feature_sets) |server_features| {
+            const client_crypto = support.context_of(client_features);
+            const server_crypto = support.context_of(server_features);
+            try support.configure(web_pki_under(client_crypto), .{ .crypto = server_crypto });
             try support.handshake_both(null);
             // chapulin's `cpu_cfg.h`: a session without CH_CPU_CONSTANT_TIME_AES offers and
             // selects ChaCha20 alone.
-            try expect_suite(support.default_suite_of(client_cpu, server_cpu));
+            try expect_suite(support.default_suite_of(client_crypto, server_crypto));
         }
     }
 }
 
-test "decision 97: a description without the AES instructions refuses a suite order that names AES-GCM" {
+test "decision 175: features without the AES instructions refuse a suite order that names AES-GCM" {
     // An object that takes no description fixes its suites when it is built, and `config.zig`
     // refuses an order for one that holds ChaCha20 alone.
     if (!support.takes_cpu or !support.aes_gcm) return;
     const order = [_]u16{tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256};
-    // `not_known` gives no more ground to run the instructions than `no` does, and a mode not
-    // stated none at all.
-    for ([_]values.Cpu{ support.cpu_without_aes, support.cpu_unknown, support.cpu_not_stated }) |described| {
-        var offered = support.offering(&order);
-        offered.cpu = described;
-        try support.configure(offered, .{ .suites = &order, .cpu = described });
-        // chapulin's `cpu_cfg.h`: init refuses an order that names AES-GCM rather than dropping
-        // the suite.
-        try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
-        try testing.expectError(error.Refused, server.start(&support.server_config, support.random(), support.now_seconds));
-    }
+    const crypto = support.context_of(support.features_without_aes);
+    var offered = support.offering(&order);
+    offered.crypto = crypto;
+    try support.configure(offered, .{ .suites = &order, .crypto = crypto });
+    // chapulin's `cpu_cfg.h`: init refuses an order that names AES-GCM rather than dropping the
+    // suite.
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, null));
+    try testing.expectError(error.Refused, server.start(&support.server_config, support.now_seconds));
     // ChaCha20 named alone is an order such a session holds.
     const chacha_order = [_]u16{support.chacha};
-    var offered = support.offering(&chacha_order);
-    offered.cpu = support.cpu_unknown;
-    try support.configure(offered, .{ .suites = &chacha_order, .cpu = support.cpu_unknown });
+    var chacha_offered = support.offering(&chacha_order);
+    chacha_offered.crypto = crypto;
+    try support.configure(chacha_offered, .{ .suites = &chacha_order, .crypto = crypto });
     try support.handshake_both(null);
     try expect_suite(support.chacha);
 }
 
-test "decision 97: every description a test may run under carries records each way" {
-    for (support.cpus) |described| {
-        try support.configure(web_pki_under(described), .{ .cpu = described });
+test "decision 175: every feature set a test may run under carries records each way" {
+    for (support.feature_sets) |features| {
+        const crypto = support.context_of(features);
+        try support.configure(web_pki_under(crypto), .{ .crypto = crypto });
         try support.handshake_both(null);
         const sealed = try client.provider().encrypt_record("probe", support.to_server.free());
         support.to_server.len += sealed.written;
@@ -106,8 +98,8 @@ test "decision 97: every description a test may run under carries records each w
 }
 
 comptime {
-    // The tests' own description is one they may run under.
+    // The tests' own features are a set they may run under, or lack only the AES instructions.
     var found = false;
-    for (support.cpus) |described| found = found or std.meta.eql(described, support.cpu);
+    for (support.feature_sets) |features| found = found or std.meta.eql(features, support.features) or std.meta.eql(features, support.features_without_aes);
     std.debug.assert(found);
 }

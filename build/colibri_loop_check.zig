@@ -97,6 +97,8 @@ pub fn add(
         module.addImport("server", graph.server);
         module.addImport("client", graph.client);
         module.addImport("tls", graph.tls);
+        // Decision 175: each server's configuration holds a `stdx.crypto.Context`.
+        module.addImport("stdx", graph.stdx.module("stdx"));
         module.addOptions("loop_case", options);
         const program = b.addExecutable(.{ .name = b.fmt("colibri_loop_{s}", .{case.name}), .root_module = module });
         switch (case.ending) {

@@ -165,9 +165,10 @@ pub const Connection = struct {
 
     /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
     /// TLS it runs in `session`, which it holds until the engine releases its slot, every draw the
-    /// handshake makes comes from `random`, and `now_seconds` is the clock its tickets are issued
-    /// at, or 0 for none. In cleartext `session` is null (decision 167).
-    pub fn init(connection: *Connection, config: *const Config, session: ?*TlsSession, random: tls.Random, now_seconds: u64, now_ns: u64) InitError!void {
+    /// handshake makes comes from the random source of the TLS configuration's context (decision
+    /// 175), and `now_seconds` is the clock its tickets are issued at, or 0 for none. In cleartext
+    /// `session` is null (decision 167).
+    pub fn init(connection: *Connection, config: *const Config, session: ?*TlsSession, now_seconds: u64, now_ns: u64) InitError!void {
         assert((config.tls == null) == (session == null));
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
         const choice = protocols_module.tcp_choice(config.protocols) orelse return error.NoVersion;
@@ -213,7 +214,7 @@ pub const Connection = struct {
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
             // RFC 9846 §9.2: chapulin refuses values it cannot serve a handshake from.
-            session.?.server.start(tls_config, random, now_seconds) catch return error.TlsRefused;
+            session.?.server.start(tls_config, now_seconds) catch return error.TlsRefused;
         } else switch (choice) {
             .speak => |chosen| internal.open_session(connection, chosen),
             .read_preface => connection.phase = .choosing,

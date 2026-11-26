@@ -19,6 +19,9 @@ const ticket = @import("../ticket.zig");
 const quic_provider = @import("quic_provider.zig");
 const quic_suite = @import("quic_suite.zig");
 
+/// The program's one `stdx.crypto.init(features, random)`, which `values.Client.crypto` holds.
+const Context = @import("stdx").crypto.Context;
+
 pub const ClientConfig = config_module.ClientConfig(chapulin);
 pub const ServerConfig = config_module.ServerConfig(chapulin);
 pub const ConfigError = config_module.Error;
@@ -52,6 +55,8 @@ pub const Client = struct {
     offered: chapulin.Ticket,
     /// The values this connection starts from, which chapulin reads when its session starts.
     chosen: chapulin.ClientOptions,
+    /// The configuration's context, which the session's `init` takes (decision 175).
+    crypto: Context,
     /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
     instant: u64,
     state: State,
@@ -60,14 +65,14 @@ pub const Client = struct {
     const Provider = quic_provider.Provider(Client);
     const Suite = quic_suite.Suite(Client);
 
-    /// Prepares the connection's values. Every draw the session makes comes from `random`
-    /// (decision 94 as amended). `now_seconds` is the clock a Web PKI chain is judged at, which the
-    /// caller read (non-negotiable 3). chapulin judges a ticket's age when its session starts, and
-    /// refuses a stale one then.
-    pub fn start(client: *Client, config: *const ClientConfig, random: values.Random, now_seconds: u64, resumption: ?values.Resumption) Error!void {
+    /// Prepares the connection's values. Every draw the session makes comes from the random
+    /// source of the configuration's context (decision 175). `now_seconds` is the clock a Web PKI
+    /// chain is judged at, which the caller read (non-negotiable 3). chapulin judges a ticket's
+    /// age when its session starts, and refuses a stale one then.
+    pub fn start(client: *Client, config: *const ClientConfig, now_seconds: u64, resumption: ?values.Resumption) Error!void {
         client.state = .{};
         client.chosen = config.values;
-        client.chosen.random = random;
+        client.crypto = config.crypto;
         // RFC 9368 §2.5: the version of the client's first Initial packet, its original one: the
         // version its configuration names, else its ticket's (decision 111), else version 1.
         client.chosen.quic_version = config.values.quic_version orelse ticket_version(resumption) orelse original_version_default;
@@ -146,6 +151,8 @@ pub const Server = struct {
     server_name: [constants.limits.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.
     chosen: chapulin.ServerOptions,
+    /// The configuration's context, which the session's `init` takes (decision 175).
+    crypto: Context,
     /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
     instant: u64,
     state: State,
@@ -154,13 +161,14 @@ pub const Server = struct {
     const Provider = quic_provider.Provider(Server);
     const Suite = quic_suite.Suite(Server);
 
-    /// Prepares the connection's values. Every draw the session makes comes from `random`
-    /// (decision 94 as amended). `now_seconds` is the clock its tickets are issued and judged at,
-    /// or 0 for none. `original` is the version of the client's first Initial packet.
-    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64, original: crypto.suite.Version) void {
+    /// Prepares the connection's values. Every draw the session makes comes from the random
+    /// source of the configuration's context (decision 175). `now_seconds` is the clock its
+    /// tickets are issued and judged at, or 0 for none. `original` is the version of the client's
+    /// first Initial packet.
+    pub fn start(server: *Server, config: *const ServerConfig, now_seconds: u64, original: crypto.suite.Version) void {
         server.state = .{};
         server.chosen = config.values;
-        server.chosen.random = random;
+        server.crypto = config.crypto;
         server.instant = now_seconds;
         server.chosen.clock = config_module.clock_at(chapulin, &server.instant);
         // RFC 9368 §2: the session starts in the version of the client's first Initial packet.

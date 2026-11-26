@@ -209,7 +209,7 @@ fn open_socket(open: client.Open) !void {
     // The link stands where the socket would be: the server's listener accepts the socket the
     // program connects.
     try peer.accept(slot);
-    pool.start_tcp(open.connection, program.random(), 0, null) catch return error.ExchangeWrong;
+    pool.start_tcp(open.connection, 0, null) catch return error.ExchangeWrong;
 }
 
 /// Writes what `connection` owes into its socket, until a call leaves room in `output`: that

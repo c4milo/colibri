@@ -219,7 +219,7 @@ fn on_finished(ended: client.Finished) !void {
 fn open_socket(open: client.Open) !void {
     if (socket != null) return error.ExchangeWrong;
     socket = open.connection;
-    pool.start_tcp(open.connection, program.random(), 0, null) catch return error.ExchangeWrong;
+    pool.start_tcp(open.connection, 0, null) catch return error.ExchangeWrong;
 }
 
 fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {

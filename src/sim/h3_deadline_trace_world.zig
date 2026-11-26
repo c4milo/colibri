@@ -131,7 +131,7 @@ pub const World = struct {
                 .identities = &identity.identities,
                 .cookie_key = &identity.cookie_key,
                 .ticket_key = null,
-                .cpu = identity.cpu,
+                .crypto = identity.crypto(identity.RandomSource.init(&world.server_random, fill)),
             },
             .idle_timeout_ms = run_limits.quic_idle_timeout_ms,
             .timeouts = deadlines(),
@@ -139,11 +139,11 @@ pub const World = struct {
         world.server_random = Random.init(seed);
         world.peer_random = Random.init(~seed);
         world.now_ns = limits.start_ns;
-        world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.server_random, fill), .{ .unix_seconds = identity.now_seconds, .monotonic_ns = world.now_ns }) catch return error.ServerRefused;
+        world.endpoint.init(&world.endpoint_config, .{ .unix_seconds = identity.now_seconds, .monotonic_ns = world.now_ns }) catch return error.ServerRefused;
         world.served = null;
         world.handle = null;
         world.peer_plan = honest_plan();
-        try world.peer.start(&world.peer_plan, tls.Random.init(&world.peer_random, fill), world.now_ns);
+        try world.peer.start(&world.peer_plan, identity.RandomSource.init(&world.peer_random, fill), world.now_ns);
         world.to_server.first = 0;
         world.to_server.len = 0;
         world.to_client.first = 0;

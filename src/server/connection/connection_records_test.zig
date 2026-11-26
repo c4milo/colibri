@@ -33,7 +33,7 @@ fn attach_plain() !void {
 
 /// `attach_plain` with `chosen` as the provider, under `support.config`. Test-only.
 fn attach_plain_with(chosen: plain_support.PlainProvider) !void {
-    try connection.init(&support.config, null, support.stream.random(), 0, 0);
+    try connection.init(&support.config, null, 0, 0);
     support.config.tls = &support.server_config;
     connection.tls_session = &support.tls_session;
     plain = chosen;

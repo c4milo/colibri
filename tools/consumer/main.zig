@@ -11,8 +11,9 @@ const h2 = colibri.h2;
 const tls = colibri.tls;
 const server_module = colibri.server;
 const client_module = colibri.client;
-const gzip = @import("stdx").compress.gzip;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const gzip = stdx.compress.gzip;
+const platform = stdx.platform;
 
 var client: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var h2_client: h2.Connection align(@alignOf(h2.Connection)) = undefined;
@@ -73,21 +74,22 @@ pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c
     std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 
-/// The source each TLS session draws from, which the program passes to `start`: here the operating
-/// system's `getentropy`, which keeps no state.
-extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
-const getentropy_len_max = 256;
-var entropy_state: u8 = 0;
-const entropy: std.Random = .{ .ptr = &entropy_state, .fillFn = fill_entropy };
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
 
-fn fill_entropy(_: *anyopaque, buffer: []u8) void {
-    var filled: usize = 0;
-    while (filled < buffer.len) {
-        const part = @min(buffer.len - filled, getentropy_len_max);
-        if (getentropy(buffer[filled..].ptr, part) != 0) @panic("getentropy failed");
-        filled += part;
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
     }
-}
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 
 /// A root this client never meets a chain of: an empty DER SEQUENCE for its name and its key.
 const empty_sequence = [_]u8{ 0x30, 0 };
@@ -101,10 +103,15 @@ const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_addresses = [_]client_module.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
 
-pub fn main() !void {
-    // The CPU features the codecs run on. The program asks its CPU once, and states them in each
-    // configuration (decision 169).
+pub fn main(init: std.process.Init) !void {
+    // The random source of every TLS session: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for its codecs (decision 169) and for TLS.
     const cpu_features: platform.CpuFeatures = .detect();
+    // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    // The program's one context, which each TLS value holds (decision 175).
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     client.init(.{ .role = .client, .cpu_features = cpu_features });
     const head_len = try client.write_request(&output, "GET", "/", &.{
         .{ .name = "Host", .value = "example.test" },
@@ -119,7 +126,7 @@ pub fn main() !void {
     const preface_len = h2_client.write_pending(&output, 0);
     if (!std.mem.startsWith(u8, output[0..preface_len], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")) return error.PrefaceWrong;
 
-    try check_tls();
+    try check_tls(crypto);
 
     // stdx's gzip, from stdx's one module, codes content and decodes it.
     gzip_encoder.init(.target());
@@ -135,7 +142,7 @@ pub fn main() !void {
     // connection preface (decision 117).
     const engine_config: server_module.Config = .{ .cpu_features = cpu_features };
     const client_config: client_module.Config = .{ .protocols = .{ .h11 = false, .h3 = false }, .authority = "example.test", .cpu_features = cpu_features };
-    try engine.init(&engine_config, entropy, .{ .unix_seconds = 0, .monotonic_ns = 0 });
+    try engine.init(&engine_config, .{ .unix_seconds = 0, .monotonic_ns = 0 });
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
     const accepted = engine.accept(.{ .tls = false }, 0) orelse return error.ExchangeWrong;
@@ -143,11 +150,12 @@ pub fn main() !void {
     try asked.init(&asked_memory, &client_config, &.{ .addresses = &server_addresses, .port = server_port }, null);
     _ = try asked.request(&get, &get_response);
     // The pool asks for a socket. A program connects one, then starts the connection on it, and
-    // reads what the connection then owes: in cleartext, that it is connected.
+    // reads what the connection then owes: in cleartext, that it is connected. A connection in
+    // cleartext draws nothing, so the pool's configuration holds no context.
     const open = asked.receive(.none, 0).event orelse return error.ExchangeWrong;
     if (open != .open) return error.ExchangeWrong;
     asked_connection = open.open.connection;
-    try asked.start_tcp(asked_connection, entropy, 0, null);
+    try asked.start_tcp(asked_connection, 0, null);
     hear(server_output[0..0]);
     for (0..exchange_rounds_max) |_| {
         try serve(accepted, asked.send_stream(asked_connection, &wire, 0));
@@ -157,7 +165,7 @@ pub fn main() !void {
     // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
     // the socket.
-    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated }, .unix_seconds = now_seconds, .engine = .{ .cpu_features = cpu_features } };
+    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .crypto = crypto, .unix_seconds = now_seconds, .engine = .{ .cpu_features = cpu_features } };
     router.init();
     try bound_server.init(&config, &router, &router_context);
     defer bound_server.deinit();
@@ -188,16 +196,15 @@ fn on_route_error(_: *void, _: *colibri.server.RequestContext, _: *const colibri
 }
 
 /// tls converts the client's values once, and a session's first call writes its ClientHello. The
-/// program probes its CPU once, through stdx's `platform`, and passes the result on.
-fn check_tls() !void {
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+/// values hold the program's one context, and the session draws from its source.
+fn check_tls(crypto: stdx.crypto.Context) !void {
     const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
     try tls_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
         .alpn = &.{ "h2", "http/1.1" },
-        .cpu = cpu,
+        .crypto = crypto,
     });
-    try tls_client.start(&tls_config, entropy, now_seconds, null);
+    try tls_client.start(&tls_config, now_seconds, null);
     const hello = try tls_client.handshake(&.{}, &output);
     if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
     // What the handshake selected, the key-exchange group among it, is null until it completes.

@@ -3,6 +3,7 @@
 //! never runs it.
 const std = @import("std");
 const tls = @import("colibri").tls;
+const stdx = @import("stdx");
 
 var config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 var client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
@@ -21,6 +22,6 @@ fn fill_source(_: *anyopaque, buffer: []u8) void {
 
 pub fn main() !void {
     const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
-    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } }, .alpn = &.{"h2"}, .cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, .timing = .not_stated } });
-    try client.start(&config, source, now_seconds, null);
+    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } }, .alpn = &.{"h2"}, .crypto = stdx.crypto.init(.none(), source) });
+    try client.start(&config, now_seconds, null);
 }

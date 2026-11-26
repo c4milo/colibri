@@ -8,6 +8,7 @@ const h11 = @import("h11");
 const http = @import("http");
 const h2 = @import("h2");
 const tls = @import("tls");
+const stdx = @import("stdx");
 const testdata = @import("testdata");
 const connection_module = @import("connection.zig");
 const event = @import("../event.zig");
@@ -38,12 +39,17 @@ pub const key: tls.Key = p256_key: {
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU the tests describe: the build target's probe, since a test runs where it was built, and
-/// the thread's mode stated, which no test's result depends on (decision 97 as amended).
-pub const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
-    .timing = .data_independent,
-};
+/// The context the tests' TLS values hold (decision 175): the build target's CPU features, since a
+/// test runs where it was built, and the stream the sessions draw from. No test's result depends
+/// on the features.
+pub const crypto: stdx.crypto.Context = stdx.crypto.init(.target(), stream.random());
+
+/// Sets PSTATE.DIT on the test's thread where the core has FEAT_DIT, as a program does on each
+/// thread that runs TLS (decision 175), so stdx states the thread's timing to chapulin on arm64
+/// and a session runs AES-GCM there as it does on x86-64. Elsewhere it does nothing.
+pub fn set_timing() void {
+    _ = stdx.platform.set_data_independent_timing(stdx.platform.CpuFeatures.detect(), true);
+}
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
 pub const authority = "localhost";
@@ -165,7 +171,7 @@ fn names(offered: []const http.content_coding.Coding, coding: http.content_codin
 pub fn start_configured(value: Config) !void {
     config = value;
     const protocol = protocols_module.cleartext(value.protocols).?;
-    try connection.init(&config, stream.random(), 0, null, .{});
+    try connection.init(&config, 0, null, .{});
     to_peer_len = 0;
     to_client_len = 0;
     events_len = 0;
@@ -316,6 +322,9 @@ pub fn peer_h11_answer(status: u16, fields: []const Header, content: []const u8)
     }
 }
 
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+pub const RandomSource = @FieldType(stdx.crypto.Context, "random");
+
 /// The source the sessions of the tests draw from.
 pub var stream: Stream align(@alignOf(Stream)) = .{ .state = seed };
 
@@ -327,8 +336,8 @@ pub const Stream = struct {
 
     /// The source a session draws from, which points at this stream: the stream outlives the
     /// session.
-    pub fn random(self: *Stream) tls.Random {
-        return tls.Random.init(self, fill);
+    pub fn random(self: *Stream) RandomSource {
+        return RandomSource.init(self, fill);
     }
 
     fn fill(self: *Stream, buffer: []u8) void {

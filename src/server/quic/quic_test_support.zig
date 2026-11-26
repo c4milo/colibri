@@ -143,8 +143,9 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     served = &connection;
     var values = server_values();
     values.alpn = &alpn_h3;
+    support.set_timing();
     try server_tls.init(values);
-    try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3, .cpu = support.cpu });
+    try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3, .crypto = support.crypto });
     config = .{ .cpu_features = .none(), .tls = &server_tls };
     now_ns = start_ns;
     server_started = false;
@@ -167,7 +168,7 @@ pub fn server_values() tls.Server {
     return .{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     };
 }
 
@@ -185,7 +186,7 @@ fn start_client() !void {
     client_send_scratch = .{};
     client_h3.init(.{ .role = .client, .grease = grease });
     client_tls.values.quic_version = @enumFromInt(@intFromEnum(client_version));
-    try client_session.start(&client_tls, support.stream.random(), support.now_seconds, null);
+    try client_session.start(&client_tls, support.now_seconds, null);
     var encoded: [parameters_len_max]u8 = undefined;
     var writer = quic.core.Writer.init(&encoded);
     try quic.transport_parameters.write(&writer, &client.local_parameters, .client);
@@ -304,8 +305,7 @@ pub fn cancel_fetch(fetch: *const Fetch) void {
     client_h3.cancel(&client, fetch.id, h3.constants.protocol.error_request_cancelled);
 }
 
-/// Moves datagrams both ways for `rounds` rounds, moving time on and firing each side's timers,
-/// and keeps what the server reports.
+/// Runs `rounds` rounds: time moves on, datagrams cross, each side's timers fire, events are kept.
 pub fn pump(rounds: usize) !void {
     for (0..rounds) |_| {
         now_ns += round_ns;
@@ -395,7 +395,7 @@ fn start_server(first: []const u8) !void {
         .peer_source = long.scid,
         .grease = grease,
         .peer = client_address(),
-    }, support.stream.random(), 0, now_ns);
+    }, 0, now_ns);
     server_started = true;
 }
 

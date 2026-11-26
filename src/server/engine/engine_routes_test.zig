@@ -75,3 +75,48 @@ test "decision 157: an ID the peer retired frees its entry after its connection'
     try support.pump(support.rounds_default);
     try testing.expectEqual(null, engine.state.connections.routes.find(&id));
 }
+
+/// A source that writes consecutive octets, so an ID drawn from it shows where it came from.
+/// Test-only.
+const Consecutive = struct {
+    next: u8 = 0,
+
+    fn fill(self: *Consecutive, octets: []u8) void {
+        for (octets) |*octet| {
+            octet.* = self.next;
+            self.next +%= 1;
+        }
+    }
+};
+threadlocal var consecutive: Consecutive align(@alignOf(Consecutive)) = .{};
+
+/// The octets of an ID whose low bits name its entry (decision 157). Test-only.
+const entry_octets = 2;
+
+/// Whether the octets of `id` that its entry's bits leave alone are consecutive, as `Consecutive`
+/// draws them. Test-only.
+fn drawn_consecutive(id: []const u8) bool {
+    for (id[entry_octets .. id.len - 1], id[entry_octets + 1 ..]) |octet, next| {
+        if (next != octet +% 1) return false;
+    }
+    return true;
+}
+
+test "decision 175: the engine and its connections draw each ID from the context in its TLS values" {
+    try support.start_engine(null);
+    const stdx = @import("stdx");
+    const Source = @FieldType(stdx.crypto.Context, "random");
+    consecutive = .{};
+    support.engine_support.engine_config.tls.?.crypto = stdx.crypto.init(.target(), Source.init(&consecutive, Consecutive.fill));
+    try support.engine_support.restart();
+    try support.connect();
+    try support.pump(support.rounds_default);
+    const connection = engine.state.connections.at(try only_slot());
+    const local = &connection.transport.local_ids;
+    // The engine drew the first ID as the connection started, and the connection drew the spare
+    // IDs once its handshake was confirmed (RFC 9000 §5.1.1).
+    try testing.expect(local.len > 1);
+    try testing.expect(drawn_consecutive(local.active[0].value()));
+    try testing.expect(drawn_consecutive(local.active[1].value()));
+    try testing.expect(consecutive.next != 0);
+}

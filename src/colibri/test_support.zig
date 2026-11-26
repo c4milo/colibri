@@ -1,13 +1,22 @@
 //! What the tests of `colibri` share: a source each test passes as the program's, which fills its
-//! octets from a counter so every run draws the same octets, and a CPU with no fast path.
+//! octets from a counter so every run draws the same octets, and the context a test makes of it,
+//! with no CPU feature (decision 175). A real program draws from a cryptographic source.
 //! Test-only.
-const tls = @import("tls");
+const stdx = @import("stdx");
+
+/// The type of a context's random source, `stdx.crypto.Context.random`.
+const RandomSource = @FieldType(stdx.crypto.Context, "random");
 
 pub const Counter = struct {
     next: u8 = 0,
 
-    pub fn random(self: *Counter) tls.Random {
-        return tls.Random.init(self, fill);
+    pub fn random(self: *Counter) RandomSource {
+        return RandomSource.init(self, fill);
+    }
+
+    /// The context of a program on a CPU with no feature, which draws from this counter.
+    pub fn crypto(self: *Counter) stdx.crypto.Context {
+        return stdx.crypto.init(.none(), self.random());
     }
 
     fn fill(self: *Counter, buffer: []u8) void {
@@ -18,9 +27,10 @@ pub const Counter = struct {
     }
 };
 
-pub fn cpu() tls.Cpu {
-    return .{
-        .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
-        .timing = .not_stated,
-    };
+/// The counter of the contexts whose draws no test reads.
+threadlocal var unread: Counter align(@alignOf(Counter)) = .{};
+
+/// A context of no CPU feature, over a counter whose draws no test reads.
+pub fn crypto() stdx.crypto.Context {
+    return unread.crypto();
 }

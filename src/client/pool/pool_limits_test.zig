@@ -60,7 +60,7 @@ fn collect(pool: anytype) !void {
             if (received.consumed == 0) return;
             continue;
         };
-        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), support.now_seconds, null);
+        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.now_seconds, null);
     }
     return error.TestUnexpectedResult;
 }

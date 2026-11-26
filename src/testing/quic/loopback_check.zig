@@ -107,13 +107,13 @@ fn configure(asked: Arguments) !void {
         .identities = &.{.{ .chain = &chain, .key = &key }},
         .cookie_key = &cookie_storage,
         .alpn = &.{alpn},
-        .cpu = cpu.probe(),
+        .crypto = cpu.crypto(),
     });
-    server_config.check(entropy.random()) catch fail("chapulin refused the server's identity", .{});
+    server_config.check() catch fail("chapulin refused the server's identity", .{});
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{alpn},
-        .cpu = cpu.probe(),
+        .crypto = cpu.crypto(),
     });
 }
 

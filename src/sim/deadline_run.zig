@@ -146,7 +146,6 @@ pub const Storage = struct {
     /// When a paced honest peer delivers its next piece, and when a slow reader reads its next.
     next_piece_ms: u64,
     next_read_ms: u64,
-    tls_random: Random,
 };
 
 /// Runs `plan` from its first instant until the server closes the connection or the horizon comes.
@@ -177,9 +176,9 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .h2 => .{ .h11 = false },
     };
     storage.endpoint_config = .{ .cpu_features = .none(), .protocols = versions, .timeouts = plan.deadlines };
-    storage.tls_random = Random.init(seed);
-    const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.endpoint.init(&storage.endpoint_config, source, .{ .unix_seconds = 0, .monotonic_ns = ns_of(plan, 0) });
+    // A cleartext engine and pool draw nothing (decision 175), so the seed gives them no source.
+    _ = seed;
+    try storage.endpoint.init(&storage.endpoint_config, .{ .unix_seconds = 0, .monotonic_ns = ns_of(plan, 0) });
     // A new endpoint has its one slot free.
     storage.accepted = storage.endpoint.accept(.{ .tls = false }, ns_of(plan, 0)) orelse return error.ExchangeRefused;
     storage.closed = false;
@@ -228,17 +227,17 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // An upload's exchanges go one at a time, so each request's body has the whole link.
     const at_once = if (plan.peer == .upload) 1 else plan.requests_count;
     for (0..at_once) |_| try request_next(storage);
-    try connect(storage, source, ns_of(plan, 0));
+    try connect(storage, ns_of(plan, 0));
 }
 
 /// Reads the pool's `open`, and starts its connection on the socket it asked for. In cleartext
 /// the connection owes `connected` from its start, and the pool hands it the waiting exchanges
 /// as it reports it, so the peer's first write carries them.
-fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
+fn connect(storage: *Storage, now_ns: u64) Error!void {
     const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
     storage.connection = asked.open.connection;
-    try storage.pool.start_tcp(storage.connection, source, 0, null);
+    try storage.pool.start_tcp(storage.connection, 0, null);
     const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
     // The connection owes the waiting requests (decision 125), which the run sends in its rounds.
@@ -256,10 +255,6 @@ fn request_next(storage: *Storage) Error!void {
 
 /// The octets of each response's content: letters alone, so no content reads as a status line.
 const content_letters = "abcdefghijklmnopqrstuvwxyz";
-
-fn fill(random: *Random, buffer: []u8) void {
-    for (buffer) |*octet| octet.* = @truncate(random.next());
-}
 
 /// The instant `ms` milliseconds into the run, from its base, in nanoseconds.
 fn ns_of(plan: *const Plan, ms: u64) u64 {

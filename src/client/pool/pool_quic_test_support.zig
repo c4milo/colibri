@@ -125,7 +125,7 @@ pub fn keep(reported: Event) !void {
     if (reported == .open and reported.open.transport == .quic) {
         // Each QUIC connection meets a server of its own.
         quic_support.reset_server();
-        try pool.start_quic(support.stream.random(), support.now_seconds, quic_support.now_ns, null);
+        try pool.start_quic(support.now_seconds, quic_support.now_ns, null);
     }
 }
 

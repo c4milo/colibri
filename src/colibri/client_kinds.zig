@@ -12,7 +12,6 @@ const client_loop = @import("client_loop.zig");
 const errors = @import("errors.zig");
 const host = @import("host.zig");
 const rotor_host = @import("rotor_host.zig");
-const entropy = @import("rotor_host_entropy.zig");
 
 const Family = client_loop.Family;
 
@@ -30,7 +29,6 @@ pub const private = struct {
     /// (`client_loop.zig`).
     pub fn init(state: anytype, config: *const Config) InitError!void {
         state.host.prepare();
-        state.random = config.random orelse entropy.random();
         state.unix_seconds = config.unix_seconds;
         // Decision 68: the client's host reads each datagram's codepoint and sets the one the
         // pool names, so the pool reads ECN whatever the program set. A pool that does not read
@@ -71,9 +69,6 @@ pub const hosted = struct {
         destination: client.Destination,
         /// The pool's configuration. `init` sets its `ecn` from the UDP sockets' `Features`.
         pool: client.Config,
-        /// The program's source. A hosted client has no default (decision 150 ruling 9 as
-        /// amended).
-        random: tls.Random,
         /// Two readings of the instant of `init`, which the program reads from its clocks: the
         /// seconds since 1970, at which a web PKI trust judges each chain's dates, and the host's
         /// monotonic nanoseconds, which every later call passes (decision 159 as amended on
@@ -101,7 +96,6 @@ pub const hosted = struct {
     /// `set_destination`, so the pool's ECN and the segments hold only when each socket has them.
     /// The run starts at `config.now`, which `unix_seconds` counts from (non-negotiable 3).
     pub fn init(state: anytype, config: *const Config) InitError!void {
-        state.random = config.random;
         state.unix_seconds = config.now.unix_seconds;
         state.latest_ns = config.now.monotonic_ns;
         const opened = config.datagram.ipv4 != null or config.datagram.ipv6 != null;

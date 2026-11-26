@@ -97,7 +97,6 @@ pub const World = struct {
     client: h2.Connection,
     to_server: Queue,
     to_client: Queue,
-    tls_random: Random,
     now_ns: u64,
     /// What colibri read of each request and wrote of each response, what the application offered
     /// write_body, and what the client sent and read, in the model's terms. Index 0 is stream 1.
@@ -129,9 +128,9 @@ pub const World = struct {
         world.now_ns = limits.start_ns;
         // Decision 117: h2 alone, which the server speaks from the start.
         world.endpoint_config = .{ .cpu_features = .none(), .protocols = .{ .h11 = false } };
-        world.tls_random = Random.init(seed);
-        const source = tls.Random.init(&world.tls_random, fill);
-        try world.endpoint.init(&world.endpoint_config, source, .{ .unix_seconds = 0, .monotonic_ns = world.now_ns });
+        // A cleartext engine draws nothing (decision 175), so the seed gives it no source.
+        _ = seed;
+        try world.endpoint.init(&world.endpoint_config, .{ .unix_seconds = 0, .monotonic_ns = world.now_ns });
         // A new endpoint has its one slot free.
         world.accepted = world.endpoint.accept(.{ .tls = false }, world.now_ns) orelse return error.StartRefused;
         world.client.init(.{ .role = .client });
@@ -398,10 +397,6 @@ pub const World = struct {
         }
     }
 };
-
-fn fill(random: *Random, buffer: []u8) void {
-    for (buffer) |*octet| octet.* = @truncate(random.next());
-}
 
 /// RFC 9113 §5.1.1: the client's streams are the odd identifiers, the model's stream index i being
 /// 2i + 1.

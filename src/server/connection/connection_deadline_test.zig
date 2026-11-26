@@ -225,7 +225,7 @@ test "decision 110: a caller changes one connection's limits, null turns one off
     try connection.set_timeouts(.{ .first_request_ns = early_ns });
     try testing.expectEqual(early_ns, connection.deadline_ns().?);
     support.config = .{ .cpu_features = .none(), .protocols = support.only(.h11), .timeouts = .{ .head_ns = 0 } };
-    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, support.stream.random(), 0, 0));
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, 0, 0));
 }
 
 test "decision 110: a limit shortened after a call passes at that call's instant, on the next call" {
@@ -245,11 +245,11 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
     try connection.set_timeouts(.{ .body_rate_min = 820 });
     support.config = .{ .cpu_features = .none(), .protocols = support.only(.h2), .timeouts = .{ .body_rate_min = 819 } };
-    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, support.stream.random(), 0, 0));
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, 0, 0));
     // Decision 117: a connection in cleartext that may speak both chooses by its first octets,
     // which may choose h2, so it refuses the rate as well.
     support.config = .{ .cpu_features = .none(), .timeouts = .{ .body_rate_min = 819 } };
-    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, support.stream.random(), 0, 0));
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, 0, 0));
     // h11 in cleartext reads a body octet by octet, so any rate stands.
     try support.start_cleartext(.h11);
     try connection.set_timeouts(.{ .body_rate_min = 819 });
@@ -260,7 +260,7 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
 
 test "decision 110: the configuration's limits apply from the instant init is given" {
     support.config = .{ .cpu_features = .none(), .protocols = support.only(.h11), .timeouts = .{ .first_request_ns = early_ns } };
-    try connection.init(&support.config, null, support.stream.random(), 0, idle_ns);
+    try connection.init(&support.config, null, 0, idle_ns);
     try testing.expectEqual(idle_ns + early_ns, connection.deadline_ns().?);
 }
 

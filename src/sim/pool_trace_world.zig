@@ -117,7 +117,7 @@ pub const World = struct {
             .tcp_connections = @intCast(world.plan.slots),
             .requests = @intCast(world.plan.requests),
         };
-        try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+        try world.endpoint.init(&world.endpoint_config, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.init(&octets, 0)};
         // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.
@@ -225,7 +225,7 @@ pub const World = struct {
         }
         const accepted = world.endpoint.accept(.{ .tls = false }, now_ns) orelse return error.NoRoom;
         socket.* = .{ .connected = true, .client = open.connection, .server = accepted, .opens = socket.opens };
-        world.pool.start_tcp(open.connection, tls.Random.init(&world.random, fill), 0, null) catch return error.Refused;
+        world.pool.start_tcp(open.connection, 0, null) catch return error.Refused;
     }
 
     /// Writes what the pool's connection owes, until a write leaves room.
@@ -338,7 +338,3 @@ fn index_of_path(path: []const u8) usize {
 }
 
 const decimal_base: u8 = 10;
-
-pub fn fill(random: *Random, buffer: []u8) void {
-    for (buffer) |*octet| octet.* = @truncate(random.next());
-}

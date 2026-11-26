@@ -229,7 +229,7 @@ test "decision 88: a handshake that selected no protocol runs h11 while versions
 test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends the connection" {
     try tls_support.prepare_configs(&.{}, &support.protocols_h2, "localhost", false);
     support.config = .{ .cpu_features = .none(), .authority = support.authority, .tls = client_config, .protocols = .{ .h11 = false } };
-    try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
+    try connection.init(&support.config, support.now_seconds, null, .{});
     try tls_support.start_server();
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -294,10 +294,10 @@ test "RFC 9846 §4.2.2: the ClientHello goes out on the first send, before any r
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = &support.protocols_both,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     support.config = .{ .cpu_features = .none(), .authority = support.authority, .tls = client_config };
-    try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
+    try connection.init(&support.config, support.now_seconds, null, .{});
     support.to_peer_len = 0;
     support.client_send();
     try testing.expect(support.to_peer_len > tls_provider.constants.protocol.record_header_len);

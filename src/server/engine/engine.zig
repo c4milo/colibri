@@ -17,9 +17,9 @@
 //! its socket, `send_datagram` writes the next datagram any QUIC connection owes, with the address
 //! it goes to, and `deadline_ns` is the soonest deadline of any connection, kept without reading
 //! every connection on each call (INV-31). Every connection ID the engine issues and every value
-//! a handshake draws come from the caller's source (invariant 5). colibri makes no system call and
-//! reads no clock (non-negotiable 3). The engine keeps pointers into itself, so it stays where
-//! `init` found it.
+//! a handshake draws come from the source of the context in `Config.tls` (invariant 5, decision
+//! 175). colibri makes no system call and reads no clock (non-negotiable 3). The engine keeps
+//! pointers into itself, so it stays where `init` found it.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -118,8 +118,9 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// What `accept` takes of a TCP socket the program accepted.
         pub const Accepted = engine_state.Accepted;
 
-        /// Prepares an engine that holds no connection. Every value it draws comes from
-        /// `random`. `now.unix_seconds` is the Unix time at `now.monotonic_ns`, which the server's
+        /// Prepares an engine that holds no connection. Every value it draws comes from the random
+        /// source of the context in `config.tls`, and a cleartext engine draws nothing (decision
+        /// 175). `now.unix_seconds` is the Unix time at `now.monotonic_ns`, which the server's
         /// tickets are issued at, or 0 for none. It builds the TLS configuration of each transport
         /// it serves from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
         /// holds serves a version `versions` allows: its TCP slots no h11 or h2, and its QUIC
@@ -130,7 +131,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// identity. The engine copies `config`, so the program may change or free its own
         /// `Config` once `init` returns. The pools, the identity and the providers `config`
         /// names stay the program's, and live as long as the engine.
-        pub fn init(engine: *Self, config: *const Config, random: tls.Random, now: Timestamp) StartError!void {
+        pub fn init(engine: *Self, config: *const Config, now: Timestamp) StartError!void {
             engine.config = config.*;
             const counts: engine_config.Counts = .{ .tcp = capacity.tcp_connections, .quic = capacity.quic_connections };
             const served = try engine_config.build(&engine.config, counts, .{
@@ -138,7 +139,7 @@ pub fn Engine(comptime capacity: Capacity) type {
                 .quic = &engine.quic_config,
                 .tcp_tls = &engine.tcp_tls,
                 .tcp = &engine.tcp_configs,
-            }, random);
+            });
             for (&engine.pools, &engine.storages) |*pool, *storage| storage.* = pool.storage();
             for (&engine.quic_tables) |*table| table.init();
             const built: engine_state.Built = .{ .quic = &engine.quic_config, .tcp = &engine.tcp_configs, .served = served };
@@ -168,7 +169,7 @@ pub fn Engine(comptime capacity: Capacity) type {
                 .order = &engine.order,
                 .stale_numbers = &engine.stale_numbers,
                 .stale_queued = &engine.stale_queued,
-            }, random, now.unix_seconds, now.monotonic_ns);
+            }, now.unix_seconds, now.monotonic_ns);
         }
 
         /// Starts a connection on a TCP socket the program accepted, over TLS by default, `.{}`,

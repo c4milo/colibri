@@ -35,18 +35,19 @@ pub const levels = [_]Level{ .initial, .handshake, .application };
 pub const ServerChoice = struct {
     tickets: bool = false,
     suites: []const u16 = &.{},
-    /// The server's probe of its CPU.
-    cpu: values.Cpu = identity.cpu,
+    /// The server's context.
+    crypto: @import("stdx").crypto.Context = identity.crypto,
 };
 
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
+    identity.set_timing();
     try client_config.init(client_values);
     try server_config.init(.{
         .identities = &identity.identities,
         .cookie_key = &identity.cookie_key,
         .ticket_key = if (choice.tickets) &identity.ticket_key else null,
         .alpn = &protocols,
-        .cpu = choice.cpu,
+        .crypto = choice.crypto,
         .cipher_suites = choice.suites,
     });
 }
@@ -54,13 +55,13 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
 pub const web_pki: values.Client = .{
     .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "localhost" } },
     .alpn = &protocols,
-    .cpu = identity.cpu,
+    .crypto = identity.crypto,
 };
 
 /// Starts both sessions and gives each its transport parameters, which starts chapulin's.
 pub fn start_both(resumption: ?values.Resumption) !void {
-    try client.start(&client_config, identity.random(), identity.now_seconds, resumption);
-    server.start(&server_config, identity.random(), identity.now_seconds, .v1);
+    try client.start(&client_config, identity.now_seconds, resumption);
+    server.start(&server_config, identity.now_seconds, .v1);
     try client.provider().set_transport_params(client_parameters);
     try server.provider().set_transport_params(server_parameters);
 }

@@ -60,7 +60,7 @@ pub const Config = struct {
     ecn: bool = false,
     /// QUIC connections alone: the congestion controller each one runs (decisions 133, 136 and
     /// 143), BBRv3 by default, CUBIC, or RFC 9002's NewReno. Under BBRv3 each connection draws its
-    /// probe waits from the program's source.
+    /// probe waits from the source of the context in `tls` (decision 175).
     congestion_controller: quic_module.CongestionController = .bbr,
     /// QUIC connections alone: where the program keeps RFC 9959's saved sets, so a connection to a
     /// server starts near an earlier one's rate (decision 149), or null for none, and the bounds on

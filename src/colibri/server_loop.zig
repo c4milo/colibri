@@ -58,7 +58,7 @@ pub fn operations_max(tcp_connections: usize) u32 {
 /// issues carry the Unix seconds of `now.unix_seconds`, where 0 issues none.
 pub fn start(state: anytype, now: server.Timestamp) !void {
     reset(state, now.monotonic_ns);
-    try state.engine.init(&state.engine_config, state.random, now);
+    try state.engine.init(&state.engine_config, now);
     const tcp_connections = state.sockets.len;
     if (state.udp.served) state.udp.start(accept_slot(tcp_connections) + 1, state.datagram_segments);
 }

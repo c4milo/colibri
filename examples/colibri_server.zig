@@ -37,7 +37,8 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 const identity = @import("testdata");
 // chapulin's hook, which every program that imports `colibri` defines.
 const program = @import("tls_program.zig");
@@ -108,37 +109,41 @@ pub fn main() !void {
     // A program's code that takes a request context runs with no router, as in a test.
     try check_numbered();
     router.init();
-    // A program probes its CPU once and passes it to every TLS configuration. With no `random`,
-    // the server and the client draw from the system's entropy.
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    // The CPU features the codecs run on, which the program also asks once and states in each
-    // configuration (decision 169).
+    // A program detects its CPU features once, for the codecs (decision 169) and for TLS. It makes
+    // one `stdx.crypto` context of them and the system's entropy, which the server and the
+    // client's TLS value hold (decision 175). A server given no `crypto` makes its own of
+    // `engine.cpu_features` and the system's entropy. On arm64 each thread that runs TLS sets
+    // PSTATE.DIT, where the core has FEAT_DIT, and stdx then states the thread's timing.
     const cpu_features: platform.CpuFeatures = .detect();
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    const crypto = stdx.crypto.init(cpu_features, program.random());
     try http_server.init(&.{
         .host = "127.0.0.1",
         .port = 0,
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
-        .cpu = cpu,
+        .crypto = crypto,
         .unix_seconds = now_seconds,
         .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
     }, &router, &app);
     defer http_server.deinit();
-    const thread = try std.Thread.spawn(.{}, serve, .{});
+    const thread = try std.Thread.spawn(.{}, serve, .{cpu_features});
     defer thread.join();
     defer http_server.shutdown();
 
     // h11 alone: ALPN offers `http/1.1`. Then h11 and h2, and the server selects h2. Then every
     // version: by default the client opens TCP first, and with `.prefer = .quic` QUIC first.
-    try fetch(cpu, cpu_features, .{ .h2 = false, .h3 = false }, .h11);
-    try fetch(cpu, cpu_features, .{ .h3 = false }, .h2);
-    try fetch(cpu, cpu_features, .{}, .h2);
-    try fetch(cpu, cpu_features, .{ .prefer = .quic }, .h3);
-    try fetch_one(cpu, cpu_features);
+    try fetch(crypto, .{ .h2 = false, .h3 = false }, .h11);
+    try fetch(crypto, .{ .h3 = false }, .h2);
+    try fetch(crypto, .{}, .h2);
+    try fetch(crypto, .{ .prefer = .quic }, .h3);
+    try fetch_one(crypto);
     std.debug.print("colibri_server: two GETs over h11, h2 and h3, and one fetch, to port {d}\n", .{http_server.port()});
 }
 
-/// Runs the server until `shutdown`, on the thread that calls it.
-fn serve() void {
+/// Runs the server until `shutdown`, on the thread that calls it, which runs its TLS sessions and
+/// so sets its own PSTATE.DIT first.
+fn serve(cpu_features: platform.CpuFeatures) void {
+    _ = platform.set_data_independent_timing(cpu_features, true);
     http_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 
@@ -168,14 +173,14 @@ var fetched: Fetch align(@alignOf(Fetch)) = .{};
 
 /// Sends the two GETs through a client that speaks `protocols`, over TLS to the server, and checks
 /// that `expected` carried them and that each response arrived octet for octet.
-fn fetch(cpu: tls.Cpu, cpu_features: platform.CpuFeatures, protocols: client.Protocols, expected: client.Protocol) !void {
+fn fetch(crypto: stdx.crypto.Context, protocols: client.Protocols, expected: client.Protocol) !void {
     try http_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
         .pool = .{
-            .cpu_features = cpu_features,
+            .cpu_features = crypto.features,
             .authority = origin,
             .protocols = protocols,
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
         },
         .unix_seconds = now_seconds,
     }, &fetched);
@@ -195,14 +200,14 @@ fn fetch(cpu: tls.Cpu, cpu_features: platform.CpuFeatures, protocols: client.Pro
 
 /// Runs one GET through `fetch` on a client with no handler, over h2. Before it, the program
 /// hands the pool one request and cancels it, so that exchange never ends.
-fn fetch_one(cpu: tls.Cpu, cpu_features: platform.CpuFeatures) !void {
+fn fetch_one(crypto: stdx.crypto.Context) !void {
     try http_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
         .pool = .{
-            .cpu_features = cpu_features,
+            .cpu_features = crypto.features,
             .authority = origin,
             .protocols = .{ .h3 = false },
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
         },
         .unix_seconds = now_seconds,
     }, null);

@@ -9,7 +9,6 @@
 //! roots of their own that do (build/modules_test_roots.zig), so a project that depends on colibri
 //! never reaches this key.
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 /// The leaf, for `localhost` and 127.0.0.1, and the root: the CA's own certificate, which signed
@@ -49,25 +48,6 @@ pub const not_after_seconds: u64 = 4_922_899_200;
 /// The instant a test judges the chain at when any instant would do: 2026-09-28T00:00:00Z. Any
 /// instant from `not_before_seconds` to `not_after_seconds` works.
 pub const now_seconds: u64 = 1_790_553_600;
-
-/// Whether the build target has the AES instructions and the carry-less multiply: aes and pclmul
-/// on x86-64, and aes on arm64, whose AES extension holds the 64-bit PMULL. The TLS tests give
-/// colibri's values it as the probe's `aes_clmul` (decision 97 as amended on 2026-09-30), because a
-/// test runs on the machine it was built for. A program probes the CPU it runs on instead.
-pub const aes_instructions_present: bool = switch (builtin.cpu.arch) {
-    .x86_64 => std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .aes, .pclmul }),
-    .aarch64 => std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes),
-    else => false,
-};
-
-/// Whether the build target has the SHA-256, SHA-512 and SHA-3 instructions: arm64's sha2 and sha3
-/// features, the second of which holds FEAT_SHA512 and FEAT_SHA3. The TLS tests give it as the
-/// probe's `sha256`, `sha512` and `sha3`, as they give the AES answer. colibri states the SHA
-/// instructions on arm64 alone, so every other target answers no.
-pub const sha_instructions_present: bool = switch (builtin.cpu.arch) {
-    .aarch64 => std.Target.aarch64.featureSetHasAll(builtin.cpu.features, .{ .sha2, .sha3 }),
-    else => false,
-};
 
 comptime {
     assert(not_before_seconds <= now_seconds and now_seconds <= not_after_seconds);

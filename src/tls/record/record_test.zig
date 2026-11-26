@@ -2,7 +2,8 @@
 //! of the library's TCP object run against each other in memory (`record_test_support.zig`).
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("stdx").crypto.tls;
+const stdx = @import("stdx");
+const chapulin = stdx.crypto.tls;
 const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");
@@ -35,7 +36,7 @@ test "a client and a server complete the handshake and report what they chose" {
 }
 
 test "RFC 9846 §9.1: each suite the object holds, named alone in a server's order, carries records" {
-    for (support.suites_held) |suite| {
+    for (support.suites_held()) |suite| {
         const order = [_]u16{suite};
         try support.configure(support.web_pki, .{ .suites = support.order_of(&order) });
         try support.handshake_both(null);
@@ -50,7 +51,7 @@ test "RFC 9846 §9.1: each suite the object holds, named alone in a server's ord
 }
 
 test "RFC 9846 §4.2.2: each suite the object holds, offered alone in a client's order, runs" {
-    for (support.suites_held) |suite| {
+    for (support.suites_held()) |suite| {
         const order = [_]u16{suite};
         try support.configure(support.offering(&order), .{});
         try support.handshake_both(null);
@@ -64,7 +65,7 @@ test "chapulin's own order runs AES-256-GCM in an object with AES-GCM, and ChaCh
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
     for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-        try testing.expectEqual(support.default_suite, provider.negotiated_parameters().?.cipher_suite);
+        try testing.expectEqual(support.default_suite(), provider.negotiated_parameters().?.cipher_suite);
     }
 }
 
@@ -97,8 +98,8 @@ test "a session reports nothing it chose before its handshake completes" {
     try support.configure(support.web_pki, .{});
     to_server.* = .{};
     to_client.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds, null);
-    try server.start(&support.server_config, support.random(), support.now_seconds);
+    try client.start(&support.client_config, support.now_seconds, null);
+    try server.start(&support.server_config, support.now_seconds);
     to_server.len += (try client.handshake(&.{}, to_server.free())).written;
     // The server has read the ClientHello and chosen, and waits for the client's Finished.
     const flight = try server.handshake(to_server.held(), to_client.free());
@@ -195,13 +196,13 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a st
     client.close();
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&client.offered), 0));
     const stale_ms = (@as(u64, ticket.lifetime_s) + 1) * support.ms_per_second;
-    try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms }));
     // A TCP connection's ticket names no QUIC version, and chapulin's decision 79 keeps a QUIC
     // connection's ticket off TCP.
     try testing.expectEqual(0, ticket.quic_version);
     var from_quic = ticket;
     from_quic.quic_version = 1;
-    try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, .{ .ticket = &from_quic, .age_ms = 0 }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, .{ .ticket = &from_quic, .age_ms = 0 }));
 }
 
 test "RFC 9846 §7.5: both sides export the same keying material" {
@@ -228,7 +229,7 @@ test "RFC 9846 §7.5: both sides export the same keying material" {
 test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails with an alert" {
     // The leaf's own key is no anchor of the chain.
     const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
-    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
+    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .crypto = support.crypto }, .{});
     try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
     try testing.expect(client.alert() != null);
     // A second before the identity's notBefore and a second after its notAfter, the leaf "has
@@ -239,7 +240,7 @@ test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails
         try testing.expectEqual(tls_provider.Alert.certificate_expired, client.alert().?);
     }
     // A clock of 0 with anchors is no clock at all.
-    try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), 0, null));
+    try testing.expectError(error.Refused, client.start(&support.client_config, 0, null));
 }
 
 test "the identity is valid at its notBefore and at its notAfter, so any instant between works" {
@@ -260,7 +261,7 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
     hash.update(&spki_prefix);
     hash.update(support.public_key);
     hash.final(&pin);
-    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .crypto = support.crypto }, .{});
     try support.handshake_both(null);
     // No server_name was sent.
     try testing.expectEqual(null, server.sni());
@@ -270,12 +271,12 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
         .identities = &.{.{ .chain = &long_chain, .key = &support.key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     try support.handshake_both(null);
     // Another key's pin fails the handshake.
     pin[0] ^= 1;
-    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .crypto = support.crypto }, .{});
     try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
 }
 
@@ -283,7 +284,7 @@ test "a ClientHello longer than the output goes out over several calls, and noth
     try support.configure(support.web_pki, .{});
     to_server.* = .{};
     to_client.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds, null);
+    try client.start(&support.client_config, support.now_seconds, null);
     var piece: [100]u8 = undefined;
     var progress = try client.handshake(&.{}, &piece);
     try testing.expectEqual(piece.len, progress.written);
@@ -301,7 +302,7 @@ test "a ClientHello longer than the output goes out over several calls, and noth
         if (progress.written < piece.len) break;
     }
     // The server reads the ClientHello whole, which it would refuse had any octet changed.
-    try server.start(&support.server_config, support.random(), support.now_seconds);
+    try server.start(&support.server_config, support.now_seconds);
     const flight = try server.handshake(to_server.held(), to_client.free());
     try testing.expectEqual(to_server.len, flight.consumed);
     try testing.expect(flight.written > 0);
@@ -316,7 +317,7 @@ test "a ClientHello that offers a ticket goes out whole into `handshake_output_l
     defer ticket.wipe();
     client.close();
     server.close();
-    try client.start(&support.client_config, support.random(), support.now_seconds, .{ .ticket = &ticket, .age_ms = support.ms_per_second });
+    try client.start(&support.client_config, support.now_seconds, .{ .ticket = &ticket, .age_ms = support.ms_per_second });
     var output: [record.Client.handshake_output_len_min]u8 = undefined;
     const hello = try client.handshake(&.{}, &output);
     // A call that writes less than its output holds has taken all the client staged.
@@ -327,9 +328,9 @@ test "a ClientHello that offers a ticket goes out whole into `handshake_output_l
 test "a server whose output cannot hold its flight fails the handshake" {
     try support.configure(support.web_pki, .{});
     to_server.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds, null);
+    try client.start(&support.client_config, support.now_seconds, null);
     to_server.len += (try client.handshake(&.{}, to_server.free())).written;
-    try server.start(&support.server_config, support.random(), support.now_seconds);
+    try server.start(&support.server_config, support.now_seconds);
     var short: [64]u8 = undefined;
     try testing.expectError(error.OutputTooSmall, server.handshake(to_server.held(), &short));
 }
@@ -346,42 +347,42 @@ test "a list longer than the one it is copied into is refused when it is convert
     // The limits a caller bounds its lists by: at the limit a list converts, and past it it does not.
     const anchors_max = record.ClientConfig.anchors_max;
     const most_anchors = [_]values.Anchor{support.anchors[0]} ** anchors_max;
-    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &most_anchors, .server_name = "a" } }, .alpn = &support.protocols, .cpu = support.cpu });
+    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &most_anchors, .server_name = "a" } }, .alpn = &support.protocols, .crypto = support.crypto });
     // A session starts from it, so chapulin takes that many too.
-    try client.start(config, support.random(), support.now_seconds, null);
+    try client.start(config, support.now_seconds, null);
     client.close();
     const many_anchors = [_]values.Anchor{support.anchors[0]} ** (anchors_max + 1);
-    try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols, .cpu = support.cpu }));
+    try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols, .crypto = support.crypto }));
     // chapulin refuses a protocol named twice, so each name differs.
     const most_protocols = comptime distinct_protocols(record.ClientConfig.protocols_max);
-    try config.init(.{ .trust = support.web_pki.trust, .alpn = &most_protocols, .cpu = support.cpu });
-    try client.start(config, support.random(), support.now_seconds, null);
+    try config.init(.{ .trust = support.web_pki.trust, .alpn = &most_protocols, .crypto = support.crypto });
+    try client.start(config, support.now_seconds, null);
     client.close();
     const many_protocols = [_][]const u8{"h2"} ** (record.ClientConfig.protocols_max + 1);
-    try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols, .cpu = support.cpu }));
+    try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols, .crypto = support.crypto }));
     const server_config = &support.server_config;
     const server_most = comptime distinct_protocols(record.ServerConfig.protocols_max);
     try server_config.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &server_most,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
-    try server.start(server_config, support.random(), support.now_seconds);
+    try server.start(server_config, support.now_seconds);
     server.close();
     const server_protocols = [_][]const u8{"h2"} ** (record.ServerConfig.protocols_max + 1);
     try testing.expectError(error.TooManyProtocols, server_config.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &server_protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     }));
     const long_chain = [_][]const u8{support.leaf} ** 17;
     try testing.expectError(error.TooManyCertificates, server_config.init(.{
         .identities = &.{.{ .chain = &long_chain, .key = &support.key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     }));
     const many_suites = [_]u16{support.chacha} ** 4;
     // An object without AES-GCM has no order to set at all (decision 97).
@@ -390,7 +391,7 @@ test "a list longer than the one it is copied into is refused when it is convert
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
         .cipher_suites = &many_suites,
     }));
     var many_offered = support.web_pki;
@@ -401,27 +402,27 @@ test "a list longer than the one it is copied into is refused when it is convert
 test "a rule of chapulin's is chapulin's to report, when a session starts or a server is checked" {
     // chapulin's `webpki_cfg.h` takes at most `CH_SPKI_PIN_MAX` pins.
     const many_pins = [_]values.Pin{@splat(1)} ** 5;
-    try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols, .cpu = support.cpu });
-    try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
+    try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols, .crypto = support.crypto });
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, null));
     // chapulin's `webpki_cfg.h` refuses a client order that names a suite twice.
     if (support.aes_gcm) {
         const repeated = [_]u16{ support.chacha, support.chacha };
         var twice = support.web_pki;
         twice.cipher_suites = &repeated;
         try support.client_config.init(twice);
-        try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
+        try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, null));
     }
     // A server with no identity has no key to check, and none to serve from.
-    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols, .cpu = support.cpu });
-    try testing.expectError(error.IdentityRefused, support.server_config.check(support.random()));
-    try testing.expectError(error.Refused, server.start(&support.server_config, support.random(), support.now_seconds));
+    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols, .crypto = support.crypto });
+    try testing.expectError(error.IdentityRefused, support.server_config.check());
+    try testing.expectError(error.Refused, server.start(&support.server_config, support.now_seconds));
     // No protocol offered is no ALPN extension, which a client that speaks h11 alone may send.
-    try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{}, .cpu = support.cpu });
+    try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{}, .crypto = support.crypto });
     try support.server_config.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     try support.handshake_both(null);
     try testing.expectEqual(null, client.provider().negotiated_alpn());
@@ -429,14 +430,14 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
 
 test "decision 117: a client's values that name no `alpn` convert to a list of no protocol" {
     // A `client.Pool` names the protocols its versions allow, so its caller leaves `alpn` out.
-    try support.client_config.init(.{ .trust = support.web_pki.trust, .cpu = support.cpu });
+    try support.client_config.init(.{ .trust = support.web_pki.trust, .crypto = support.crypto });
     try testing.expectEqual(0, support.client_config.values.alpn.len);
     // A session starts from it, and a server that selects from a list selects none.
     try support.server_config.init(.{
         .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
     try support.handshake_both(null);
     try testing.expectEqual(null, client.provider().negotiated_alpn());
@@ -444,16 +445,16 @@ test "decision 117: a client's values that name no `alpn` convert to a list of n
 
 test "a server's identity passes chapulin's check, and a key that does not match fails it" {
     try support.configure(support.web_pki, .{});
-    try support.server_config.check(support.random());
+    try support.server_config.check();
     var wrong_key = support.key;
     @memset(wrong_key.private_key[0..constants.protocol.p256_private_key_len], 0x42);
     try support.server_config.init(.{
         .identities = &.{.{ .chain = &support.chain, .key = &wrong_key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .cpu = support.cpu,
+        .crypto = support.crypto,
     });
-    try testing.expectError(error.IdentityRefused, support.server_config.check(support.random()));
+    try testing.expectError(error.IdentityRefused, support.server_config.check());
 }
 
 /// What a client and a server whose sources start at one seed write first: the ClientHello, and
@@ -468,9 +469,10 @@ const FirstFlights = struct {
 fn first_flights(client_seed: u64, server_seed: u64, flights: *FirstFlights) !void {
     var client_stream: random_support.Stream = .{ .state = client_seed };
     var server_stream: random_support.Stream = .{ .state = server_seed };
-    try client.start(&support.client_config, client_stream.random(), support.now_seconds, null);
+    try support.configure(support.web_pki_under(stdx.crypto.init(support.features, client_stream.random())), .{ .crypto = stdx.crypto.init(support.features, server_stream.random()) });
+    try client.start(&support.client_config, support.now_seconds, null);
     defer client.close();
-    try server.start(&support.server_config, server_stream.random(), support.now_seconds);
+    try server.start(&support.server_config, support.now_seconds);
     defer server.close();
     flights.hello_len = (try client.handshake(&.{}, &flights.hello)).written;
     to_server.* = .{};
@@ -479,8 +481,7 @@ fn first_flights(client_seed: u64, server_seed: u64, flights: *FirstFlights) !vo
     flights.flight_len = (try server.handshake(to_server.held(), &flights.flight)).written;
 }
 
-test "decision 94: each session draws from its caller's source alone, so one seed replays it" {
-    try support.configure(support.web_pki, .{});
+test "decision 175: each session draws from its context's source alone, so one seed replays it" {
     const seed = random_support.seed;
     var first: FirstFlights = .{};
     var again: FirstFlights = .{};

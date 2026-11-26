@@ -77,17 +77,17 @@ const Unanswered = struct {
 threadlocal var unanswered: Unanswered align(@alignOf(Unanswered)) = undefined;
 
 /// Starts the client over h11 in cleartext to `port` with `handler`, and its loop.
-fn start_on(port: u16, counter: *support.Counter, handler: *fixture.Handler) !void {
+fn start_on(port: u16, handler: *fixture.Handler) !void {
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(&.{ .destination = fixture.loopback(port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, handler);
+    try test_client.init(&.{ .destination = fixture.loopback(port), .pool = pool, .unix_seconds = fixture.now_seconds }, handler);
     client_loop.start(test_client, try test_client.host.begin());
 }
 
 /// Starts the client over h11 in cleartext to the unanswered listener with `handler`, and its
 /// loop.
-fn start(counter: *support.Counter, handler: *fixture.Handler) !void {
-    try start_on(unanswered.address.port, counter, handler);
+fn start(handler: *fixture.Handler) !void {
+    try start_on(unanswered.address.port, handler);
 }
 
 /// Ends a run as `run` does, whether it finished or failed.
@@ -123,9 +123,8 @@ fn passes_until_free() !u64 {
 test "design §8 step 42: a connect the pool closes in flight frees its slot at once" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     defer end_run();
     open(1);
@@ -141,9 +140,8 @@ test "design §8 step 42: a connect the pool closes in flight frees its slot at 
 test "design §8 step 42: a close names one connection of a slot, and drops an open that waits" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     defer end_run();
     open(2);
@@ -165,9 +163,8 @@ test "design §8 step 42: a close names one connection of a slot, and drops an o
 test "design §8 step 42: the end of a run closes a socket whose close was never submitted" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     open(1);
     try test_client.host.pass(test_client, client_loop);
@@ -182,9 +179,8 @@ test "design §8 step 42: the end of a run closes a socket whose close was never
 test "design §8 step 42: a slot whose close ended waits for its connect's final event" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     defer end_run();
     open(1);
@@ -201,9 +197,8 @@ test "design §8 step 42: a slot whose close ended waits for its connect's final
 test "design §8 step 42: a connect that succeeds after the pool's close starts no connection" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     defer end_run();
     open(1);
@@ -215,14 +210,13 @@ test "design §8 step 42: a connect that succeeds after the pool's close starts 
 }
 
 test "design §8 step 42: init leaves no TCP socket open, so a run that fails at once closes none" {
-    var counter: support.Counter = .{};
     // A socket of the test's own, which an earlier run's table still names.
     const descriptor = try rotor.sync.open_socket(.ipv4);
     defer rotor.sync.close_now(descriptor);
     test_client.host.descriptors[0] = descriptor;
     test_client.host.states[0] = .open;
     var handler: fixture.Handler = .{};
-    try start_on(1, &counter, &handler);
+    try start_on(1, &handler);
     defer test_client.deinit();
     // The run's first pass failed, so no turn ran before its end.
     end_run();
@@ -233,12 +227,11 @@ test "design §8 step 42: init leaves no TCP socket open, so a run that fails at
 test "decision 153 ruling 9: a connect past its deadline ends the exchange refused" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
     pool.timeouts.connect_ns = connect_deadline_ns;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(unanswered.address.port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(unanswered.address.port), .pool = pool, .unix_seconds = fixture.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -254,9 +247,8 @@ test "decision 153 ruling 9: a connect past its deadline ends the exchange refus
 test "decision 153 ruling 9: a connect limit of the largest value holds the connect until a close" {
     try unanswered.fill();
     defer unanswered.release();
-    var counter: support.Counter = .{};
     var handler: fixture.Handler = .{};
-    try start(&counter, &handler);
+    try start(&handler);
     defer test_client.deinit();
     defer end_run();
     // A program may write the largest value to mean no practical limit.
@@ -279,10 +271,9 @@ fn pass_refused() !void {
 }
 
 test "design §8 step 42: a socket the system refuses ends the exchange refused" {
-    var counter: support.Counter = .{};
     // The system refuses the socket, so no connect names the port.
     var handler: fixture.Handler = .{};
-    try start_on(1, &counter, &handler);
+    try start_on(1, &handler);
     defer test_client.deinit();
     defer end_run();
     try handler.request(1);
@@ -302,13 +293,12 @@ test "design §8 step 42: a socket the system refuses ends the exchange refused"
 const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata.root_spki }};
 
 test "decision 156 ruling 13: a client over TLS opens a UDP socket of each family" {
-    var counter: support.Counter = .{};
     const pool: client.Config = .{
         .cpu_features = .none(),
         .authority = "localhost",
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() },
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .crypto = support.crypto() },
     };
-    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .unix_seconds = fixture.now_seconds }, null);
     try testing.expect(test_client.udp.served);
     const udp_socket = test_client.host.descriptor_of(client_loop.datagram_id(1, .ipv6));
     const local = try rotor.sync.local_address(udp_socket);

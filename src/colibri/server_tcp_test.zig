@@ -74,7 +74,7 @@ fn fetch(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server on port 0 answers an h11 request through its router, and shuts down" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .unix_seconds = testdata.now_seconds, .crypto = counter.crypto() }, &router, &context);
     try testing.expect(test_server.port() != 0);
     const thread = try std.Thread.spawn(.{}, serve, .{});
     var threaded: std.Io.Threaded = .init_single_threaded;
@@ -94,7 +94,7 @@ test "decision 150: a server on port 0 answers an h11 request through its router
     try testing.expectEqual(testdata.now_seconds, test_server.engine.state.connections.base_seconds);
     test_server.deinit();
     // A second `init` starts a server that has not stopped.
-    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .unix_seconds = testdata.now_seconds, .crypto = counter.crypto() }, &router, &context);
     try testing.expect(!test_server.stopped());
     test_server.deinit();
 }
@@ -135,7 +135,7 @@ fn fetch_tls(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server with an identity answers an h11 request over TLS" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .engine = .{ .cpu_features = .none(), .tls_buffer = &server_support.tls_buffer }, .unix_seconds = testdata.now_seconds, .crypto = counter.crypto() }, &router, &context);
     defer test_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();
@@ -202,7 +202,7 @@ fn pass_until(wait: Wait, now_ns: u64) !void {
 test "decision 160: after the half-close the socket receives again, and the peer's close ends the connection" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds, .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .engine = .{ .cpu_features = .none() }, .unix_seconds = testdata.now_seconds, .crypto = counter.crypto() }, &router, &context);
     defer test_server.deinit();
     // Each pass gets this one instant, so the bound of `half_close_ns` cannot pass in the test.
     const now_ns = try start_loop();

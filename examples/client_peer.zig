@@ -11,6 +11,7 @@ const std = @import("std");
 const colibri = @import("colibri");
 const server = colibri.server;
 const tls = colibri.tls;
+const stdx = @import("stdx");
 const identity = @import("testdata");
 const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
@@ -88,22 +89,22 @@ var closes: u32 = 0;
 var ended: u32 = 0;
 
 /// Starts the server's engine on the stream link the example holds.
-pub fn init(stream: *Link, cpu: tls.Cpu) !void {
+pub fn init(stream: *Link, crypto: stdx.crypto.Context) !void {
     link = stream;
-    try tls.pem.key(cpu, identity.key_pem, identity.leaf, &key);
+    try tls.pem.key(crypto, identity.key_pem, identity.leaf, &key);
     program.fill(&cookie_key);
     program.fill(&ticket_key);
     config = .{
-        .cpu_features = .detect(),
+        .cpu_features = crypto.features,
         .tls = .{
             .identities = &identities,
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
-            .cpu = cpu,
+            .crypto = crypto,
         },
         .tls_buffer = &tls_buffer,
     };
-    try engine.init(&config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = link.now_ns(.server) });
+    try engine.init(&config, .{ .unix_seconds = now_seconds, .monotonic_ns = link.now_ns(.server) });
     router.init();
 }
 

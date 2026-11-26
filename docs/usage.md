@@ -35,7 +35,8 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 ```
 
 The rest of this guide writes `server.Router`, `client.Request` and `h2.Connection` with such
@@ -76,12 +77,13 @@ const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 | `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)), and `colibri.Client`, which runs `client`'s pool on Rotor's loop ([decision 153](decisions.md) ruling 8). It is the one module that does I/O. |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
-The package exports nothing of stdx ([decision 170](decisions.md)). A program asks its CPU once
-through `@import("stdx").platform`, since stdx exports the one module `stdx`
-([decision 171](decisions.md)): `platform.CpuFeatures.detect()` for each configuration's
-`cpu_features`, and `platform.probe()` for TLS ([decision 97](decisions.md)). Depend on stdx at the
-commit colibri's `build.zig.zon` pins, and give it the options colibri gives it, so both reach one
-stdx module. A second stdx fails the build, since Zig puts a file in one module alone:
+The package exports nothing of stdx ([decision 170](decisions.md)). A program detects its CPU
+features once through `@import("stdx").platform`, since stdx exports the one module `stdx`
+([decision 171](decisions.md)). It passes `platform.CpuFeatures.detect()` to each configuration's
+`cpu_features`, and to `stdx.crypto.init`, whose `stdx.crypto.Context` every TLS value holds
+([decision 175](decisions.md)). Depend on stdx at the commit colibri's `build.zig.zon` pins, and
+give it the options colibri gives it, so both reach one stdx module. A second stdx fails the
+build, since Zig puts a file in one module alone:
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
@@ -138,9 +140,9 @@ Four things follow for every other module:
   chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
   `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
-  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that runs TLS passes the
-  source each session draws from: to `Engine.init`, to `ConnectionPool.start_tcp` and
-  `start_quic`, and to each session it starts.
+  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that runs TLS
+  makes one `stdx.crypto.Context` and puts it in each TLS value ([decision 175](decisions.md)).
+  Each session, the engine and the pool draw from its source, and from no other.
 
 A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
@@ -205,7 +207,7 @@ when it ends. `server.Config.tls_buffer_len(n)` gives the bytes that hold `n` se
 any alignment, so the program declares a plain array of `u8`. A server that serves no TLS over TCP
 passes no buffer, and holds no TLS state ([decision 167](decisions.md)).
 
-`init` takes a pointer to the configuration, the router, and the program's context, which each
+`init` takes a pointer to the configuration, the router, and the program's own value, which each
 route's function takes first. It binds the port and reads the identity, and keeps no pointer to the
 configuration. Port 0
 asks the system for a port, and `port()` returns the port bound. `run` serves on the thread that
@@ -213,26 +215,28 @@ calls it, one Rotor loop on that thread, until another thread calls `shutdown`. 
 each connection and returns:
 
 ```zig
-const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-// The CPU features the codecs run on, which the program also asks once and states in each
-// configuration (decision 169).
 const cpu_features: platform.CpuFeatures = .detect();
+_ = platform.set_data_independent_timing(cpu_features, true);
+const crypto = stdx.crypto.init(cpu_features, program.random());
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
-    .cpu = cpu,
+    .crypto = crypto,
     .unix_seconds = now_seconds,
     .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
 }, &router, &app);
 defer http_server.deinit();
-const thread = try std.Thread.spawn(.{}, serve, .{});
+const thread = try std.Thread.spawn(.{}, serve, .{cpu_features});
 defer thread.join();
 defer http_server.shutdown();
 ```
 
+The thread that calls `run` runs the TLS sessions, so it sets its own PSTATE.DIT first:
+
 ```zig
-fn serve() void {
+fn serve(cpu_features: platform.CpuFeatures) void {
+    _ = platform.set_data_independent_timing(cpu_features, true);
     http_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 ```
@@ -254,13 +258,15 @@ closed number to another file of your program.
   returns. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP socket.
   With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port. With one and
   TCP connections, `engine.tls_buffer` must hold one TLS session at least (decision 167).
-- `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
   clock. It has no default. The server's session tickets carry it, so a client resumes a later
   connection with one ([decision 161](decisions.md)).
-- `random`: the source each TLS session draws from. Null draws from the system's entropy.
+- `crypto`: your program's one `stdx.crypto.Context`, as every TLS value holds it
+  ([decision 175](decisions.md)). Each TLS session and each QUIC connection draws from its source,
+  and runs on its CPU features. Null makes one of `engine.cpu_features` and the system's entropy
+  ([decision 150](decisions.md) ruling 9).
 - `ticket_key`: the key the server seals its tickets under, which the server copies. Null draws
-  one from `random`. Pass one key to each server your program runs, so each resumes the tickets
+  one from the source of `crypto`. Pass one key to each server your program runs, so each resumes the tickets
   of the others. `deinit` wipes the server's copy.
 - `ticket_key_previous`: the key the server sealed its tickets under before `ticket_key`, which
   the server copies. A ticket that either key sealed resumes. Null draws a key that opens no
@@ -284,7 +290,7 @@ client runs a full handshake. This excerpt is from `examples/colibri_hosted.zig`
 
 ```zig
     var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
-    generator.fill(&next_ticket_key);
+    crypto.random.bytes(&next_ticket_key);
     hosted_server.set_ticket_key(&next_ticket_key);
     std.crypto.secureZero(u8, &next_ticket_key);
 ```
@@ -326,18 +332,21 @@ var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 
 `init` takes a pointer to the configuration and the handler: the server's destination, the
 pool's configuration, and a pointer to your program's struct. It opens the UDP socket when the
-pool offers QUIC: h3 allowed, and a TLS value. A client with no handler, which passes null, drops
-each event. `request` takes a `client.Request` and the `client.Response` it fills, which your
-program keeps in place until the exchange's `finished`:
+pool offers QUIC: h3 allowed, and a TLS value. The TLS value holds your program's
+`stdx.crypto.Context`, the one its server holds too, and each TLS session and each QUIC connection
+draws from its source ([decision 175](decisions.md)). A client in cleartext draws nothing, so it
+needs no context. A client with no handler, which passes null, drops each event. `request` takes a
+`client.Request` and the `client.Response` it fills, which your program keeps in place until the
+exchange's `finished`:
 
 ```zig
 try http_client.init(&.{
     .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
     .pool = .{
-        .cpu_features = cpu_features,
+        .cpu_features = crypto.features,
         .authority = origin,
         .protocols = protocols,
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
     },
     .unix_seconds = now_seconds,
 }, &fetched);
@@ -419,8 +428,6 @@ http_client.cancel(id);
   `requests` to the client's own counts. Its `protocols.prefer` says which transport the client
   opens first, `.tcp` by default or `.quic`, and the client keeps it as the program set it. It also sets its `ecn`, because the client's loop reads
   and sets each datagram's ECN codepoint ([decision 68](decisions.md)).
-- `random`: the source each TLS session and each QUIC connection draws from. Null draws from the
-  system's entropy.
 - `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
   clock. The field has no default, because the client reads no clock. A web PKI trust judges
   each chain's dates at it, plus the time the loop has run since (RFC 5280 §4.1.2.5). A trust in
@@ -463,12 +470,13 @@ loop, beside a timer of its own, and binds loopback.
 1. Open the sockets before `init`: the TCP listener of a server, and each UDP socket. Name them in
    the configuration, with what the host does on each UDP socket (`segments` and `ecn`). A family
    with no UDP socket turns h3 off for it, and the client falls back to TCP.
-2. Call `init` with the configuration, and the router or the handler. A hosted object takes your
-   program's source of randomness and `now`, a `server.Timestamp`. `now` holds two readings of
-   the instant of `init`: the Unix seconds and your loop's monotonic nanoseconds, which each
-   later call passes. The server's session tickets carry the Unix seconds, and its `ticket_key`
-   works as `ServerConfig.ticket_key` does ([decision 161](decisions.md)). These fields have no
-   default, because no value is right to assume: `random` and `now`, a server's `cpu`, and a
+2. Call `init` with the configuration, and the router or the handler. A hosted server takes your
+   program's `stdx.crypto.Context` as `crypto` ([decision 175](decisions.md)), and a hosted
+   client takes it in its pool's TLS value. Each takes `now`, a `server.Timestamp`. `now` holds
+   two readings of the instant of `init`: the Unix seconds and your loop's monotonic nanoseconds,
+   which each later call passes. The server's session tickets carry the Unix seconds, and its
+   `ticket_key` works as `ServerConfig.ticket_key` does ([decision 161](decisions.md)). These
+   fields have no default, because no value is right to assume: `now`, a server's `crypto`, and a
    client's `destination` and `pool`.
 3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
    operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
@@ -634,16 +642,16 @@ socket runs TLS:
 
 ```zig
 engine_config = .{
-    // The CPU features the engine's codecs run on. The program asks its CPU once, here, and
-    // colibri never asks it (decision 169).
-    .cpu_features = .detect(),
+    // The CPU features the engine's codecs run on: the context's, which the program detected
+    // once. colibri never asks the CPU (decision 169).
+    .cpu_features = crypto.features,
     // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
     // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
         .identities = &identities,
         .cookie_key = &cookie_key,
         .ticket_key = &ticket_key,
-        .cpu = cpu,
+        .crypto = crypto,
     },
     .tls_buffer = &tls_buffer,
     // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
@@ -652,15 +660,16 @@ engine_config = .{
     // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
     .h3_alternative = .{ .port = peers.server_port },
     // Decision 143: each QUIC connection runs BBRv3, the default, and `.cubic` chooses CUBIC.
-    // BBRv3 draws its probe waits from the source `init` takes.
+    // BBRv3 draws its probe waits from the context's source.
     .congestion_controller = .bbr,
     // Decision 149: RFC 9959's saved sets, which the program keeps (`server_resume.zig`).
     .resumes = resumes.provider(),
 };
 const now_ns = link.now_ns(.server);
 // One engine for every socket the program accepts and for its UDP socket, in storage the
-// program owns. `init` checks that the key signs.
-try engine.init(&engine_config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
+// program owns. `init` checks that the key signs, and every value the engine draws comes from
+// the context's source.
+try engine.init(&engine_config, .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
 // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
 // names the connection in every later call and event. Null says the engine starts no
 // connection, and a program then closes the socket.
@@ -1619,8 +1628,8 @@ a stream of octets, and it keeps time for each connection. Three things differ f
 - **The congestion controller.** `Config.congestion_controller` is `.bbr` for BBRv3, the
   default, `.cubic`, or `.newreno` for RFC 9002's own controller ([decisions 133, 136 and
   143](decisions.md)). It applies to QUIC connections
-  alone. Under BBRv3 each connection draws its probe waits from the source `init` takes, so one
-  seed replays.
+  alone. Under BBRv3 each connection draws its probe waits from the source of the context in
+  `Config.tls`, so one seed replays ([decision 175](decisions.md)).
 
 `ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
 or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
@@ -1761,10 +1770,12 @@ and its port, and an HTTPS record's `alpn` and `port` when it has one.
 // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
 // TCP first by default, and `.prefer = .quic` makes it open QUIC first.
 client_config = .{
-    // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
-    // colibri never asks it (decision 169).
-    .cpu_features = .detect(),
-    .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
+    // The CPU features the pool's decoders run on: the context's, which the program detected
+    // once. colibri never asks the CPU (decision 169).
+    .cpu_features = crypto.features,
+    // Every value the pool draws, and every draw of its TLS sessions, comes from the
+    // context's source.
+    .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .crypto = crypto },
     .authority = origin,
     .protocols = .{ .prefer = .quic },
 };
@@ -2124,9 +2135,9 @@ fn take_ticket(connection: client.ConnectionHandle) void {
 }
 ```
 
-A program starts each connection with the source its TLS session draws from. The pool draws a
-QUIC connection's IDs and h3's grease value from that source too, and the handshake draws the
-rest:
+A program starts each connection that an `open` names. The pool draws a QUIC connection's IDs
+and h3's grease value from the source of the context in its TLS value, and the handshake draws the
+rest from it too ([decision 175](decisions.md)):
 
 ```zig
 fn open_transport(open: client.Open, now_ns: u64) !void {
@@ -2136,12 +2147,12 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
     // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (open.transport) {
         // The UDP socket needs no connect.
-        .quic => pool.start_quic(program.random(), now_seconds, now_ns, null) catch {},
+        .quic => pool.start_quic(now_seconds, now_ns, null) catch {},
         .tcp => {
             // The link stands where the socket would be: the server's listener accepts the
             // socket the program connects.
             try peer.accept();
-            pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {};
+            pool.start_tcp(open.connection, now_seconds, null) catch {};
         },
     }
 }
@@ -2544,58 +2555,71 @@ pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c
 }
 ```
 
-Each session draws its randomness from a `std.Random` the program passes to its `start`, and
-from nothing else (decision 94 as amended). A program that seeds that source replays the session.
-This one reads the operating system's `getentropy`:
+A program makes one `stdx.crypto.Context` when it starts, with `stdx.crypto.init(features,
+random)`, and every TLS value holds it ([decision 175](decisions.md)). It holds two things:
+
+- `features`: the program's one `stdx.platform.CpuFeatures.detect()`, which the codecs take too.
+  stdx maps them to chapulin's description of the CPU, so colibri maps none.
+- `random`: the source each session draws its secrets from, and nothing else. The engine and the
+  pool draw their QUIC connection IDs, tokens and grease values from it too.
+
+A program that seeds the source replays its sessions, and a program that serves peers draws from
+the operating system. This one wraps `io.randomSecure`, which has no weaker fallback, and halts
+when a draw fails:
 
 ```zig
-extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
-const getentropy_len_max = 256;
-var entropy_state: u8 = 0;
-const entropy: std.Random = .{ .ptr = &entropy_state, .fillFn = fill_entropy };
+const SecureRandom = struct {
+    io: std.Io,
 
-fn fill_entropy(_: *anyopaque, buffer: []u8) void {
-    var filled: usize = 0;
-    while (filled < buffer.len) {
-        const part = @min(buffer.len - filled, getentropy_len_max);
-        if (getentropy(buffer[filled..].ptr, part) != 0) @panic("getentropy failed");
-        filled += part;
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
     }
-}
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 ```
 
-The program converts its values once into a configuration, which every session of one chapulin
-object borrows. It then starts a session for each connection. Over TCP, `handshake` takes what the
-socket read and writes what the session owes the peer. Once the handshake completes, the session's
-`provider()` goes to the connection's `attach_tls`. When it fails, `failure_written()` counts the
-octets it wrote at the front of the output, the alert that says why last (RFC 9846 §6.2). The
-program sends them, then closes the connection. An output of
-`tls.record.Client.handshake_output_len_min` octets takes all a client owes in one call. Each
-configuration names the most anchors and ALPN protocols it takes, `anchors_max` and
-`protocols_max`.
+```zig
+pub fn main(init: std.process.Init) !void {
+    // The random source of every TLS session: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for its codecs (decision 169) and for TLS.
+    const cpu_features: platform.CpuFeatures = .detect();
+    // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    // The program's one context, which each TLS value holds (decision 175).
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
+```
 
-Every configuration also takes `cpu`, which has no default: a `tls.Cpu` holding the
-`platform.Cpu` that `platform.probe()` returned and the `tls.Timing` the program's thread runs in.
-colibri probes nothing and sets no CPU mode. A program probes its CPU once, at start, and passes
-the same value to each configuration. A session runs the AES instructions only where the probe's
-`aes_clmul` is `yes` and the timing is `data_independent`; otherwise it runs none and holds
-TLS_CHACHA20_POLY1305_SHA256 alone. On arm64, under the same timing, a session also runs the
-SHA-256, SHA-512 and SHA-3 instructions where the probe's `sha256`, `sha512` and `sha3` are `yes`.
-`data_independent` states that the thread runs Arm's and Intel's listed instructions in
-data-independent time: on arm64 a core with FEAT_DIT whose thread set PSTATE.DIT, and on x86-64 a
-part on Intel's DOIT list whose operating system set DOITM. Under `not_stated` a session also runs
-the portable multiply in place of the native one.
+stdx states the timing of the thread that converts a configuration. On x86-64 it states it for
+every core. On arm64 it states it where the features hold FEAT_DIT and the thread set PSTATE.DIT,
+so a program calls `set_data_independent_timing` on each thread that runs TLS. On any other
+architecture it states nothing. A session runs the AES instructions only under the statement and
+where the features hold AES and the carry-less multiply. Otherwise it runs none, and holds
+TLS_CHACHA20_POLY1305_SHA256 alone. colibri sets no CPU mode and asks the CPU nothing.
+
+The program converts its values once into a configuration, which every session of one chapulin
+object borrows. It then starts a session for each connection, and the session's `init` takes the
+configuration's context. Over TCP, `handshake` takes what the socket read and writes what the
+session owes the peer. Once the handshake completes, the session's `provider()` goes to the
+connection's `attach_tls`. When it fails, `failure_written()` counts the octets it wrote at the
+front of the output, the alert that says why last (RFC 9846 §6.2). The program sends them, then
+closes the connection. An output of `tls.record.Client.handshake_output_len_min` octets takes all
+a client owes in one call. Each configuration names the most anchors and ALPN protocols it takes,
+`anchors_max` and `protocols_max`.
 
 ```zig
-const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
-try tls_config.init(.{
-    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
-    .alpn = &.{ "h2", "http/1.1" },
-    .cpu = cpu,
-});
-try tls_client.start(&tls_config, entropy, now_seconds, null);
-const hello = try tls_client.handshake(&.{}, &output);
+    const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
+    try tls_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
+        .alpn = &.{ "h2", "http/1.1" },
+        .crypto = crypto,
+    });
+    try tls_client.start(&tls_config, now_seconds, null);
+    const hello = try tls_client.handshake(&.{}, &output);
 ```
 
 A program that finds an error in what it read, after the handshake, sends the fatal alert that
@@ -2640,7 +2664,8 @@ the rooms. Decoding authenticates nothing: the files are trusted because the ope
 
 - `tls.pem.chain(file, der, room)` returns the chain `tls.Identity.chain` takes, the end-entity
   first, at most `tls.constants.limits.certificate_chain_len_max` certificates.
-- `tls.pem.key(cpu, file, leaf, &key)` reads a key block into a `tls.Key`, which a `tls.Identity`
+- `tls.pem.key(crypto, file, leaf, &key)` reads a key block, on the CPU features of the
+  `stdx.crypto.Context` `crypto`, into a `tls.Key`, which a `tls.Identity`
   points at, and sets `key.scheme` from the key's algorithm ([decision 147](decisions.md)):
   `ecdsa_secp256r1_sha256` for a P-256 key under `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
   (SEC 1), `rsa_pss_rsae_sha256` for an RSA key of two primes and the exponent 65537 under
@@ -2657,7 +2682,7 @@ A DER room of three quarters of a file's length holds its DER. The server of
 
 ```zig
 const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
-try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
+try tls.pem.key(crypto, identity.key_pem, chain[0], &key);
 identities[0] = .{ .chain = chain, .key = &key };
 ```
 

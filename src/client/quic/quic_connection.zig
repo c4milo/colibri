@@ -151,10 +151,11 @@ pub const QuicConnection = struct {
 
     /// Prepares a connection whose first datagram `send` writes. `receive_pool` holds the server's
     /// octets until h3 reads them (decision 61), and no other connection uses it while this one
-    /// runs. Every draw the handshake makes comes from `random`, `now_seconds` is the instant a
-    /// Web PKI chain is judged at, `now_ns` the instant the connection begins, and `resumption`
-    /// offers a ticket an earlier one took.
-    pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
+    /// runs. Every draw the connection and its handshake make comes from the random source of the
+    /// TLS configuration's context (decision 175), `now_seconds` is the instant a Web PKI chain is
+    /// judged at, `now_ns` the instant the connection begins, and `resumption` offers a ticket an
+    /// earlier one took.
+    pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         assert(config.authority.len > 0);
         assert(receive_pool.capacity > 0 and receive_pool.blocks.len > 0);
         assert(coding.codings_valid(config.codings, .init(config)));
@@ -174,7 +175,9 @@ pub const QuicConnection = struct {
         // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old. The session
         // chooses the original version, a ticket's when one is offered (decision 111), and the
         // transport starts in it.
-        connection.session.start(config.tls, random, now_seconds, resumption) catch return error.TlsRefused;
+        connection.session.start(config.tls, now_seconds, resumption) catch return error.TlsRefused;
+        // The program's source, which the TLS configuration keeps for its sessions.
+        const random = config.tls.crypto.random;
         connection.transport.init(.{
             .role = .client,
             .version = connection.session.original_version(),

@@ -46,12 +46,12 @@ const pem_file_len_max: usize = constants.tls_pem_file_len_max;
 
 /// Reads `<prefix>.chain.pem` and `<prefix>.key.pem`, a chain and its key, through `tls.pem`, and
 /// returns the identity that points into `storage`. The key must be of `scheme`.
-pub fn load_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *PemStorage, cpu_value: tls.Cpu) !tls.Identity {
+pub fn load_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *PemStorage, crypto: @import("stdx").crypto.Context) !tls.Identity {
     const chain_file = try check_file.read_part(prefix, ".chain.pem", &storage.file);
     const chain = try tls.pem.chain(chain_file, &storage.der, &storage.certificates);
     const key_file = try check_file.read_part(prefix, ".key.pem", &storage.file);
     defer std.crypto.secureZero(u8, &storage.file);
-    try tls.pem.key(cpu_value, key_file, chain[0], &storage.key);
+    try tls.pem.key(crypto, key_file, chain[0], &storage.key);
     if (storage.key.scheme != scheme) return error.KeySchemeWrong;
     return .{ .chain = chain, .key = &storage.key };
 }
@@ -62,7 +62,7 @@ pub fn add_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *Storag
     const room = if (scheme == .mldsa87) &storage.mldsa87 else &storage.rsa;
     const count = server.identities.len;
     std.debug.assert(count < storage.identities.len);
-    storage.identities[count] = try load_pem(prefix, scheme, room, server.cpu);
+    storage.identities[count] = try load_pem(prefix, scheme, room, server.crypto);
     server.identities = storage.identities[0 .. count + 1];
 }
 
@@ -73,7 +73,7 @@ pub const LoadError = error{
 };
 
 /// Draws the cookie key. RFC 9846 §4.3.2 asks for one cookie key per deployment, and a run is one
-/// deployment. Each session draws the rest from the source `entropy.zig` hands its `start`.
+/// deployment. Each session draws the rest from the source of the program's context (`cpu.zig`).
 pub fn seed(storage: *Storage) void {
     entropy.fill(&storage.cookie_key);
 }
@@ -101,7 +101,7 @@ pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8
         .identities = storage.identities[0..1],
         .cookie_key = &storage.cookie_key,
         .alpn = protocols,
-        .cpu = cpu.probe(),
+        .crypto = cpu.crypto(),
     };
 }
 

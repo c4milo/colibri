@@ -139,7 +139,7 @@ fn on_tcp_event(event: udp.Event) void {
         .none => {},
         // A start chapulin refuses ends the attempt, and the pool owes no `close` event for a
         // connection that never started, so the socket closes here.
-        .connected => pool.start_tcp(tcp_connection, entropy.random(), now_seconds, null) catch tcp.close(&socket.loop),
+        .connected => pool.start_tcp(tcp_connection, now_seconds, null) catch tcp.close(&socket.loop),
         .failed, .open_failed => pool.transport_closed(tcp_connection),
     }
 }
@@ -212,7 +212,7 @@ fn handle(reported: client.Event, now_ns: u64) void {
 /// 9000 §7.2) and h3's grease value (RFC 9114 §7.2.4.1) from the source it is given (decision 120).
 fn start_quic(now_ns: u64) void {
     // A start chapulin refuses is the pool's to report: it ends the attempt, and TCP opens.
-    pool.start_quic(entropy.random(), now_seconds, now_ns, null) catch {};
+    pool.start_quic(now_seconds, now_ns, null) catch {};
 }
 
 /// Marks exchange `id` finished, over the protocol of the connection that last connected.

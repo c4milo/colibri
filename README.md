@@ -83,8 +83,10 @@ assertions stay on in production. `.rotor = true` fetches
 on. A program that runs them on its own loop, or that drives one protocol by itself, leaves the
 option out and fetches no Rotor ([decision 159](docs/decisions.md)).
 
-Your program asks its CPU once, through [stdx](https://github.com/c4milo/stdx)'s `platform`
-module. Depend on stdx at the commit colibri's `build.zig.zon` pins, with colibri's options:
+Your program detects its CPU features once, through [stdx](https://github.com/c4milo/stdx)'s
+`platform` module, and makes one `stdx.crypto.Context` of them and its source of randomness,
+which every TLS value holds ([decision 175](docs/decisions.md)). Depend on stdx at the commit
+colibri's `build.zig.zon` pins, with colibri's options:
 
 ```zig
 const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
@@ -101,7 +103,8 @@ const colibri = @import("colibri");
 const server = colibri.server;
 const client = colibri.client;
 const tls = colibri.tls;
-const platform = @import("stdx").platform;
+const stdx = @import("stdx");
+const platform = stdx.platform;
 ```
 
 colibri links [chapulin](https://github.com/c4milo/chapulin), its TLS stack, and a program
@@ -123,27 +126,28 @@ on the same port. Each connection runs its own TLS handshake, and ALPN picks the
 lines are from [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
-const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-// The CPU features the codecs run on, which the program also asks once and states in each
-// configuration (decision 169).
 const cpu_features: platform.CpuFeatures = .detect();
+_ = platform.set_data_independent_timing(cpu_features, true);
+const crypto = stdx.crypto.init(cpu_features, program.random());
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
-    .cpu = cpu,
+    .crypto = crypto,
     .unix_seconds = now_seconds,
     .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
 }, &router, &app);
 defer http_server.deinit();
-const thread = try std.Thread.spawn(.{}, serve, .{});
+const thread = try std.Thread.spawn(.{}, serve, .{cpu_features});
 defer thread.join();
 defer http_server.shutdown();
 ```
 
-`cpu` and `cpu_features` are what your program asked its CPU, and neither has a default: colibri
-never asks the CPU itself. `tls_buffer` holds the TLS session of each TCP connection. `run` serves
-on the thread that calls it until `shutdown`.
+`cpu_features` is what your program detected of its CPU, once, and `crypto` is its one
+`stdx.crypto.Context` of those features and its source of randomness. Every TLS session and every
+QUIC connection runs on the features and draws from the source. colibri never asks the CPU
+itself. `tls_buffer` holds the TLS session of each TCP connection. `run` serves on the thread that
+calls it until `shutdown`.
 
 A server declares its routes in a table, and `server.Router` builds the table at compile time. A
 path can hold parameters, such as `:name`, and a trailing wildcard. A table that hides a route,

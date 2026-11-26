@@ -59,7 +59,7 @@ pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     const slot = handle.slot;
     const config = if (socket.tls) &state.tcp_configs.secure else &state.tcp_configs.cleartext;
     const seconds = state.connections.seconds_at(now_ns);
-    state.tcp[slot].init(config, session, state.connections.random, seconds, now_ns) catch |failure| {
+    state.tcp[slot].init(config, session, seconds, now_ns) catch |failure| {
         // `init` refuses the versions and the limits `build` already took, so chapulin alone may
         // refuse here: it starts no session from the values (RFC 9846 §9.2).
         assert(failure == error.TlsRefused);

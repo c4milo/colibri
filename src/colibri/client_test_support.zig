@@ -177,7 +177,7 @@ pub var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
 /// when `identity` is set, and with a UDP socket for h3 when `udp` is set too. Its QUIC
 /// connections read and set ECN codepoints, as each `colibri.Server`'s do (decision 68).
 pub fn start_server(identity: bool, udp: bool) !void {
-    var config: server_module.ServerConfig = .{ .engine = .{ .cpu_features = .none() }, .cpu = support.cpu(), .unix_seconds = testdata.now_seconds };
+    var config: server_module.ServerConfig = .{ .engine = .{ .cpu_features = .none() }, .unix_seconds = testdata.now_seconds };
     if (identity) {
         config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
         config.engine.tls_buffer = &server_support.tls_buffer;
@@ -222,7 +222,7 @@ const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata
 /// judges the chain for `localhost` under the test identity's root.
 pub fn pool_config(protocols: client.Protocols, secure: bool) client.Config {
     var config: client.Config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = protocols };
-    if (secure) config.tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() };
+    if (secure) config.tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .crypto = support.crypto() };
     return config;
 }
 

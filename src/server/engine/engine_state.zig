@@ -128,7 +128,7 @@ pub const State = struct {
 
     /// Holds no connection. The engine stays where it is: the slots' table and the connections
     /// hold pointers into it.
-    pub fn init(state: *State, config: *const engine_config.Config, built: Built, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    pub fn init(state: *State, config: *const engine_config.Config, built: Built, storage: Storage, now_seconds: u64, now_ns: u64) void {
         assert(storage.tcp.len + storage.quic.len == storage.generations.len);
         assert(storage.tcp.len == storage.tcp_tables.len and storage.tcp.len == storage.transports.len);
         assert(storage.quic.len == storage.quic_tables.len and storage.tcp.len == storage.send_outstanding.len);
@@ -148,7 +148,7 @@ pub const State = struct {
         state.tcp_configs = built.tcp;
         state.served = built.served;
         const quic_config = built.quic;
-        state.connections.init(config, quic_config, .{ .connections = storage.quic, .pools = storage.pools, .route_entries = storage.route_entries, .route_held = storage.route_held }, &state.slots, random, now_seconds, now_ns);
+        state.connections.init(config, quic_config, .{ .connections = storage.quic, .pools = storage.pools, .route_entries = storage.route_entries, .route_held = storage.route_held }, &state.slots, now_seconds, now_ns);
         state.ready.init(storage.ready_numbers, storage.ready_queued);
         state.sendable.init(storage.send_numbers, storage.send_queued);
         state.heap.init(storage.cached, storage.position, storage.order, storage.stale_numbers, storage.stale_queued);

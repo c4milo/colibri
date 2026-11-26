@@ -66,7 +66,7 @@ test "RFC 9369 §4.1: a client switches once, before the server's first CRYPTO o
     try testing.expectError(error.Refused, server_suite.vtable.switch_version(server_suite.context, .v2));
     // A client started again has no session until its parameters start chapulin's, so it refuses
     // though the last session's memory would take the switch.
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    try client.start(&support.client_config, identity.now_seconds, null);
     try testing.expectError(error.Refused, client_suite.vtable.switch_version(client_suite.context, .v2));
     try client.provider().set_transport_params(support.client_parameters);
     // The version already negotiated is no switch, and after one there is no other.
@@ -87,8 +87,8 @@ test "RFC 9369 §4.1: a client switches once, before the server's first CRYPTO o
 
 test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no start installs nothing" {
     try support.configure(support.web_pki, .{});
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
-    server.start(&support.server_config, identity.random(), identity.now_seconds, .v1);
+    try client.start(&support.client_config, identity.now_seconds, null);
+    server.start(&support.server_config, identity.now_seconds, .v1);
     const client_suite = client.suite();
     const server_suite = server.suite();
     // Nothing is installed before chapulin's session starts.
@@ -144,7 +144,7 @@ test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no
 }
 
 test "RFC 9001 §6: 1-RTT packets carry each admitted suite, and a key update is the peer's next keys" {
-    for (identity.suites_held) |suite| {
+    for (identity.suites_held()) |suite| {
         const order = [_]u16{suite};
         try support.configure(support.web_pki, .{ .suites = identity.order_of(&order) });
         try support.handshake_both(null);
@@ -172,7 +172,7 @@ test "RFC 9001 §6: 1-RTT packets carry each admitted suite, and a key update is
 }
 
 test "RFC 9846 §4.2.2: a client's order naming one suite runs it, and chapulin's own runs its first" {
-    for (identity.suites_held) |suite| {
+    for (identity.suites_held()) |suite| {
         const order = [_]u16{suite};
         var offered = support.web_pki;
         offered.cipher_suites = identity.order_of(&order);
@@ -185,8 +185,8 @@ test "RFC 9846 §4.2.2: a client's order naming one suite runs it, and chapulin'
     }
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
-    try testing.expectEqual(identity.default_suite, try suite_ran(&client.session));
-    try testing.expectEqual(identity.default_suite, try suite_ran(&server.session));
+    try testing.expectEqual(identity.default_suite(), try suite_ran(&client.session));
+    try testing.expectEqual(identity.default_suite(), try suite_ran(&server.session));
     client.close();
     server.close();
 }
@@ -197,7 +197,7 @@ fn suite_ran(session: anytype) !u16 {
     if (session.suite()) |recorded| return @intFromEnum(recorded);
     // RFC 9846 §4.2.3: a client that offered more than one suite takes the one the ServerHello
     // names, so only a session that holds ChaCha20 alone records none.
-    try testing.expect(!identity.holds_aes_gcm(identity.cpu));
+    try testing.expect(!identity.holds_aes_gcm(identity.crypto));
     return identity.chacha;
 }
 
@@ -255,7 +255,7 @@ test "a level's octets that do not fit its buffer fail the handshake, and nothin
     client.close();
     server.close();
     // A client whose level is as full cannot stage its ClientHello there.
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    try client.start(&support.client_config, identity.now_seconds, null);
     client.state.outgoing_len[initial] = constants.limits.crypto_out_len - 1;
     try client.provider().set_transport_params(support.client_parameters);
     try testing.expectError(error.NoSpaceLeft, client.provider().vtable.write_handshake(client.provider().context, .initial, &support.scratch));
@@ -285,7 +285,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     defer ticket.wipe();
     try support.handshake_both(.{ .ticket = &ticket, .age_ms = 0 });
     try testing.expect(client.resumed() and server.resumed());
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    try client.start(&support.client_config, identity.now_seconds, null);
     const provider = client.provider();
     try testing.expectError(error.WrongLevel, provider.vtable.provide_handshake(provider.context, .initial, "\x02"));
     try testing.expectEqual(null, provider.vtable.peer_transport_params(provider.context));
@@ -308,7 +308,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     const header = try support.short_header(0, false, &header_storage);
     try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, .{ .level = .application, .version = .v1, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
     try testing.expectError(error.KeysUnavailable, suite.vtable.open(suite.context, .{ .level = .application, .version = .v1, .packet = support.packet[0..header.len], .packet_number_offset = header.len - support.packet_number_len, .largest_packet_number = null }));
-    server.start(&support.server_config, identity.random(), identity.now_seconds, .v1);
+    server.start(&support.server_config, identity.now_seconds, .v1);
     try testing.expectEqual(null, server.sni());
     try testing.expect(!server.resumed());
     const server_suite = server.suite();
@@ -355,26 +355,26 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
     // RFC 9369 §5: the ticket names version 1. A connection offered a ticket starts in its version
     // (decision 111), so one naming version 2 starts in version 2.
     try testing.expectEqual(@intFromEnum(crypto.suite.Version.v1), ticket.quic_version);
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &ticket, .age_ms = 0 });
+    try client.start(&support.client_config, identity.now_seconds, .{ .ticket = &ticket, .age_ms = 0 });
     try testing.expectEqual(.v1, client.original_version());
     var elsewhere = ticket;
     elsewhere.quic_version = @intFromEnum(crypto.suite.Version.v2);
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 });
+    try client.start(&support.client_config, identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 });
     try testing.expectEqual(.v2, client.original_version());
     // A ticket a TCP connection issued names no QUIC version, and no connection offers it.
     var over_tcp = ticket;
     over_tcp.quic_version = 0;
-    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &over_tcp, .age_ms = 0 }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.now_seconds, .{ .ticket = &over_tcp, .age_ms = 0 }));
     // A configuration that names another version wins, and then no connection offers the ticket.
     support.client_config.values.quic_version = .v1;
     defer support.client_config.values.quic_version = null;
-    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 }));
     var malformed = ticket;
     malformed.psk_len = 5;
-    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
     // RFC 9846 §4.7.1: a ticket past its lifetime is refused when chapulin's session starts.
     const stale_ms = (@as(u64, ticket.lifetime_s) + 1) * identity.ms_per_second;
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms });
+    try client.start(&support.client_config, identity.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms });
     try testing.expectError(error.TlsFailed, client.provider().set_transport_params(support.client_parameters));
     client.close();
 }
@@ -382,11 +382,11 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
 test "the keylog context a program sets is the one chapulin's hook carries" {
     try support.configure(support.web_pki, .{});
     var marker: u8 = 0;
-    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    try client.start(&support.client_config, identity.now_seconds, null);
     client.set_keylog_context(&marker);
     try client.provider().set_transport_params(support.client_parameters);
     // The hook's context is the provider's state, which keeps the program's context (decision 111).
-    const state: *quic.State = @ptrCast(@alignCast(client.session.hook.context.?));
+    const state: *quic.State = @ptrCast(@alignCast(client.session.session.hook.context.?));
     try testing.expectEqual(&client.state, state);
     try testing.expectEqual(@as(?*anyopaque, &marker), state.keylog_context);
     client.close();
@@ -462,9 +462,13 @@ const InitialFlights = struct {
 fn initial_flights(client_seed: u64, server_seed: u64, flights: *InitialFlights) !void {
     var client_stream: random_support.Stream = .{ .state = client_seed };
     var server_stream: random_support.Stream = .{ .state = server_seed };
-    try client.start(&support.client_config, client_stream.random(), identity.now_seconds, null);
+    // Decision 175: each configuration's context holds the source its sessions draw from.
+    var offered = support.web_pki;
+    offered.crypto = @import("stdx").crypto.init(identity.features, client_stream.random());
+    try support.configure(offered, .{ .crypto = @import("stdx").crypto.init(identity.features, server_stream.random()) });
+    try client.start(&support.client_config, identity.now_seconds, null);
     defer client.close();
-    server.start(&support.server_config, server_stream.random(), identity.now_seconds, .v1);
+    server.start(&support.server_config, identity.now_seconds, .v1);
     defer server.close();
     try client.provider().set_transport_params(support.client_parameters);
     try server.provider().set_transport_params(support.server_parameters);
@@ -475,8 +479,7 @@ fn initial_flights(client_seed: u64, server_seed: u64, flights: *InitialFlights)
     flights.answer_len = try to.vtable.write_handshake(to.context, .initial, &flights.answer);
 }
 
-test "decision 94: each QUIC session draws from its caller's source alone, so one seed replays it" {
-    try support.configure(support.web_pki, .{});
+test "decision 175: each QUIC session draws from its context's source alone, so one seed replays it" {
     const seed = random_support.seed;
     var first: InitialFlights = .{};
     var again: InitialFlights = .{};

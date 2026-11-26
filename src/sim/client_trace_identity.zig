@@ -4,6 +4,7 @@
 //! Every handshake of either run judges the chain at `now_seconds`, so no run reads a clock
 //! (non-negotiable 3).
 const tls = @import("tls");
+const stdx = @import("stdx");
 const testdata = @import("testdata");
 
 pub const leaf = testdata.leaf;
@@ -24,12 +25,18 @@ pub const key: tls.Key = p256_key: {
 /// The instant every handshake of the run judges the chain at. Any instant inside the identity's
 /// validity works, from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU the run describes: the build target's probe, as the tests pass it, and the thread's mode
-/// stated, so a host runs the suites a program that states it runs (decision 97 as amended).
-pub const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null },
-    .timing = .data_independent,
-};
+/// The type of a context's random source, `stdx.crypto.Context.random`, which each side of a run
+/// builds over its own SplitMix64 stream.
+pub const RandomSource = @FieldType(stdx.crypto.Context, "random");
+
+/// The context of one side of a run, whose draws come from `random` (decision 175): the build
+/// target's CPU features, as the tests pass them, so a host runs the suites a program runs. On
+/// arm64 it first sets the thread's PSTATE.DIT where the core has FEAT_DIT, as a program does on
+/// each thread that runs TLS, so stdx states the timing there as it does on every x86-64 core.
+pub fn crypto(random: RandomSource) stdx.crypto.Context {
+    _ = stdx.platform.set_data_independent_timing(stdx.platform.CpuFeatures.detect(), true);
+    return stdx.crypto.init(.target(), random);
+}
 /// The authority the certificate names, which every request of the run carries.
 pub const authority = "localhost";
 

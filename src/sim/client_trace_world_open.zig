@@ -8,7 +8,6 @@ const world_module = @import("client_trace_world.zig");
 const identity = @import("client_trace_identity.zig");
 
 const World = world_module.World;
-const tls_source = world_module.tls_source;
 
 /// Starts the QUIC connection the pool asked for, over a fresh flow to a fresh server.
 pub fn open_quic(world: *World, connection: client.ConnectionHandle) void {
@@ -17,7 +16,7 @@ pub fn open_quic(world: *World, connection: client.ConnectionHandle) void {
     world.quic_server.reset(world.pool.quic_link.opens);
     // The pool draws the grease value, then the two IDs, then the session's draws, from this one
     // source (decision 120). A start chapulin refuses is the pool's to report.
-    world.pool.start_quic(tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
+    world.pool.start_quic(identity.now_seconds, world.now_ns, null) catch {};
 }
 
 /// Starts the TCP connection the pool asked for, over a fresh link, or fails its connect when
@@ -33,6 +32,6 @@ pub fn open_tcp(world: *World, connection: client.ConnectionHandle) void {
         world.pool.transport_closed(connection);
         return;
     }
-    world.tcp_server.reset(world.pool.tcp_links[0].opens, tls_source(&world.tls_random)) catch {};
-    world.pool.start_tcp(connection, tls_source(&world.tls_random), identity.now_seconds, null) catch {};
+    world.tcp_server.reset(world.pool.tcp_links[0].opens) catch {};
+    world.pool.start_tcp(connection, identity.now_seconds, null) catch {};
 }

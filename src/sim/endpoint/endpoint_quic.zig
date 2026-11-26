@@ -16,6 +16,7 @@ const script = @import("../h3_deadline_script.zig");
 const link_module = @import("../h3_deadline_link.zig");
 const plan_module = @import("endpoint_plan.zig");
 const tcp_module = @import("endpoint_tcp.zig");
+const identity = @import("../client_trace_identity.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.endpoint;
@@ -93,7 +94,7 @@ pub fn arrive(peer: *Peer, index: usize, plan: *const QuicPeer, now_ns: u64, now
     peer.h3_started_ms = null;
     peer.closing = false;
     peer.link.init(plan.behaviour.link_rate);
-    try peer.peer.start_with(&plan.behaviour, tls.Random.init(&peer.random, tcp_module.fill), now_ns, Peer.ids_of(index));
+    try peer.peer.start_with(&plan.behaviour, identity.RandomSource.init(&peer.random, tcp_module.fill), now_ns, Peer.ids_of(index));
     return true;
 }
 

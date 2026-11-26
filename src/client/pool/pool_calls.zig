@@ -189,8 +189,12 @@ pub fn on_instant(pool: anytype, now_ns: u64) void {
     }
 }
 
-pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
+pub fn start_quic(pool: anytype, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
     if (!pool.capacity.quic) @compileError("a pool with no QUIC never asks for QUIC, so it has no start_quic");
+    // RFC 9001 §4: QUIC's keys come from a TLS handshake, so a pool offers QUIC only with TLS
+    // values, whose context holds the program's source (decision 175).
+    assert(pool.config.tls != null);
+    const random = pool.config.tls.?.crypto.random;
     const link = &pool.quic_link;
     if (link.state != .opening) return;
     assert(!link.open_owed);
@@ -204,7 +208,7 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
     // Connection ID is "an unpredictable value".
     random.bytes(&start.source_id);
     random.bytes(&start.original_destination_id);
-    pool.quic.init(&pool.quic_config, pool.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
+    pool.quic.init(&pool.quic_config, pool.receive_pool.?, start, now_seconds, now_ns, resumption) catch |failure| {
         // The attempt ended before it began: the model's FailHandshake, then Close.
         pool_links.close_unstarted(pool, pool_handle.quic_slot(pool));
         return failure;
@@ -215,13 +219,13 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
     if (pool.config.protocols.prefer == .quic) pool.fallback_at_ns = now_ns + pool.config.fallback_delay_ns;
 }
 
-pub fn start_tcp(pool: anytype, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+pub fn start_tcp(pool: anytype, connection: ConnectionHandle, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
     const slot = pool_handle.resolve(pool, connection) orelse return;
     if (pool_handle.transport_of(pool, slot) != .tcp) return;
     const link = &pool.tcp_links[slot];
     if (link.state != .opening) return;
     assert(!link.open_owed);
-    pool.tcp[slot].init(&pool.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
+    pool.tcp[slot].init(&pool.tcp_config, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
         // The pool asks for TCP only while `versions` allows h11 or h2, so the TLS stack alone
         // refuses a start.
         assert(failure == error.TlsRefused);

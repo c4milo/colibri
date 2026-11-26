@@ -2,9 +2,9 @@
 //! share. It is not an example of colibri by itself.
 //!
 //! colibri draws no random octet of its own accord (non-negotiable 5). Each connection draws every
-//! random value from the source the program passes it. A program passes its operating system's
-//! entropy, as here. A test passes a seeded generator, and the connection then replays octet for
-//! octet.
+//! random value from the source of the program's one `stdx.crypto.Context` (decision 175). A
+//! program passes its operating system's entropy, as here. A test passes a seeded generator, and
+//! the connection then replays octet for octet. A program that serves peers never does that.
 const std = @import("std");
 
 /// macOS and glibc declare `getentropy` in `unistd.h`, and Zig's `std.c` exposes it on neither.
@@ -26,8 +26,8 @@ pub fn fill(octets: []u8) void {
     }
 }
 
-/// The source the program passes each connection. It keeps no state, so one serves every
-/// connection.
+/// The source of the program's context, which every connection draws from. It keeps no state, so
+/// one serves every connection.
 pub fn random() std.Random {
     return .{ .ptr = @constCast(&source_marker), .fillFn = fill_source };
 }

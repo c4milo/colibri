@@ -26,10 +26,12 @@ const headers_len = 256;
 fn start(protocols: client.Protocols, udp: bool, counter: *support.Counter, handler: anytype) !void {
     try fixture.start_server(true, udp);
     errdefer fixture.stop_server();
+    // Decision 175: the client draws from the context in its pool's TLS values.
+    var pool = fixture.pool_config(protocols, true);
+    pool.tls.?.crypto = counter.crypto();
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.port()),
-        .pool = fixture.pool_config(protocols, true),
-        .random = counter.random(),
+        .pool = pool,
         .unix_seconds = testdata.now_seconds,
     }, handler);
 }
@@ -131,12 +133,10 @@ test "decision 156 ruling 12: a fetch beside an exchange of request leaves that 
 }
 
 test "decision 156 ruling 12: a fetch after shutdown returns ShutDown, and makes no loop" {
-    var counter: support.Counter = .{};
     // No server runs: the fetch ends before the client connects.
     try test_client.init(&.{
         .destination = fixture.loopback(fixture.https_port),
         .pool = fixture.pool_config(.{ .h3 = false }, false),
-        .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
     }, null);
     defer test_client.deinit();
