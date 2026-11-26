@@ -3,8 +3,6 @@
 //! (https://github.com/c4milo/colibri/issues/79): the test identity of `src/testing/testdata/`.
 //! Every handshake of either run judges the chain at `now_seconds`, so no run reads a clock
 //! (non-negotiable 3).
-const std = @import("std");
-const builtin = @import("builtin");
 const tls = @import("tls");
 const stdx = @import("stdx");
 const testdata = @import("testdata");
@@ -41,42 +39,13 @@ pub fn crypto(random: RandomSource) stdx.crypto.Context {
     return stdx.crypto.init(features, random);
 }
 
-/// The cipher suite every session of a run holds on this host. Each suite puts other octets on the
-/// wire, so a census pins one wire checksum for each, and one seed replays octet for octet on
-/// every host that holds the same suite (decision 175 as the owner ruled on 2026-11-26).
-pub const Suite = enum { aes_gcm, chacha20 };
-
-/// AES-GCM where stdx's description of the CPU claims the AES instructions, and ChaCha20
-/// otherwise, by stdx's rule (its decision 87 as amended): the timing stated, on every x86-64 core
-/// and on an arm64 thread whose PSTATE.DIT is set, and the features holding AES and the
-/// carry-less multiply. A virtual machine that hides FEAT_DIT holds ChaCha20. The `tls` tests
-/// read the same rule (`record_test_support.aes_claimed`).
-pub fn suite() Suite {
-    const features: stdx.platform.CpuFeatures = .detect();
-    _ = stdx.platform.set_data_independent_timing(features, true);
-    return suite_of(features, builtin.cpu.arch);
-}
-
-/// `suite`'s rule for `features` on `arch`. `arch` is the target's, and a test passes another one,
-/// whose thread it reads only where the features hold FEAT_DIT.
-fn suite_of(features: stdx.platform.CpuFeatures, arch: std.Target.Cpu.Arch) Suite {
-    const claimed = switch (arch) {
-        .x86_64 => features.aes and features.pclmul,
-        .aarch64 => features.dit and stdx.platform.data_independent_timing(features) and features.aes and features.pmull,
-        else => false,
-    };
-    return if (claimed) .aes_gcm else .chacha20;
-}
-
-test "decision 175: a host holds AES-GCM only where stdx claims the AES instructions" {
-    try std.testing.expectEqual(Suite.aes_gcm, suite_of(.{ .aes = true, .pclmul = true }, .x86_64));
-    // AES-GCM runs the carry-less multiply beside AES's rounds.
-    try std.testing.expectEqual(Suite.chacha20, suite_of(.{ .aes = true }, .x86_64));
-    try std.testing.expectEqual(Suite.chacha20, suite_of(.none(), .x86_64));
-    // An arm64 virtual machine that hides FEAT_DIT: stdx states no timing there.
-    try std.testing.expectEqual(Suite.chacha20, suite_of(.{ .aes = true, .pmull = true }, .aarch64));
-    try std.testing.expectEqual(Suite.chacha20, suite_of(.{ .aes = true, .pclmul = true }, .riscv64));
-}
+/// The suites every TLS value of a run offers: ChaCha20 alone, which every host holds (decision
+/// 175 as the owner ruled on 2026-11-26). The host's features still pick the code that runs it,
+/// but no feature changes an octet a run sends, so one seed replays octet for octet on every host
+/// (non-negotiable 5). An object that holds one suite takes no order, and that suite is ChaCha20.
+pub const cipher_suites: []const u16 = if (takes_order) &chacha20 else &.{};
+const chacha20 = [_]u16{@intFromEnum(stdx.crypto.tls.Suite.chacha20_poly1305_sha256)};
+const takes_order = @hasField(stdx.crypto.tls.c.ch_srv_cfg, "cipher_suites");
 /// The authority the certificate names, which every request of the run carries.
 pub const authority = "localhost";
 

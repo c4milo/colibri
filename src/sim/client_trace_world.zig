@@ -23,6 +23,7 @@ const identity = @import("client_trace_identity.zig");
 const QuicServer = @import("client_trace_quic_server.zig").QuicServer;
 const TcpServer = @import("client_trace_tcp_server.zig").TcpServer;
 const body = @import("client_trace_world_body.zig");
+const send = @import("client_trace_world_send.zig");
 const opens = @import("client_trace_world_open.zig");
 
 const limits = sim.constants.client_trace;
@@ -104,6 +105,8 @@ pub const World = struct {
     datagram: [datagram_len]u8,
     crossing: [datagram_len]u8,
     segment: [segment_len]u8,
+    /// The CRC-32 of every octet the pool sent, datagrams and TCP segments in order.
+    wire: std.hash.Crc32,
 
     /// Prepares the world for `seed`'s plan, with nothing opened.
     pub fn init(world: *World, seed: u64) !void {
@@ -115,6 +118,7 @@ pub const World = struct {
         world.plan.draw_preference(&preference_random);
         world.tls_random = Random.init(seed ^ tls_seed_mark);
         world.now_ns = 0;
+        world.wire = .init();
         world.ids = @splat(null);
         world.cancelled = @splat(false);
         world.reported = @splat(false);
@@ -146,7 +150,7 @@ pub const World = struct {
         comptime assert(std.meta.fields(@TypeOf(world.plan.prefer)).len == std.meta.fields(Transport).len);
         world.pool_config = .{
             .cpu_features = .none(),
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .crypto = identity.crypto(tls_source(&world.tls_random)) },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cipher_suites = identity.cipher_suites, .crypto = identity.crypto(tls_source(&world.tls_random)) },
             // TCP offers "h2" alone, and QUIC "h3". The plan names the transport that opens first.
             .protocols = .{ .h11 = false, .prefer = if (world.plan.prefer == .quic) .quic else .tcp },
             .authority = identity.authority,
@@ -366,7 +370,7 @@ pub const World = struct {
     fn settle(world: *World) Error!void {
         for (0..limits.settle_rounds_max) |_| {
             var moved = try world.collect();
-            moved = try world.pool_sends() or moved;
+            moved = try send.pool_sends(world) or moved;
             moved = try world.servers_serve() or moved;
             try world.stream_to_pool();
             if (!moved) return;
@@ -384,21 +388,6 @@ pub const World = struct {
             any = true;
         }
         return error.Unsettled;
-    }
-
-    fn pool_sends(world: *World) Error!bool {
-        var moved = false;
-        for (0..limits.datagrams_per_round_max) |_| {
-            const sent = world.pool.send_datagram(&world.datagram, world.now_ns) orelse break;
-            _ = world.network.send(world.now_ns, .client, sent.bytes, .not_ect);
-            moved = true;
-        }
-        const written = world.pool.send_stream(world.tcp_connection, &world.segment, world.now_ns);
-        if (written > 0) {
-            try world.to_server.push(world.segment[0..written], world.now_ns + limits.tcp_delay_ns);
-            moved = true;
-        }
-        return moved;
     }
 
     fn servers_serve(world: *World) Error!bool {

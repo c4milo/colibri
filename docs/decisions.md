@@ -8559,19 +8559,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        root names nothing of stdx (decision 170).
      - A seed still replays. The engine passed its own source to each session before, so the
        engine and its sessions drew from one source then too.
-     - The simulator detects the host's CPU features, as a program does, and so runs the suite
-       the host holds. Ruled by the owner on 2026-11-26: "we should always detect the host cpu
-       features", and "Detect, pin checksum per suite". The simulator once stated the timing on
-       every host, so every host ran AES-GCM. stdx states it on arm64 only where the core has
-       FEAT_DIT, and GitHub's arm64 Linux machines hide it, so they run ChaCha20. Each census that
-       covers the wire of TLS therefore pins one value for each suite, which
-       `client_trace_identity.suite` picks by stdx's rule. One seed replays octet for octet on
-       every host that holds the same suite (non-negotiable 5 as amended). The alternatives
-       refused:
-       - A CPU with no feature on every host: every host runs ChaCha20 and one value holds
-         everywhere, but no host runs its own features.
-       - The host's features, with the simulator's sessions offering ChaCha20 alone: the wire
-         is the same everywhere, but no run sends AES-GCM.
+     - The simulator detects the host's CPU features, as a program does, and every client of
+       its runs offers ChaCha20 alone, which every host holds. A server selects among the suites
+       its client offers, so it names no order. The host's features pick the code that runs
+       ChaCha20, and change no octet a run sends, so one seed replays octet for octet on every
+       host (non-negotiable 5). Ruled by the owner on 2026-11-26: "we should always detect the
+       host cpu features", and then "Detect, offer ChaCha20 only". The simulator once stated the
+       timing on every host, so every host ran AES-GCM. stdx states it on arm64 only where the
+       core has FEAT_DIT, and GitHub's arm64 Linux machines report none, so they ran ChaCha20.
+       The `tls` tests, `tools/h3spec.sh` and `tools/tls_openssl.sh` cover AES-GCM. The
+       alternatives refused:
+       - A CPU with no feature on every host: one value holds everywhere, but no host runs its
+         own features.
+       - The host's features, and one pinned value for each suite: a seed then replays only on a
+         host that holds the same suite, so a failure on one host may not reproduce on another.
+         The owner ruled it first, and then replaced it the same day.
      - Each example over TLS, `tools/consumer/` and `tools/consumer_hosted/` draw from
        `io.randomSecure`, in the shape stdx documents, and halt when a draw fails. The owner
        ruled the same day to delete `examples/tls_program.zig`, which wrapped `getentropy`, so

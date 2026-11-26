@@ -23,7 +23,6 @@ const plan_module = @import("endpoint_plan.zig");
 const run_module = @import("endpoint_run.zig");
 const tcp_module = @import("endpoint_tcp.zig");
 const ledger_module = @import("endpoint_ledger.zig");
-const identity = @import("../client_trace_identity.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.endpoint;
@@ -36,14 +35,8 @@ pub const check_name = "endpoint";
 /// of the runs' wire CRC-32s. A change to the plan, to what the endpoint does or to the trace
 /// format changes the first, and one to what goes over the wire changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
-/// The runs speak TLS, so each holds one value for each suite the host's sessions hold
-/// (`identity.suite`).
-pub const census_crc32_expected = std.EnumArray(identity.Suite, u32).init(.{ .aes_gcm = census_crc32_aes_gcm, .chacha20 = census_crc32_chacha20 });
-pub const census_wire_crc32_expected = std.EnumArray(identity.Suite, u32).init(.{ .aes_gcm = census_wire_crc32_aes_gcm, .chacha20 = census_wire_crc32_chacha20 });
-const census_crc32_aes_gcm: u32 = 0xff5198ed;
-const census_crc32_chacha20: u32 = 0x11f564ec;
-const census_wire_crc32_aes_gcm: u32 = 0xb36ae803;
-const census_wire_crc32_chacha20: u32 = 0x704fabe0;
+pub const census_crc32_expected: u32 = 0x11f564ec;
+pub const census_wire_crc32_expected: u32 = 0x704fabe0;
 
 pub const Violation = run_module.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -234,7 +227,6 @@ test "decision 119: every seed's peers share one endpoint, each property holds, 
         census.waiting_probes,       census.accept_waits,       census.shutdowns,
     };
     for (counted) |count| try std.testing.expect(count > 0);
-    const suite = identity.suite();
-    try std.testing.expectEqual(census_crc32_expected.get(suite), census.crc32.final());
-    try std.testing.expectEqual(census_wire_crc32_expected.get(suite), census.wire_crc32.final());
+    try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
+    try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }

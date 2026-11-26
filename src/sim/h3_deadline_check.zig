@@ -34,7 +34,6 @@ const h3_deadline_plan = @import("h3_deadline_plan.zig");
 const h3_deadline_run = @import("h3_deadline_run.zig");
 const h3_deadline_link = @import("h3_deadline_link.zig");
 const h3_deadline_app = @import("h3_deadline_app.zig");
-const identity = @import("client_trace_identity.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.h3_deadline;
@@ -53,11 +52,7 @@ pub const census_crc32_expected: u32 = 0x747d6b1a;
 /// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
 /// from what the application reads, so a change to how the server reports events keeps it, and a
 /// change to what it sends does not (design §8 step 21b.3).
-/// The connections speak TLS, so it holds one value for each suite the host's sessions hold
-/// (`identity.suite`).
-pub const census_wire_crc32_expected = std.EnumArray(identity.Suite, u32).init(.{ .aes_gcm = census_wire_crc32_aes_gcm, .chacha20 = census_wire_crc32_chacha20 });
-const census_wire_crc32_aes_gcm: u32 = 0x14a077a6;
-const census_wire_crc32_chacha20: u32 = 0x479360b3;
+pub const census_wire_crc32_expected: u32 = 0x479360b3;
 
 pub const Violation = h3_deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -429,5 +424,5 @@ test "decision 110: every h3 seed replays, honest peers finish their exchanges, 
     try std.testing.expect(census.first_request > 0 and census.idle > 0 and census.peer_resets > 0);
     try std.testing.expect(census.body_rate > 0 and census.send_rate > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
-    try std.testing.expectEqual(census_wire_crc32_expected.get(identity.suite()), census.wire_crc32.final());
+    try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }

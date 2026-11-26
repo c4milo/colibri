@@ -55,10 +55,10 @@ The architecture depends on every rule in this section.
    amended). Every loop and queue bounded. Every limit named in
    a `constants.zig` and never written inline. Assertions on in production, roughly two per
    function, covering positive and negative space.
-5. **Determinism.** One seed replays byte-identically across build modes, and across hosts whose
-   TLS sessions hold the same cipher suite (decision 175). Nothing on a protocol path may read the
-   clock, the PRNG, uninitialised memory, or a pointer value. A connection's output is a pure
-   function of (its configuration, the bytes it was fed, the instants it was given).
+5. **Determinism.** One seed replays byte-identically across hosts and build modes. Nothing on a
+   protocol path may read the clock, the PRNG, uninitialised memory, or a pointer value. A
+   connection's output is a pure function of (its configuration, the bytes it was fed, the
+   instants it was given).
 6. **Formats are versioned from the first commit.** Every internal on-disk and cross-process
    structure colibri defines carries a version and a size. The wire formats are the RFCs' and
    cannot be versioned by us, so our own structures must carry a version and a size.

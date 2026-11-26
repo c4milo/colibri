@@ -117,13 +117,18 @@ pub const Census = struct {
     result: Result = .{},
     /// The longest a seed's pool took to close once it had nothing left to carry.
     closing_max_ns: u64 = 0,
+    /// The CRC-32 of each seed's wire checksum, least significant octet first, in seed order.
+    wire_crc32: std.hash.Crc32 = .init(),
 
-    fn count(census: *Census, result: Result, closing_ns: u64) void {
+    fn count(census: *Census, result: Result, closing_ns: u64, wire: u32) void {
         census.seeds += 1;
         inline for (std.meta.fields(Result)) |field| {
             @field(census.result, field.name) += @field(result, field.name);
         }
         census.closing_max_ns = @max(census.closing_max_ns, closing_ns);
+        var wire_octets: [@sizeOf(u32)]u8 = undefined;
+        std.mem.writeInt(u32, &wire_octets, wire, .little);
+        census.wire_crc32.update(&wire_octets);
     }
 };
 
@@ -134,9 +139,11 @@ const repeats_max: u32 = 64;
 pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     const first = try run_once(storage, seed);
     const first_len = storage.states_len;
+    const first_wire = storage.world.wire.final();
     @memcpy(storage.first[0..first_len], storage.states[0..first_len]);
     const second = try run_once(storage, seed);
     if (second.states != first.states) return error.ReplayDiverged;
+    if (storage.world.wire.final() != first_wire) return error.ReplayDiverged;
     for (storage.first[0..first_len], storage.states[0..first_len]) |*before, *again| {
         if (!std.meta.eql(before.*, again.*)) return error.ReplayDiverged;
     }
@@ -315,7 +322,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
     for (0..seeds) |seed| {
         failed_seed.* = seed;
         const result = try run_seed(storage, seed);
-        census.count(result, storage.world.now_ns - closing_from_ns(&storage.world));
+        census.count(result, storage.world.now_ns - closing_from_ns(&storage.world), storage.world.wire.final());
     }
     failed_seed.* = null;
     assert(census.seeds == seeds);
@@ -364,4 +371,10 @@ test "client trace run: every seed closes the pool with each exchange reported o
         .quic_after_tcp = 11,
         .trailers = 113,
     }, census.result);
+    // Every octet the pool sent, so a change to one changes it (decision 175).
+    try testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }
+
+/// The census's `wire_crc32`, committed with its new value once the check passes in both build
+/// modes.
+const census_wire_crc32_expected: u32 = 0x538c78ad;
