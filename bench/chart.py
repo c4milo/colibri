@@ -21,17 +21,27 @@ spreads, the noise bench/report.py judges a change by.
 <run> is the number of the run of bench.yml that wrote the report. The subtitle names it with the
 commit and the machine the report names, as docs/performance.md asks of a published number.
 
-    python3 bench/chart.py cpu <report.md> <run> [out.svg]
-    python3 bench/chart.py throughput <report.md> <run> [out.svg]
-    python3 bench/chart.py latency <report.md> <run> [out.svg]
+Each chart writes colibri's values beside its SVG, as `<chart>.json`, under the release that
+`--release` names. With `--previous`, the same chart's file of the previous release, each chart
+marks colibri's values that moved 5% or more since then with ▲ or ▼ (bench/chart_change.py,
+design §8 step 13u).
+
+    python3 bench/chart.py cpu <report.md> <run> [out.svg] [--release <tag>] [--previous <file>]
+    python3 bench/chart.py throughput <report.md> <run> [out.svg] [--release <tag>] [--previous <file>]
+    python3 bench/chart.py latency <report.md> <run> [out.svg] [--release <tag>] [--previous <file>]
     python3 bench/chart.py --test
 """
 
+import json
 import math
 import pathlib
 import re
 import sys
 import tempfile
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
+import chart_change
 
 # The loads of many requests the CPU chart draws, and each panel's title.
 CPU_INPUTS = (
@@ -77,7 +87,12 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 .val { font-size: 11px; font-weight: 600; }
 .tick { font-size: 11px; fill: var(--muted); }
 .legend { font-size: 12.5px; fill: var(--ink2); }
+''' + chart_change.STYLE + '''
 </style>'''
+# What a bar chart's marks compare, as its note at the foot names it.
+BARS_MARKED = "colibri's value"
+# What the latency chart's marks compare.
+LATENCY_MARKED = "colibri's highest sustained rate"
 
 
 def number(text):
@@ -167,9 +182,11 @@ def verdict_title(values, labels, lower_wins, what):
     return title
 
 
-def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description, at_least=None):
+def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description, at_least=None, change=None):
     """Panels of bars, two to a row: one panel for each label, colibri first and in blue, the other
-    servers in gray, best first, each with its value as a multiple of colibri's."""
+    servers in gray, best first, each with its value as a multiple of colibri's. `change` records
+    colibri's values and marks each one that moved since the previous release."""
+    change = change or chart_change.Change()
     panels = [(key, label) for key, label in labels if key in values]
     head, top = heading(title, lines)
     columns, panel_w, gap_x = 2, 384, 24
@@ -177,22 +194,32 @@ def bars_chart(values, labels, lower_wins, title, lines, unit, axis, description
     for first in range(0, len(panels), columns):
         rows_max = max(len(values[key]) for key, _ in panels[first:first + columns])
         rows_y.append(rows_y[-1] + 30 + rows_max * 27 + 28)
-    parts = svg_head(rows_y[-1], title, description) + head
+    height = rows_y[-1] + change.note_height(BARS_MARKED, True)
+    parts = svg_head(height, title, description) + head
     for index, (key, label) in enumerate(panels):
         left = PAD + (index % columns) * (panel_w + gap_x)
         marked = (at_least or {}).get(key, ())
-        parts += bars_panel(values[key], label, left, rows_y[index // columns], panel_w, lower_wins, unit, axis, marked)
+        place = (left, rows_y[index // columns], panel_w)
+        parts += bars_panel(values[key], (key, label), place, lower_wins, (unit, axis), marked, change)
+    change.draw_note(parts, BARS_MARKED, True, PAD, height)
     parts.append('</svg>')
     return "\n".join(parts) + "\n"
 
 
-def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis, at_least=()):
+def bars_panel(servers, panel, place, lower_wins, units, at_least, change):
+    """One panel of bars. `panel` is its key and its title, `place` its left, its top and its width,
+    and `units` the value's unit and the axis's name."""
+    (key, label), (left, y0, panel_w), (unit, axis) = panel, place, units
     bar_h, bar_gap, label_w = 18, 9, 104
     parts = [f'<text class="panel" x="{left}" y="{y0 + 14}">{label}</text>']
     bar_left = left + label_w
     # The room right of the longest bar holds its label.
     bar_room = panel_w - label_w - 120
-    high = max(value for value, _ in servers.values())
+    colibri = servers["colibri"][0]
+    change.record(key, label, colibri, not lower_wins)
+    was = change.was(key)
+    # The scale holds the previous release's value too, so that its line stays inside the panel.
+    high = max([value for value, _ in servers.values()] + ([was] if was else []))
     step = nice_step(high, 4)
     scale = bar_room / (math.ceil(high / step) * step)
     others = sorted((s for s in servers if s != "colibri"), key=lambda s: servers[s][0], reverse=not lower_wins)
@@ -207,7 +234,6 @@ def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis, at_lea
         parts.append(f'<text class="tick" x="{x:.1f}" y="{axis_y + 10}" text-anchor="middle">{unit(tick, axis=True)}</text>')
         tick += step
     parts.append(f'<text class="tick" x="{left + panel_w - 4}" y="{axis_y + 10}" text-anchor="end">{axis}</text>')
-    colibri = servers["colibri"][0]
     for row, server in enumerate(order):
         y = rows_y + row * (bar_h + bar_gap)
         value = servers[server][0]
@@ -220,8 +246,16 @@ def bars_panel(servers, label, left, y0, panel_w, lower_wins, unit, axis, at_lea
         digits = 1 if ratio >= 10 else 2
         multiple = f"{ratio:.{digits}f}× colibri" if lower_wins else f"colibri {ratio:.{digits}f}×"
         times = "" if server == "colibri" else f", {multiple}"
-        parts.append(f'<text class="val" x="{bar_left + value * scale + 6:.1f}" y="{y + bar_h / 2 + 4:.1f}">'
-                     f'{"≥ " if server in at_least else ""}{unit(value)}{times}</text>')
+        label_x, mark = bar_left + value * scale + 6, ""
+        if server == "colibri":
+            line = change.line(key, lambda held: bar_left + held * scale, y, bar_h)
+            if line:
+                parts.append(line)
+                # The label starts past the line when the previous value lies beyond the bar.
+                label_x = max(label_x, bar_left + was * scale + 6)
+            mark = change.mark(key)
+        parts.append(f'<text class="val" x="{label_x:.1f}" y="{y + bar_h / 2 + 4:.1f}">'
+                     f'{"≥ " if server in at_least else ""}{unit(value)}{times}{mark}</text>')
     return parts
 
 
@@ -252,16 +286,18 @@ def h3_stacks(values):
     return ["Over h3, axum serves through quinn and the h3 crate."] if "axum" in values.get("h3-many", {}) else []
 
 
-def cpu_chart(text, run):
+def cpu_chart(text, run, change=None):
+    change = change or chart_change.Change()
     values, machine, commit = read_cpu(text)
     require_colibri(values)
+    change.read(machine, commit)
     title = verdict_title(values, CPU_INPUTS, True, "takes the least CPU time a request")
     lines = ["The time the server's threads ran, in user space and in the kernel, over the requests of the load. Shorter is better.",
              "Each server runs on a core of its own. From two other cores, wrk sends 16 connections, and h2load 16 of 10 streams each.",
              *h3_stacks(values),
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
     return bars_chart(values, CPU_INPUTS, True, title, lines, microseconds, "µs a request",
-                      f"{title}. " + described(values, CPU_INPUTS, microseconds))
+                      f"{title}. " + described(values, CPU_INPUTS, microseconds), change=change)
 
 
 def require_colibri(values):
@@ -337,9 +373,11 @@ def read_throughput(text):
     return values, at_least, machine, header.get("change", "unknown")
 
 
-def throughput_chart(text, run):
+def throughput_chart(text, run, change=None):
+    change = change or chart_change.Change()
     values, at_least, machine, commit = read_throughput(text)
     require_colibri(values)
+    change.read(machine, commit)
     title = verdict_title(values, CPU_INPUTS, False, "serves the most requests a second on one core")
     load = re.search(r"^throughput=(\d+) s a load, (\d+) connections, (\d+) streams", text, re.M)
     if not load:
@@ -351,13 +389,20 @@ def throughput_chart(text, run):
              *h3_stacks(values),
              f"One run of bench.yml measured all: run {run}, commit {commit}, {machine}."]
     return bars_chart(values, CPU_INPUTS, False, title, lines, requests_a_second, "requests a second",
-                      f"{title}. " + described(values, CPU_INPUTS, requests_a_second), at_least)
+                      f"{title}. " + described(values, CPU_INPUTS, requests_a_second), at_least, change)
 
 
-def latency_chart(text, run):
+def latency_chart(text, run, change=None):
+    change = change or chart_change.Change()
     bound, machine, commit, runs = read_latency(text)
     require_colibri(runs)
+    change.read(machine, commit)
     panels = [(key, label) for key, label in LATENCY_PROTOCOLS if key in runs]
+    for key, label in panels:
+        # colibri's highest sustained rate, which a panel's name marks against the previous release.
+        held = [point[0] for point in runs[key].get("colibri", []) if point[5]]
+        if held:
+            change.record(key, label, max(held), True)
     servers = [name for name in SLOTS if any(name in runs[key] for key, _ in panels)]
     title = f"p99 latency at each rate oha offers, with the bound of {bound:g} ms"
     head, top = heading(title, [
@@ -368,6 +413,7 @@ def latency_chart(text, run):
     plot_h, columns, panel_w, gap_x = 150, 2, 372, 48
     legend_y, top = top + 4, top + 40
     height = top + math.ceil(len(panels) / columns) * (plot_h + 72) + 8
+    height += change.note_height(LATENCY_MARKED, False)
     rates = sorted({point[0] for key, _ in panels for points in runs[key].values() for point in points})
     p99s = [point[3] for key, _ in panels for points in runs[key].values() for point in points]
     y_range = (10 ** math.floor(math.log10(min(p99s))), 10 ** math.ceil(math.log10(max(max(p99s), bound * 10))))
@@ -384,7 +430,8 @@ def latency_chart(text, run):
     for index, (key, label) in enumerate(panels):
         left = PAD + 40 + (index % columns) * (panel_w + gap_x)
         y0 = top + (index // columns) * (plot_h + 72)
-        parts += latency_panel(runs[key], label, (left, y0, panel_w - 40, plot_h), rates, y_range, bound)
+        parts += latency_panel(runs[key], label + change.mark(key), (left, y0, panel_w - 40, plot_h), rates, y_range, bound)
+    change.draw_note(parts, LATENCY_MARKED, False, PAD, height)
     parts.append('</svg>')
     return "\n".join(parts) + "\n"
 
@@ -547,9 +594,63 @@ def test_latency():
     assert "Neoverse-N2, Linux 7.0." in latency, latency
 
 
+def drawn_with(kind, report, previous_report, release="v0.1.0"):
+    """Draws `previous_report` through main into a scratch folder, so that it writes its file of
+    values, and then `report` against that file. Gives the SVG and the second file of values."""
+    with tempfile.TemporaryDirectory() as scratch:
+        folder = pathlib.Path(scratch)
+        for name, text in (("previous", previous_report), ("current", report)):
+            (folder / f"{name}.md").write_text(text)
+        main(["chart.py", kind, str(folder / "previous.md"), "1", str(folder / "previous.svg"), "--release", release])
+        main(["chart.py", kind, str(folder / "current.md"), "2", str(folder / "current.svg"),
+              "--previous", str(folder / "previous.json"), "--release", "v0.2.0"])
+        return (folder / "current.svg").read_text(), json.loads((folder / "current.json").read_text())
+
+
+def test_change():
+    # colibri's h11 time falls 10%, which is better, and its h2 time rises 5% exactly, which is worse.
+    faster = CPU_REPORT.replace("| change | 5 | 1 | 1 | 1 | 1 | 6,000.0", "| change | 5 | 1 | 1 | 1 | 1 | 5,400.0")
+    faster = faster.replace("| change | 5 | 1 | 1 | 1 | 1 | 2,000.0", "| change | 5 | 1 | 1 | 1 | 1 | 2,100.0")
+    cpu, values = drawn_with("cpu", faster, CPU_REPORT)
+    h11 = cpu[cpu.index(">h11<"):cpu.index(">h2<")]
+    assert '5.4 µs <tspan class="better">▲10%</tspan>' in h11 and 'class="was"' in h11, h11
+    assert '2.1 µs <tspan class="worse">▼5%</tspan>' in cpu[cpu.index(">h2<"):], cpu
+    # Only colibri's bars carry a mark, and the note names the previous release.
+    assert cpu.count('class="was"') == 2 and cpu.count("<tspan class=") == 2, cpu
+    assert "▲ marks colibri's value 5% or more better than v0.1.0's, ▼ one that much worse, and a dashed line" in cpu, cpu
+    assert values["version"] == 1 and values["chart"] == "cpu" and values["release"] == "v0.2.0", values
+    assert values["values"]["h11-many"] == {"label": "h11", "value": 5400.0, "higher_is_better": False}, values
+    # A change under 5% draws the line and no mark.
+    near = CPU_REPORT.replace("| change | 5 | 1 | 1 | 1 | 1 | 6,000.0", "| change | 5 | 1 | 1 | 1 | 1 | 5,710.0")
+    assert "<tspan class=" not in drawn_with("cpu", near, CPU_REPORT)[0]
+    # A new kernel on the same CPU model still compares.
+    assert "▲10%" in drawn_with("cpu", faster.replace("Linux 7.0", "Linux 7.1"), CPU_REPORT)[0]
+    # A run on another CPU model marks nothing, and says so.
+    other = drawn_with("cpu", faster.replace("Neoverse-N2", "Neoverse-V2"), CPU_REPORT)[0]
+    assert "<tspan class=" not in other and 'class="was"' not in other, other
+    assert "v0.1.0 ran on another CPU model, so this chart marks no change since it." in other, other
+    # A rate that rises is better: colibri's h2 rate goes from 400,000 to 440,000.
+    throughput = drawn_with("throughput", THROUGHPUT_REPORT.replace("400,000.0", "440,000.0"), THROUGHPUT_REPORT)[0]
+    assert '≥ 440,000 req/s <tspan class="better">▲10%</tspan>' in throughput, throughput
+    # The latency chart marks colibri's highest sustained rate after each panel's name.
+    slower = LATENCY_REPORT.replace("| colibri | 2000 | 2000.00 (1999.00–2000.00) | 0.10 (0.10–0.10) | 0.40",
+                                    "| colibri | 2000 | 2000.00 (1999.00–2000.00) | 0.10 (0.10–0.10) | 40.00")
+    latency, values = drawn_with("latency", slower, LATENCY_REPORT)
+    assert '>h2 <tspan class="worse">▼50%</tspan><' in latency and 'class="was"' not in latency, latency
+    assert "▲ marks colibri's highest sustained rate 5% or more better than v0.1.0's, ▼ one that much worse." in latency
+    assert values["values"]["h2"]["value"] == 1000 and values["values"]["h3"]["value"] == 1000, values
+    # No previous file draws no mark and no note; a file of another version counts as none.
+    assert "▲ marks" not in cpu_chart(CPU_REPORT, "77") and chart_change.Change(None).note("x", True) is None
+    with tempfile.TemporaryDirectory() as scratch:
+        stale = pathlib.Path(scratch, "old.json")
+        stale.write_text(json.dumps({"version": 0, "values": {}}))
+        assert chart_change.load(stale) is None and chart_change.moved(0.05) and not chart_change.moved(0.0499)
+
+
 def test():
     test_cpu()
     test_latency()
+    test_change()
     with tempfile.TemporaryDirectory() as scratch:
         for kind, report in (("cpu", CPU_REPORT), ("throughput", THROUGHPUT_REPORT), ("latency", LATENCY_REPORT)):
             alone = "\n".join(line for line in report.splitlines() if "chi" not in line and "nginx" not in line
@@ -572,11 +673,17 @@ def main(argv):
     if argv[1:] == ["--test"]:
         test()
         return
+    argv, previous = chart_change.option_value(argv, chart_change.previous_option)
+    argv, release = chart_change.option_value(argv, chart_change.release_option)
     if len(argv) not in (4, 5) or argv[1] not in CHARTS:
         sys.exit(__doc__)
+    if previous is not None and not pathlib.Path(previous).exists():
+        sys.exit(f"chart.py: {previous} does not exist")
     kind, report, run = argv[1:4]
     out = argv[4] if len(argv) == 5 else f"docs/images/{kind}.svg"
-    pathlib.Path(out).write_text(CHARTS[kind](pathlib.Path(report).read_text(), run))
+    change = chart_change.Change(chart_change.load(previous))
+    pathlib.Path(out).write_text(CHARTS[kind](pathlib.Path(report).read_text(), run, change))
+    change.write(out, kind, run, release)
 
 
 if __name__ == "__main__":

@@ -5999,6 +5999,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **Check:** in that container, `codes` passed against the server with `--coded` and failed
       against the server without it. The judge's first run with the input, 44661604715, is
       recorded under step 67: `codes` passed for both trees in both jobs.
+  - **13u**, each release's changes marked on the README's charts, which the owner asked for on
+    2026-11-26, as connect-zig's charts mark theirs.
+    - `bench/chart.py` writes colibri's values beside each SVG, as `docs/images/<chart>.json`,
+      with the CPU model, the run, the commit and the release that `--release` names. The file
+      carries a version, and a reader refuses a file of another version.
+    - With `--previous <file>`, the same chart's file of the previous release, each bar chart
+      draws a dashed line across colibri's bar at the previous value. After the bar's label it
+      gives ▲ and the change when the value is 5% or more better, and ▼ when it is that much
+      worse (`bench/chart_change.py`). The latency chart marks colibri's highest sustained rate
+      after each panel's name. A note at each chart's foot says what the marks compare.
+    - A run on another CPU model compares nothing, and the note says so. A new kernel on the
+      same CPU model still compares.
+    - The redraw of a release passes the files that the commit before it holds, the previous
+      release's values. v0.21.0's files come from its three runs' reports, 288, 291 and 292.
+    - **Check:** `python3 bench/chart.py --test`, in `tools/ci.sh`. Ten mutations, each CAUGHT: a
+      threshold of 6%; a cost that rises taken as better; a run on another CPU model compared; a
+      new kernel taken for another CPU model; no dashed line; the arrows swapped; a file of
+      another version read; the latency chart's first sustained rate taken for its highest; a
+      mark on another server's bar; and none on colibri's.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

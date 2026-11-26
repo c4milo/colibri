@@ -1,0 +1,35 @@
+{
+ "version": 1,
+ "chart": "cpu",
+ "machine": "Neoverse-N2",
+ "run": "288",
+ "commit": "5847a115",
+ "release": "v0.21.0",
+ "values": {
+  "h11-many": {
+   "label": "h11",
+   "value": 6470.3,
+   "higher_is_better": false
+  },
+  "h11-tls-many": {
+   "label": "h11 over TLS",
+   "value": 8106.1,
+   "higher_is_better": false
+  },
+  "h2-many": {
+   "label": "h2",
+   "value": 1526.5,
+   "higher_is_better": false
+  },
+  "h2-tls-many": {
+   "label": "h2 over TLS",
+   "value": 2185.5,
+   "higher_is_better": false
+  },
+  "h3-many": {
+   "label": "h3",
+   "value": 3937.0,
+   "higher_is_better": false
+  }
+ }
+}

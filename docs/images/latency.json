@@ -1,0 +1,30 @@
+{
+ "version": 1,
+ "chart": "latency",
+ "machine": "Neoverse-N2",
+ "run": "292",
+ "commit": "2ab43623",
+ "release": "v0.21.0",
+ "values": {
+  "h11": {
+   "label": "h11",
+   "value": 80000,
+   "higher_is_better": true
+  },
+  "h2": {
+   "label": "h2",
+   "value": 80000,
+   "higher_is_better": true
+  },
+  "h2-tls": {
+   "label": "h2 over TLS",
+   "value": 40000,
+   "higher_is_better": true
+  },
+  "h3": {
+   "label": "h3",
+   "value": 20000,
+   "higher_is_better": true
+  }
+ }
+}

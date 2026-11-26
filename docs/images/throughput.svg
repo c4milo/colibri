@@ -16,6 +16,9 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 .val { font-size: 11px; font-weight: 600; }
 .tick { font-size: 11px; fill: var(--muted); }
 .legend { font-size: 12.5px; fill: var(--ink2); }
+.better { fill: #1a7f37; } .worse { fill: #cf222e; }
+@media (prefers-color-scheme: dark) { .better { fill: #3fb950; } .worse { fill: #f85149; } }
+.was { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 2 2; }
 </style>
 <rect width="840" height="817" rx="8" fill="var(--surface)"/>
 <text class="title" x="24" y="34">colibri serves the most requests a second on one core in h11, h2, h2 over TLS and h3,</text>

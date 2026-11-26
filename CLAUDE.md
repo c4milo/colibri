@@ -573,13 +573,16 @@ Everything below exists. Change this section when a step adds or renames a comma
   each load tool counted, and how busy the server's core was: under 0.95 the load tool was the
   limit, and the server serves at least that rate. The workflow's `throughput` input runs it on the
   judge. `python3 bench/report_throughput.py --test` checks its report, and `tools/ci.sh` runs it.
-- README charts: `python3 bench/chart.py cpu <report.md> <run> [out.svg]` draws the CPU time a
-  request of each server from a judge's report of `--competitors --h11 --h3`. `throughput` draws
+- README charts: `python3 bench/chart.py cpu <report.md> <run> [out.svg] [--release <tag>]
+  [--previous <file>]` draws the CPU time a request of each server from a judge's report of
+  `--competitors --h11 --h3`. `throughput` draws
   the requests a second each server reached from a report of `--throughput`, and `latency` each
   server's p99 at each rate from a report of `--latency` (design §8 steps 13m and 13q). The README
   shows each SVG of `docs/images/`,
-  drawn from the first job of one named run. `python3 bench/chart.py --test` checks the three
-  charts, and `tools/ci.sh` runs it.
+  drawn from the first job of one named run. Each chart writes colibri's values beside its SVG as
+  `<chart>.json`, under the release `--release` names. With `--previous`, the previous release's
+  file, it marks each value of colibri that moved 5% or more with ▲ or ▼ (design §8 step 13u).
+  `python3 bench/chart.py --test` checks the three charts, and `tools/ci.sh` runs it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
   table of `bench/router/build.zig` twice and prints the wall time of each compile.
   `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under
