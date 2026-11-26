@@ -130,7 +130,6 @@ pub const Peer = struct {
         peer.config.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_h3,
-            .cipher_suites = identity.cipher_suites,
             .crypto = identity.crypto(random),
         }) catch return error.PeerFailed;
         peer.connection.init(.{

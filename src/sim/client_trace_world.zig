@@ -150,7 +150,7 @@ pub const World = struct {
         comptime assert(std.meta.fields(@TypeOf(world.plan.prefer)).len == std.meta.fields(Transport).len);
         world.pool_config = .{
             .cpu_features = .none(),
-            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cipher_suites = identity.cipher_suites, .crypto = identity.crypto(tls_source(&world.tls_random)) },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .crypto = identity.crypto(tls_source(&world.tls_random)) },
             // TCP offers "h2" alone, and QUIC "h3". The plan names the transport that opens first.
             .protocols = .{ .h11 = false, .prefer = if (world.plan.prefer == .quic) .quic else .tcp },
             .authority = identity.authority,

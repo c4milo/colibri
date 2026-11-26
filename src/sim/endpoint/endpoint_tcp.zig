@@ -138,7 +138,6 @@ pub const Peers = struct {
         // peer's pool takes it with a context over the peer's own stream, in `start`.
         const trust: tls.Client = .{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-            .cipher_suites = identity.cipher_suites,
             .crypto = undefined,
         };
         peers.configs[@intFromEnum(Way.cleartext_h11)] = .{ .cpu_features = .none(), .authority = identity.authority, .protocols = .{ .h2 = false } };

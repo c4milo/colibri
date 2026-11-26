@@ -29,23 +29,13 @@ pub const now_seconds: u64 = testdata.now_seconds;
 /// builds over its own SplitMix64 stream.
 pub const RandomSource = @FieldType(stdx.crypto.Context, "random");
 
-/// The context of one side of a run, whose draws come from `random` (decision 175): the CPU
-/// features the host reports, as a program detects them. On arm64 it first sets the thread's
-/// PSTATE.DIT where the core has FEAT_DIT, as a program does on each thread that runs TLS, so
-/// stdx states the timing there as it does on every x86-64 core.
+/// The context of one side of a run, whose draws come from `random` (decision 175). It describes
+/// a CPU with no feature, and reads nothing of the host: the simulator tests colibri
+/// deterministically, so one seed replays octet for octet on every host (non-negotiable 5). Every
+/// session then holds ChaCha20 alone.
 pub fn crypto(random: RandomSource) stdx.crypto.Context {
-    const features: stdx.platform.CpuFeatures = .detect();
-    _ = stdx.platform.set_data_independent_timing(features, true);
-    return stdx.crypto.init(features, random);
+    return stdx.crypto.init(.none(), random);
 }
-
-/// The suites every TLS value of a run offers: ChaCha20 alone, which every host holds (decision
-/// 175 as the owner ruled on 2026-11-26). The host's features still pick the code that runs it,
-/// but no feature changes an octet a run sends, so one seed replays octet for octet on every host
-/// (non-negotiable 5). An object that holds one suite takes no order, and that suite is ChaCha20.
-pub const cipher_suites: []const u16 = if (takes_order) &chacha20 else &.{};
-const chacha20 = [_]u16{@intFromEnum(stdx.crypto.tls.Suite.chacha20_poly1305_sha256)};
-const takes_order = @hasField(stdx.crypto.tls.c.ch_srv_cfg, "cipher_suites");
 /// The authority the certificate names, which every request of the run carries.
 pub const authority = "localhost";
 

@@ -174,7 +174,6 @@ pub const World = struct {
             .protocols = .{ .h11 = false },
             .tls = .{
                 .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-                .cipher_suites = identity.cipher_suites,
                 .crypto = identity.crypto(.init(&world.tls_random, fill)),
             },
         };

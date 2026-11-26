@@ -18093,13 +18093,12 @@ instructions and draws a different CPU from run to run.
     checks missed their wire pins there. The simulator now detects the host's features, and each
     client of its runs offers ChaCha20 alone (decision 175). Four pins moved to the values run 89
     found on arm64: `tcp_trace_check`'s `wire_crc32`, `endpoint_check`'s two, and
-    `h3_deadline_check`'s `census_wire_crc32_expected`. x86-64, which holds AES, gives the same
-    values. The client trace run's census gained `wire_crc32`, over every octet its pool sends
-    (`client_trace_world_send.zig`). Both build modes pass on x86-64. Mutations, 7, each CAUGHT:
-    the identity's order empty, and each of the four clients that offer chapulin's own order,
-    which `endpoint_check`, `h3_deadline_check`, `tcp_trace_check` and `client_trace_check`
-    catch; and the pool's datagrams, then its TCP segments, left out of the client trace run's
-    wire checksum.
+    `h3_deadline_check`'s `census_wire_crc32_expected`. The simulator's contexts now describe a
+    CPU with no feature, and read nothing of the host (decision 175), so x86-64, which holds AES,
+    gives the same values. The client trace run's census gained `wire_crc32`, over every octet its
+    pool sends (`client_trace_world_send.zig`). Both build modes pass on x86-64. Mutations, each
+    CAUGHT: the contexts over `CpuFeatures.detect()`, then over `.target()`; the pool's
+    datagrams, then its TCP segments, left out of the client trace run's wire checksum.
   - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
     octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
     grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
