@@ -210,9 +210,9 @@ pub fn main() !void {
 
 fn start_server(crypto: stdx.crypto.Context) !void {
     // RFC 9846 §4.3.2's cookie key, and the key that seals the tickets of §4.7.1, which a server
-    // draws once.
-    program.fill(&cookie_key);
-    program.fill(&ticket_key);
+    // draws once, from the context's source, as the engine draws every value (decision 175).
+    crypto.random.bytes(&cookie_key);
+    crypto.random.bytes(&ticket_key);
     // The program reads its PEM files into memory itself, and `tls.pem` reads them out of it: the
     // chain, the end-entity first, and the key the end-entity certificate carries. `pem.key` takes
     // the key's scheme, here ecdsa_secp256r1_sha256, from the file.

@@ -13,7 +13,6 @@ const server = colibri.server;
 const tls = colibri.tls;
 const stdx = @import("stdx");
 const identity = @import("testdata");
-const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
 
 const Link = link_module.Link;
@@ -92,8 +91,10 @@ var ended: u32 = 0;
 pub fn init(stream: *Link, crypto: stdx.crypto.Context) !void {
     link = stream;
     try tls.pem.key(crypto, identity.key_pem, identity.leaf, &key);
-    program.fill(&cookie_key);
-    program.fill(&ticket_key);
+    // The cookie key and the ticket key come from the context's source, as every value the engine
+    // draws does (decision 175).
+    crypto.random.bytes(&cookie_key);
+    crypto.random.bytes(&ticket_key);
     config = .{
         .cpu_features = crypto.features,
         .tls = .{

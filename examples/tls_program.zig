@@ -14,8 +14,9 @@ extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
 const getentropy_len_max = 256;
 
 /// Fills `octets` from the operating system, or stops: a program with no entropy starts no
-/// handshake.
-pub fn fill(octets: []u8) void {
+/// handshake. `random` is the one way to it, so every key and every connection draws from the
+/// program's context (decision 175).
+fn fill(octets: []u8) void {
     var filled: usize = 0;
     // Each turn fills `getentropy_len_max` octets, or the rest.
     for (0..octets.len / getentropy_len_max + 1) |_| {
