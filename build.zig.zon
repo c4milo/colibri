@@ -37,8 +37,8 @@
         // is not lazy: a project that depends on colibri fetches it, and stdx fetches chapulin for
         // it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#953c24cc3a9ecb150191531f359ebb471d065109",
-            .hash = "stdx-0.3.0-BD60tjRdXQDRAL6x5HhzmBgLApdXv1q4k-PHrftpw-T9",
+            .url = "git+https://github.com/c4milo/stdx#fdfbb709feeb2c558c5d21b6d6a3c7217b42bf50",
+            .hash = "stdx-0.4.0-BD60tvuUXQBuq35OosQAVuvK1bsLnFksAkqhCpMeWw9H",
         },
     },
     .paths = .{

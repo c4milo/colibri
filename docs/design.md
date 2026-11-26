@@ -18121,6 +18121,10 @@ instructions and draws a different CPU from run to run.
   - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
     octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
     grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
+    With stdx v0.4.0 (`fdfbb709`), whose `Context` also holds the two descriptions of the CPU
+    and the hash and JWS calls, each context grows by 176 octets more: `tls.quic.Client` and
+    `tls.quic.Server` by 176, and `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })`
+    by 528.
   - **Names.** `qlog.Log`'s field `features` is `cpu_features`, as are the parameters and locals
     that hold a `CpuFeatures` in qlog, the `tls` tests and the examples. That finishes the owner's
     ruling of 2026-11-22 for colibri (https://github.com/c4milo/colibri/issues/144). stdx's
