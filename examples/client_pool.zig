@@ -23,8 +23,7 @@
 //!    connection, and then `closed`.
 //!
 //! The server is in `client_pool_peer.zig`: one engine with four TCP slots. The link of
-//! `link_streams.zig` stands where a program's sockets would be, one stream for each socket, and
-//! `tls_program.zig` holds what any program that links `tls` defines once.
+//! `link_streams.zig` stands where a program's sockets would be, one stream for each socket.
 //!
 //! The program checks each greeting octet for octet, two opens to each address, four closes and
 //! the `closed` event. Anything else exits with an error, which is how `zig build examples` and CI
@@ -35,7 +34,6 @@ const std = @import("std");
 const colibri = @import("colibri");
 const assert = std.debug.assert;
 const client = colibri.client;
-const program = @import("tls_program.zig");
 const peer = @import("client_pool_peer.zig");
 const link_module = @import("link_streams.zig");
 

@@ -33,8 +33,7 @@
 //! `transport_closed`, and the exchange ends `refused`.
 //!
 //! The server is in `client_peer.zig`: one engine with no UDP socket. The links of `link.zig`
-//! and `link_datagram.zig` stand where a program's sockets would be, and `tls_program.zig` holds
-//! what any program that links `tls` defines once.
+//! and `link_datagram.zig` stand where a program's sockets would be.
 //!
 //! The program checks what arrived over h2, octet for octet: 200 twice, the greeting, the note it
 //! posted and the content type. It checks 405 with the Allow value "POST", 404 and 501, each with
@@ -50,7 +49,6 @@ const tls = colibri.tls;
 const stdx = @import("stdx");
 const platform = stdx.platform;
 const identity = @import("testdata");
-const program = @import("tls_program.zig");
 const peer = @import("client_peer.zig");
 const link_module = @import("link.zig");
 const datagram_module = @import("link_datagram.zig");
@@ -184,7 +182,24 @@ var refused_body: [greeting.len]u8 = undefined;
 const refused_get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var refused_get_response: client.Response align(@alignOf(client.Response)) = .{ .body = &refused_body };
 
-pub fn main() !void {
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
+
+pub fn main(init: std.process.Init) !void {
     try link.init();
     defer link.deinit();
     datagram_link.init(&link.loops);
@@ -194,9 +209,10 @@ pub fn main() !void {
     // its source of randomness, which every TLS configuration holds (decision 175). It sets
     // PSTATE.DIT on each thread that runs TLS, where an arm64 core has FEAT_DIT, and stdx then
     // states the thread's timing to chapulin. On x86-64 stdx states it for every core.
+    var secure: SecureRandom = .{ .io = init.io };
     const features: platform.CpuFeatures = .detect();
     _ = platform.set_data_independent_timing(features, true);
-    const crypto = stdx.crypto.init(features, program.random());
+    const crypto = stdx.crypto.init(features, secure.random());
     try peer.init(&link, crypto);
     try start_client(crypto);
     try connect_refused();

@@ -18082,10 +18082,10 @@ instructions and draws a different CPU from run to run.
     `src/testing/cpu.zig` makes each test-only program's context, and sets PSTATE.DIT on each
     thread that runs TLS. The simulator's TLS values hold contexts over the streams each side drew
     from before, and its cleartext runs give no source.
-  - **The examples.** `colibri_hosted`, `colibri_shared_rotor`, `tools/consumer/` and
-    `tools/consumer_hosted/` draw from `io.randomSecure`, and halt when a draw fails. The other
-    examples make their context over `tls_program.zig`'s `getentropy`. README.md and
-    docs/usage.md show the lines.
+  - **The examples.** Each example over TLS, `tools/consumer/` and `tools/consumer_hosted/` draw
+    from `io.randomSecure`, and halt when a draw fails. Each example draws its server's cookie
+    key and ticket key from the context's source too. `examples/tls_program.zig`, which wrapped
+    `getentropy`, is gone (decision 175). README.md and docs/usage.md show the lines.
   - **Pinned values.** None moved. The engine passed its own source to each session before, so
     one source fed both already, and each run of the simulator keeps its order of draws. The censuses
     of `zig build test-sim-run` and its crc32 values are as before.

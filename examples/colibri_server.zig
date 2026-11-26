@@ -40,13 +40,6 @@ const tls = colibri.tls;
 const stdx = @import("stdx");
 const platform = stdx.platform;
 const identity = @import("testdata");
-// chapulin's hook, which every program that imports `colibri` defines.
-const program = @import("tls_program.zig");
-
-comptime {
-    _ = program;
-}
-
 /// The program's own state, which each route's function gets: the requests it took and the
 /// requests it answered.
 const App = struct {
@@ -105,7 +98,24 @@ const internal_server_error: server.Status = .internal_server_error;
 /// The room for each response's body.
 const body_len_max = 256;
 
-pub fn main() !void {
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
+
+pub fn main(init: std.process.Init) !void {
     // A program's code that takes a request context runs with no router, as in a test.
     try check_numbered();
     router.init();
@@ -114,9 +124,10 @@ pub fn main() !void {
     // client's TLS value hold (decision 175). A server given no `crypto` makes its own of
     // `engine.cpu_features` and the system's entropy. On arm64 each thread that runs TLS sets
     // PSTATE.DIT, where the core has FEAT_DIT, and stdx then states the thread's timing.
+    var secure: SecureRandom = .{ .io = init.io };
     const cpu_features: platform.CpuFeatures = .detect();
     _ = platform.set_data_independent_timing(cpu_features, true);
-    const crypto = stdx.crypto.init(cpu_features, program.random());
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
     try http_server.init(&.{
         .host = "127.0.0.1",
         .port = 0,

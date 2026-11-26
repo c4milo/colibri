@@ -21,7 +21,7 @@
 //!    `finished`, and the program calls `shutdown`.
 //!
 //! The server is in `client_stream_peer.zig`. The link of `link.zig` stands where a program's
-//! socket would be, and `tls_program.zig` holds what any program that links `tls` defines once.
+//! socket would be.
 //!
 //! The program checks that each message came back octet for octet, in the order sent, and the
 //! trailer. Anything else exits with an error, which is how `zig build examples` and CI know the
@@ -31,7 +31,6 @@
 const std = @import("std");
 const colibri = @import("colibri");
 const client = colibri.client;
-const program = @import("tls_program.zig");
 const peer = @import("client_stream_peer.zig");
 const link_module = @import("link.zig");
 

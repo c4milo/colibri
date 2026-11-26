@@ -27,8 +27,7 @@
 //!   from when it starts and puts what it observed into when it ends (RFC 9959).
 //!
 //! Its clients are in `server_peers.zig`: one sends five requests over TCP, and one a GET over
-//! QUIC. The links of `link.zig` and `link_datagram.zig` stand where a program's sockets would be,
-//! and `tls_program.zig` holds what any program that links `tls` defines once.
+//! QUIC. The links of `link.zig` and `link_datagram.zig` stand where a program's sockets would be.
 //!
 //! The program checks what arrived: each client must see 200, the content and its type, octet for
 //! octet, for each request that a route names, and 405 with its Allow field or 404 for each other
@@ -45,7 +44,6 @@ const tls = colibri.tls;
 const stdx = @import("stdx");
 const platform = stdx.platform;
 const identity = @import("testdata");
-const program = @import("tls_program.zig");
 const peers = @import("server_peers.zig");
 const link_module = @import("link.zig");
 const datagram_module = @import("link_datagram.zig");
@@ -177,7 +175,24 @@ var idle_ended: u32 = 0;
 var shut: bool = false;
 var engine_closed: bool = false;
 
-pub fn main() !void {
+/// A random source over the operating system's entropy, which every TLS session of the program
+/// draws from (decision 175). Each draw calls `io.randomSecure`, which is thread-safe, keeps no
+/// state that a fork copies, and has no weaker fallback. A draw that fails halts the program, so
+/// no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
+
+pub fn main(init: std.process.Init) !void {
     // The program's own resume table keys a client by its host alone (RFC 9959 §2.2), and gives
     // a set to one connection of a host at a time (§3.2).
     try resumes.check_another_port();
@@ -188,9 +203,10 @@ pub fn main() !void {
     // its source of randomness, which every TLS configuration holds (decision 175). It sets
     // PSTATE.DIT on each thread that runs TLS, where an arm64 core has FEAT_DIT, and stdx then
     // states the thread's timing to chapulin. On x86-64 stdx states it for every core.
+    var secure: SecureRandom = .{ .io = init.io };
     const features: platform.CpuFeatures = .detect();
     _ = platform.set_data_independent_timing(features, true);
-    const crypto = stdx.crypto.init(features, program.random());
+    const crypto = stdx.crypto.init(features, secure.random());
     started_ns = link.now_ns(.server);
     try start_server(crypto);
     // The key's scalar is a secret, which the program wipes once no session uses it.

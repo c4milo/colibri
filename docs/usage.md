@@ -215,9 +215,10 @@ calls it, one Rotor loop on that thread, until another thread calls `shutdown`. 
 each connection and returns:
 
 ```zig
+var secure: SecureRandom = .{ .io = init.io };
 const cpu_features: platform.CpuFeatures = .detect();
 _ = platform.set_data_independent_timing(cpu_features, true);
-const crypto = stdx.crypto.init(cpu_features, program.random());
+const crypto = stdx.crypto.init(cpu_features, secure.random());
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
@@ -232,7 +233,9 @@ defer thread.join();
 defer http_server.shutdown();
 ```
 
-The thread that calls `run` runs the TLS sessions, so it sets its own PSTATE.DIT first:
+`secure` is a `SecureRandom` over the `io` of the `std.process.Init` that `main` takes, as
+[TLS](#tls) shows. The thread that calls `run` runs the TLS sessions, so it sets its own
+PSTATE.DIT first:
 
 ```zig
 fn serve(cpu_features: platform.CpuFeatures) void {

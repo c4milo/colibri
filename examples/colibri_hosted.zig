@@ -33,13 +33,6 @@ const stdx = @import("stdx");
 const platform = stdx.platform;
 const identity = @import("testdata");
 const link_module = @import("link.zig");
-// chapulin's hook, which every program that imports `colibri` defines.
-const program = @import("tls_program.zig");
-
-comptime {
-    _ = program;
-}
-
 const Side = link_module.Side;
 const sides = std.enums.values(Side).len;
 

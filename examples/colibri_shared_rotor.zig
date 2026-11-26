@@ -31,13 +31,6 @@ const client = colibri.client;
 const tls = colibri.tls;
 const stdx = @import("stdx");
 const platform = stdx.platform;
-// chapulin's hook, which every program that imports `colibri` defines.
-const program = @import("tls_program.zig");
-
-comptime {
-    _ = program;
-}
-
 const Server = colibri.Server(.{ .tcp_connections = 2, .quic_connections = 0 }, .hosted);
 const Client = colibri.Client(.{ .quic = false, .tcp_connections = 1, .requests = 1 }, .hosted);
 var hosted_server: Server align(@alignOf(Server)) = undefined;

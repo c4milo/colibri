@@ -10,7 +10,6 @@ const std = @import("std");
 const colibri = @import("colibri");
 const assert = std.debug.assert;
 const server = colibri.server;
-const program = @import("tls_program.zig");
 const link_module = @import("link_streams.zig");
 
 const StreamsLink = link_module.StreamsLink;

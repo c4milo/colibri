@@ -126,9 +126,10 @@ on the same port. Each connection runs its own TLS handshake, and ALPN picks the
 lines are from [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
+var secure: SecureRandom = .{ .io = init.io };
 const cpu_features: platform.CpuFeatures = .detect();
 _ = platform.set_data_independent_timing(cpu_features, true);
-const crypto = stdx.crypto.init(cpu_features, program.random());
+const crypto = stdx.crypto.init(cpu_features, secure.random());
 try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
@@ -143,7 +144,8 @@ defer thread.join();
 defer http_server.shutdown();
 ```
 
-`cpu_features` is what your program detected of its CPU, once, and `crypto` is its one
+`secure` wraps `io.randomSecure`, from the `std.process.Init` that `main` takes, and halts when a
+draw fails. `cpu_features` is what your program detected of its CPU, once, and `crypto` is its one
 `stdx.crypto.Context` of those features and its source of randomness. Every TLS session and every
 QUIC connection runs on the features and draws from the source. colibri never asks the CPU
 itself. `tls_buffer` holds the TLS session of each TCP connection. `run` serves on the thread that

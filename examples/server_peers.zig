@@ -20,7 +20,6 @@ const client = colibri.client;
 const tls = colibri.tls;
 const stdx = @import("stdx");
 const identity = @import("testdata");
-const program = @import("tls_program.zig");
 const link_module = @import("link.zig");
 const datagram_module = @import("link_datagram.zig");
 

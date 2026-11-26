@@ -8560,10 +8560,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A seed still replays. The engine passed its own source to each session before, so the
        engine and its sessions drew from one source then too. No census of the simulator and no
        pinned octet moved.
-     - `examples/colibri_hosted.zig`, `examples/colibri_shared_rotor.zig`, `tools/consumer/` and
-       `tools/consumer_hosted/` draw from `io.randomSecure`, in the shape stdx documents, and halt
-       when a draw fails. The other examples draw from `getentropy` (`examples/tls_program.zig`).
-       No example and no consumer gives TLS a seeded generator.
+     - Each example over TLS, `tools/consumer/` and `tools/consumer_hosted/` draw from
+       `io.randomSecure`, in the shape stdx documents, and halt when a draw fails. The owner
+       ruled the same day to delete `examples/tls_program.zig`, which wrapped `getentropy`, so
+       every example shows one source. No example and no consumer gives TLS a seeded generator.
      - The tests describe their CPU as `CpuFeatures` values, with and without AES. A probe's
        `not_known` and a timing `not_stated` are no input now, so the tests of them are gone.
      - The alternatives refused:

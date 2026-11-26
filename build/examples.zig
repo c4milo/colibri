@@ -62,6 +62,4 @@ pub fn add(
 fn add_tls(module: *std.Build.Module, graph: modules.Modules, testdata: *std.Build.Module) void {
     module.addImport("stdx", graph.stdx.module("stdx"));
     module.addImport("testdata", testdata);
-    // `getentropy`, the source each session draws from.
-    module.link_libc = true;
 }

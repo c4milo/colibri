@@ -32,7 +32,7 @@
 //! acknowledges it.
 //!
 //! The client is in `server_stream_peer.zig`. The link of `link.zig` stands where a program's
-//! socket would be, and `tls_program.zig` holds what any program that links `tls` defines once.
+//! socket would be.
 //!
 //! The program checks what arrived. The client must get each reply octet for octet, each one only
 //! after its message was whole, and `grpc-status` 0 in the trailers. The route must read every
@@ -43,7 +43,6 @@
 const std = @import("std");
 const colibri = @import("colibri");
 const server = colibri.server;
-const program = @import("tls_program.zig");
 const peer = @import("server_stream_peer.zig");
 const link_module = @import("link.zig");
 
