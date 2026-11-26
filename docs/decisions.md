@@ -8558,8 +8558,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The module `colibri` imports stdx, for the type of `crypto` and for `stdx.crypto.init`. Its
        root names nothing of stdx (decision 170).
      - A seed still replays. The engine passed its own source to each session before, so the
-       engine and its sessions drew from one source then too. No census of the simulator and no
-       pinned octet moved.
+       engine and its sessions drew from one source then too.
+     - The simulator detects the host's CPU features, as a program does, and so runs the suite
+       the host holds. Ruled by the owner on 2026-11-26: "we should always detect the host cpu
+       features", and "Detect, pin checksum per suite". The simulator once stated the timing on
+       every host, so every host ran AES-GCM. stdx states it on arm64 only where the core has
+       FEAT_DIT, and GitHub's arm64 Linux machines hide it, so they run ChaCha20. Each census that
+       covers the wire of TLS therefore pins one value for each suite, which
+       `client_trace_identity.suite` picks by stdx's rule. One seed replays octet for octet on
+       every host that holds the same suite (non-negotiable 5 as amended). The alternatives
+       refused:
+       - A CPU with no feature on every host: every host runs ChaCha20 and one value holds
+         everywhere, but no host runs its own features.
+       - The host's features, with the simulator's sessions offering ChaCha20 alone: the wire
+         is the same everywhere, but no run sends AES-GCM.
      - Each example over TLS, `tools/consumer/` and `tools/consumer_hosted/` draw from
        `io.randomSecure`, in the shape stdx documents, and halt when a draw fails. The owner
        ruled the same day to delete `examples/tls_program.zig`, which wrapped `getentropy`, so

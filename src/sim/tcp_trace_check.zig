@@ -19,6 +19,7 @@ const assert = std.debug.assert;
 const sim = @import("sim");
 const plan_module = @import("tcp_trace_plan.zig");
 const world_module = @import("tcp_trace_world.zig");
+const identity = @import("client_trace_identity.zig");
 const state_module = @import("tcp_trace_state.zig");
 
 const Random = sim.Random;
@@ -196,7 +197,10 @@ const expected = struct {
     const refused: u64 = 3;
     const shut_down: u64 = 25;
     const tls: u64 = 38;
-    const wire_crc32: u32 = 0x45a96a01;
+    /// One for each suite the host's sessions hold (`identity.suite`).
+    const wire_crc32 = std.EnumArray(identity.Suite, u32).init(.{ .aes_gcm = wire_crc32_aes_gcm, .chacha20 = wire_crc32_chacha20 });
+    const wire_crc32_aes_gcm: u32 = 0x45a96a01;
+    const wire_crc32_chacha20: u32 = 0x821b74d0;
 };
 
 test "TCP trace run: a client's first flight and every exchange after it, with no error, and replayed" {
@@ -213,7 +217,7 @@ test "TCP trace run: a client's first flight and every exchange after it, with n
     try testing.expectEqual(expected.refused, census.refused);
     try testing.expectEqual(expected.shut_down, census.shut_down);
     try testing.expectEqual(expected.tls, census.tls);
-    try testing.expectEqual(expected.wire_crc32, census.wire_crc32.final());
+    try testing.expectEqual(expected.wire_crc32.get(identity.suite()), census.wire_crc32.final());
 }
 
 test "TCP trace run: the wire CRC-32 covers the octets the server has not read" {

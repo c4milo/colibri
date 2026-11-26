@@ -18086,9 +18086,18 @@ instructions and draws a different CPU from run to run.
     from `io.randomSecure`, and halt when a draw fails. Each example draws its server's cookie
     key and ticket key from the context's source too. `examples/tls_program.zig`, which wrapped
     `getentropy`, is gone (decision 175). README.md and docs/usage.md show the lines.
-  - **Pinned values.** None moved. The engine passed its own source to each session before, so
-    one source fed both already, and each run of the simulator keeps its order of draws. The censuses
-    of `zig build test-sim-run` and its crc32 values are as before.
+  - **Pinned values.** The engine passed its own source to each session before, so one source
+    fed both already, and each run of the simulator keeps its order of draws. Under AES-GCM the
+    censuses of `zig build test-sim-run` and their crc32 values are as before. CI's arm64 Linux
+    job at `e9ffbac1` (run 89) ran ChaCha20, since its machine hides FEAT_DIT, and three checks
+    missed their wire pins there. The simulator now detects the host's features, and four pins
+    hold one value for each suite (decision 175): `tcp_trace_check`'s `wire_crc32`,
+    `endpoint_check`'s two, and `h3_deadline_check`'s `census_wire_crc32_expected`. The
+    ChaCha20 values are the ones run 89 found on arm64, and x86-64 gives the same ones under
+    ChaCha20. Both build modes pass on x86-64. Mutations: the simulator's contexts with no
+    feature, CAUGHT; x86-64 that never claims AES, CAUGHT; every host that claims AES, CAUGHT by
+    the test of `suite_of`; AES without the carry-less multiply, CAUGHT; the TCP trace's two
+    values swapped, CAUGHT.
   - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
     octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
     grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
