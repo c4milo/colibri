@@ -7,8 +7,7 @@
 [![line coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fc4milo%2Fcolibri%2Fbadges%2F.github%2Fbadges%2Fcoverage.json)](https://github.com/c4milo/colibri/actions/workflows/ci.yml?query=branch%3Amain)
 
 An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC underneath HTTP/3.
-It is written from the RFCs, and every check it makes on a peer's input cites the section that
-requires it.
+It is written from the RFCs.
 
 The protocol code does no I/O:
 
