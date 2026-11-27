@@ -105,3 +105,23 @@ The owner ruled "Build it now" on the draft of this entry.
 - **Not run:** `tools/consumer_check.sh`, whose fetch this container's network refuses, the
   checks of `tools/ci.sh` that need Docker or a network peer, and every arm64 host. CI runs
   them.
+- **CI:** [45996575425](https://github.com/c4milo/colibri/actions/runs/45996575425) passed on
+  8140451a: `tools/ci.sh` on x86-64 Linux, and `zig build test` on arm64 Linux and arm64 macOS.
+- **The judge:** [45996610799](https://github.com/c4milo/colibri/actions/runs/45996610799)
+  measured 8140451a against 210c5e08 with `--h11`, five rounds on each of two Neoverse-N2
+  runners. The run fails: 13 of the 15 inputs lose past the noise by instructions in both jobs.
+  Each figure below is the change against the base, job 1 and then job 2.
+  - **Wins:** h2-large-many, by 8.2% and 10.2% of the instructions a request. Job 2's noise is
+    12.1%, so there it is within the noise. Its user instructions fall by 27% in both jobs, from
+    118,860 to 86,727 a request, and its CPU time by 16% and 14%.
+  - **Within the noise:** h2-tls-large-many in both jobs, and h2-routes-post-late-many in job 1.
+  - **Losses over h2:** h2-many by 2.95% and 2.82%, about 370 instructions a request;
+    h2-tls-many by 2.31% and 2.77%; h2-one by 2.49% and 2.71%; h2-routes-post-many by 1.32%
+    and 1.18%; h2-tls-one by 0.94% in both; h2-routes-post-late-many by 1.43% in job 2; and
+    h2-routes-many, h2-k8s-routes-many and h2-coded-many by 0.54% to 0.62%.
+  - **Losses over h11:** h11-many by 3.00% and 3.31%, about 1,000 instructions a request;
+    h11-tls-many by 4.96% and 4.85%; h11-one by 9.71% and 11.92%; and h11-tls-one by 1.42% and
+    1.34%. Their user instructions lose by 1.05% to 19.85%. h11-one completes 46,692 and
+    44,543 connections a second on the base, and 41,520 and 40,353 on the change.
+  - So the lend costs more instructions than the copy it removes, except where a response is
+    large. Step 79 does not meet the admission rule of docs/performance.md as it stands.
