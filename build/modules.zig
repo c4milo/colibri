@@ -175,7 +175,8 @@ pub fn add(
     // amended on 2026-11-24). h11 names the type and never probes.
 
     // Decision 97: `tls` fills `tls_provider.Provider` from chapulin's sessions. No HTTP module
-    // imports it, so a cleartext program never links chapulin.
+    // imports it. `colibri` does, so every program that imports `colibri` links chapulin
+    // (decision 170).
     // Decision 174: chapulin's one module, as `stdx.crypto`.
     const tls = library(b, "tls", target, optimize);
     tls.addImport("tls_provider", tls_provider);
