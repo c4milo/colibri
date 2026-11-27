@@ -320,7 +320,7 @@ fn drain(now_ns: u64) !void {
 }
 
 /// Acts on one event of the pool. Each exchange ends in one `finished` event, whatever happened
-/// to it: its `outcome` says whether the response arrived.
+/// to it: its response's `result` says whether the response arrived.
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_transport(open, now_ns),
