@@ -182,7 +182,10 @@ defer thread.join();
 defer http_server.shutdown();
 ```
 
-- `secure` wraps `io.randomSecure`, the system's entropy. Each TLS session draws from it.
+- `secure.random()` is a source of random bytes, not a value: each draw calls `io.randomSecure`
+  again. The context keeps the source, so every key, nonce and connection ID gets new bytes from
+  the system. A test can pass a seeded source and replay a connection
+  ([decision 175](docs/decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)).
 - `identity` is the certificate chain and the key as PEM text, which your program reads from its
   files. `now_seconds` is the Unix time, which your program reads from its clock.
 - `set_data_independent_timing` sets PSTATE.DIT on arm64, so the TLS code runs in constant time.
