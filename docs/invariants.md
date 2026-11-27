@@ -1,14 +1,15 @@
 # Invariants
 
 [docs/decisions.md](decisions.md) answers "why is it built this way". This document answers "what
-must a change never break". CLAUDE.md's non-negotiable 8 asks for at least one runtime assertion
-for each entry. A violated assertion halts. In the simulator, it halts with the seed and the byte
-offset that produced it.
+must a change never break". CLAUDE.md's non-negotiable 8 gives each entry the kind of check its
+claim allows, and the index below names it:
 
-Sixteen entries have no runtime assertion yet: their Check is a lint rule, the type system, a
-test, the corpus or a convention. They are INV-1, 2, 4, 5, 6, 7, 9, 12, 20, 22, 23, 24, 25, 26, 27
-and 28. Some of them, such as INV-1 and INV-2, state a property of the source that no runtime
-check can observe.
+- **Runtime**: an assertion or a simulator invariant. A violated one halts, and in the simulator
+  with the seed and the byte offset that produced it.
+- **Source**: a lint rule, a type check, a comptime assert or a build check, for a property of
+  the source that no running program can observe.
+- **Peer input**: an error path, and the tests, corpus cases or fuzz properties that prove it.
+  An assertion never guards peer input (INV-24).
 
 Each entry has four fields. **Claim** is the invariant. **Mechanism** is what makes it true.
 **Check** is what would catch a violation, graded on this scale, strongest first:
@@ -36,42 +37,42 @@ the build-plan step (design §8) that lands its check.
 
 ## Index
 
-| Invariant | Claim | Runtime assertion |
+| Invariant | Claim | Check |
 | --- | --- | --- |
-| [INV-1](#inv-1) | colibri never allocates | no |
-| [INV-2](#inv-2) | colibri performs no I/O | no |
-| [INV-3](#inv-3) | every write is inside the caller's buffer | yes |
-| [INV-4](#inv-4) | no source reads a clock | no |
-| [INV-5](#inv-5) | colibri draws only from the source its caller passes, and reads no uninitialised memory | no |
-| [INV-6](#inv-6) | a connection is a pure function | no |
-| [INV-7](#inv-7) | validation precedes interpretation | no |
-| [INV-8](#inv-8) | every loop over peer-supplied counts is bounded by a named limit | yes |
-| [INV-9](#inv-9) | a declared length is checked against the bytes present | no |
-| [INV-10](#inv-10) | every byte of a field block is decoded, even when the result is discarded | yes |
-| [INV-11](#inv-11) | the dynamic table's accounted size equals the sum of its entries | yes |
-| [INV-12](#inv-12) | the three Huffman decode errors are rejected | no |
-| [INV-13](#inv-13) | stream identifiers are monotonic per parity and never reused | yes |
-| [INV-14](#inv-14) | exactly one field-block reassembly is in progress | yes |
-| [INV-15](#inv-15) | flow-control windows stay in range, and a send window may be negative | yes |
-| [INV-16](#inv-16) | GOAWAY's last-stream-id never increases | yes |
-| [INV-17](#inv-17) | a packet number is never reused in its space | yes |
-| [INV-18](#inv-18) | the anti-amplification limit holds, and it is the server's | yes |
-| [INV-19](#inv-19) | flow-control limits are non-decreasing offsets, never credits | yes |
-| [INV-20](#inv-20) | colibri holds one path, and refusing a migration emits nothing | no |
-| [INV-21](#inv-21) | a level is protected only while its keys are available | yes |
-| [INV-22](#inv-22) | a version-independent parse reads only RFC 8999 fields | no |
-| [INV-23](#inv-23) | colibri holds no secret | no |
-| [INV-24](#inv-24) | no assertion is reachable from peer input | no |
-| [INV-25](#inv-25) | a suite that cannot protect Initial packets is a configuration error | no |
-| [INV-26](#inv-26) | `quic` imports no HTTP module | no |
-| [INV-27](#inv-27) | a connection error and a stream error are distinct types | no |
-| [INV-28](#inv-28) | an error's wire code is chosen in one place per protocol | no |
-| [INV-29](#inv-29) | a framed stream byte is in one place | yes |
-| [INV-30](#inv-30) | every request ends once, before its connection | yes |
-| [INV-31](#inv-31) | the engine's deadline is the soonest of its connections' | yes |
-| [INV-32](#inv-32) | a match reads each node of its table at most once | yes |
-| [INV-33](#inv-33) | the sent table says which stream ranges in the ring are live | yes |
-| [INV-34](#inv-34) | a CRYPTO byte in flight stays in its level's send window | yes |
+| [INV-1](#inv-1) | colibri never allocates | Source |
+| [INV-2](#inv-2) | colibri performs no I/O | Source |
+| [INV-3](#inv-3) | every write is inside the caller's buffer | Runtime |
+| [INV-4](#inv-4) | no source reads a clock | Source |
+| [INV-5](#inv-5) | colibri draws only from the source its caller passes, and reads no uninitialised memory | Source |
+| [INV-6](#inv-6) | a connection is a pure function | Runtime (simulator) |
+| [INV-7](#inv-7) | validation precedes interpretation | Peer input |
+| [INV-8](#inv-8) | every loop over peer-supplied counts is bounded by a named limit | Runtime |
+| [INV-9](#inv-9) | a declared length is checked against the bytes present | Runtime |
+| [INV-10](#inv-10) | every byte of a field block is decoded, even when the result is discarded | Runtime |
+| [INV-11](#inv-11) | the dynamic table's accounted size equals the sum of its entries | Runtime |
+| [INV-12](#inv-12) | the three Huffman decode errors are rejected | Peer input |
+| [INV-13](#inv-13) | stream identifiers are monotonic per parity and never reused | Runtime |
+| [INV-14](#inv-14) | exactly one field-block reassembly is in progress | Runtime |
+| [INV-15](#inv-15) | flow-control windows stay in range, and a send window may be negative | Runtime |
+| [INV-16](#inv-16) | GOAWAY's last-stream-id never increases | Runtime |
+| [INV-17](#inv-17) | a packet number is never reused in its space | Runtime |
+| [INV-18](#inv-18) | the anti-amplification limit holds, and it is the server's | Runtime |
+| [INV-19](#inv-19) | flow-control limits are non-decreasing offsets, never credits | Runtime |
+| [INV-20](#inv-20) | colibri holds one path, and refusing a migration emits nothing | Source |
+| [INV-21](#inv-21) | a level is protected only while its keys are available | Runtime |
+| [INV-22](#inv-22) | a version-independent parse reads only RFC 8999 fields | Source |
+| [INV-23](#inv-23) | colibri holds no secret | Source |
+| [INV-24](#inv-24) | no assertion is reachable from peer input | Peer input |
+| [INV-25](#inv-25) | a suite that cannot protect Initial packets is a configuration error | Tests; see INV-25 |
+| [INV-26](#inv-26) | `quic` imports no HTTP module | Source |
+| [INV-27](#inv-27) | a connection error and a stream error are distinct types | Source |
+| [INV-28](#inv-28) | an error's wire code is chosen in one place per protocol | Source |
+| [INV-29](#inv-29) | a framed stream byte is in one place | Runtime |
+| [INV-30](#inv-30) | every request ends once, before its connection | Runtime |
+| [INV-31](#inv-31) | the engine's deadline is the soonest of its connections' | Runtime |
+| [INV-32](#inv-32) | a match reads each node of its table at most once | Runtime |
+| [INV-33](#inv-33) | the sent table says which stream ranges in the ring are live | Runtime |
+| [INV-34](#inv-34) | a CRYPTO byte in flight stays in its level's send window | Runtime |
 
 ## Allocation and ownership
 
@@ -212,7 +213,9 @@ the build-plan step (design §8) that lands its check.
 - **Mechanism.** The reader's `take(n)` returns an error rather than a short slice, and no caller
   may construct a slice from a peer length by any other route.
 - **Check.** Type system (the reader returns an error union that cannot be ignored), plus golden
-  corpus cases that truncate every length-bearing structure by one byte. Step 1.
+  corpus cases that truncate every length-bearing structure by one byte. Step 1. Each read of the
+  bounded reader asserts that its offset stays within the bytes present
+  (`src/core/reader.zig`), so a length checked too late halts.
 - **Violation.** A varint decoder that returns a value without reporting how many bytes it
   consumed, so the caller guesses.
 
@@ -566,6 +569,13 @@ the build-plan step (design §8) that lands its check.
   first Handshake packet, with the same error class.
 - **Check.** A unit test per refusal, with a suite that refuses, once the connection exists
   (step 9). The error set of `install_initial_keys` carries the refusal from step 7.
+- **Open, for the owner.** The claim no longer matches the code's shape, so no assertion holds it:
+  - The server learns a refusal as `error.TlsRefused`
+    (`src/server/quic/quic_connection_internal.zig`), and the client installs its keys outside
+    `quic`.
+  - After a Retry, `quic` reports a refusal as `InitialKeysRefused`, which
+    `connection_error_code` gives the code INTERNAL_ERROR, as if a CONNECTION_CLOSE were owed
+    (`src/quic/connection/connection_datagram.zig`).
 - **Violation.** Reporting the refusal as a handshake failure, which sends the peer a
   CONNECTION_CLOSE for the caller's own misconfiguration and looks like an attack in the log.
 - See [decisions 9 and 48](decisions/0009-packet-protection-is-a-second-caller.md).
