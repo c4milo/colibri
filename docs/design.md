@@ -18154,6 +18154,44 @@ instructions and draws a different CPU from run to run.
     chapulin from Zig's cache.
   - **Not run:** the checks of `tools/ci.sh` that need Docker or a network peer, and every arm64
     host, where PSTATE.DIT decides the suite. CI runs them.
+- **Step 79 — a TCP socket sends from its connection's output, 2026-11-26**
+  ([decision 176](decisions.md), [#137](https://github.com/c4milo/colibri/issues/137)). The owner
+  ruled "Build it now" on the draft of this entry.
+  - **Where the octets were.** A TCP connection of `colibri.Server`, from `zig build
+    bench-memory` at v0.22.0:
+
+    | Part | Bytes | Holds |
+    | --- | ---: | --- |
+    | engine slot | 151,232 | the connection, with its `output` of 49,161 |
+    | socket input | 41,221 | received octets, which the protocol reads in place in cleartext |
+    | socket output | 49,161 | octets to send |
+    | TLS session, over TLS alone | 83,039 | chapulin's session, 41,808, and `plain_in`, 41,221 |
+
+    In cleartext, `send_stream` copied the slot's `output` into the socket's output, so the two
+    held the same octets. Over TLS the socket held the records that `send_stream` sealed.
+  - **The names.** `server.Engine` gains two calls, beside `send_stream`:
+    - `output_stream(connection, now_ns) []const u8`: the octets the TCP connection owes its
+      socket, sealed over TLS, where the engine holds them. Empty for a handle that names no
+      connection, and for a connection whose socket closed.
+    - `sent_stream(connection, sent, now_ns) void`: the send took the first `sent` of them.
+    No other root changes. `colibri.Server` is the program that needs them, and
+    `examples/server_stream.zig` shows them.
+  - **The contract.**
+    - The engine keeps the octets an `output_stream` returned in place until its `sent_stream`.
+      The connection writes after them, and moves what is left to the front only at
+      `sent_stream`.
+    - One `output_stream` is held at a time. A second call before its `sent_stream` halts, and so
+      does a `sent_stream` past what the call returned.
+    - The engine reports `ended` only after the `sent_stream` of each `output_stream` that
+      returned octets, whatever ended the connection: its `close`, `transport_closed` or
+      `shutdown`.
+    - `send_stream` copies, as before. Over TLS it first copies records that an `output_stream`
+      sealed and no send took.
+  - **Over TLS.** Each TLS session holds the sealed records, `output_len` octets, so
+    `Config.tls_buffer_len(1)` grows by that much and the socket holds none. A connection over
+    TLS holds as many octets as before.
+  - **Memory.** A cleartext connection of `colibri.Server` goes from about 241.6 KB to about
+    192.4 KB, and its sends copy no octet.
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on

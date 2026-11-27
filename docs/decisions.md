@@ -8585,3 +8585,35 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          sessions another.
        - colibri's own map of the features to chapulin's description of the CPU, as before.
          stdx owns that map, and two maps would drift.
+
+176. **A TCP socket sends from its connection's output, through `output_stream` and
+     `sent_stream`.** Ruled by the owner on 2026-11-26, for
+     [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 79).
+     - A socket of `colibri.Server` held an output of `output_len` octets, 49,161, beside the
+       engine slot's `output` of the same size. In cleartext, `send_stream` copied the slot's
+       octets into it unchanged.
+     - `server.Engine.output_stream(connection, now_ns)` returns the octets a TCP connection owes
+       its socket, sealed over TLS, where the engine holds them. The program sends them from there.
+       It then calls `sent_stream(connection, sent, now_ns)` with the octets the send took, 0 for
+       a send that failed or never went.
+     - The engine keeps those octets in place until `sent_stream`, and the connection writes only
+       after them. The engine holds one `output_stream` at a time: a second call before its
+       `sent_stream` is a programmer error, and an assertion refuses it.
+     - The engine reports a connection's `ended` only after the `sent_stream` of each
+       `output_stream` that returned octets, whatever ended the connection. So no later
+       connection of the slot writes into octets that a send still reads.
+     - Over TLS the records need a buffer of their own. Each TLS session holds one of `output_len`
+       octets in `Config.tls_buffer` (decision 167), and the socket holds none.
+     - `send_stream` stays, for a program that sends from a buffer of its own. A connection may
+       use either call between two sends.
+     - `colibri.Server`, in both kinds, and the test-only server send through the new calls, so
+       the judge prices the change. A client's socket keeps its output: `client.ConnectionPool`
+       has no such calls.
+     - The alternatives refused:
+       - The program passes the stream buffers in `server.Config`, as it passes `tls_buffer`. The
+         contract is the same, and the program sizes a second buffer. It adds a configuration
+         name and a `stream_buffer_len` function, and step 62's ruling turned such sizes away.
+       - Wait for chapulin to open and seal records in place
+         ([c4milo/chapulin#227](https://github.com/c4milo/chapulin/issues/227)), and change both
+         directions at once.
+       - Keep the copy.
