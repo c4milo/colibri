@@ -28,7 +28,7 @@ The name is Spanish for hummingbird.
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns every struct and buffer. Each size is a comptime constant, or a `memory_bytes` function of the counts your program sets. |
 | I/O | None. colibri parses bytes you already read and writes into buffers you own. A call that would block returns what it needs instead. |
 | Time | A value you pass. No source file reads a clock. |
-| TLS and packet protection | Vtables: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. The `tls` module fills all three from [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, which colibri reads as `stdx.crypto` and does not pin itself. A program may fill them itself. |
+| TLS and packet protection | Vtables: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. The `tls` module fills all three from `stdx.crypto`, and a program may fill them itself. |
 | Status | Before 1.0: each minor release can change the API. [The releases page](https://github.com/c4milo/colibri/releases) holds each release's notes, its breaking changes first. |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
@@ -107,21 +107,6 @@ const client = colibri.client;
 const tls = colibri.tls;
 const stdx = @import("stdx");
 const platform = stdx.platform;
-```
-
-colibri reads [chapulin](https://github.com/c4milo/chapulin), its TLS stack, as `stdx.crypto`
-from the stdx it pins, and names no chapulin package of its own ([decision 174](docs/decisions.md)).
-stdx alone asks chapulin for its module, so a program that links stdx links one chapulin. A program
-that calls chapulin itself reads it from that stdx too. A program defines nothing for chapulin. A
-failed chapulin assertion stops the program with a panic. A program that reports the failure its
-own way declares this function in its root file:
-
-```zig
-/// chapulin's module calls this when one of its assertions fails, in place of its own report
-/// (decision 172). A program that declares no such function gets chapulin's panic.
-pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
-    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
 ```
 
 ### A server
@@ -281,7 +266,7 @@ Linux and macOS. Published performance numbers come from Linux alone.
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |
 | [`docs/performance.md`](docs/performance.md) | How colibri measures a change, its baselines, and the memory each object takes |
-| [`docs/chapulin.md`](docs/chapulin.md) | What colibri needs from chapulin, its TLS stack |
+| [`docs/chapulin.md`](docs/chapulin.md) | What colibri needs from `stdx.crypto`, its TLS stack |
 | [`docs/rfcs/`](docs/rfcs/) | The RFCs colibri is written from, unmodified, with their checksums |
 
 ## Limits
