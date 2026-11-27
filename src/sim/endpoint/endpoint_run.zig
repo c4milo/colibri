@@ -101,10 +101,10 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // Bounded: each pass goes to a later instant, or ends the run.
     for (0..limits.instants_max) |_| {
         try settle(storage, plan, now_ms);
-        if (storage.record.closed) return finish(storage, plan, .closed, now_ms);
-        if (all_over(storage)) return finish(storage, plan, .finished, now_ms);
-        const next_ms = try next_instant(storage, plan, now_ms) orelse return finish(storage, plan, .horizon, limits.horizon_ms);
-        if (next_ms >= limits.horizon_ms) return finish(storage, plan, .horizon, limits.horizon_ms);
+        if (storage.record.closed) return finish(storage, .closed, now_ms);
+        if (all_over(storage)) return finish(storage, .finished, now_ms);
+        const next_ms = try next_instant(storage, plan, now_ms) orelse return finish(storage, .horizon, limits.horizon_ms);
+        if (next_ms >= limits.horizon_ms) return finish(storage, .horizon, limits.horizon_ms);
         assert(next_ms > now_ms);
         now_ms = next_ms;
     }
@@ -417,8 +417,9 @@ fn all_over(storage: *Storage) bool {
 }
 
 /// Notes how the run ended, and checks P4 once more: every connection the program holds that has
-/// not ended is one the endpoint holds, and at the horizon only the one decision 110 leaves open.
-fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) Error!void {
+/// not ended is one the endpoint holds, and none is at the horizon. An h2 peer that keeps a
+/// stream's window closed and pings is cut too, since decision 110 as amended a ninth time.
+fn finish(storage: *Storage, end: End, end_ms: u64) Error!void {
     storage.record.end = end;
     storage.record.end_ms = end_ms;
     storage.record.unserved = unserved(storage);
@@ -428,7 +429,7 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) Error!voi
         const slot = connection.handle.slot;
         const held = storage.endpoint.live[slot] and storage.endpoint.generations[slot] == connection.handle.generation;
         if (!held) return storage.program.fail(error.EndedMissing, "finish", connection.handle, 0);
-        if (end == .horizon and !outlasts_horizon(plan, connection)) return storage.program.fail(error.EndedMissing, "horizon", connection.handle, 0);
+        if (end == .horizon) return storage.program.fail(error.EndedMissing, "horizon", connection.handle, 0);
     }
 }
 
@@ -443,14 +444,4 @@ fn unserved(storage: *const Storage) u32 {
         if (peer.handle == null) count += 1;
     }
     return count;
-}
-
-/// Whether a connection may still run at the horizon. Decision 110's stream send meter waits while
-/// the output holds octets, and an h2 PING's acknowledgment is octets, so an h2 peer that pings
-/// every few seconds and never opens its stream's window is never cut. Design §8 step 21b.5 leaves
-/// that to the owner; every other connection ends before the horizon.
-fn outlasts_horizon(plan: *const Plan, connection: *const ledger_module.Connection) bool {
-    if (connection.kind != .tcp) return false;
-    const behaviour = &plan.tcp[connection.peer].behaviour;
-    return behaviour.peer == .idle_pinger and behaviour.protocol == .h2;
 }

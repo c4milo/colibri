@@ -77,7 +77,7 @@ test "RFC 9114 §4.1.1: a response its stream's credit holds under the rate is r
     const entry = entry_of(fetch);
     try testing.expect(entry.bound and !entry.busy);
     try testing.expect(!connection.sends.meter.running());
-    const end_ns = entry.meter.window_end_ns.?;
+    const end_ns = entry.meter.window_end_ns;
     try testing.expectEqual(end_ns, quic_deadline.soonest(connection).?);
     server_at(end_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
@@ -97,7 +97,7 @@ test "decision 110: a stream whose credit grows by the quota each window is not 
     support.client_reads = false;
     const fetch = try answered_get();
     try support.pump(support.rounds_default);
-    const first_end_ns = entry_of(fetch).meter.window_end_ns.?;
+    const first_end_ns = entry_of(fetch).meter.window_end_ns;
     // The first window counted the octets the first credit covered.
     server_at(first_end_ns);
     try testing.expectEqual(null, cancelled_for(0));
@@ -118,13 +118,13 @@ test "decision 110: credit that grows under the rate does not start a stream's w
     support.client_reads = false;
     const fetch = try answered_get();
     try support.pump(support.rounds_default);
-    const end_ns = entry_of(fetch).meter.window_end_ns.?;
+    const end_ns = entry_of(fetch).meter.window_end_ns;
     // Part of the way, the client reads once: its credit grows by a tenth of the quota.
     server_at(end_ns - constants.policy.rate_window_ns);
     try support.client_read();
     try support.pump(support.rounds_default);
     try testing.expect(entry_of(fetch).acknowledged_len > window_small);
-    try testing.expectEqual(end_ns, entry_of(fetch).meter.window_end_ns.?);
+    try testing.expectEqual(end_ns, entry_of(fetch).meter.window_end_ns);
     server_at(end_ns);
     try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
 }
@@ -135,7 +135,7 @@ test "RFC 9114 §10.5: a peer that acknowledges nothing of a response closes the
     support.client_mute = true;
     try support.pump(rounds_few);
     try testing.expectEqual(1, connection.sends.busy);
-    const end_ns = connection.sends.meter.window_end_ns.?;
+    const end_ns = connection.sends.meter.window_end_ns;
     try testing.expectEqual(end_ns, quic_deadline.soonest(connection).?);
     server_at(end_ns - 1);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
@@ -150,7 +150,7 @@ test "decision 110: a peer that acknowledges the quota each window is not closed
     _ = try answered_get();
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, connection.sends.busy);
-    const first_end_ns = connection.sends.meter.window_end_ns.?;
+    const first_end_ns = connection.sends.meter.window_end_ns;
     server_at(first_end_ns);
     // The client reads once, so its connection's credit grows by two quotas.
     try support.client_read();
@@ -178,7 +178,7 @@ test "decision 110: a response its connection's credit holds waits on its peer b
     try testing.expectEqual(outgoing.framed_end, outgoing.acknowledged_len);
     try testing.expect(outgoing.framed_end < content.len and !outgoing.finished);
     try testing.expect(entry_of(fetch).busy and !entry_of(fetch).bound);
-    server_at(connection.sends.meter.window_end_ns.?);
+    server_at(connection.sends.meter.window_end_ns);
     try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
     try testing.expect(closing_for_load());
 }
@@ -195,7 +195,7 @@ test "RFC 9000 §3.1: a response whose end alone is not acknowledged still waits
     try testing.expectEqual(0, try connection.write_body(fetch.id, .{ .bytes = "", .end = true }));
     try support.pump(rounds_few);
     try testing.expect(entry_of(fetch).busy);
-    server_at(connection.sends.meter.window_end_ns.?);
+    server_at(connection.sends.meter.window_end_ns);
     try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
 }
 
@@ -213,7 +213,7 @@ test "decision 110: a stream a send deadline ends waits for its request's body n
     _ = try connection.write_body(fetch.id, .{ .bytes = &content, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, connection.bodies.waiting);
-    server_at(entry_of(fetch).meter.window_end_ns.?);
+    server_at(entry_of(fetch).meter.window_end_ns);
     try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
     try testing.expectEqual(0, connection.bodies.waiting);
     support.client_reads = true;
@@ -229,7 +229,7 @@ test "RFC 9114 §10.5: a connection whose own credit holds its responses closes 
     // The stream's credit covers the response, and the connection's does not.
     const entry = entry_of(fetch);
     try testing.expect(entry.busy and !entry.bound);
-    const end_ns = connection.sends.meter.window_end_ns.?;
+    const end_ns = connection.sends.meter.window_end_ns;
     server_at(end_ns - 1);
     try testing.expect(connection.clock.timed_out == null);
     server_at(end_ns);
@@ -254,7 +254,7 @@ test "decision 110: a stream's own meter waits while another response holds octe
     support.client_reads = false;
     const held = try answered_get();
     try support.pump(support.rounds_default);
-    const end_ns = entry_of(held).meter.window_end_ns.?;
+    const end_ns = entry_of(held).meter.window_end_ns;
     // A second response, which the peer may take and does not acknowledge.
     const second = try support.request("GET", "/second", "");
     try support.pump(rounds_few);
@@ -263,7 +263,7 @@ test "decision 110: a stream's own meter waits while another response holds octe
     try support.pump(rounds_few);
     try testing.expect(entry_of(second).busy);
     try testing.expect(!entry_of(held).meter.running());
-    const closes_ns = connection.sends.meter.window_end_ns.?;
+    const closes_ns = connection.sends.meter.window_end_ns;
     try testing.expect(closes_ns > end_ns);
     server_at(end_ns);
     try testing.expectEqual(null, cancelled_for(0));
@@ -294,7 +294,7 @@ test "decision 110: octets acknowledged after a window's end do not count in it"
     _ = try connection.write_body(fetch.id, .{ .bytes = content[0..quota], .end = true });
     support.client_mute = true;
     try support.pump(rounds_few);
-    const end_ns = connection.sends.meter.window_end_ns.?;
+    const end_ns = connection.sends.meter.window_end_ns;
     // The client's acknowledgment of the whole response arrives one round after the window ended,
     // in the first datagram the server takes after it.
     support.now_ns = end_ns;

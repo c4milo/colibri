@@ -4005,6 +4005,38 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        slots, which a program must size against its `Capacity`.
      - For the names: `cancels_max` and `refusals_max`, and names that end in `_per_second_max`.
 
+     Amended a ninth time by the owner on 2026-11-27, as "Resume the meter", while design §8 step
+     79 was built (decision 176):
+     - **A pause that lasts no time keeps its window.** An h2 stream's send meter that stops and
+       starts again at one instant takes back the window it stopped in, with its octets, and gets
+       no new grace period. A start at a later instant starts a window again with a grace period,
+       as before.
+     - **The other meters stop as before.** A request body's meter starts again with a grace
+       period once its WINDOW_UPDATE is out, as the fourth amendment rules, though colibri sends
+       the update at the instant it stopped: the peer still waits a round trip for it. The
+       connection's send meter and QUIC's meters keep their rule too.
+     - **Why.** An h2 stream's meter runs only while the connection's output holds nothing that no
+       socket took. The pumps of `colibri.Server` and of the test-only server read again after a
+       response's write and before they take its octets, and that read stopped the meter. Taking
+       the octets at the same instant started it again with a new grace period. So a peer that
+       opens its window an octet a second was never cut. The engine's own test took the octets at
+       each `send`, and so never showed it. A pump now takes them once a turn, which keeps one
+       send and one TLS record a turn.
+     - **The gap design §8 step 21b.5 left to the owner closes too.** Its endpoint check read
+       after each PING's acknowledgment and copied it at the same instant. So an h2 peer that keeps
+       a stream's window closed and pings every few seconds was never cut, and the check let that
+       peer alone outlast its horizon. The stream's meter now cuts it, and the check lets no
+       connection outlast the horizon.
+     - **Cost.** No octet: the meter keeps the instant it stopped at in the field that said whether
+       it runs, so `rate.Meter` stays 24 octets.
+     - The alternatives refused:
+       - Taking the octets at each `send`, with no change to the meter. Over TLS each take seals a
+         record of its own, so h2 pays an AEAD call and 22 octets for each response of a turn.
+       - Keeping the gap, and filing an issue.
+       - Every meter keeping its window across a pause that lasts no time. A body's meter would
+         then judge a peer for the round trip in which it waits for its WINDOW_UPDATE, which the
+         fourth amendment refused.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

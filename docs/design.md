@@ -11151,7 +11151,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     output holds octets, and colibri's PING acknowledgments are octets. An h2 peer that keeps a
     stream's window closed and pings every few seconds is never cut, through the endpoint or a
     connection alone; only the drain after `shutdown` ends it. Seeds 0x4b and 0x5d show it, and
-    the run lets that peer's connection alone outlast the 600 s horizon.
+    the run lets that peer's connection alone outlast the 600 s horizon. Step 79 closes it
+    (decision 110 as amended a ninth time).
   - An honest peer is never cut by a deadline but the drain after `shutdown`, nor its connection
     by one but idle and drain. Peers whose drawn pace would miss decision 110's deadlines for a
     reason of the run's own are kept out: TLS runs only for honest peers at full pace and silent

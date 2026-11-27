@@ -10,38 +10,65 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const Meter = struct {
-    /// The instant the current window ends, or null while the meter is stopped.
-    window_end_ns: ?u64 = null,
+    /// The instant the current window ends while the meter runs, and after a pause the end of the
+    /// window it paused in.
+    window_end_ns: u64 = 0,
     /// The octets the current window has brought.
     octets: u64 = 0,
+    /// `running_ns` while the meter runs. Otherwise the instant it paused at, or `no_window_ns`
+    /// once it stopped or before it started: a start at the instant it paused takes back the
+    /// window it paused in, with its octets (decision 110 as amended on 2026-11-27).
+    stopped_ns: u64 = no_window_ns,
 
-    /// Starts the first window at `now_ns`, `grace_ns` and `window_ns` long.
+    /// What `stopped_ns` holds while the meter runs, and while it holds no window to take back.
+    /// No caller's instant reaches either: they are nanoseconds from an origin the caller chose,
+    /// and the last is 584 years away.
+    const running_ns: u64 = std.math.maxInt(u64);
+    const no_window_ns: u64 = running_ns - 1;
+
+    /// Starts the first window at `now_ns`, `grace_ns` and `window_ns` long. A meter paused at
+    /// `now_ns` takes back the window it paused in instead: a pause that lasted no time gives no
+    /// new grace period (decision 110 as amended on 2026-11-27).
     pub fn start(meter: *Meter, now_ns: u64, grace_ns: u64, window_ns: u64) void {
         assert(grace_ns > 0 and window_ns > 0);
+        assert(now_ns < no_window_ns);
+        if (meter.stopped_ns == now_ns) {
+            meter.stopped_ns = running_ns;
+            return;
+        }
         meter.window_end_ns = now_ns + grace_ns + window_ns;
         meter.octets = 0;
+        meter.stopped_ns = running_ns;
     }
 
+    /// Stops a running meter at `now_ns`, keeping its window for a start at that same instant.
+    pub fn pause(meter: *Meter, now_ns: u64) void {
+        assert(now_ns < no_window_ns);
+        if (meter.running()) meter.stopped_ns = now_ns;
+    }
+
+    /// Stops the meter, with no window to take back.
     pub fn stop(meter: *Meter) void {
-        meter.window_end_ns = null;
+        meter.stopped_ns = no_window_ns;
         meter.octets = 0;
     }
 
     pub fn running(meter: *const Meter) bool {
-        return meter.window_end_ns != null;
+        return meter.stopped_ns == running_ns;
     }
 
     /// Counts `octets` in the current window. The caller has moved the meter to the instant they
     /// arrived at, with `short`, so they count in the window they arrived in.
     pub fn count(meter: *Meter, octets: u64) void {
-        if (meter.window_end_ns == null) return;
+        if (!meter.running()) return;
         meter.octets += octets;
     }
 
     /// The instant the meter next looks at a window: the current one's end, or the next one's once
     /// the current one holds its quota. Null while the meter is stopped.
     pub fn check_ns(meter: *const Meter, quota: u64, window_ns: u64) ?u64 {
-        const end_ns = meter.window_end_ns orelse return null;
+        if (!meter.running()) return null;
+        const end_ns = meter.window_end_ns;
         return if (meter.octets >= quota) end_ns + window_ns else end_ns;
     }
 
@@ -49,7 +76,8 @@ pub const Meter = struct {
     /// `quota`. A window ends at its instant, so octets that arrive then count in the next one.
     pub fn short(meter: *Meter, now_ns: u64, quota: u64, window_ns: u64) bool {
         assert(quota > 0 and window_ns > 0);
-        const end_ns = meter.window_end_ns orelse return false;
+        if (!meter.running()) return false;
+        const end_ns = meter.window_end_ns;
         if (now_ns < end_ns) return false;
         if (meter.octets < quota) return true;
         meter.window_end_ns = end_ns + window_ns;
@@ -100,6 +128,30 @@ test "decision 110: a window that ended with its test_quota and one after it wit
     meter.start(0, test_grace_ns, test_window_ns);
     meter.count(test_quota);
     try testing.expect(meter.short(first_end_ns + test_window_ns, test_quota, test_window_ns));
+}
+
+test "decision 110 as amended: a meter paused and started at one instant keeps its window" {
+    var meter: Meter = .{};
+    meter.start(0, test_grace_ns, test_window_ns);
+    meter.count(test_quota - 1);
+    // A pause that lasts no time: the window and its octets come back, with no new grace period.
+    meter.pause(test_grace_ns);
+    meter.count(test_quota);
+    try testing.expect(!meter.running());
+    meter.start(test_grace_ns, test_grace_ns, test_window_ns);
+    try testing.expectEqual(test_quota - 1, meter.octets);
+    try testing.expect(meter.short(test_grace_ns + test_window_ns, test_quota, test_window_ns));
+    // A start at a later instant starts again with a grace period, and a second pause keeps the
+    // first one's instant.
+    meter.pause(test_grace_ns + test_window_ns);
+    meter.pause(test_grace_ns + test_window_ns + 1);
+    meter.start(test_grace_ns + test_window_ns + 1, test_grace_ns, test_window_ns);
+    try testing.expectEqual(0, meter.octets);
+    try testing.expectEqual(2 * (test_grace_ns + test_window_ns) + 1, meter.check_ns(test_quota, test_window_ns).?);
+    // A stop keeps no window, whatever instant the next start comes at.
+    meter.stop();
+    meter.start(0, test_grace_ns, test_window_ns);
+    try testing.expectEqual(test_grace_ns + test_window_ns, meter.check_ns(test_quota, test_window_ns).?);
 }
 
 test "decision 110: a stopped meter counts nothing and is never short" {
@@ -163,13 +215,13 @@ fn drive(run: *const Run) error{TestRunTooLong}!?u64 {
         const arrival_ns = run.arrival_ns(m);
         const now_ns = @min(meter.check_ns(quota, run.window_ns).?, arrival_ns);
         if (now_ns >= last_end_ns) break;
-        if (meter.short(now_ns, quota, run.window_ns)) return run.window_of(meter.window_end_ns.?);
+        if (meter.short(now_ns, quota, run.window_ns)) return run.window_of(meter.window_end_ns);
         if (arrival_ns == now_ns) {
             meter.count(run.unit);
             m += 1;
         }
     } else return error.TestRunTooLong;
-    if (meter.short(last_end_ns, quota, run.window_ns)) return run.window_of(meter.window_end_ns.?);
+    if (meter.short(last_end_ns, quota, run.window_ns)) return run.window_of(meter.window_end_ns);
     return null;
 }
 

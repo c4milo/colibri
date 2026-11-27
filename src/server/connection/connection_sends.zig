@@ -134,7 +134,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     const waiting = connection_output.unlent_len(connection) > 0;
     for (sends.written_entries()) |*blocked| {
         if (blocked.id == 0) continue;
-        start_or_stop(&blocked.meter, !waiting, now_ns, limits);
+        start_or_pause(&blocked.meter, !waiting, now_ns, limits);
     }
 }
 
@@ -142,6 +142,15 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
 /// pause, after which it starts again with a grace period.
 pub fn start_or_stop(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Timeouts) void {
     if (!runs) return meter.stop();
+    if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
+}
+
+/// Starts an h2 stream's send meter at `now_ns` when it `runs` and is stopped, and pauses it when
+/// it does not. After a pause it starts again with a grace period, unless it starts at the instant
+/// it paused: a pause that lasted no time takes its window back (decision 110 as amended on
+/// 2026-11-27).
+fn start_or_pause(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Timeouts) void {
+    if (!runs) return meter.pause(now_ns);
     if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
 }
 
