@@ -1,200 +1,48 @@
 # Using colibri
 
-This guide shows how a program drives colibri: how to add it, what the program owns, and the calls
-it makes. It starts with the `server` and `client` modules, which most programs use and which
-serve every version, and then covers each protocol module by itself. Each module's entry file
-documents its calls in full; this guide shows how they fit together.
-[`examples/`](../examples/) holds a short whole program for each part, and the test-only endpoints
-under [`src/testing/`](../src/testing/) run every protocol over real sockets.
+This guide shows the calls a program makes to serve and fetch over h11, h2 and h3. It starts with
+`colibri.Server` and `colibri.Client`, which do the I/O for you, and then covers the `server` and
+`client` modules and each protocol module. [`examples/`](../examples/) holds a whole program for
+each part, and each module's entry file documents its calls in full.
 
-## Adding colibri
-
-Depend on a release tag, or on a commit for a change made since:
-
-```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.22.0
-```
-
-In `build.zig`, import `colibri`, the one module the package exports
-([decision 170](decisions.md#decision-170)). These lines are from
-[`tools/consumer/build.zig`](../tools/consumer/build.zig):
+## Quick start: serve a route and fetch it
 
 ```zig
-const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
-exe.root_module.addImport("colibri", colibri.module("colibri"));
+const routes = .{
+    .error_handler = on_error,
+    .Values = Values,
+    .middleware = .{Numbered},
+    .routes = .{
+        .{ .get, "/greeting", greet },
+        .{ .get, "/greetings/:name", greet_named, .{ .path = Name } },
+    },
+};
 ```
 
-The module's root names each library module. Your program reaches each one through it, and may
-bind a short name of its own. These lines are from
-[`examples/colibri_server.zig`](../examples/colibri_server.zig):
+This section is from [`examples/colibri_server.zig`](../examples/colibri_server.zig). The route
+table names each method, path and function, and the compiler checks it ([Router](#router)). Each
+route's function takes the program's state first:
 
 ```zig
-const colibri = @import("colibri");
-// `colibri` names each library module, so the program imports no other module of colibri
-// (decision 170).
-const server = colibri.server;
-const client = colibri.client;
-const tls = colibri.tls;
-const stdx = @import("stdx");
-const platform = stdx.platform;
+fn greet(state: *App, ctx: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
+    // `Numbered` ran before the route, so the request's values hold its number.
+    if (ctx.values(Values).number != state.taken) return error.RequestNotNumbered;
+    state.answered += 1;
+    try response.header("content-type", "text/plain");
+    try response.body().writeAll(greeting);
+    try response.end();
+}
 ```
 
-The rest of this guide writes `server.Router`, `client.Request` and `h2.Connection` with such
-names.
-
-`.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of the `.private` kind
-of `colibri.Server` and `colibri.Client` ([decision 159](decisions.md#decision-159)). Rotor is a lazy package,
-and the default of the option is false. Without it, `.private` does not compile, and the compiler
-prints the line to add.
-
-A program that uses the protocol modules alone, or the `.hosted` kind of `colibri` on its own
-loop, leaves `.rotor` out. Its build fetches chapulin and stdx, and no Rotor. This line is from
-[`tools/consumer_hosted/build.zig`](../tools/consumer_hosted/build.zig):
+The program places the router, the server and the server's TLS buffer once, outside any stack
+frame:
 
 ```zig
-const colibri = b.dependency("colibri", .{ .target = target, .release = true });
-```
+const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
+var router: Router align(@alignOf(Router)) = undefined;
 
-`colibri` names sixteen modules, and holds `colibri.Server` and `colibri.Client` itself:
-
-| Module | What it holds |
-| --- | --- |
-| `core` | The bounds-checked reader and writer, and the limits two modules share |
-| `wire` | The integer and string codecs of RFC 7541 and RFC 9000 §16, and the Huffman code |
-| `http` | What h11, h2 and h3 share: field lines and sections, methods, status codes, URIs, and the message rules of RFC 9110 |
-| `tls_provider` | The `tls_provider.Provider` and `tls_provider.QuicProvider` vtables a TLS stack fills |
-| `tls` | TLS 1.3 over [chapulin](https://github.com/c4milo/chapulin): the values you set, and the sessions whose provider h11 and h2 take |
-| `crypto` | The `crypto.Suite` vtable that protects QUIC packets |
-| `qlog` | A qlog log in the caller's buffer, which `quic` and `h3` fill when the caller asks ([decision 102](decisions.md#decision-102)) |
-| `hpack` | HPACK (RFC 7541) |
-| `qpack` | QPACK (RFC 9204) |
-| `quic` | QUIC versions 1 and 2 (RFC 9000, 9001, 9002, 9369). It imports no HTTP module. |
-| `h11` | HTTP/1.1 (RFC 9112) |
-| `h2` | HTTP/2 (RFC 9113) |
-| `h3` | HTTP/3 (RFC 9114) over `quic` |
-| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md#decision-100)). An `Engine` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md#decision-119)). |
-| `dnssec` | The checks of a DNSSEC signature and of a DS digest over chapulin ([decision 142](decisions.md#decision-142)) |
-| `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md#decision-150)), and `colibri.Client`, which runs `client`'s pool on Rotor's loop ([decision 153](decisions.md#decision-153) ruling 8). It is the one module that does I/O. |
-| `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md#decision-100)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
-
-The package exports nothing of stdx ([decision 170](decisions.md#decision-170)). A program detects its CPU
-features once through `@import("stdx").platform`, since stdx exports the one module `stdx`
-([decision 171](decisions.md#decision-171)). It passes `platform.CpuFeatures.detect()` to each configuration's
-`cpu_features`, and to `stdx.crypto.init`, whose `stdx.crypto.Context` every TLS value holds
-([decision 175](decisions.md#decision-175)). Depend on stdx at the commit colibri's `build.zig.zon` pins, and
-give it the options colibri gives it, so both reach one stdx module. A second stdx fails the
-build, since Zig puts a file in one module alone:
-
-```zig
-const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
-exe.root_module.addImport("stdx", stdx.module("stdx"));
-```
-
-A program that codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the
-same stdx.
-
-`.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
-assertions stay on in production.
-
-### chapulin, through stdx
-
-colibri links [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, as
-`stdx.crypto` ([decision 174](decisions.md#decision-174)). stdx alone asks chapulin for its module, with the
-option `.crypto = true` that colibri passes, so a program that links stdx links one chapulin. The
-module defines `ch_assert_fail`, so the program defines nothing for it
-([decision 172](decisions.md#decision-172)). The section "TLS" shows how a program replaces chapulin's report of
-a failed assertion.
-
-A program that calls chapulin itself, for example to check a JSON Web Signature, reads it from the
-same stdx: `@import("stdx").crypto.jws`, `.dnssec`, `.scram`, `.hash`, and the sessions of
-`.tls` and `.quic`. It names no chapulin package of its own. stdx's `build/crypto.zig` holds the
-request, and stdx's `src/crypto/README.md` names each call.
-
-## What your program owns
-
-colibri makes no system call, holds no allocator, and reads no clock. The `colibri` module is the
-one exception: it binds sockets and runs a loop for you (see [colibri.Server](#colibriserver) and
-[colibri.Client](#colibriclient)).
-Four things follow for every other module:
-
-- **Your program owns every struct and buffer.** Declare a server's engine, a client's pool
-  or a protocol module's connection where you like: in a static, in an array, or inside a larger
-  struct. Nothing points at the heap. Place large ones outside the stack. A global states the
-  alignment its type already has, as in `var router: Router align(@alignOf(Router)) = undefined;`.
-  Zig 0.16's x86_64 backend can place a large global at a smaller alignment, so every global in
-  colibri's examples states it, and `zig build lint` refuses one that does not.
-- **Your program does the I/O.** Read bytes from the socket, hand them to `receive`, and send
-  the bytes colibri gives you: what a protocol module's `write_*` calls put in your buffer, what
-  a server engine's `output_stream` lends from the engine's own memory, and what its
-  `send_datagram` writes. colibri never waits: when it needs more bytes, `receive` consumes none
-  and returns no event.
-- **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
-  nanoseconds from any fixed origin. The same instants and the same bytes give the same output,
-  which is what lets the simulator replay a connection.
-- **Your program configures TLS.** The `server` module takes the server's identity in its
-  `server.Config`, and the `client` module takes one `tls.Client` value in its `client.Config`.
-  Each builds the TLS configuration of each transport from it, and runs each handshake itself. A
-  program that drives a protocol module by itself converts its values once into a configuration:
-  `tls.record.ClientConfig` or `ServerConfig` over TCP, `tls.quic.ClientConfig` or `ServerConfig`
-  for QUIC. It starts a session of the matching kind for each connection: h11 and h2 take a `tls_provider.Provider`, and QUIC takes a
-  `tls_provider.QuicProvider` and a `crypto.Suite`, and the `tls` module fills all three from
-  chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
-  `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
-  chapulin's session when it sets its transport parameters. A server that sends Retry packets
-  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that runs TLS
-  makes one `stdx.crypto.Context` and puts it in each TLS value ([decision 175](decisions.md#decision-175)).
-  Each session, the engine and the pool draw from its source, and from no other.
-
-A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
-`error.ConnectionFailed`, the connection names the failure, and the bytes colibri owes the peer,
-such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A server's engine returns
-no error. For a TCP connection it reports a `send` for the bytes it owes, then `close`, then the
-connection's `ended` with `failed` set. For a QUIC connection its `send_datagram` writes the
-CONNECTION_CLOSE, and `ended` follows with `failed` set once the closing period ends. A QUIC
-connection error
-from `receive` or `send` leaves the CONNECTION_CLOSE owed, and the next `send` writes it (RFC 9000
-§10.2). Over TLS, a record that does not open ends the connection, and `encrypt` called with no
-plaintext writes the alert the provider owes (RFC 9846 §5.2).
-
-## The words of the API
-
-The `server` and `client` modules name each concept once, the same for h11, h2 and h3
-([decision 126](decisions.md#decision-126)). The RFCs name some of them differently for each version, and the
-protocol modules keep the RFCs' words. This table says which word means what:
-
-| The API says | RFC 9110 | h11 (RFC 9112) | h2 (RFC 9113) | h3 (RFC 9114) |
-| --- | --- | --- | --- | --- |
-| a header | a field line | a field line | a field | a field line |
-| headers | the header section | "the headers" or the header section | a field block | a HEADERS frame's field section |
-| trailers | the trailer section | the trailer section of `chunked` | a field block that ends the stream | the trailing HEADERS frame |
-| a body | content | the message body | DATA frames | DATA frames |
-| bytes | octets | octets | octets | octets |
-| an exchange | a request/response exchange | | | |
-
-## colibri.Server
-
-`colibri.Server` does the I/O of a server for you ([decision 150](decisions.md#decision-150)). It binds the TCP
-socket and the UDP socket of one port, reads the server's identity, and runs `server.Engine` on
-[Rotor](https://github.com/c4milo/rotor)'s loop. Your program gives it a configuration and a router
-of `server.Router` at `init`, and calls `run`. The code in this section is from
-[`examples/colibri_server.zig`](../examples/colibri_server.zig).
-
-The root of `colibri` re-exports the modules `client` and `server`
-([decision 156](decisions.md#decision-156) ruling 14). So a program that imports `colibri` reaches both
-through it, and needs no import of its own for either:
-
-```zig
-const server = colibri.server;
-const client = colibri.client;
-```
-
-`colibri.Server(capacity, kind)` is a type function, as Zig's `std.ArrayList(T)` is
-([decision 156](decisions.md#decision-156) ruling 1). `capacity` is a `server.Capacity`. `kind` is `.private`,
-which runs on colibri's own Rotor loop, or `.hosted`, which runs on your program's loop
-([decision 159](decisions.md#decision-159)). This section shows `.private`. A program places the server once,
-outside any stack frame, as it places an engine:
-
-```zig
+/// A server that holds four TCP connections and four QUIC connections, on colibri's own loop. The
+/// program places the server once, outside any stack frame, and does not move it.
 const connections = 4;
 const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
 var http_server: Server align(@alignOf(Server)) = undefined;
@@ -203,17 +51,7 @@ var http_server: Server align(@alignOf(Server)) = undefined;
 var tls_buffer: [server.Config.tls_buffer_len(connections)]u8 = undefined;
 ```
 
-A TCP connection over TLS takes its TLS session from `tls_buffer`, and gives it back
-when it ends. `server.Config.tls_buffer_len(n)` gives the bytes that hold `n` sessions at once, at
-any alignment, so the program declares a plain array of `u8`. A server that serves no TLS over TCP
-passes no buffer, and holds no TLS state ([decision 167](decisions.md#decision-167)).
-
-`init` takes a pointer to the configuration, the router, and the program's own value, which each
-route's function takes first. It binds the port and reads the identity, and keeps no pointer to the
-configuration. Port 0
-asks the system for a port, and `port()` returns the port bound. `run` serves on the thread that
-calls it, one Rotor loop on that thread, until another thread calls `shutdown`. `run` then ends
-each connection and returns:
+`main` makes the TLS context, binds the server and runs it on a thread of its own:
 
 ```zig
 var secure: SecureRandom = .{ .io = init.io };
@@ -234,10 +72,6 @@ defer thread.join();
 defer http_server.shutdown();
 ```
 
-`secure` is a `SecureRandom` over the `io` of the `std.process.Init` that `main` takes, as
-[TLS](#tls) shows. The thread that calls `run` runs the TLS sessions, so it sets its own
-PSTATE.DIT first:
-
 ```zig
 fn serve(cpu_features: platform.CpuFeatures) void {
     _ = platform.set_data_independent_timing(cpu_features, true);
@@ -245,88 +79,208 @@ fn serve(cpu_features: platform.CpuFeatures) void {
 }
 ```
 
-`deinit` closes the sockets and wipes the private key, the cookie key and the ticket key. Call it
-after `init` returns, and after `run` returns when your program calls `run`. `run` closes the
-sockets when it returns, and `deinit` does not close them again, because the system can give a
-closed number to another file of your program.
+A client fetches one response in one call:
+
+```zig
+try http_client.init(&.{
+    .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
+    .pool = .{
+        .cpu_features = crypto.features,
+        .authority = origin,
+        .protocols = .{ .h3 = false },
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .crypto = crypto },
+    },
+    .unix_seconds = now_seconds,
+}, null);
+```
+
+```zig
+const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
+if (got.result != .response or got.status != ok) return error.ResponseWrong;
+if (!std.mem.eql(u8, greeting, body[0..got.body_len])) return error.ResponseWrong;
+```
+
+Run it with `zig build example-colibri_server`. [colibri.Server](#colibriserver) and
+[colibri.Client](#colibriclient) give the rules of each call.
+
+## Adding colibri
+
+```sh
+zig fetch --save git+https://github.com/c4milo/colibri#v0.22.0
+zig fetch --save=stdx git+https://github.com/c4milo/stdx#v0.4.0
+```
+
+Depend on a release tag, or on a commit for a change made since. Depend on stdx at the commit
+colibri's `build.zig.zon` pins: tag v0.4.0, commit `fdfbb709`.
+
+From [`tools/consumer/build.zig`](../tools/consumer/build.zig), a program that uses `.private`:
+
+```zig
+const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
+exe.root_module.addImport("colibri", colibri.module("colibri"));
+```
+
+```zig
+const stdx = b.dependency("stdx", .{ .target = target, .release = true, .crypto = true });
+exe.root_module.addImport("stdx", stdx.module("stdx"));
+```
+
+From [`tools/consumer_hosted/build.zig`](../tools/consumer_hosted/build.zig), a program that uses
+the protocol modules or the `.hosted` kind alone, and fetches no Rotor:
+
+```zig
+const colibri = b.dependency("colibri", .{ .target = target, .release = true });
+```
+
+- `colibri` is the one module the package exports ([decision 170](decisions.md#decision-170)).
+- `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of `.private`. Without
+  it, a `.private` object does not compile, and the compiler names the line to add
+  ([decision 159](decisions.md#decision-159)).
+- `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
+  assertions stay on in production.
+- Give stdx the options colibri gives it, `.crypto = true` among them. A second stdx module fails
+  the build.
+
+The root of `colibri` names each library module. From
+[`examples/colibri_server.zig`](../examples/colibri_server.zig):
+
+```zig
+const colibri = @import("colibri");
+// `colibri` names each library module, so the program imports no other module of colibri
+// (decision 170).
+const server = colibri.server;
+const client = colibri.client;
+const tls = colibri.tls;
+const stdx = @import("stdx");
+const platform = stdx.platform;
+```
+
+| Module | What it holds |
+| --- | --- |
+| `colibri` | `colibri.Server` and `colibri.Client`, which bind sockets and run a loop. The one module that does I/O. |
+| `server` | Responses to h11, h2 and h3 behind one set of calls: `server.Engine`, `server.Router` |
+| `client` | Requests over h11, h2 and h3 behind one set of calls: `client.ConnectionPool` |
+| `h11`, `h2`, `h3` | HTTP/1.1 (RFC 9112), HTTP/2 (RFC 9113) and HTTP/3 (RFC 9114) |
+| `quic` | QUIC versions 1 and 2 (RFC 9000, 9001, 9002, 9369). It imports no HTTP module. |
+| `hpack`, `qpack` | Field compression for h2 (RFC 7541) and h3 (RFC 9204) |
+| `http` | What h11, h2 and h3 share: fields, methods, status codes, URIs (RFC 9110) |
+| `tls` | TLS 1.3 values and sessions over `stdx.crypto` |
+| `tls_provider`, `crypto` | The vtables a TLS stack fills, and the one that protects QUIC packets |
+| `qlog` | A qlog log in your buffer, which `quic` and `h3` fill ([decision 102](decisions.md#decision-102)) |
+| `dnssec` | Checks of a DNSSEC signature and a DS digest ([decision 142](decisions.md#decision-142)) |
+| `core`, `wire` | The bounds-checked reader and writer, and the integer, string and Huffman codecs |
+
+The package exports nothing of stdx ([decision 170](decisions.md#decision-170)). A program that
+codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the same stdx.
+
+## The TLS stack and the CPU
+
+```zig
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
+```
+
+```zig
+var secure: SecureRandom = .{ .io = init.io };
+const cpu_features: platform.CpuFeatures = .detect();
+_ = platform.set_data_independent_timing(cpu_features, true);
+const crypto = stdx.crypto.init(cpu_features, secure.random());
+```
+
+From [`examples/colibri_server.zig`](../examples/colibri_server.zig): the program detects its CPU
+once and makes one `stdx.crypto.Context` ([decision 175](decisions.md#decision-175)). colibri
+reads its TLS stack as `stdx.crypto` ([decision 174](decisions.md#decision-174)).
+
+- Every `cpu_features` field of a configuration takes `crypto.features`, or the same
+  `cpu_features` value.
+- Every TLS value, the server and the client's pool hold the one `crypto`. Each session draws
+  from its source and from no other.
+- Call `set_data_independent_timing` on each thread that runs TLS. It sets PSTATE.DIT on arm64
+  where the core has FEAT_DIT, and changes nothing elsewhere.
+- The program defines no assertion hook. [TLS](#tls) shows the optional `chapulinAssertFail`.
+- A program that calls the TLS stack itself reads it from the same stdx, as
+  `@import("stdx").crypto.jws`, `.dnssec`, `.scram`, `.hash`, `.tls` or `.quic`.
+
+## colibri.Server
+
+```zig
+const BoundServer = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .private);
+var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
+```
+
+From [`tools/consumer/main.zig`](../tools/consumer/main.zig): `colibri.Server(capacity, kind)`
+binds one port and runs `server.Engine` ([decision 150](decisions.md#decision-150)). `kind` is
+`.private`, on colibri's own Rotor loop, or `.hosted`, on
+[your loop](#host-colibri-on-your-own-loop). The
+[quick start](#quick-start-serve-a-route-and-fetch-it) shows `init` and `run`.
+
+- Place the server once, outside any stack frame, and do not move it.
+- `init` takes a pointer to the configuration, the router, and the program's value, which each
+  route takes first. It binds, reads the identity and keeps no pointer to the configuration.
+- `port()` returns the port bound, which port 0 leaves to the system.
+- `run` serves on the thread that calls it until another thread calls `shutdown`. It then ends
+  each connection and returns.
+- The thread that calls `run` runs the TLS sessions, so it calls `set_data_independent_timing`
+  first, as `serve` does.
+- `deinit` closes the sockets and wipes the private key, the cookie key and the ticket keys. Call
+  it after `init` returns, and after `run` returns when your program calls `run`.
+- `server.Config.tls_buffer_len(n)` gives the bytes of `n` TLS sessions at any alignment. With an
+  identity and TCP connections, `engine.tls_buffer` holds one session at least
+  ([decision 167](decisions.md#decision-167)).
 
 `colibri.ServerConfig` holds these fields:
 
-- `host` and `port`: an IPv4 or IPv6 literal, and the port of TCP and UDP. The defaults are
-  127.0.0.1 and 0. With 0 the system chooses a free TCP port. When another program holds UDP on
-  that number, `init` asks for another port, up to `colibri.constants.limits.bind_tries_max`
-  times.
-- `identity`: the certificate chain and the key, `.chain` and `.key`, as PEM text your program
-  holds. Your program reads its own files ([decision 150](decisions.md#decision-150) ruling 11). `init` reads
-  the key's text in place and keeps no copy, so your program may wipe the text once `init`
-  returns. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP socket.
-  With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port. With one and
-  TCP connections, `engine.tls_buffer` must hold one TLS session at least (decision 167).
-- `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
-  clock. It has no default. The server's session tickets carry it, so a client resumes a later
-  connection with one ([decision 161](decisions.md#decision-161)).
-- `crypto`: your program's one `stdx.crypto.Context`, as every TLS value holds it
-  ([decision 175](decisions.md#decision-175)). Each TLS session and each QUIC connection draws from its source,
-  and runs on its CPU features. Null makes one of `engine.cpu_features` and the system's entropy
-  ([decision 150](decisions.md#decision-150) ruling 9).
-- `ticket_key`: the key the server seals its tickets under, which the server copies. Null draws
-  one from the source of `crypto`. Pass one key to each server your program runs, so each resumes the tickets
-  of the others. `deinit` wipes the server's copy.
-- `ticket_key_previous`: the key the server sealed its tickets under before `ticket_key`, which
-  the server copies. A ticket that either key sealed resumes. Null draws a key that opens no
-  ticket. Pass the old key here when your program starts again with a new `ticket_key`, so its
-  clients keep their tickets. The two keys must differ, or `run` returns
-  `error.IdentityRefused`.
-- `engine`: the `server.Config` the engine starts from ([decision 158](decisions.md#decision-158) ruling 16).
-  Its `tls_buffer` holds the TLS sessions of the TCP connections over TLS, and colibri fills its
-  `tls` from `identity`.
-  `colibri` fills its `tls`, and sets its `ecn`, because the server's loop reads and sets each
-  datagram's ECN codepoint ([decision 68](decisions.md#decision-68)).
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `host` | `"127.0.0.1"` | An IPv4 or IPv6 literal. |
+| `port` | 0 | The TCP and UDP port. With 0 the system chooses, and `init` tries up to `colibri.constants.limits.bind_tries_max` (16) ports for a free UDP one. |
+| `identity` | null | `.chain` and `.key` as PEM text. `init` keeps no copy, so you may wipe the text after it. Null serves h11 and h2 in cleartext and opens no UDP socket. |
+| `unix_seconds` | none | The seconds since 1970 when `run` starts. Session tickets carry it ([decision 161](decisions.md#decision-161)). |
+| `crypto` | null | Your `stdx.crypto.Context`. Null makes one of `engine.cpu_features` and the system's entropy. |
+| `ticket_key` | null | The key that seals session tickets, which the server copies. Null draws one. Give each server of one port the same key. |
+| `ticket_key_previous` | null | An older key that still opens tickets. It differs from `ticket_key`, or `run` returns `error.IdentityRefused`. |
+| `engine` | none | The `server.Config` the engine starts from, with `tls_buffer` and `cpu_features`. colibri fills its `tls` and `ecn` ([decision 68](decisions.md#decision-68)). |
 
-A server that runs for weeks changes its ticket key with `set_ticket_key`. The server copies the
-new key and seals the next tickets under it. The current key becomes the previous one, which
-still opens the tickets it sealed, and the key before it is gone. So a client keeps its ticket
-across one change, and runs a full handshake after a second one. Call it on the server's thread,
-because each TLS session reads the keys while it runs: on `.hosted` between two calls, and on
-`.private` from a route or a middleware. A program with several servers gives each one the new
-key in one pass. Until it does, a server with the old key cannot open a newer ticket, and that
-client runs a full handshake. This excerpt is from `examples/colibri_hosted.zig`:
+With an identity, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
+
+From [`examples/colibri_hosted.zig`](../examples/colibri_hosted.zig), a change of the ticket key:
 
 ```zig
-    var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
-    crypto.random.bytes(&next_ticket_key);
-    hosted_server.set_ticket_key(&next_ticket_key);
-    std.crypto.secureZero(u8, &next_ticket_key);
+var next_ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
+crypto.random.bytes(&next_ticket_key);
+hosted_server.set_ticket_key(&next_ticket_key);
+std.crypto.secureZero(u8, &next_ticket_key);
 ```
 
-A program that wants more cores starts more servers on one port: each one binds its TCP listener
-and its UDP socket with SO_REUSEPORT ([decision 173](decisions.md#decision-173)). Linux sends each UDP datagram
-to one server by a hash of its addresses and ports. So an h3 connection whose client address
-changes can reach a server that does not hold it, and the client then opens a new connection. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
-UDP_SEGMENT and one system call a tick on Linux. The example fetches from the server through
-`colibri.Client`, over h11, h2 and h3. With every version allowed, the client opens TCP first,
-and h3 needs `.prefer = .quic`.
+- The current key becomes the previous one, so a client keeps its ticket across one change.
+- Call `set_ticket_key` on the server's thread: between two calls on `.hosted`, or from a route or
+  a middleware on `.private`.
+- For more cores, start more servers on one port. Each binds with SO_REUSEPORT
+  ([decision 173](decisions.md#decision-173)).
+- An h3 client whose address changes can then reach another server, and opens a new connection.
 
 ## colibri.Client
-
-`colibri.Client` does the I/O of a client for you ([decision 153](decisions.md#decision-153) ruling 8). It owns
-the TCP sockets, a UDP socket of each family for h3, Rotor's loop and its clock, and a
-`client.ConnectionPool`. It sends from the socket of its destination's family. Your program gives
-it a configuration and a handler, hands it requests, and calls `run`. The code in this section is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
-
-`colibri.Client(capacity, kind)` is a type function, as `colibri.Server` is. `capacity` is a
-`colibri.ClientCapacity`: whether the client holds a QUIC connection, its TCP connections, and its
-requests at once. `.{}` holds one TCP connection, one QUIC connection, and
-`client.constants.limits.requests_max` requests. A program places the client once, outside any
-stack frame:
 
 ```zig
 const Client = colibri.Client(.{}, .private);
 var http_client: Client align(@alignOf(Client)) = undefined;
 ```
 
-These lines are from [`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no
-QUIC:
+From [`examples/colibri_server.zig`](../examples/colibri_server.zig): `colibri.Client` owns the
+sockets, the loop and a `client.ConnectionPool` ([decision 153](decisions.md#decision-153) ruling
+8). The default capacity holds one TCP connection, one QUIC connection and 16 requests.
+
+From [`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no QUIC:
 
 ```zig
 const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connections = 1, .requests = 4 };
@@ -334,14 +288,7 @@ const BoundClient = colibri.Client(client_capacity, .private);
 var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 ```
 
-`init` takes a pointer to the configuration and the handler: the server's destination, the
-pool's configuration, and a pointer to your program's struct. It opens the UDP socket when the
-pool offers QUIC: h3 allowed, and a TLS value. The TLS value holds your program's
-`stdx.crypto.Context`, the one its server holds too, and each TLS session and each QUIC connection
-draws from its source ([decision 175](decisions.md#decision-175)). A client in cleartext draws nothing, so it
-needs no context. A client with no handler, which passes null, drops each event. `request` takes a
-`client.Request` and the `client.Response` it fills, which your program keeps in place until the
-exchange's `finished`:
+`init` takes the configuration and a pointer to your handler, or null to drop each event:
 
 ```zig
 try http_client.init(&.{
@@ -357,8 +304,7 @@ try http_client.init(&.{
 defer http_client.deinit();
 ```
 
-`run` runs one Rotor loop on the thread that calls it, and gives each event to the handler. The
-struct declares `on_finished`, and may declare `on_connected`:
+The handler declares `on_finished`, and may declare `on_connected`:
 
 ```zig
 pub fn on_finished(self: *Fetch, _: *Client, _: client.Finished) void {
@@ -366,140 +312,133 @@ pub fn on_finished(self: *Fetch, _: *Client, _: client.Finished) void {
 }
 ```
 
-Each handler runs on the loop's thread, and may call `request` and `shutdown`. `run` returns once
-`shutdown` was called, each exchange has finished, and each connection has closed. A `shutdown`
-before `run` makes `run` return when the requests already made have finished:
+`request` takes a `client.Request` and the `client.Response` it fills. `run` returns once
+`shutdown` was called, each exchange finished and each connection closed:
 
 ```zig
+for (&fetched.requests, &fetched.responses, &fetched.bodies) |*request, *response, *body| {
+    response.* = .{ .body = body };
+    _ = try http_client.request(request, response);
+}
+// `run` returns once both exchanges have finished and each connection has closed.
 http_client.shutdown();
 try http_client.run();
 ```
 
-`shutdown` is the one call another thread may make. `request` comes before `run` or from a
-handler. `set_destination` gives the pool new addresses, for example from a later DNS answer, on
-the same thread. Each connection that opens after it goes to the new addresses, and each open
-connection keeps its exchanges ([decision 125](decisions.md#decision-125)). An open of QUIC to a family with no
-UDP socket ends, and the pool opens TCP ([decision 156](decisions.md#decision-156) ruling 13). After `shutdown`, `request` returns `error.ShutDown`, so a handler that makes a request
-learns that the client takes no more. A program calls `run` once for each `init`. `deinit` closes
-the UDP socket when `run` did not close it.
+- Keep each request and response in place until its exchange's `finished`.
+- Call `request` before `run` or from a handler. Each handler runs on the loop's thread, and may
+  call `request`, `cancel` and `shutdown`.
+- `shutdown` is the one call another thread may make. After it, `request` returns
+  `error.ShutDown`.
+- Call `run` once for each `init`. `deinit` closes the UDP socket when `run` did not.
+- `init` opens the UDP socket when the pool offers QUIC: h3 allowed and a TLS value. A client in
+  cleartext needs no `crypto`.
+- `set_destination` gives the pool new addresses on the loop's thread. New connections go there,
+  and open connections keep their exchanges ([decision 125](decisions.md#decision-125)).
+- An open of QUIC to an address family with no UDP socket ends, and the pool opens TCP
+  ([decision 156](decisions.md#decision-156) ruling 13).
+- With every version allowed, the client opens TCP first. h3 first needs `.prefer = .quic`.
 
-`fetch` runs one exchange on the thread that calls it, and returns how it ended
-([decision 156](decisions.md#decision-156) ruling 12). It takes a pointer to a `FetchOptions`, which names the
-path. Each other field has a default: the method, the headers, the request body and the buffers
-of the response. With no method, a request body makes the method POST, and no body makes it GET.
-A client that only fetches passes null as its handler:
+`fetch` runs one exchange on the thread that calls it
+([decision 156](decisions.md#decision-156) ruling 12). The
+[quick start](#quick-start-serve-a-route-and-fetch-it) shows a call. With no method, a request
+body makes the method POST, and no body makes it GET.
 
-```zig
-const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
-if (got.result != .response or got.status != ok) return error.ResponseWrong;
-if (!std.mem.eql(u8, greeting, body[0..got.body_len])) return error.ResponseWrong;
-```
-
-The `FetchResult` holds the `result`, the `status`, the header section, the trailer section and
-the count of bytes of the body. These rules apply to `fetch`:
-
-- A protocol failure is the `result`, not an error. Read `result` before `status`: an exchange
-  that ended before its final head has no status.
+- A protocol failure is the `result`, not an error. Read `result` before `status`.
 - The handler gets each other exchange that ends while `fetch` runs.
-- The first `fetch` makes the loop, and the loop stays made between fetches. `deinit` stops it:
-  it calls `shutdown`, and runs the loop until each exchange of `request` has ended and each
-  connection has closed. Only the pool's deadlines, which its `timeouts` set, bound that wait
-  ([decision 159](decisions.md#decision-159) as amended).
-- Call `fetch`, `run` and `deinit` on one thread. `init` makes no loop, so it may run on another
-  thread.
+- Call `fetch`, `run` and `deinit` on one thread. `init` may run on another.
 - A handler never calls `fetch`. Such a call halts with colibri's message.
-- When `fetch` returns an error of the loop, its exchange ended with no result. Then call
-  `deinit`.
+- `deinit` stops the loop that the first `fetch` made. Only the pool's `timeouts` bound that wait
+  ([decision 159](decisions.md#decision-159) as amended).
+- When `fetch` returns an error of the loop, its exchange ended with no result. Call `deinit`.
 
-`cancel` ends an exchange that `request` returned, and the handler gets no `finished` for it. The
-memory of its request and its response is your program's again when the call returns. An h11
-connection then reads the rest of the response and drops it for `drop_ns`, from the instant of
-the cancel ([decision 146](decisions.md#decision-146) ruling 3). On `.private`, `cancel(id)` takes the instant
-of the last turn of colibri's loop. A hosted client's `cancel(id, now_ns)` takes your host's
-instant. A handler may call `cancel`:
+`cancel` ends an exchange with no `finished`, and the memory of its request and response is yours
+again when it returns:
 
 ```zig
 const id = try http_client.request(&fetched.requests[1], &dropped);
 http_client.cancel(id);
 ```
 
-`colibri.ClientConfig` holds these fields:
+- An h11 connection then reads and drops the rest of the response for `timeouts.drop_ns`
+  ([decision 146](decisions.md#decision-146) ruling 3).
+- On `.private`, `cancel(id)` takes the instant of the last turn of colibri's loop. A hosted
+  client's call is `cancel(id, now_ns)`, with your loop's instant.
 
-- `destination`: a `client.Destination`, with the server's addresses, each with port 0, and the
-  origin's port. The client looks up no name ([decision 100](decisions.md#decision-100)). Your program keeps
-  `addresses` alive until the next `set_destination` or `deinit`.
-- `pool`: the `client.Config` the pool starts from. `init` sets its `tcp_connections` and
-  `requests` to the client's own counts. Its `protocols.prefer` says which transport the client
-  opens first, `.tcp` by default or `.quic`, and the client keeps it as the program set it. It also sets its `ecn`, because the client's loop reads
-  and sets each datagram's ECN codepoint ([decision 68](decisions.md#decision-68)).
-- `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
-  clock. The field has no default, because the client reads no clock. A web PKI trust judges
-  each chain's dates at it, plus the time the loop has run since (RFC 5280 §4.1.2.5). A trust in
-  pins judges no date.
+`colibri.ClientConfig` holds three fields, each with no default:
 
-The pool's `timeouts.connect_ns` bounds each TCP connect, 10 s by default. A connect that does
-not complete in that time ends its attempt as a refused connect does, and null turns the limit
-off. colibri cancels the connect at its deadline itself, so the largest value holds a connect
-until the pool closes it.
+| Field | Meaning |
+| --- | --- |
+| `destination` | The server's addresses, each with port 0, and the origin's port. The client looks up no name. Keep `addresses` alive until the next `set_destination` or `deinit`. |
+| `pool` | The `client.Config` the pool starts from. `init` sets its `tcp_connections`, `requests` and `ecn`. |
+| `unix_seconds` | The seconds since 1970 when `run` starts. A web PKI trust judges each chain's dates at it. |
 
-The client resumes TLS sessions ([decision 161](decisions.md#decision-161)). It keeps the newest session
-ticket that a server gave a TCP connection, and the newest one that a QUIC connection took. The
-next connection of that transport offers its ticket once, and the client then drops it (RFC 9846
-Appendix C.4). A ticket past its lifetime, or seven days old, is not offered. `deinit` wipes the
-tickets. With `pool.tls.takes_tickets = false` the client keeps none.
+These fields of `client.Config` are the ones a program sets most:
 
-A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind.
-Its `init` takes `now`, and a hosted client's `cancel` takes `now_ns`.
-The next section shows how your program hosts one.
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `authority` | none | `:authority` in h2 and h3, and Host in h11. |
+| `cpu_features` | none | Your detected features. |
+| `tls` | null | A `tls.Client`, with your `crypto`. Null runs in cleartext. |
+| `protocols` | `.{}` | h11, h2 and h3 each true, and `prefer = .tcp`. |
+| `codings` | `&.{}` | The content codings to offer, with their decoders ([The client](#the-client)). |
+| `quic_unadvertised` | true | Whether QUIC may open before Alt-Svc names h3. |
+| `fallback_delay_ns` | 250 ms | How long QUIC's handshake runs before TCP opens beside it, under `prefer = .quic`. |
+| `congestion_controller` | `.bbr` | BBRv3, CUBIC or NewReno for QUIC. |
+| `idle_timeout_ms` | 30,000 | The QUIC idle timeout the client advertises. |
+| `timeouts.connect_ns` | 10 s | The bound on each TCP connect. Null turns it off. |
+| `timeouts.drop_ns` | 50 ms | How long an h11 connection drops a cancelled response. |
+
+The client resumes TLS sessions ([decision 161](decisions.md#decision-161)):
+
+- It offers the newest ticket of each transport once, never past its lifetime or seven days.
+- `deinit` wipes the tickets, and `pool.tls.takes_tickets = false` keeps none.
+
+## What your program owns
+
+```zig
+var router: Router align(@alignOf(Router)) = undefined;
+```
+
+Every module except `colibri` makes no system call, holds no allocator and reads no clock:
+
+- **Every struct and buffer.** Place large ones outside the stack, and give each global its
+  alignment, as above; `zig build lint` refuses one without it.
+- **The I/O.** Hand the bytes you read to `receive`, and send the bytes colibri gives you. When
+  colibri needs more bytes, `receive` consumes none and returns no event.
+- **The time.** A call that needs the current instant takes `now_ns`, in nanoseconds from any
+  fixed origin, which never goes back.
+- **TLS.** You make the `stdx.crypto.Context` and the TLS values. [TLS](#tls) shows how.
+
+A peer that breaks a protocol rule never crashes colibri:
+
+- A connection's `receive` returns `error.ConnectionFailed`, and the bytes owed to the peer wait
+  to be written.
+- A server's engine returns no error. It reports the bytes it owes, then `ended` with `failed`.
+
+## The words of the API
+
+The `server` and `client` modules name each concept once, the same for h11, h2 and h3
+([decision 126](decisions.md#decision-126)). The protocol modules keep the RFCs' words:
+
+| The API says | RFC 9110 | h11 (RFC 9112) | h2 (RFC 9113) | h3 (RFC 9114) |
+| --- | --- | --- | --- | --- |
+| a header | a field line | a field line | a field | a field line |
+| headers | the header section | "the headers" or the header section | a field block | a HEADERS frame's field section |
+| trailers | the trailer section | the trailer section of `chunked` | a field block that ends the stream | the trailing HEADERS frame |
+| a body | content | the message body | DATA frames | DATA frames |
+| an exchange | a request/response exchange | | | |
 
 ## Host colibri on your own loop
 
-A `.hosted` `colibri.Server` or `colibri.Client` runs on your program's loop
-([decision 159](decisions.md#decision-159)). The object does no I/O and reads no clock. It writes the
-operations that it needs into storage that your program owns, and your program gives back one
-completion for each. Your program is the host. It can run on libxev, on `std.Io`, on Rotor or on
-its own calls.
-
-Use `.hosted` when your program already has a loop, or when it shares one thread with other
-libraries. Use `.private` when colibri can have a thread and a loop of its own. A `.hosted`
-object needs no Rotor, so your build leaves `.rotor` out.
-
-The program [`examples/colibri_hosted.zig`](../examples/colibri_hosted.zig) hosts a server and a
-client at once, in memory, with no socket. The program
-[`examples/colibri_shared_rotor.zig`](../examples/colibri_shared_rotor.zig) hosts both on one Rotor
-loop, beside a timer of its own, and binds loopback.
-
-### What the host does
-
-1. Open the sockets before `init`: the TCP listener of a server, and each UDP socket. Name them in
-   the configuration, with what the host does on each UDP socket (`segments` and `ecn`). A family
-   with no UDP socket turns h3 off for it, and the client falls back to TCP.
-2. Call `init` with the configuration, and the router or the handler. A hosted server takes your
-   program's `stdx.crypto.Context` as `crypto` ([decision 175](decisions.md#decision-175)), and a hosted
-   client takes it in its pool's TLS value. Each takes `now`, a `server.Timestamp`. `now` holds
-   two readings of the instant of `init`: the Unix seconds and your loop's monotonic nanoseconds,
-   which each later call passes. The server's session tickets carry the Unix seconds, and its
-   `ticket_key` works as `ServerConfig.ticket_key` does ([decision 161](decisions.md#decision-161)). These
-   fields have no default, because no value is right to assume: `now`, a server's `crypto`, and a
-   client's `destination` and `pool`.
-3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
-   operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
-   type.
-4. Do each operation. Keep a table from each `colibri.SocketId` to your own socket handle: the
-   listener's id is `Server.listener`, and the UDP sockets' ids are `Server.datagram`,
-   `Client.datagram_ipv4` and `Client.datagram_ipv6`.
-5. When an operation ends, call `complete(&completion, now_ns)` with its id and its result. A
-   receive of datagrams may complete many times with `more = true`, but only with a `.datagram`
-   result: a failure or a cancel ends the receive, with `more = false`. You lend the datagram's
-   bytes for the call alone. colibri may write them, because QUIC removes its packet protection in
-   place (RFC 9001 §5), and keeps no pointer to them. Your handler or your routes may run inside
-   that call.
-6. Call `turn` again at once after a completion, and otherwise at the instant that the `Wait`
-   names. `.none` waits for the next completion.
-7. To stop, call `shutdown`, then `turn` and `complete` until `stopped()` holds, then `deinit`.
-   Close the sockets that your program opened before `init`.
-
-Each turn of a host reads the same. This excerpt is from `examples/colibri_hosted.zig`:
+```zig
+try hosted_server.init(&.{
+    .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
+    .crypto = crypto,
+    .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.server) },
+    .engine = .{ .tls_buffer = &tls_buffer, .cpu_features = cpu_features },
+}, &router, &router_context);
+```
 
 ```zig
 const turned = hosted_server.turn(link.now_ns(.server), &operations);
@@ -507,44 +446,71 @@ for (operations[0..turned.operations]) |operation| try self.perform(.server, ope
 waits[@intFromEnum(Side.server)] = turned.wait;
 ```
 
+From [`examples/colibri_hosted.zig`](../examples/colibri_hosted.zig): a `.hosted` object writes the
+operations it needs, and your loop gives back one completion for each
+([decision 159](decisions.md#decision-159)). It does no I/O, reads no clock and needs no Rotor.
+
+- It has the calls of `.private` except `run`, `fetch`, `port` and the bind.
+- [`examples/colibri_shared_rotor.zig`](../examples/colibri_shared_rotor.zig) hosts a server and a
+  client on one Rotor loop beside a timer.
+- Only `.private` has published numbers ([decision 32](decisions.md#decision-32)).
+
+### What the host does
+
+1. Open the sockets before `init`: a server's TCP listener, and each UDP socket.
+   - Name them in the configuration, with `segments` and `ecn` for each UDP socket.
+   - A family with no UDP socket turns h3 off, and the client uses TCP.
+2. Call `init`, with `now`, a `server.Timestamp`: the Unix seconds and your loop's monotonic
+   nanoseconds.
+   - A server takes `crypto`, and a client takes it in its pool's TLS value.
+   - `now`, a server's `crypto`, and a client's `destination` and `pool` have no default.
+3. Call `turn(now_ns, &operations)`. It calls your handler or routes, and writes the operations.
+   - Size the slice with the type's `operations_max` and `sockets_max`.
+4. Do each operation. Map each `colibri.SocketId` to your socket: `Server.listener`,
+   `Server.datagram`, `Client.datagram_ipv4` and `Client.datagram_ipv6`.
+5. When an operation ends, call `complete(&completion, now_ns)` with its id and result.
+   - A receive of datagrams may complete many times with `more = true`, with a `.datagram`
+     result only.
+   - You lend the datagram's bytes for the call alone, and colibri may write them (RFC 9001 §5).
+6. Call `turn` again at once after a completion, and otherwise at the instant the `Wait` names.
+   `.none` waits for the next completion.
+7. To stop, call `shutdown`, then `turn` and `complete` until `stopped()` holds, then `deinit`.
+   Then close your sockets.
+
 The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `send_datagram`,
-`shutdown_send`, `close` and `cancel`. These rules apply to them:
+`shutdown_send`, `close` and `cancel`:
 
 - A `connect` opens a TCP socket of the address's family, sets TCP_NODELAY and connects it.
-- A `shutdown_send` closes the write side of a TCP socket, as shutdown(2) with `SHUT_WR` does,
-  and completes with `.shut_down`. The receive on the socket goes on, and a `close` follows. A
-  server closes an h11 connection in stages with it ([decision 160](decisions.md#decision-160)). It does so
-  after a response that left a request body unread, when the rest of that body is longer than
-  `server.constants.limits.discard_len_max`, 256 KiB, or is chunked. A response that was whole
-  when its head went out then carries `Connection: close`, so a client sends no next request on
-  that connection.
-- A `cancel` names its target and gets no completion of its own: the target gets its final
-  completion, with `.canceled`.
+- A `shutdown_send` closes the write side, as shutdown(2) with `SHUT_WR` does, and completes with
+  `.shut_down`. The receive goes on, and a `close` follows
+  ([decision 160](decisions.md#decision-160)).
+- A `cancel` gets no completion of its own. Its target gets its final completion, with
+  `.canceled`.
 - Map your loop's errors onto `colibri.Failure`.
 
 ### The rules of the host
 
-colibri halts with its message when it sees a host break a rule:
+colibri halts with its message when a host breaks one of these rules:
 
-1. Each operation gets exactly one final completion, with `more = false`. An operation that a
-   `cancel` or a `close` ends gets one too.
+1. Each operation gets exactly one final completion, with `more = false`, also when a `cancel` or
+   a `close` ends it.
 2. colibri frees a socket only after each operation on it had its final completion. Call
    `deinit` only after `stopped()` holds.
-3. One thread makes each call into an object. A completion from another thread goes through a
-   queue that your program owns. A `.hosted` object makes no thread check, because the check is
-   a system call on Linux.
-4. Never call `turn` or `complete` from inside `turn` or `complete`. Your handler and your routes
-   run inside `turn`, and inside a `complete` that gives colibri a datagram.
-5. After a `complete`, or after a call such as `request`, `cancel`, `set_destination` or
-   `shutdown`, call `turn` before your loop waits.
-6. `now_ns` never goes back: in `turn`, in `complete`, in a hosted client's `cancel`, and from
-   the `now` of `init`. A completion with an id that colibri does not hold halts.
+3. One thread makes each call into an object.
+   - A completion from another thread goes through a queue that your program owns.
+   - A `.hosted` object does not check the thread.
+4. Never call `turn` or `complete` from inside `turn` or `complete`. Your handler and routes run
+   inside `turn`, and inside a `complete` that gives colibri a datagram.
+5. After a `complete`, or after `request`, `cancel`, `set_destination` or `shutdown`, call `turn`
+   before your loop waits.
+6. `now_ns` never goes back: in `turn`, in `complete`, in a hosted client's `cancel`, and from the
+   `now` of `init`. A completion with an id that colibri does not hold halts.
 
 ### A shared Rotor loop
 
-colibri exports no adapter for a Rotor loop, because its API would then name Rotor's types. Your
-program writes one of about 140 lines. It puts its own tag in the high 32 bits of each
-`user_data`, and colibri's `OperationId` in the low 32 bits:
+colibri exports no Rotor adapter, so your program writes one of about 140 lines. From
+[`examples/colibri_shared_rotor.zig`](../examples/colibri_shared_rotor.zig), the adapter puts its
+own tag in the high 32 bits of each `user_data`, and colibri's `OperationId` in the low 32 bits:
 
 ```zig
 fn user_data(owner: Owner, kind: Kind, socket: u16, id: colibri.OperationId) u64 {
@@ -553,7 +519,7 @@ fn user_data(owner: Owner, kind: Kind, socket: u16, id: colibri.OperationId) u64
 }
 ```
 
-Each event of a tick then goes to its owner by that tag. The program's timer is one more owner:
+Each event of a tick goes to its owner by that tag:
 
 ```zig
 switch (tag.owner) {
@@ -563,86 +529,32 @@ switch (tag.owner) {
 }
 ```
 
-When the timer fires, the example calls `set_destination` with ::1. The next connection goes
-to ::1, and an open connection keeps its exchanges ([decision 125](decisions.md#decision-125)).
-
 ### Other loops
 
-These sketches show the shape of a host on `std.Io` and on libxev. No build checks them, so they
-are text and not Zig.
-
-On `std.Io`, one task runs the turns, and each operation is a call that a future holds:
-
-```text
-loop:
-    turned = object.turn(now_ns, &operations)
-    for each operation: start the std.Io call (accept, connect, read, write, shutdown, close)
-                        and keep its future by the operation's id
-    wait until a future completes, or until turned.wait.at_ns
-    for each future that completed: object.complete(&completion, now_ns)
-```
-
-On libxev, each operation is an `xev.Completion` whose callback calls `complete`:
-
-```text
-on each tick:
-    turned = object.turn(loop.now(), &operations)
-    for each operation: xev.TCP.accept / connect / read / write / shutdown / close with a callback
-    the callback: object.complete(&completion, loop.now()), then mark "turn again"
-    arm an xev.Timer for turned.wait.at_ns
-```
-
-Each sketch keeps the rules above: one thread for each object, and no call into the object from
-a callback that runs inside `turn`.
-
-### Numbers
-
-Only `.private` has published numbers ([decision 32](decisions.md#decision-32)). The cost of a `.hosted`
-object depends on your program's loop.
+On `std.Io` or libxev, each operation becomes a call whose end calls `complete`, and a timer
+calls `turn` at the instant of `turned.wait`. The rules above hold on every loop.
 
 ## The server
 
-The `server` module answers requests behind one set of calls, whichever version the connection
-speaks ([decision 100](decisions.md#decision-100)). An engine is the server side of every connection one
-thread serves: RFC 9000 §1.2 and RFC 9113 §2.2 give the word to the client or the server of a
-connection, and a server has many connections. A program makes one `server.Config` and one
-engine for each thread that serves ([decision 119](decisions.md#decision-119)). The engine holds every
-connection, and a `server.ConnectionHandle` names one:
-
-- **TCP connections.** The program calls `accept` for each TCP socket its listener accepts. Over
-  TLS the connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext,
-  a connection speaks h2 when its first bytes are h2's connection preface and h11 otherwise (RFC
-  9113 §3.3, [decision 117](decisions.md#decision-117)).
-- **QUIC connections.** They serve h3, all of them behind one UDP socket
-  ([decision 103](decisions.md#decision-103)), each in a slot of its own. A client's first datagram starts one.
-
-The configuration's `protocols` turns any protocol off, in cleartext and over TLS: the engine
-builds its ALPN list from `protocols`, so the TLS identity names no protocol. For its QUIC
-connections the engine names h3 itself (RFC 9114 §3.1).
-
-The code in this section is from
-[`examples/server_exchange.zig`](../examples/server_exchange.zig), where `link` and
-`datagram_link` stand in for a program's TCP and UDP sockets. Its clients, in
-[`examples/server_peers.zig`](../examples/server_peers.zig), send five requests over h2 and a GET
-over h3. An engine's size is fixed at build time. `server.Engine(.{})` holds 16 TCP connections
-and 16 QUIC connections, and another capacity makes one of another size. The `server.Capacity`
-it takes names the TCP and the QUIC connections the engine holds at once, and the bytes each
-QUIC connection holds unread:
+From [`examples/server_exchange.zig`](../examples/server_exchange.zig), where `link` and
+`datagram_link` stand in for a program's TCP and UDP sockets:
 
 ```zig
 const Engine = server.Engine(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 ```
 
-A program that serves QUIC alone sets `.tcp_connections = 0`, and a program with no UDP socket
-sets `.quic_connections = 0`.
+An engine is the server side of every connection one thread serves, over TCP and over QUIC
+([decision 119](decisions.md#decision-119)). `server.Engine(.{})` holds 16 TCP and 16 QUIC
+connections. A program places one engine for each thread that serves, and keeps it where `init`
+found it.
 
-The configuration holds the server's TLS identity, once for both transports. `init` builds the TLS
-configuration of each transport from it and checks that the key signs, so a program learns of a
-bad identity before it serves. `tls_buffer` holds the TLS session of each TCP connection over TLS
-at once, `server.Config.tls_buffer_len(n)` bytes for `n` of them. `accept` over TLS returns null
-when each session is in use, and with no buffer the TCP connections serve cleartext alone, while
-QUIC still serves h3 ([decision 167](decisions.md#decision-167)). The program then calls `accept` for each socket, with whether the
-socket runs TLS:
+| `server.Capacity` field | What it sizes |
+| --- | --- |
+| `tcp_connections` | TCP connections at once, 16 by default; 0 for a program with no TCP socket |
+| `quic_connections` | QUIC connections at once, 16 by default; 0 for a program with no UDP socket |
+| `receive_pool_len` | Bytes each QUIC connection holds unread |
+
+### Set-up
 
 ```zig
 engine_config = .{
@@ -680,28 +592,55 @@ try engine.init(&engine_config, .{ .unix_seconds = now_seconds, .monotonic_ns = 
 accepted = engine.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 ```
 
-A program turns Nagle's algorithm off on each TCP socket it accepts, with `TCP_NODELAY`. Each
-`send_stream` writes what a connection owes in one piece, so a small write that waits for the
-peer to acknowledge the one before it only adds latency: over h2 at low rates, colibri's test-only
-server waited about 3 ms a request with the option off (design §8 step 13f).
+`init` takes a `server.Timestamp`: Unix seconds, at which the engine issues tickets, and the
+monotonic instant that every later call passes. The engine copies the `Config` at `init`, so the
+program may change or free it after `init` returns ([decision 158](decisions.md#decision-158)).
 
-`init` takes one `server.Timestamp`: two readings of one instant, where `std.Io.Timestamp` holds
-one. Its `unix_seconds` is Unix time, which the server's tickets are issued at. With a
-`ticket_key` the engine issues each client a ticket, which a later connection of that client
-offers to resume the session. Its `monotonic_ns` is the instant on the clock that every later
-call passes, and a connection's deadlines count from the instant its `accept` is given.
+- `init` returns `error.NoVersion` when no slot can speak a version that `protocols` allows.
+- `accept` returns null when no slot is free, after `shutdown`, when `protocols` allows neither
+  h11 nor h2, or when the TLS stack refuses a session.
+- After a null `accept`, the program closes the socket.
+- `accept(.{})` runs TLS, and `accept(.{ .tls = false })` runs cleartext.
+- A cleartext connection speaks h2 when its first bytes are h2's preface, and h11 otherwise (RFC
+  9113 §3.3, [decision 117](decisions.md#decision-117)).
+- A client's first datagram starts a QUIC connection ([decision 103](decisions.md#decision-103)).
+- The program sets `TCP_NODELAY` on each TCP socket it accepts, because each send carries a
+  whole response.
 
-`accept` returns null when no slot is free, after `shutdown`, when `protocols` allows neither h11
-nor h2, or when the TLS stack refuses to start a session. The program closes the socket then. A
-socket runs TLS unless the program passes `.{ .tls = false }`, and a configuration with no
-identity takes cleartext sockets alone. With h3 turned off, or with no identity, an engine that serves no TCP version returns `error.NoVersion`
-from `init`, and one that also serves TCP starts no QUIC connection. The engine copies the
-configuration at `init`, so the program may change or free its `Config` once `init` returns
-([decision 158](decisions.md#decision-158)). The engine keeps pointers into itself, so the program keeps the
-engine where `init` found it.
+### `server.Config`
 
-Each turn of the program's loop fires the deadlines that passed, passes the engine what each
-socket read, acts on every event the engine reports, and sends every datagram the engine owes:
+| Field | Default | What it sets |
+| --- | --- | --- |
+| `cpu_features` | none: the program names it | The features of `CpuFeatures.detect()`, which the codecs run on ([decision 169](decisions.md#decision-169)) |
+| `tls` | null | The identity, once for both transports; it names no ALPN protocol |
+| `tls_buffer` | empty: TCP serves cleartext alone | Room for TLS sessions: `server.Config.tls_buffer_len(n)` bytes hold `n` ([decision 167](decisions.md#decision-167)) |
+| `protocols` | h11, h2 and h3 | The versions the engine serves and offers in ALPN ([decision 117](decisions.md#decision-117)) |
+| `limits` | see the next table | Per-connection bounds |
+| `timeouts` | see [Deadlines](#deadlines) | How long a peer may hold a connection ([decision 110](decisions.md#decision-110)) |
+| `codings`, `encoders` | none | Content codings for a response marked `codable`: gzip or deflate, from an `EncoderPool` ([decision 101](decisions.md#decision-101)) |
+| `decoders`, `decoded` | none | TCP alone: h11's gzip and deflate transfer-coding decoders |
+| `h3_alternative` | null | TCP over TLS alone: the h3 endpoint each connection advertises (RFC 7838) |
+| `ecn` | false | QUIC alone: the program reads and sets each datagram's ECN codepoint |
+| `congestion_controller` | `.bbr` | QUIC alone: `.bbr`, `.cubic` or `.newreno` ([decision 143](decisions.md#decision-143)) |
+| `idle_timeout_ms` | 30,000 | QUIC alone: the idle timeout the server advertises (RFC 9000 §10.1) |
+| `switch_to` | `.v2` | QUIC alone: the version a client that lists it moves to (RFC 9368) |
+| `retry` | null: no client proves its address | QUIC alone: the key of Retry tokens (RFC 9000 §8.1.2) |
+| `retry_from_percent` | 0: every client with no token | QUIC alone, with `retry`: the share of busy QUIC slots from which a Retry goes out |
+| `logs` | null | QUIC alone: each connection's qlog ([decision 102](decisions.md#decision-102)) |
+| `resumes` | null | QUIC alone: RFC 9959's saved sets ([Over QUIC](#over-quic)) |
+| `resume_bounds` | 4 MiB, 1 hour | QUIC alone: RFC 9959's max_jump and Lifetime |
+
+| `server.Limits` field | Default | What it bounds |
+| --- | --- | --- |
+| `requests_max` | 100 | Requests a connection holds at once; over QUIC at most `server.constants.limits.quic_requests_max` |
+| `data_frame_len_min` | 1,024 | The shortest DATA frame h2 sends when a window decides its length |
+| `peer_resets_max` | 100 | Requests a client may cancel in one second |
+| `resets_sent_max` | 100 | Streams the server may reset in one second |
+
+One more reset than either bound ends the connection, and the `CloseReason` names the limit. Over
+TLS, chapulin reads 16 KeyUpdates in a row, and the 17th ends the connection with `key_updates`.
+
+### The turn
 
 ```zig
 fn server_turn() !void {
@@ -726,8 +665,7 @@ fn server_turn() !void {
 }
 ```
 
-The program passes `.stream` with the bytes a TCP socket read and the handle of that socket's
-connection:
+The program passes a TCP socket's bytes as `.stream`, under the handle of its connection:
 
 ```zig
 fn read_stream(input: []u8, now_ns: u64) !void {
@@ -748,24 +686,8 @@ fn read_stream(input: []u8, now_ns: u64) !void {
 }
 ```
 
-`receive` writes at most one event a call, of any connection the engine holds, into the
-`server.ReceiveResult` the program passes. The program owns that result and keeps it from call to
-call, as it keeps the engine, so no event is copied out of a returned value (decision 165). A
-program loops over `receive` until it consumes nothing and writes no event. It loops again after every call that
-changes a connection: an answer, `cancel`, `output_stream`, `sent_stream`, `send_stream`,
-`transport_closed`, `shutdown` and `on_instant`. Each leaves what follows it to the next `receive`, the release of a closed
-connection's slot included. The program passes `.none` when no socket read any bytes. A TCP
-connection may consume fewer bytes than it was given, such as a pipelined h11 request while the
-one before it is answered. The program holds the rest, and passes it again with the socket's next
-read and after each event that names the connection. `read_stream` passes what is left after
-every event. What an event carries points into the bytes the program passed or into the
-connection, and stays valid until the next `receive`, `on_instant`, `output_stream`,
-`sent_stream`, `send_stream`, `send_datagram`, `accept`, `transport_closed` or `shutdown`.
-
-The program passes each datagram its UDP socket read, with the address it came from, as a
-`server.Input`. The engine finds the connection the datagram's connection ID names, or starts
-one from a client's first datagram, and answers Version Negotiation and Retry itself. After each
-datagram the program calls `receive` with `.none` until it reports nothing:
+It passes each datagram with the address it came from, then `.none` until `receive` reports
+nothing:
 
 ```zig
 fn read_datagrams(now_ns: u64) !void {
@@ -788,10 +710,21 @@ fn serve_all(input: server.Input, now_ns: u64) !void {
 }
 ```
 
-An event names a request by its id, in h11, h2 and h3 alike, or a connection by its handle. The id
-names the request's connection too. The program passes each event to its router's `handle`, which
-answers each request, as [Router](#router) shows. `handle` hands back the events of the
-connections, which are the program's I/O:
+The rules of `receive`:
+
+- `receive` writes at most one event a call into the `server.ReceiveResult` the program owns
+  ([decision 165](decisions.md#decision-165)).
+- The program loops over `receive` until a call consumes nothing and writes no event.
+- The program loops again after each call that changes a connection: an answer, `cancel`,
+  `output_stream`, `sent_stream`, `send_stream`, `transport_closed`, `shutdown` and `on_instant`.
+- A TCP connection may consume fewer bytes than it got, such as a pipelined h11 request.
+- The program keeps the rest, and passes it again with the next read and after each event of
+  that connection.
+- What an event carries stays valid until the next `receive`, `on_instant`, `output_stream`,
+  `sent_stream`, `send_stream`, `send_datagram`, `accept`, `transport_closed` or `shutdown`.
+- The engine answers QUIC's Version Negotiation and Retry itself.
+
+### Events
 
 ```zig
 fn serve(event: *const server.Event, now_ns: u64) !void {
@@ -827,28 +760,28 @@ fn serve(event: *const server.Event, now_ns: u64) !void {
 }
 ```
 
-The events, which a program that answers requests itself reads:
+An event names a request by its id, which names its connection too, in h11, h2 and h3 alike. The
+router's `handle` takes every event of a request, as [Router](#router) shows, and hands back the
+rest.
 
-- `request` carries the method, the target and the headers, which `headers.find` and
-  `headers.iterator` read. Its `end` says the head ended the request, so no body follows. The
-  method is its token as it arrived, and `http.method.standard(request.method)` gives one of
-  RFC 9110 §9.1's eight methods, or null for another token (decision 122).
-- `body` carries bytes of the request's body, and its `end` marks the last of them. A request with
-  no body may end this way too, in a `body` event with no bytes, as a GET over h3 often does. A
-  program that waits for a request's end reads `end` in both events.
-- `trailers` carries the request's trailers, in `headers`.
-- `finished` says a request is over, once. Its `result` is `sent` when the response is whole, and
-  colibri reads none of the program's bytes for it again. It is `cancelled` with a reason when the
-  request ended before its response did. A connection's `ended` comes after its requests' ends.
-- `writable` says a response whose last write found no room can take more.
-- `send` says a TCP connection owes its socket bytes, `close` says the program closes a TCP
-  connection's socket, and `ended` says a connection is over. The paragraphs below describe each.
-- `closed` comes after `shutdown`, once every connection has ended.
+| Event | When | What the program does |
+| --- | --- | --- |
+| `request` | A head arrived; `end` says no body follows | Answer it, or pass it to the router |
+| `body` | Body bytes arrived; `end` marks the last, and may come with no bytes | Read `end` here and in `request` |
+| `trailers` | The request's trailer section arrived, in `headers` | Read it |
+| `writable` | A response whose last write found no room can take more | Write again |
+| `finished` | The request is over, once; `result` is `sent` or `cancelled` with a reason | Free the request's state |
+| `send` | A TCP connection owes its socket bytes | Call `output_stream` or `send_stream` |
+| `half_close` | h11 closes in stages (RFC 9112 §9.6, [decision 160](decisions.md#decision-160)) | Close the socket's write side; pass on what it reads |
+| `close` | colibri is done with a TCP connection | Close the socket after the send ends; call nothing |
+| `ended` | The connection is over, after its requests' `finished` | Drop the handle; the slot takes a later connection |
+| `closed` | After `shutdown`, every connection ended | Stop |
 
-`set_user_data` sets a word that each later event of a request carries back: its `body`,
-`trailers`, `writable`, and its one `finished`. A program finds its own state for the request by
-the word, with no lookup. The router sets it for each request it answers. Before the router
-answers, the example notes each head:
+- `http.method.standard(request.method)` gives one of RFC 9110 §9.1's eight methods, or null.
+- `headers.find` and `headers.iterator` read a request's headers.
+- `set_user_data` sets a word that each later event of the request carries back.
+
+The example notes each head before the router answers it:
 
 ```zig
 fn note_request(request: server.Request) !void {
@@ -863,18 +796,13 @@ fn note_request(request: server.Request) !void {
 }
 ```
 
-A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
-it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the engine next
-reads the connection or writes its bytes, in every version. That may be at the program's next
-call. An answer the program gives first takes the place of the 100. A program that refuses such a
-request therefore answers it before its next call: a final response, the program's own 100, or
-`cancel` takes the place of the 100 the connection owes.
+A request with `Expect: 100-continue` waits for a 100 (Continue) before its content (RFC 9110
+§10.1.1). The connection writes that 100 at the engine's next read or write of the connection.
 
-A route's function answers through a `server.Response` ([decision 127](decisions.md#decision-127)). It
-sets `status`, a `server.Status`, which is `.ok` by default and is a code from 100 to 599. It
-adds headers, and writes the body through the `std.Io.Writer` that `body()` returns. The function
-takes the program's context, the request context, the request and the response, as
-[Router](#router) describes:
+- A program that refuses such a request answers it before its next call.
+- A final response, the program's own 100, or `cancel` takes the place of the owed 100.
+
+### The response
 
 ```zig
 fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
@@ -884,89 +812,56 @@ fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response:
 }
 ```
 
-`end` sends a head that carries the whole body with its Content-Length. The response copies each
-header and writes the body into the request's entry. It writes again into the entry's memory once
-the engine has released the bytes there (decision 103 as amended on 2026-11-09):
+A route answers through a `server.Response` ([decision 127](decisions.md#decision-127)). `status`
+is `.ok` by default, and takes a code from 100 to 599. `end` sends a head with the Content-Length
+of the whole body.
 
-- Over h11 and h2, at once, because the connection copies the bytes inside the call.
-- Over h3, once the client has acknowledged the bytes (RFC 9000 §3.1).
+| Call | What it does |
+| --- | --- |
+| `header(name, value)` | Adds a header before the head goes out |
+| `body()` | Returns the `std.Io.Writer` of the body |
+| `body().flush()` | Sends what the writer holds as one run |
+| `write_kept(bytes)` | Sends bytes the program keeps valid until `finished`, with no copy |
+| `end()` | Ends the response |
+| `trailers(section)` | Ends the response with a trailer section |
 
-So the entry's `response_bytes` bound the body bytes in flight, not the body. `flush()` sends the
-bytes the body's writer holds. When the memory has no room, a call fails, and a stream route with
-`next` tries again in its next call:
+The response writes into the request's `response_bytes`. The engine frees them at once over h11
+and h2, and over h3 once the client acknowledges them (RFC 9000 §3.1). So `response_bytes` bounds
+the bytes in flight, not the body ([decision 103](decisions.md#decision-103) as amended).
 
-- One `writeAll` of one slice through `body()` goes into the memory whole, or fails with
-  `error.WriteFailed` and writes nothing. The route writes the slice again.
-- A `print` can write part of a message and then fail, and so can a write through a middleware's
-  wrapper. The route does not write that message again.
-- Each `flush()` makes one run of the bytes the body's writer holds. The response has
-  `server.constants.limits.response_pieces_max` slots for the runs that the engine has not
-  released. When each slot holds a run, a `flush()` adds its bytes to the newest run. So a route
-  can flush each small message, and only the memory bounds the bytes in flight.
-- While each slot holds a run, the body's writer does not go back to the start of the memory. A
-  write that finds no room after the newest run fails, and the route writes it again.
-- When each slot holds a run and the newest is a run of `write_kept`, that run takes no bytes. A
-  `flush()` then keeps its bytes in the body's writer, and the response sends them once a slot is
-  free. That `flush()` fails with `error.WriteFailed` only when the memory is full too. The route
-  does not write its bytes again.
+| Call | Errors | What the route does |
+| --- | --- | --- |
+| `body().writeAll(slice)` | `error.WriteFailed`, and writes nothing | Writes the slice again |
+| `body().print(...)`, or a write through a middleware's wrapper | `error.WriteFailed`, after part of the message | Does not write the message again |
+| `body().flush()` | `error.WriteFailed`, only when each run slot and the memory are full | Does not write its bytes again |
+| `end()`, `trailers(...)`, `write_kept(...)` | `error.Full`: each of `server.constants.limits.response_pieces_max` slots holds a run | Calls again; the response is unchanged |
+| `trailers(...)` | `error.NoSpaceLeft`: the memory has no room for the section | Calls again; the response is unchanged |
+| `write_kept(...)` through a wrapper | `error.NoSpaceLeft`: the wrapper's write failed | Does not write the bytes again ([#129](https://github.com/c4milo/colibri/issues/129)) |
 
-`end`, `trailers` and `write_kept` can return two errors that leave the response as it was
-(design §8 step 46h):
+- A stream route returns from `next` with no error, and calls again in its next `next`.
+- A route that returns the error from `next` has its request cancelled once the head went out.
+- A trailer section longer than the memory after the headers never fits, and the route is
+  cancelled.
+- Over h3, a response sends about `response_bytes` a round trip, so a long stream needs a larger
+  `response_bytes` ([decision 110](decisions.md#decision-110)'s `send_rate_min`).
 
-- `error.Full`: each slot holds a run, and no run takes the bytes of the call.
-  - `end`, `trailers` and `write_kept` return it while the body's writer keeps the bytes of a
-    `flush()`.
-  - `write_kept` returns it too when its own bytes find no free slot.
-- `error.NoSpaceLeft`: `trailers` returns it while the memory has no room for the trailer
-  section. A section longer than the memory after the headers never fits, and a route that asks
-  again for it is cancelled.
+[Design §8 step 46](design.md#step-46) holds the run and slot rules in full.
 
-After either error the response is open. It has no end and no trailer section, and `write_kept`
-added none of its bytes. A stream route then does two things:
+A program that answers requests itself calls the engine by the request's id:
 
-1. It returns from `next` with no error.
-2. It makes the call again in its next `next`, which the router calls at the request's next
-   `writable`.
+| Call | Writes | When it finds no room |
+| --- | --- | --- |
+| `respond` | The head; `end` for a response with no content | `error.NoSpaceLeft` |
+| `write_body` | The content | Takes fewer bytes, or `error.Blocked` |
+| `write_trailers` | The trailer section | `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last bytes wait |
+| `cancel` | Nothing; the `finished` follows with the reason `program` | Never |
 
-A route that returns the error from `next` has its request cancelled once the head went
-out. A route that writes through `body()` alone gets no `error.Full` over h11, h2 or h3. A route
-that calls `write_kept` can get it, and so can any route over a test's engine that holds every run
-it takes.
+- After no room, the engine reports `writable` for the request once, and the program writes again.
+- `respond` names its h11 body case in `server.ResponseHeader.request_body`: `.keep_reading` or
+  `.discard`, the default.
+- `shutdown` ends every connection once its requests are answered, and `closed` follows.
 
-Through a middleware's wrapper, `write_kept` writes a copy of its bytes, and returns
-`error.NoSpaceLeft` when that write fails. The wrapper can keep part of the bytes then
-([#129](https://github.com/c4milo/colibri/issues/129)), so the route does not write them again.
-
-Over h3, a response sends at most about `response_bytes` in each round trip. On a path with loss,
-a small `response_bytes` can keep the response under decision 110's `send_rate_min`, and the
-server then closes the connection. So a program that streams a long response through `body()` sets
-a larger `response_bytes`.
-
-`write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such as a
-file the program mapped. `trailers` ends the response with a trailer section. When the engine
-takes less than the response gives it, the rest waits, and the router sends it at the request's
-`writable`.
-
-The response calls the engine's three calls that write a response, which a program that answers
-requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
-`write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer bytes than it was given, or
-any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
-returns `error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. `write_trailers`
-returns `error.Blocked` while a coded response's last bytes wait. Over QUIC, room comes back only
-as the client acknowledges what was sent (RFC 9000 §3.1), and a head or a trailer section larger
-than the room the response's earlier frames leave waits until the client has acknowledged all of
-them. Either way the engine reports `writable` for the request, once, when the response has
-room, and the program writes again. `cancel` ends one
-request before its response is whole, and its `finished` follows, cancelled with the reason
-`program`. A connection that stops with requests open ends each cancelled, with the reason `closed`.
-`shutdown` ends every connection once the requests it holds are answered, and the `closed` event
-follows once every connection has ended.
-
-The engine reports `send` when a TCP connection owes its socket bytes. The program calls
-`output_stream` for that connection, which returns the bytes where the engine holds them,
-sealed over TLS. The socket sends from there, so the send copies none into a buffer of the
-program's. The program then calls `sent_stream` with how many bytes the send took
-([decision 176](decisions.md#decision-176)):
+### Sends
 
 ```zig
 const owed = engine.output_stream(connection, now_ns);
@@ -977,19 +872,20 @@ link.send(.server, owed) catch |failure| {
 engine.sent_stream(connection, owed.len, now_ns);
 ```
 
-Until that call the engine keeps the bytes where they are, and writes new ones after them. The
-example's link takes bytes at once, so it lends and sends at each `send`. A program whose socket
-sends later calls `output_stream` once a turn for each socket with no send in flight, so one send
-carries every response the turn wrote, as `colibri.Server` does. A call before the send starts
-returns the same bytes from the same front, and those written since. The program calls
-`sent_stream` once each send ends: 0 for a send that failed. A send that took part of the bytes
-leaves the rest owed, and the engine reports another `send`. The engine reports a connection's
-`ended` only after that call, however the connection ended. So its slot takes no later connection
-while a send still reads the bytes.
+`output_stream` returns the bytes a TCP connection owes, sealed over TLS, where the engine holds
+them ([decision 176](decisions.md#decision-176)). The socket sends from there with no copy.
 
-A program that sends from a buffer of its own calls `send_stream` instead, until a call leaves
-room in the buffer, and writes what each call returns to the connection's socket. Over TLS the
-first call copies any records that an `output_stream` sealed and no send took:
+- The program calls `sent_stream` once each send ends, with the bytes it took: 0 for a send that
+  failed.
+- Until `sent_stream`, the engine keeps the bytes in place and writes new ones after them.
+- A call before the send starts returns the same front, with the bytes written since.
+- A program whose sends end later calls `output_stream` once a turn for each idle socket.
+- A send that took part of the bytes leaves the rest owed, and the engine reports another `send`.
+- The engine reports `ended` only after `sent_stream`, so no later connection takes the slot
+  while a send reads it.
+
+From [`examples/server_stream.zig`](../examples/server_stream.zig), a program that sends from a
+buffer of its own:
 
 ```zig
 for (0..sends_per_event_max) |_| {
@@ -1000,19 +896,14 @@ for (0..sends_per_event_max) |_| {
 return error.SendUnfinished;
 ```
 
-A call that fills the buffer leaves more owed. A call that leaves room ends the `send`, and the
-engine reports another once the connection owes more. A program whose socket is full stops
-calling, and calls again when the socket takes more. A program may also call `send_stream` for an
-open connection without waiting for a `send`, such as straight after it writes a response. For
-QUIC the turn calls `send_datagram` until it returns null, and sends each datagram to the address
-it names.
+- A call that fills the buffer leaves more owed; a call that leaves room ends the `send`.
+- A program whose socket is full stops, and calls again when the socket takes more.
+- A program may call `send_stream` for an open connection with no `send`, such as after it writes
+  a response.
+- For QUIC, the turn calls `send_datagram` until it returns null, and sends each datagram to the
+  address it names.
 
-A peer may hold a connection only so long ([decision 110](decisions.md#decision-110)). Timeouts bound the
-wait for a first request, the time between requests, a request's head and its content, and how
-slowly the peer may take the response. They bound an h3 connection as they bound a TCP one. The
-engine's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
-QUIC it also names the instants of loss recovery, acknowledgments and idle timeouts. The program
-waits for bytes and datagrams no longer than that:
+### Deadlines
 
 ```zig
 fn sleep_ns() u64 {
@@ -1028,31 +919,29 @@ fn sleep_ns() u64 {
 }
 ```
 
-The program then calls `on_instant` with the instant it woke at, as the turn above does, and a
-connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
-with a `finished` whose result is cancelled, with the timeout as its reason. `receive` and `send_stream` fire a deadline
-that passed too, on the connection they read or write. The configuration's `timeouts` sets the
-limits, and `Engine.init` refuses limits a connection would refuse, with
-`error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
-`note_request` does above. A program that wakes only when bytes arrive never ends a silent peer.
+`deadline_ns` names the soonest instant the engine needs, on any connection, QUIC's loss recovery
+included. The program sleeps no longer, then calls `on_instant` with the instant it woke at. A
+program that wakes only for bytes never ends a silent peer.
 
-Set `idle_ns` above the idle time of your h11 clients. The idle deadline closes a kept-alive
-connection that holds no request, 30 s after its last response by default. An h11 client that
-keeps its idle connections longer can send its next request on a connection at the instant the
-server closes it. That client then reads end-of-file and does not resend a request that is not
-idempotent (RFC 9112 §9.3.1). Go's client keeps idle connections for 90 s by default. Over h2 the
-server sends GOAWAY before the close, so a client knows which requests the server did not process
-(RFC 9113 §6.8). A longer `idle_ns` holds each idle connection's slot for longer
-([decision 110](decisions.md#decision-110)).
+| `server.Timeouts` field | Default | What it bounds |
+| --- | --- | --- |
+| `first_request_ns` | 10 s | From the connection's start, TLS included, to its first whole head |
+| `idle_ns` | 30 s | The wait between requests |
+| `head_ns` | 10 s | The arrival of a request's head |
+| `body_ns` | 300 s | The arrival of a request's whole body |
+| `body_rate_min` | 1,024 bytes/s | The slowest body, after `rate_grace_ns` (10 s), over `rate_window_ns` (10 s) |
+| `send_rate_min` | 1,024 bytes/s | The slowest pace at which a peer may take the response |
+| `linger_ns` | 2 s | How long an ended connection waits for its last bytes to go out |
+| `drain_ns` | 30 s | How long a connection's requests have after `shutdown` |
 
-A TCP connection's socket closes in one of two ways. The engine reports `close` once the
-connection has finished and its socket took every byte it owed, the TLS close_notify too, or
-once the `linger_ns` deadline passes with bytes still owed. The program closes the socket once
-it has sent the bytes it took, and owes the engine no call. After a linger there are none to
-wait for: colibri dropped what it still owed. Or the peer closes the
-socket first, or the socket fails, and the program tells the engine with `transport_closed`. The
-example accepts a second socket to show that call, a socket its peer closes before it sends an
-byte:
+- Null turns a deadline off, and `init` refuses 0 or a span past a day with `error.TimeoutInvalid`.
+- `set_timeouts` changes one connection's limits by its handle, as `note_request` does.
+- `receive` and `send_stream` also fire a passed deadline of the connection they touch.
+- Over h2, a request whose content is late may end with a `finished` cancelled for the timeout.
+- Set `idle_ns` above your h11 clients' idle time, or a client may send on a connection as it
+  closes (RFC 9112 §9.3.1).
+
+### Closes
 
 ```zig
 const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
@@ -1062,70 +951,24 @@ const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.Exch
 engine.transport_closed(closed);
 ```
 
-Either way colibri reads and writes nothing more on the connection, and wipes its TLS session's
-secrets. The engine then reports a `finished` for each request: `sent` for each response
-written whole, and cancelled with the reason `closed` for the others. Last comes the connection's
-`ended`, once. A later
-socket or client takes the connection's slot, and the ended connection's handle and every id on it
-name nothing from then on. `ended` carries two more fields:
+A TCP socket closes in one of two ways. The engine reports `close` once the socket took every byte,
+TLS close_notify too, or once `linger_ns` passes. Or the peer closes the socket or it fails, and
+the program calls `transport_closed`.
 
-- `reason` names the deadline that passed, or the limit the peer passed, when colibri closed the
-  connection for one. It is null otherwise. In the example, the QUIC connection ends at the idle
-  deadline `note_request` shortened.
-- `failed` says colibri closed the connection because its peer broke a protocol rule or its record
-  layer failed. For a TCP connection, the engine reports a `send` for what colibri owes that
-  peer, such as h2's GOAWAY or an h11 server's 400, before the `close`.
-
-`ended` follows a `close` with no call from the program, so it may come while the program's socket
-still writes its last bytes or waits for its close to complete. A later connection may then take
-the slot while that socket is still open. A program that keeps state for each socket therefore
-keeps the connection's whole handle with it, and does not index the state by the handle's `slot`
-alone: it maps a slot to the state of the connection the slot holds now.
-
-Three more things a server sets:
-
-- **Content codings.** With the configuration's `codings` and an `EncoderPool` the program places,
-  a response marked `codable` goes out in the coding its request accepts, gzip or deflate
-  ([decision 101](decisions.md#decision-101)). The program calls the pool's `init` once, and gives its
-  `encoders()` to the configuration. Each encoder runs on the configuration's `cpu_features`
-  ([decision 169](decisions.md#decision-169)): `server.CpuFeatures.detect()`, which the program calls once.
-  The field has no default, and colibri never asks the CPU itself.
-- **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
-  endpoint (RFC 7838), as the example's does. A cleartext connection advertises nothing (RFC 9114
-  §3.1.2).
-- **Bounds.** The configuration's `limits` holds the bounds of each connection, named by what they
-  bound: `requests_max`, the requests a connection holds at once, up to
-  `server.constants.limits.quic_requests_max` request streams over QUIC, and `data_frame_len_min`,
-  the shortest DATA frame h2 sends when a window, not the content, decides its length
-  ([decision 110](decisions.md#decision-110)). Two more bound resets in one second, 100 each by default:
-  `peer_resets_max`, the requests a client may cancel, and `resets_sent_max`, the streams the
-  server may reset because the client broke them. One more ends the connection, and its
-  `CloseReason` names the limit. Over TLS, the provider bounds a run of KeyUpdates, and `limits`
-  does not hold that bound. chapulin reads 16 in a row, and the 17th ends the connection with
-  the limit `key_updates`.
+- Then colibri reads and writes nothing more on the connection, and wipes its TLS secrets.
+- A `finished` follows for each request: `sent`, or cancelled with the reason `closed`.
+- `ended` comes last, once, and from then on the handle and every id on it name nothing.
+- `ended.reason` names the deadline or limit colibri closed the connection for, or is null.
+- `ended.failed` says the peer broke a protocol rule or the record layer failed.
+- Before a failed TCP connection's `close`, a `send` carries what colibri owes the peer, such as
+  GOAWAY or a 400.
+- `ended` may come while the socket still sends its last bytes, so a later connection may take the
+  slot.
+- A program keys its per-socket state by the whole handle, never by `slot` alone.
 
 ### Router
 
-A program declares its routes in a route table at compile time, and the router calls the function
-of each request's route ([decisions 122, 127 and 163](decisions.md#decision-122)). `server.Router` builds the
-route table from the program's context type and a struct. The struct names `error_handler` and
-`routes`, and may name `middleware` and `Values`. Each route holds a method, a pattern and a
-function, and options may follow. `server.Router` takes a `server.RouterOptions` too, and returns
-the type of the router the program places. `server.RouterOptions` sizes the router's pool entry
-for each request:
-
-- `requests`: the requests the router holds at once, 32 by default.
-- `response_bytes`: the response memory of each request: the copies of its headers and trailers,
-  and the bytes of its body that the engine has not released.
-- `body_bytes`: the request body memory of each request: a function route's whole body, and the
-  bytes that a stream route's `on_data` left unread or kept. A body past it gets 413.
-- `header_bytes`: the memory of each request's copy of its header, which a function route needs
-  for a request with a body (decision 163 ruling 5). With 0 the router copies no header, and calls
-  each function at the head.
-
-The last three have no default, so a program names each one, 0 included (decision 163 ruling 9).
-The router cannot know the sizes of a program's requests and responses, and a size it assumed
-would fail first in production, with an answer that names no option.
+From [`examples/server_exchange.zig`](../examples/server_exchange.zig):
 
 ```zig
 const routes = .{
@@ -1145,35 +988,35 @@ const Router = server.Router(App, routes, .{ .requests = requests_max, .response
 var router: Router align(@alignOf(Router)) = undefined;
 ```
 
-The program starts its router once, before the router's first event, with `init`. `init` writes
-the few fields that each entry reads first, and leaves each entry's buffers as they lie. `.{}` in
-its place copies the router's whole default value from the program's image, with the response,
-body and state memory of every entry ([#148](https://github.com/c4milo/colibri/issues/148)):
-
 ```zig
-    // The router starts in place. `.{}` would copy its whole default value, each entry's buffers
-    // too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
-    router.init();
+// The router starts in place. `.{}` would copy its whole default value, each entry's buffers
+// too, from a constant of the program's image (https://github.com/c4milo/colibri/issues/148).
+router.init();
 ```
 
-The method of a route is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of
-another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT request has no path
-(RFC 9110 §9.3.6, decision 19). Each segment of a pattern is a literal, a parameter such as
-`:name`, or the wildcard `*` as the last segment. A pattern holds
-`server.constants.limits.path_parameters_max` parameters at most, the wildcard included.
+The compiler builds the route table from the program's context type and this struct ([decisions
+122, 127 and 163](decisions.md#decision-122)). The struct names `error_handler` and `routes`, and
+may name `middleware` and `Values`. The program calls `router.init()` once, before the first event.
 
-A route's function takes four parameters, in this order: the program's context, the request
-context, the request, and the response ([decision 163](decisions.md#decision-163)). The request
-context is a `*server.RequestContext`, which [Request context](#request-context) describes. The
-route's options name the types of its path parameters and of its query:
+| `server.RouterOptions` field | Default | What it sizes |
+| --- | --- | --- |
+| `requests` | 32 | Requests the router holds at once; one more gets 503 |
+| `response_bytes` | none: the program names it | Each request's response memory: header and trailer copies, and body bytes the engine holds |
+| `body_bytes` | none | A function route's whole body, or what a stream route's `on_data` left unread; past it, 413 |
+| `header_bytes` | none | Each request's header copy for a function route with a body; past it, 431; 0 copies none |
 
-- `.path` is a struct with one `[]const u8` field for each parameter of the pattern, and `rest`
-  for the wildcard. A struct whose fields are not the pattern's parameters does not compile.
-- `.query` is `http.QueryParameters`, or a struct whose fields name the query's pairs.
+A program names the last three, 0 included ([decision 163](decisions.md#decision-163) ruling 9).
 
-A route with no `.path` reads no parameter, and a route with no `.query` reads no query. The
-router fills each struct by its field names before the call. The function reads the two with
-`ctx.path(Name)` and `ctx.query(Mark)`, and each returns a `*const` pointer:
+| Route entry part | Rule |
+| --- | --- |
+| Method | `.get` or another of RFC 9110 §9.1's methods, or a token such as `"PATCH"`; CONNECT does not compile |
+| Pattern | Segments that are literals, parameters such as `:name`, or `*` as the last; at most `server.constants.limits.path_parameters_max` parameters |
+| Function or struct | A function route or a stream route |
+| `.path` | A struct with one `[]const u8` field for each parameter, and `rest` for `*` |
+| `.query` | `http.QueryParameters`, or a struct whose fields name the query's pairs ([Query](#query)) |
+| `.middleware` | This route's chain, after the table's ([Middleware](#middleware)) |
+
+#### Function routes
 
 ```zig
 /// The path and the query of `/greetings/:name`, which the route names as `.path` and `.query`.
@@ -1190,17 +1033,6 @@ fn greet_named(_: *App, ctx: *server.RequestContext, _: *const server.Request, r
 }
 ```
 
-A field of the query's struct is `[]const u8`, `?[]const u8`, or a field with a default value. A
-query that lacks a `[]const u8` field with no default gets 400. A query with more pairs than
-`http.constants.limits.query_parameters_max` gets 414. Neither gets a call. The router ends a
-response the function leaves open.
-
-A function gets the whole request in one call ([decision 163](decisions.md#decision-163) ruling 4). A request
-with no body gets its call at the head, and its `request.body` ends at once. A request with a
-body gets its call when the body ended, unless `header_bytes` is 0. The function then reads the
-whole body through `request.body`, a `*std.Io.Reader` whose reads never wait. The server example
-sends the POST's content back:
-
 ```zig
 /// Sends the POST's content back. The router calls the function once the content ended, and
 /// `request.body` reads the whole content, which the request's entry holds. The read never waits.
@@ -1211,161 +1043,19 @@ fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, resp
 }
 ```
 
-The engine writes the storage of a request's header again before the body ends. So for a
-request with a body, the router copies the header into the request's pool entry at the head. It
-holds each byte of the body there too:
+A function takes the program's context, the [request context](#request-context), the request and
+the response. It gets the whole request in one call ([decision 163](decisions.md#decision-163)
+ruling 4).
 
-- The copy holds the header's field lines, each as 8 bytes of record and its name and value.
-- Over h2 and h3 the field lines hold the pseudo-header fields, and the copy holds no more. The
-  method, the target, the scheme, the authority, the path and the query are those fields' values.
-  One exception: a `:path` that starts with `?` has the static "/" as its path, one byte more.
-- Over h11 the copy holds the method and the target too. It also holds each part that lies in
-  neither the target nor a field line, such as the scheme.
-- Over h2 and h3 a GET may end in a later frame: an empty DATA frame with END_STREAM, or a FIN
-  after HEADERS. Such a GET takes a copy too.
-- A header whose copy is larger than `header_bytes` gets 431 (RFC 6585 §5), with no call.
-- A body larger than `body_bytes` gets 413 (RFC 9110 §15.5.14), with no call.
-- A request that its head ends costs no copy.
-- A function does not see a trailer section. The trailer section ends the body, and the call
-  follows.
-- The whole body never waits, so an `error.ReadFailed` that the function returns goes to
-  `error_handler`, as each other error does.
-
-With `header_bytes` 0 the router copies no header, and calls each function at the head. For a
-request whose body is still to come, a read of `request.body` then fails with `error.ReadFailed`,
-and the router drops the body. A program whose functions read no body can choose 0.
-
-A route can be a struct instead, which is a stream ([decision 163](decisions.md#decision-163) ruling 6). It
-has `on_request`, any of `on_data`, `next` and `on_finished`, and a `State` that the request's
-pool entry holds. Each callback takes the program's context, the request context and a `*State`
-first. A struct that declares no `State` takes a `*void` there. The other parameters follow:
-
-- `on_request` takes the request and the response, a `*server.Response`, as a function does. Its
-  route names `.path` and `.query` in the same way.
-- `on_data` takes a `*server.RequestBodyStream`, the stream of the request's body, and the
-  response.
-- `next` takes the response.
-- `on_finished` takes the request's result.
-
-A struct that declares `on_body` or `on_writable`, the callbacks before decision 163, does not
-compile.
-
-A function and each callback of a stream route write the same `server.Response`, which each
-middleware hook and `error_handler` write too. They differ in who ends the response. The router
-ends a function's response when the function returns. A stream route ends its response itself.
-Else the router ends it once the body ended and `on_data` ran with the last piece, unless the
-route declares `next`.
-
-`on_request` runs at the head, before the body. So for a request with a body, a read of
-`request.body` there fails with `error.ReadFailed`, as it does in a middleware's `on_request`. The
-route reads the body in `on_data`, which runs at each body event. `server.RequestBodyStream` holds
-no header, and has three calls:
-
-- `next()` returns the next piece of the body that has arrived, a `[]const u8`, with no copy. It
-  returns null when no piece waits now. Each call first lets go of the piece it gave before. A
-  piece stays valid until the next call of `next`, or until `on_data` returns.
-- `keep(len)` leaves the last `len` bytes of the last piece unread. The next `next`, in this
-  `on_data` or in a later one, starts with them, joined with the bytes that arrive later. So a
-  route reads a message that two events cut, as Connect and gRPC frame theirs. A later `keep`
-  takes the place of an earlier one, and `keep(0)` keeps none.
-- `ended()` returns true when `next` returned null at the body's end.
-
-A route never relies on `ended()` at its last piece. Over h2 the end may come with the last
-piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later event with no
-bytes, and the router calls `on_data` again for it. A request whose head ended it gets one
-`on_data`, whose `next` finds the end.
-
-At the body's end, a `next` after a `keep` gives the kept bytes once more as the last piece,
-with no new byte. A `keep` of that last piece keeps nothing. The `next` after it returns null,
-and `ended()` turns true. This holds over h11, h2 and h3, and after a trailer section. So a
-route reads a body with no length in place, as Connect's unary call sends one. It keeps each
-piece whole, and the last piece holds the whole body. Every other piece holds at least one byte
-past the kept ones, so a piece whose length is the kept length is the last piece. The route reads
-it there, before the `next` that lets it go.
-
-The stream example's route reads gRPC's messages. Each one is a flag byte, the payload's length
-in four bytes and the payload. Its `answer_whole` writes and flushes a reply to each whole
-message of a piece, so each reply goes out before the body ends. It returns the bytes of the cut
-message after them, which `keep` leaves unread:
-
-```zig
-/// Runs at each event of the request's body. It answers each message that a piece holds
-/// whole, and keeps the cut message at the end of the piece: the next `next` gives its bytes
-/// again, joined with the bytes that arrive later. Once the body ended, it ends the response.
-pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
-    // Bounded: each pass takes one piece.
-    for (0..pieces_per_event_max) |_| {
-        const piece = body.next() orelse break;
-        const cut = try answer_whole(state, piece, response);
-        state.kept = cut.len;
-        body.keep(state.kept);
-    }
-    if (!body.ended()) return;
-    // A body that ends inside a message cuts it short: the last piece held its bytes again.
-    if (state.kept > 0) return error.MessageCut;
-    // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
-    try response.trailers(&grpc_ok);
-}
-```
-
-The pool entry's `body_bytes` holds the bytes that `on_data` left unread or kept, because the
-engine writes its event's bytes again. Kept bytes and the bytes of the next event that do not
-fit there get 413 (RFC 9110 §15.5.14). At the body's end, kept bytes past `body_bytes` get 413
-too, over each protocol. So a body that a route keeps whole is at most `body_bytes`.
-
-Through a middleware's `wrap_body`, the router copies the kept bytes into `body_bytes` too. It
-joins the bytes that the last wrapper gives later to them there. So the router asks a wrapper
-for one byte past those it gave, and never more. A wrapper's `rebase` may hold fewer bytes than
-its buffer, as std's flate decompressor does, which keeps its window there. A route keeps a tail
-as long as `body_bytes` through such a wrapper too. The router copies only after a `keep`. A piece
-that follows no `keep` stays in the wrapper's buffer, with no copy.
-
-Through a wrapper, the kept bytes and the event's bytes that the wrapper did not read yet share
-`body_bytes`. Past it, they get 413. A wrapper with no buffer cannot serve a stream route, and the
-router asserts so at the head.
-
-The router drops the body in two cases. A route with no `on_data` reads none. A route that ended
-its response gets no `on_data` after the end, so a route can refuse a request at the head. At the
-body's end, the router also drops what the last `on_data` did not take with `next`. So `on_data`
-calls `next` until it returns null.
-
-Over h11 the next request follows the body on the connection (RFC 9112 §9.3), so a response that
-ends before the body does has a cost there ([decision 160](decisions.md#decision-160)):
-
-- A route that ended its response when its head went out reads no more of the body. The server
-  reads and drops a rest whose known length is 256 KiB at most. For a longer rest and for a
-  chunked one, the head carries `Connection: close`.
-- A route whose head went out while its response was open said nothing in that head. When its
-  response then ends first, the server reads up to 256 KiB of the rest. It closes the connection
-  when the body does not end within them.
-
-A route that answers while it reads, and ends its response after the body's end, keeps the
-connection. A program that calls `server.Engine.respond` itself names its case in
-`server.ResponseHeader.request_body`: `.keep_reading` when it still reads the body, and
-`.discard`, the default, when it does not.
-
-After an error of `on_data` or `next`, `error_handler` gets a request whose method and path are
-empty and whose headers hold no line. A read of its body fails.
-
-`next` writes a response over many calls. The router calls it while the response is open, the
-engine took all it was given, and the body's writer has room. It calls `next` while the request
-body is still open too, so a route can answer while the client still sends (decision 127 as
-amended on 2026-11-09):
-
-- A call that writes nothing while the body is open waits for the next body bytes or the next
-  `writable`.
-- Once the body has ended, a route that neither ends its response nor fills the engine is
-  cancelled.
-
-`on_finished` runs at the request's `finished` event, with its result.
-
-Decision 110's request body deadlines apply to such a route too. So a route that waits for a
-quiet client needs a program that sets them for its connection with `set_timeouts`.
-
-The route table must name `error_handler`, which chooses the status after a route's function
-returns an error ([decision 127](decisions.md#decision-127) ruling 4). It takes the program's context, the
-request context, the request, the error and the response. After the head went out, the
-router cancels the request instead, since its body may be cut short:
+- A request with no body gets its call at the head.
+- A request with a body gets its call once the body ended, and reads it through `request.body`.
+- With `header_bytes` 0, each call comes at the head, and a read of a body still to come fails with
+  `error.ReadFailed`.
+- The router copies a header with a body into the request's entry, because the engine reuses that
+  storage.
+- A GET that h2 or h3 ends in a later frame takes a copy too.
+- A function sees no trailer section: it ends the body, and the call follows.
+- The router ends a response the function leaves open.
 
 ```zig
 fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: anyerror, response: *server.Response) void {
@@ -1373,102 +1063,158 @@ fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: any
 }
 ```
 
-The router answers a request with no call of a function in four cases: 404 when no route names
-the path, 405 with an Allow field when no route of the path names the method, 501 when no route
-of the route table names the method, and 503 when the pool has no free entry. When the engine
-has no room for such a head, the head waits for the request's `writable`, as a route's response
-does. The router holds as many of them as its `requests`, and cancels a request past that.
+`error_handler` chooses the status after a route returns an error ([decision
+127](decisions.md#decision-127) ruling 4). After the head went out, the router cancels the request
+instead.
 
-A program that dispatches a request itself calls `match`, with the request's method and path.
-Its `found` gives the route's `Route` tag, named by its method and its pattern, such as
-`.@"GET /greetings/:name"`.
+#### Stream routes
 
-`match` follows these rules:
+From [`examples/server_stream.zig`](../examples/server_stream.zig), a route that answers gRPC
+messages while the body still arrives:
 
-- **The method comes first.** When no route of the route table names the method, the result is
-  `not_implemented`, on any path, and the router answers 501 (RFC 9110 §9.1, §15.6.2). Then
-  `match` reads the path. The query does not change the result.
-- **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
-  that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
-  backs up one level and tries the next kind. So the order of the route table does not change the
-  result: with `/users/me` beside `/users/:id`, the path `/users/me` matches `/users/me` first.
-- **A parameter matches one segment.** The wildcard matches one segment or more, and
-  `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
-  `/files`.
-- **Each route names its own parameters.** Two routes may give one position two names, as
-  `GET /users/:id` and `PUT /users/:user` do, and each reads its value by its own name
-  (decision 129).
-- **The first pattern that matches the whole path and names the method decides.** When a
-  pattern that matches the path names other methods, `match` backs up and tries the next kind, as
-  it does for a segment that fails (decision 128). So with `GET /v1/charges/search` beside
-  `POST /v1/charges/:charge`, a POST of `/v1/charges/search` finds `/v1/charges/:charge`. When no
-  pattern that matches the path names the method, the result is `method_not_allowed`, and the
-  Allow value lists the methods of each of those patterns. The router writes a 405 with an
-  "allow" field (RFC 9110 §15.5.6). The field name is in lowercase, because h2 and h3 refuse an
-  uppercase field name.
-- **HEAD finds GET.** A HEAD request finds the GET route of a pattern that names no HEAD route,
-  and the Allow value lists HEAD after GET. The engine writes no content in a response to HEAD,
-  in h11, h2 and h3 (RFC 9110 §9.3.2). So a program writes one answer for GET and HEAD. It reads
-  `request.method` when it must know which one it got.
-- **`OPTIONS *` gets one of two results.** A route table with no OPTIONS route gives
-  `not_implemented`. A route table with an OPTIONS route gives `not_found`, because "*" is not a path.
-  A program that answers `OPTIONS *` reads the request before it passes it to `handle`.
-- **Each segment is percent-decoded** (RFC 3986 §2.1, decision 127). `match` splits the path on
-  "/" first, then decodes each segment it reads. A literal compares with the decoded segment:
-  `/users/%6De` matches `/users/me`. A "%" that two hex digits do not follow stays as written, and
-  colibri checks no UTF-8.
-- **A segment that encodes "/", "\\" or NUL matches nothing** (RFC 3986 §7.3). So no parameter
-  holds a "/" or a "\\", no part of the wildcard's rest is a dot-segment, and no value holds a NUL.
-- **A parameter's value is the decoded segment.** A segment with no "%" is a slice of the path,
-  valid until the next engine call that the comment on `Engine.receive` lists. A decoded one
-  is a slice of the router's `PathParameters`, valid until the next request. A route that keeps a
-  value longer copies it into its `State`.
-- **A path that ends in "/" is a resource of its own** (RFC 3986 §6.2.4, decision 122 as
-  amended on 2026-10-29). Only a pattern that ends in "/" matches it: `/a/` matches `/a/` and not
-  `/a`, and `/a` matches `/a` and not `/a/`. A parameter does not match the empty last segment,
-  so `/a/:id` does not match `/a/`. The wildcard does not match a path that ends in "/", so
-  `/files/*` does not match `/files/a/`.
-- **Paths that match nothing:** a path with a byte outside `pchar` and "%", a path with an empty
-  segment that is not its last, such as `/a//b`, a path with a "." or ".." segment, encoded or
-  not, such as `/a/%2E%2E`, and a path longer than `server.constants.limits.path_len_max` bytes, its
-  query included.
+```zig
+const Greeter = struct {
+    /// What the route holds for one call: the messages it answered, and the bytes of the cut
+    /// message it left unread with `keep`.
+    pub const State = struct {
+        messages: u32 = 0,
+        kept: usize = 0,
+    };
+
+    /// Runs at the request's head, before any byte of its body arrives. The head goes out with
+    /// the first bytes of the body.
+    pub fn on_request(_: *App, _: *server.RequestContext, _: *State, _: *const server.Request, response: *server.Response) !void {
+        try response.header("content-type", peer.content_type);
+    }
+
+    /// Runs at each event of the request's body. It answers each message that a piece holds
+    /// whole, and keeps the cut message at the end of the piece: the next `next` gives its bytes
+    /// again, joined with the bytes that arrive later. Once the body ended, it ends the response.
+    pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
+        // Bounded: each pass takes one piece.
+        for (0..pieces_per_event_max) |_| {
+            const piece = body.next() orelse break;
+            const cut = try answer_whole(state, piece, response);
+            state.kept = cut.len;
+            body.keep(state.kept);
+        }
+        if (!body.ended()) return;
+        // A body that ends inside a message cuts it short: the last piece held its bytes again.
+        if (state.kept > 0) return error.MessageCut;
+        // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
+        try response.trailers(&grpc_ok);
+    }
+
+    /// Runs once the request is over. A `sent` result says the response went whole.
+    pub fn on_finished(app_state: *App, _: *server.RequestContext, state: *State, result: server.Result) void {
+        app_state.messages += state.messages;
+        app_state.sent += @intFromBool(result == .sent);
+    }
+};
+```
+
+A struct route is a stream ([decision 163](decisions.md#decision-163) ruling 6). Each callback
+takes the program's context, the request context and a `*State`, or a `*void` with no `State`.
+The request's pool entry holds the `State`.
+
+| Callback | Then takes | Runs |
+| --- | --- | --- |
+| `on_request` | The request and the response | At the head, before the body |
+| `on_data` | A `*server.RequestBodyStream` and the response | At each body event, and once more for an end with no bytes |
+| `next` | The response | While the response is open and has room, the body open or not |
+| `on_finished` | The request's `server.Result` | At the request's `finished` |
+
+`server.RequestBodyStream` has three calls:
+
+1. `next()` returns the next piece with no copy, or null; the piece is valid until the next `next`
+   or the end of `on_data`.
+2. `keep(len)` leaves the last `len` bytes of the last piece for the next `next`, joined with later
+   bytes.
+3. `ended()` returns true once `next` returned null at the body's end.
+
+The rules:
+
+- `on_data` calls `next` until it returns null; the router drops what it leaves at the body's end.
+- A route never relies on `ended()` at its last piece: over h11 and h3 the end comes later.
+- At the end, a `next` after a `keep` gives the kept bytes once more as the last piece.
+- Kept bytes and the next event's bytes share `body_bytes`; past it, 413.
+- A wrapper of a middleware with no buffer cannot serve a stream route, and the router asserts so.
+- A read of `request.body` in `on_request` fails with `error.ReadFailed`.
+- A route ends its own response; with no `next`, the router ends it after the last `on_data`.
+- A route that ended its response at the head gets no `on_data`, so it can refuse a request there.
+- With `next`, a call that writes nothing while the body is open waits for more bytes or `writable`.
+- With `next`, a route that neither ends nor fills the response after the body's end is cancelled.
+- After an error of `on_data` or `next`, `error_handler` gets a request with no method, path or
+  headers.
+- Decision 110's body deadlines apply, so a route that waits on a quiet client sets its own with
+  `set_timeouts`.
+
+Over h11 the next request follows the body ([decision 160](decisions.md#decision-160)):
+
+- A route that ended its response at its head reads no more body. The server drops a rest of at
+  most 256 KiB, and closes for a longer or chunked one.
+- A route whose response ends while the body is open: the server reads up to 256 KiB of the rest,
+  then closes.
+- A route that ends its response after the body's end keeps the connection.
+
+#### Answers the router writes
+
+| Case | Status |
+| --- | --- |
+| No route names the path | 404 |
+| No route of the path names the method | 405, with an `allow` field (RFC 9110 §15.5.6) |
+| No route of the table names the method | 501 (RFC 9110 §15.6.2) |
+| The pool has no free entry | 503 |
+| A query lacks a required field | 400 |
+| A query has more than `http.constants.limits.query_parameters_max` pairs | 414 |
+| A header copy passes `header_bytes` | 431 (RFC 6585 §5) |
+| A body passes `body_bytes` | 413 (RFC 9110 §15.5.14) |
+
+None of these calls a route. A head with no room waits for `writable`, and the router cancels one
+past `requests`.
+
+#### `match`
+
+A program that dispatches a request itself calls `match` with the method and the path. Its `found`
+gives the route's `Route` tag, such as `.@"GET /greetings/:name"`. The router applies the same
+rules.
+
+| Rule | Example path | Result |
+| --- | --- | --- |
+| The method comes first; the query changes nothing | `PURGE /a` with no PURGE route | `not_implemented`: 501 |
+| A literal, then a parameter, then `*`, with back-up; table order does not count | `/users/me` beside `/users/:id` | `/users/me` |
+| A parameter takes one segment; `*` takes one or more | `/files` against `/files/*` | No match |
+| Each route names its own parameters ([decision 129](decisions.md#decision-129)) | `GET /users/:id` and `PUT /users/:user` | Each reads its own name |
+| The first whole match that names the method decides ([decision 128](decisions.md#decision-128)) | `POST /v1/charges/search` | `POST /v1/charges/:charge` |
+| A path that matches with no route of its method | `DELETE /greeting` | `method_not_allowed`: 405 |
+| HEAD finds GET; the engine sends no content (RFC 9110 §9.3.2) | `HEAD /greeting` | The GET route |
+| `OPTIONS *` | A table with no OPTIONS route | `not_implemented`; else `not_found` |
+| Each segment is percent-decoded (RFC 3986 §2.1) | `/users/%6De` | `/users/me` |
+| A segment that encodes "/", "\\" or NUL (RFC 3986 §7.3) | `/a/%2F` | No match |
+| A trailing "/" names its own resource (RFC 3986 §6.2.4) | `/a/` against `/a` | No match |
+| A byte outside `pchar`, an empty inner segment, or a dot-segment | `/a//b`, `/a/%2E%2E` | No match |
+| A path longer than `server.constants.limits.path_len_max`, query included | | No match |
+
+- A decoded value lives in the router's `PathParameters` until the next request.
+- An undecoded value is a slice of the path, valid until the engine call that `Engine.receive`
+  lists.
+- A route that keeps a value longer copies it into its `State`.
+
+#### Route tables that do not compile
+
+A malformed route table, or one with a conflict, does not compile, and the error names the entry and
+the rule.
+
+| Error | Cause |
+| --- | --- |
+| `route_unreachable` | No request reaches the route, such as `GET /a/:x` beside `GET /a/*` and `GET /a/:x/*` |
+| `methods_too_many` | The table names more than `server.constants.limits.route_methods_max` methods, 10 |
+
+The check runs at compile time and adds no cost to `match`.
 
 ### Request context
 
-The request context is the request's own object, a `server.RequestContext`
-([decision 163](decisions.md#decision-163)). The program's context is one for every request of a router. The
-request context is a view of the router's entry for one request. Every callback takes it after the
-program's context:
-
-- a route's function, and each callback of a struct route;
-- each hook of a middleware;
-- the route table's `error_handler`.
-
-Each callback of one request gets the same request context. A callback keeps no pointer to it
-after the callback returns. The request context has four calls:
-
-- `id()` returns the request's `server.RequestId`.
-- `values(T)` returns a `*T` to the request's values.
-- `path(P)` returns a `*const P` to the route's path parameters.
-- `query(Q)` returns a `*const Q` to the route's query.
-
-The request's values hold what a program learns about one request, such as the user that a
-middleware authenticated. The route table names their type in its field `Values`, such as
-`.Values = Session`, beside `error_handler` and `routes`. The type is a struct whose fields each
-have a default, or the route table does not compile. A route table may leave `Values` out.
-
-Each request starts with the values `.{}`, and they stay for the whole request. Each later
-callback of the request reads what an earlier one wrote there. So a middleware writes the user at
-the head, and the route, each `on_finished` and `error_handler` read it. The request's pool
-entry holds the values, so each entry grows by `@sizeOf(Values)`.
-
-The values stay, but a slice of the request does not. A middleware gets the engine's request,
-whose storage the engine writes again after the head's event. A function route of a request with
-a body gets its call later, with the router's copy of the header. So a middleware copies the bytes
-that it keeps into a field of its `Values`, and keeps no slice of the request there.
-
-The server example numbers each request in a middleware, and its route reads the number. This
-excerpt is from `examples/colibri_server.zig`:
+From [`examples/colibri_server.zig`](../examples/colibri_server.zig):
 
 ```zig
 const Values = struct {
@@ -1492,9 +1238,27 @@ const Numbered = struct {
 };
 ```
 
-A test of a program's code that takes a request context makes one with
-`server.RequestContext.init(id, T, &values)`. The context lends those values, and no path and no
-query, and needs no router. The example checks its middleware's code this way:
+A `server.RequestContext` is the request's own object ([decision
+163](decisions.md#decision-163)). Each route, struct callback, middleware hook and `error_handler`
+of one request gets the same one, after the program's context. The route table names the values'
+type as `.Values = Values`.
+
+| Call | Returns | Valid |
+| --- | --- | --- |
+| `id()` | The request's `server.RequestId` | Always |
+| `values(T)` | A `*T` to the request's values, which start as `.{}` | The whole request |
+| `path(P)` | A `*const P` to the route's `.path` | The route's first call alone |
+| `query(Q)` | A `*const Q` to the route's `.query` | The route's first call alone |
+
+- Each field of `Values` has a default, or the table does not compile.
+- A callback keeps no pointer to the request context after it returns.
+- A middleware copies the bytes it keeps into `Values`, and keeps no slice of the request.
+- A struct route copies a path or query value it needs later into its `State`.
+- A middleware and `error_handler` read no path and no query.
+- The program halts with a message on a wrong type for `values`, `path` or `query`.
+- The program halts on `path` or `query` outside the route's first call.
+
+A test makes a request context with no router:
 
 ```zig
 fn check_numbered() !void {
@@ -1507,40 +1271,12 @@ fn check_numbered() !void {
 }
 ```
 
-A test that builds a `server.Request` by hand gives its `body` a reader of its own, because `body`
-has no default. A reader over no bytes ends at once, as the body of a request with no body does:
-`var reader: std.Io.Reader = .fixed(&.{});`, and then `.body = &reader`.
-
-`path(P)` and `query(Q)` answer during the route's first call alone: a function's one call, or a
-struct route's `on_request`. The router lends the two structs for that call, because every request
-of the router shares the query's memory. So the pointer that each call returns is valid until that
-call returns. A struct route that needs a value in a later callback copies its bytes into its
-`State`. A middleware and `error_handler` read no path and no query.
-
-`values`, `path` and `query` each check the type at run time. A wrong type is an error of the
-program, and the program halts with a message in these cases:
-
-- `values(T)` with a `T` that is not the route table's `Values`, or in a route table that names
-  none;
-- `path(P)` or `query(Q)` with a type that is not the route's `.path` or `.query`, or in a route
-  that names none;
-- `path(P)` or `query(Q)` in a callback that is not the route's first call.
+A test that builds a `server.Request` gives `body` a reader, such as `.fixed(&.{})`, because `body`
+has no default.
 
 ### Middleware
 
-A middleware is a struct that the router calls before a route
-([decision 127](decisions.md#decision-127) ruling 5). The router calls the route table's `middleware` first,
-then the route entry's, as `.{ .get, "/admin", admin, .{ .middleware = .{Auth} } }`, in table order.
-They run one after the other: no middleware calls the next. A chain is a tuple, so a program names
-one, such as `const api = .{ Auth, RateLimit };`, and joins it to another with `++`.
-
-Each hook of a middleware takes the program's context, then the request context
-([decision 163](decisions.md#decision-163)). `on_request` then takes the request and the response, and
-runs at the request's head. It returns `.next`, and the router calls the next middleware, then the
-route. Or it writes the response and returns `.answered`, and the router calls nothing more for
-the request. An error goes to `error_handler`. The body comes after the head. So for a request
-with a body, a read of `request.body` in `on_request` fails with `error.ReadFailed`. The server
-example's middleware adds a header to each response:
+From [`examples/server_exchange.zig`](../examples/server_exchange.zig):
 
 ```zig
 const Brand = struct {
@@ -1550,42 +1286,6 @@ const Brand = struct {
     }
 };
 ```
-
-A middleware writes what it learns about a request into the request's values, with
-`ctx.values(T)`, and the route reads them there. [Request context](#request-context) describes
-them. A middleware reads no path and no query, because `ctx.path` and `ctx.query` answer during
-the route's first call alone.
-
-`on_finished` runs when the request ends, in the reverse order, for each middleware the chain
-reached. It takes the request context and the request's result, and `ctx.id()` returns the
-request's id. `on_finished` holds what a framework whose middleware wraps the next one runs after
-`next()` returns, such as an access log.
-
-A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader of
-the request body and returns another, which the next middleware wraps. The route reads the last one:
-a function through `request.body`, and a stream route through the `server.RequestBodyStream` of
-its `on_data`. `wrap_response` does the same
-for the writer that the route's `body()` returns, and may add a header, such as Content-Encoding.
-Each runs at the head, after the middleware's `on_request` returns `.next`, and null keeps the
-reader or the writer it got. A wrapper writes nothing before the route starts the body, because the
-headers are still open. A middleware keeps its wrapper in its `State`, which the request's pool
-entry holds. Each field of a `State` has a default value, which each request starts from.
-
-The three wrap hooks take the middleware's `*State` after the request context:
-
-- `wrap_body(context, ctx, state, request, reader)` returns a `?*std.Io.Reader`.
-- `wrap_response(context, ctx, state, request, response, inner)` returns a `?*std.Io.Writer`.
-- `finish_response(context, ctx, state)` returns an error union of `void`.
-
-A `State` belongs to one middleware. The request's values belong to the request, and each
-middleware and the route read the same ones.
-
-When the route ends a wrapped response, the router calls each `finish_response` from the route's
-side outward, so a wrapper writes what it owes at the end, such as a gzip trailer. It flushes the
-writer of a middleware that declares none. Then the router ends the response, so Content-Length
-counts the bytes the wrappers wrote. An error of `finish_response` cancels the request.
-`write_kept` copies its bytes through the wrapper. The server example counts the bytes of each
-response:
 
 ```zig
 const Counted = struct {
@@ -1614,79 +1314,59 @@ const Counted = struct {
 };
 ```
 
-A middleware declares one or more of `on_request`, `on_finished`, `wrap_body` and
-`wrap_response`, and `finish_response` only beside `wrap_response`.
+A middleware is a struct the router calls before a route ([decision
+127](decisions.md#decision-127) ruling 5). The table's chain runs first, then the route's, as
+`.{ .get, "/admin", admin, .{ .middleware = .{Auth} } }`. A chain is a tuple, so `++` joins two.
+
+| Hook | Takes, after the program's context and the request context | Runs |
+| --- | --- | --- |
+| `on_request` | The request and the response; returns `.next` or `.answered` | At the head, in order |
+| `wrap_body` | `*State`, the request and the reader; returns `?*std.Io.Reader` | At the head, after `on_request` |
+| `wrap_response` | `*State`, the request, the response and the writer; returns `?*std.Io.Writer` | At the head, after `on_request` |
+| `finish_response` | `*State`; returns an error union of `void` | When the route ends a wrapped response, from the route outward |
+| `on_finished` | The request's result | At the request's end, in reverse order, for each middleware reached |
+
+- `.answered` means the middleware wrote the response, and the router calls nothing more.
+- An error of `on_request` goes to `error_handler`; an error of `finish_response` cancels the
+  request.
+- No middleware calls the next one.
+- A read of `request.body` in `on_request` fails with `error.ReadFailed`.
+- A wrap hook that returns null keeps the reader or writer it got.
+- A wrapper writes nothing before the route starts the body.
+- The router flushes a wrapper with no `finish_response`, then ends the response.
+- `write_kept` copies its bytes through the wrapper.
+- A middleware declares `finish_response` only beside `wrap_response`.
+- Each field of a `State` has a default, from which each request starts.
+- A `State` belongs to one middleware, and the [request's values](#request-context) belong to the
+  request.
 
 ### Query
 
-`request.path` holds the path alone, and `request.query` holds the bytes after the first "?", or
-null (decision 127). `http.QueryParameters` reads its `name=value` pairs, as the WHATWG URL
-Standard's `application/x-www-form-urlencoded` parser does: it splits on "&" and on the first "=",
-skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the decoded names and
-values into a buffer the program gives, and refuses a query of more than
-`http.constants.limits.query_parameters_max` pairs, 32, or of more bytes than the buffer holds.
-`get` returns the first value of a name. The router reads a route's query this way before it fills
-the struct that the route names as `.query`. A route whose `.query` is `http.QueryParameters` reads
-the pairs by name, through `ctx.query(http.QueryParameters)`.
+```zig
+const Mark = struct { mark: []const u8 = "" };
+```
 
-A malformed route table, or a route table with a conflict, does not compile, and the compile error names the
-entry and the rule. Two conflicts concern routes that other routes hide:
+`request.path` holds the path, and `request.query` the bytes after the first "?", or null
+([decision 127](decisions.md#decision-127)). The router fills a route's `.query` struct by field
+name before the call, and `ctx.query(Mark)` reads it, as `greet_named` shows.
 
-- **`route_unreachable`:** no request reaches the route. With `GET /a/*`, `GET /a/:x` and
-  `GET /a/:x/*`, each path of two segments matches `/a/:x` first, and each longer path matches
-  `/a/:x/*` first.
-- **`methods_too_many`:** the routes of a route table name more than
-  `server.constants.limits.route_methods_max` methods, 10. A 405's Allow value is written at compile
-  time for each set of the table's methods, and 10 methods need 1,024 of them.
+| `.query` field type | A query with no such pair |
+| --- | --- |
+| `[]const u8` with no default | 400, with no call |
+| `?[]const u8` | null |
+| A field with a default | The default |
 
-The check runs at compile time and adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
-of four segments and 64 bytes.
+- A route whose `.query` is `http.QueryParameters` reads pairs by name through
+  `ctx.query(http.QueryParameters)`.
+- `get` returns the first value of a name.
+- The parser follows the WHATWG URL Standard: "&" and the first "=" split, "+" is a space, and each
+  part is percent-decoded.
+- `http.QueryParameters.read` refuses more than `http.constants.limits.query_parameters_max` pairs,
+  32, or a buffer too small.
 
 ### Over QUIC
 
-The same events and the same calls serve h3. A program moves datagrams with addresses in place of
-a stream of bytes, and it keeps time for each connection. Three things differ from TCP:
-
-- **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
-  They stay the program's until the request's `finished`. A `sent` result comes once the peer
-  has acknowledged every byte of the response.
-- **Time.** `deadline_ns` names the instant the engine next needs `on_instant`, for loss
-  recovery and acknowledgments too, so a program sleeps until then when no datagram arrives.
-  `Config.idle_timeout_ms` is QUIC's own idle timeout, which ends a peer that sends nothing at
-  all.
-- **The congestion controller.** `Config.congestion_controller` is `.bbr` for BBRv3, the
-  default, `.cubic`, or `.newreno` for RFC 9002's own controller ([decisions 133, 136 and
-  143](decisions.md#decision-133)). It applies to QUIC connections
-  alone. Under BBRv3 each connection draws its probe waits from the source of the context in
-  `Config.tls`, so one seed replays ([decision 175](decisions.md#decision-175)).
-
-`ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
-or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
-of the protocol. A later client then takes its slot, and every id of the ended connection names
-nothing. A QUIC connection has no socket of its own, so the engine reports no `send` and no
-`close` for one.
-
-`Config.retry` makes a client prove its address before a connection starts (RFC 9000 §8.1.2).
-By default every client must, and `Config.retry_from_percent` limits that to the times when at
-least that percent of the QUIC slots hold a connection ([decision 110](decisions.md#decision-110)). A spoofed
-Initial then holds no slot while the server is under load, and an honest client spends no extra
-round trip while it is not. `Config.logs` gives each connection a qlog log
-([decision 102](decisions.md#decision-102)).
-
-`Config.resumes` lets a later connection from a client start near an earlier one's rate, by RFC
-9959's Careful Resume ([decision 149](decisions.md#decision-149)). colibri keeps nothing between connections, so
-the program keeps a `server.ResumeState` for each client address and gives the engine a
-`server.ResumeProvider` over them. The engine calls `take` when a connection starts, and the set it
-returns is that connection's until `put` comes for it, once the connection ends. `put` and `drop`
-name the address that `take` got, after a migration too. `put` carries what the connection
-observed, or null to keep the set held. A connection that moved to another host observed nothing
-for the host it started on, so it gives null. `drop` comes first when the connection had to
-retreat, and the set goes. `Config.resume_bounds` holds RFC 9959's max_jump and Lifetime, 4 MiB and
-1 hour by default. A `ResumeState` carries its version and size, so a program may store its bytes.
-
-The three calls name a host and no connection. RFC 9959 §3.2 lets one connection at a time use a
-set, so a provider counts each host's open connections and gives a set only to a host's one open
-connection. The provider of [`examples/server_resume.zig`](../examples/server_resume.zig) does so:
+From [`examples/server_resume.zig`](../examples/server_resume.zig):
 
 ```zig
 fn take(_: *anyopaque, address: server.Address, now_ns: u64) ?server.ResumeState {
@@ -1700,32 +1380,43 @@ fn take(_: *anyopaque, address: server.Address, now_ns: u64) ?server.ResumeState
 }
 ```
 
+The same events and calls serve h3. A program moves datagrams with addresses, and keeps time for
+each connection.
+
+| What differs | Over QUIC |
+| --- | --- |
+| Body bytes | The connection reads the program's bytes in place until `finished`; `sent` comes once the peer acknowledged every byte |
+| Time | `deadline_ns` includes loss recovery and acknowledgments; `idle_timeout_ms` ends a peer that sends nothing |
+| Congestion | `congestion_controller`: `.bbr`, `.cubic` or `.newreno` ([decisions 133, 136 and 143](decisions.md#decision-133)); BBRv3 draws from the context in `tls` ([decision 175](decisions.md#decision-175)) |
+| Sockets | No `send` and no `close`: a QUIC connection has no socket of its own |
+| Address proof | With `retry`, a client proves its address (RFC 9000 §8.1.2) once `retry_from_percent` of the slots are busy ([decision 110](decisions.md#decision-110)) |
+| Logs | `logs` gives each connection a qlog log ([decision 102](decisions.md#decision-102)) |
+
+`ended` means what it means over TCP. Its `reason` names the deadline or the limit, and `failed`
+says the client broke a protocol rule.
+
+`Config.resumes` lets a client's later connection start near an earlier one's rate, by RFC 9959's
+Careful Resume ([decision 149](decisions.md#decision-149)). The program keeps a
+`server.ResumeState` for each client address, and gives the engine a `server.ResumeProvider` over
+them.
+
+| Provider call | When | What it gets or returns |
+| --- | --- | --- |
+| `take` | A connection starts | Returns the host's set, or null |
+| `put` | The connection ends | What the connection observed, or null to keep the set |
+| `drop` | The connection had to retreat, before `put` | The set goes |
+
+- `put` and `drop` name the address `take` got, after a migration too.
+- A connection that moved to another host gives null to `put`.
+- A provider gives a set to one open connection of a host at a time (RFC 9959 §3.2).
+- A `ResumeState` carries its version and size, so a program may store its bytes.
+
 The client takes the same three calls in `client.Config.resumes`, keyed by the server's address.
 
 ## The client
 
-The `client` module sends requests behind one set of calls too. An exchange is one request with its
-response, from the call of `request` to the request's one `finished` event. RFC 9110 §7.5 calls it a
-"request/response exchange". A program makes one `client.Config` for an origin, and a `client.ConnectionPool`
-that carries its exchanges there ([decision 120](decisions.md#decision-120)). The pool carries them over the QUIC
-and TCP connections it chooses between, and tells the program which transport to open ([decision
-105](decisions.md)). Over QUIC its connection speaks h3. Over TCP with TLS, ALPN picks h2 or h11. In
-cleartext its connection speaks h11, or h2 with prior knowledge when `protocols` turns h11 off
-([decision 117](decisions.md#decision-117)).
-
-The code in this section is from [`examples/client_exchange.zig`](../examples/client_exchange.zig),
-where `link` and `datagram_link` stand in for a program's TCP and UDP sockets. Its network drops
-every UDP datagram. The pool tries QUIC first, as its configuration asks, and carries its
-exchanges over TCP once the fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/client_peer.zig), is
-an engine with no UDP socket.
-
-For each exchange the program places two values in its own memory
-([decision 124](decisions.md#decision-124)):
-
-- a `client.Request`, which says what it sends;
-- a `client.Response`, which says where the answer goes and holds what arrived.
-
-The client only reads the request, so a program may make it a `const`.
+A program that drives a `client.ConnectionPool` itself places a request and a response for each
+exchange. From [`examples/client_exchange.zig`](../examples/client_exchange.zig):
 
 ```zig
 var get_headers: [1024]u8 = undefined;
@@ -1745,43 +1436,26 @@ const post: client.Request = .{
 var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 ```
 
-The response's headers go into the buffer of `headers`, and its body into `body` ([decision
-152](decisions.md)). Each header takes its name, its value and four bytes. A program reads one with
-`get_response.headers.get("content-type")`, which returns the first value of that name or null,
-and every line with `iterator()`, for a header such as Set-Cookie that comes more than once. A
-response's trailers go into `trailers` the same way, apart from its headers, and a program reads
-`grpc-status` with `response.trailers.get("grpc-status")`. An empty buffer drops its section, and
-a section that does not fit its buffer ends the exchange `too_large`. The request's `body` is its
-own body.
+An exchange is one request with its response, from `request` to its one `finished` event. The
+pool carries the exchanges to one origin over QUIC (h3) or TCP (h2 or h11), and tells the program
+which transport to open ([decision 120](decisions.md#decision-120)).
 
-A request sends its own trailers in `Request.trailers`, a list of `client.Header` such as
-`headers` is ([decision 152](decisions.md#decision-152)). The client sends them after the whole body:
+- Keep the request, the response and each slice they name in place until `finished`, or until
+  `cancel` returns ([decision 124](decisions.md#decision-124)).
+- The client only reads the request, so it may be a `const`.
+- Each header in `headers.buffer` takes its name, its value and four bytes.
+- Read a header with `headers.get(name)`, the first value or null, and each line with
+  `headers.iterator()`.
+- `trailers` holds the response's trailers the same way, such as `trailers.get("grpc-status")`.
+- An empty buffer drops its section; a section that does not fit ends the exchange `too_large`.
+- Send request trailers in `Request.trailers` ([decision 152](decisions.md#decision-152)); they
+  go after the whole body.
+- With a buffer in `Response.trailers`, the client sends `te: trailers`, unless the request names
+  TE.
+- `request` returns `error.InvalidTrailer` for a forbidden or invalid trailer.
+- Over h3, a request whose header and trailer sections do not fit together ends `invalid`.
 
-- Over h11 the request goes chunked, with no Content-Length, and the trailers follow the last
-  chunk (RFC 9112 §7.1.2).
-- Over h2 and h3 the trailers go in a HEADERS frame that ends the stream (RFC 9113 §8.1, RFC 9114
-  §4.1).
-- The client names each trailer in a `Trailer` header (RFC 9110 §6.6.2).
-
-When `Response.trailers` has a buffer, the client sends `te: trailers` (RFC 9110 §10.1.4), and
-over h11 `Connection: TE` with it. A gRPC server over h2 refuses a request without it. The client
-adds none when the request's own headers name TE. `request` returns `error.InvalidTrailer` for a
-trailer that RFC 9110 §6.5.1 forbids: Content-Length, Transfer-Encoding, Host, TE, Trailer and the
-other connection-specific fields. It also returns it for a name with an uppercase letter, which
-h2 and h3 refuse, for a name or a value that is not valid, and for a section larger than
-`field_section_size_max`, 16,384 bytes as RFC 9113 §6.5.2 counts them. Over h3 the header
-section and the trailer section share one buffer of 16,436 bytes. A request whose two sections do
-not fit in it together ends `invalid` before any of it goes out.
-
-The program keeps the request and the response in place, with each slice they name, until the
-exchange's `finished` event or until `cancel` returns.
-
-A program places the pool and the memory it holds its TCP connections and its exchanges in
-([decision 125](decisions.md#decision-125)). The pool's `client.Config` counts them: `tcp_connections`, 1 by
-default, and `requests`, 16 by default. `ConnectionPool.memory_bytes(.{ .tcp_connections = n,
-.requests = m })` gives the bytes those counts need, with the defaults for a count left out.
-It is pure, so a program sizes a static array with it, as here, or maps that many bytes at run
-time:
+The pool and the memory for its TCP connections and exchanges are the program's too:
 
 ```zig
 var pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{}))) = undefined;
@@ -1790,9 +1464,22 @@ var pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{})))
 var pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 ```
 
-The client gives one configuration with one TLS value, makes the pool, and hands it each
-request and its response. The program passes what DNS knows as values: the server's addresses
-and its port, and an HTTPS record's `alpn` and `port` when it has one.
+`ConnectionPool.memory_bytes(counts)` is pure, so it sizes a static array or a run-time mapping
+([decision 125](decisions.md#decision-125)). A program that never speaks h3 holds a pool with no
+QUIC state. From [`tools/consumer/main.zig`](../tools/consumer/main.zig):
+
+```zig
+// The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
+const ConnectionPool = client_module.ConnectionPool(.{ .quic = false });
+var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+```
+
+[The memory table](performance.md#memory-per-connection) gives both sizes. That pool has no
+`start_quic`, and its `init` takes `null` for the receive pool.
+
+### Start the pool
+
+From [`examples/client_exchange.zig`](../examples/client_exchange.zig):
 
 ```zig
 // One configuration serves both transports. Its TLS value names no protocol: the pool
@@ -1821,62 +1508,40 @@ _ = try pool.request(&get, &get_response);
 _ = try pool.request(&post, &post_response);
 ```
 
-The pool takes one `client.Config` ([decision 120](decisions.md#decision-120)):
+`init` copies the `client.Config`, so the program may change or free it after `init` returns. The
+fields:
 
-- `cpu_features` is what `client.CpuFeatures.detect()` found, which your program calls once. Each
-  decoder the pool's connections take runs on it ([decision 169](decisions.md#decision-169)). The field has no
-  default, and colibri never asks the CPU itself.
-- `tls` is one `tls.Client` value, which says how the client judges the server over TCP and over
-  QUIC. Its `alpn` list stays empty. A pool with no `tls` runs in cleartext, over TCP alone.
-- `protocols` names the protocols the client speaks, h11, h2 and h3, each on by default. The pool offers
-  them through ALPN: `h2` and then `http/1.1` over TCP, and `h3` over QUIC. It opens TCP only
-  while `protocols` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
-  Over TLS, a TCP server that selects no protocol is spoken to in h11 while `protocols` allows
-  h11. With h11 off, that connection closes, as one whose handshake failed does (RFC 9113 §3.3).
-- `protocols.prefer` names the transport the pool opens first, when `protocols` allows a version
-  on each ([decision 117](decisions.md#decision-117) as amended). With `.tcp`, the default, the pool opens TCP
-  first and QUIC only once TCP fails. With `.quic`, it opens QUIC first, and TCP once QUIC fails
-  or the fallback delay passes. On a path with no loss, QUIC costs more CPU than TCP and gains
-  nothing. h3 gains most on paths that lose packets, such as mobile networks.
-- `authority`, the content codings and their decoder pools are given once, for both transports.
-- `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it, under
-  `.prefer = .quic`. Its default is `client.constants.policy.fallback_delay_ns_default`, 250 ms.
-- `ecn`, `idle_timeout_ms` and `congestion_controller` are for QUIC connections alone.
-  `congestion_controller` is `.bbr` for BBRv3, the default, `.cubic`, or `.newreno` for RFC
-  9002's own controller ([decisions 133, 136 and 143](decisions.md#decision-133)).
+| Field | Default | What it sets |
+| --- | --- | --- |
+| `cpu_features` | none | What `CpuFeatures.detect()` found once; colibri never asks the CPU ([decision 169](decisions.md#decision-169)). |
+| `authority` | none | `:authority` in h2 and h3, Host in h11. |
+| `tls` | `null` | One `tls.Client` for TCP and QUIC, with an empty `alpn`; `null` runs cleartext over TCP alone. |
+| `protocols` | h11, h2, h3 on | The versions offered through ALPN; TCP opens only while h11 or h2 is on ([decision 117](decisions.md#decision-117)). |
+| `protocols.prefer` | `.tcp` | The transport that opens first; `.quic` opens QUIC first. |
+| `fallback_delay_ns` | 250 ms | Under `.prefer = .quic`, how long QUIC's handshake runs before TCP opens beside it. |
+| `quic_unadvertised` | `true` | Whether QUIC may open with no HTTPS record or Alt-Svc that names h3. |
+| `tcp_connections` | 1 | TCP connections held, at most 64. |
+| `requests` | 16 | Exchanges held at once, at most 1,024. |
+| `codings` and the decoder pools | none | Content codings offered and their decoders ([decision 101](decisions.md#decision-101)). |
+| `timeouts.connect_ns` | 10 s | How long a TCP connect may take; your loop applies it, as `colibri.Client` does. |
+| `timeouts.drop_ns` | 50 ms | How long an h11 connection drops a cancelled response ([decision 146](decisions.md#decision-146)). |
+| `idle_timeout_ms` | 30 s | QUIC's idle timeout. |
+| `congestion_controller` | `.bbr` | QUIC's controller: `.bbr`, `.cubic` or `.newreno` ([decision 133](decisions.md#decision-133)). |
+| `ecn` | `false` | Whether the program reads and sets each datagram's ECN codepoint. |
 
-`init` also takes the receive pool, where the pool's QUIC connection holds the server's unread bytes:
-`client.ReceivePool(.{ .capacity = capacity })`, sized to the longest response the program expects. A pool
-offers QUIC only when it has a pool, a `tls` value and `protocols.h3`. A program that passes
-`null` for the pool gets TCP alone.
+- QUIC is offered only with a receive pool, a `tls` value and `protocols.h3`.
+- Size the receive pool, `client.ReceivePool(.{ .capacity = n })`, to the longest response.
+- `init` builds TLS state inside the pool, so do not move the pool after `init`.
+- Call `init` again only with no open transport and no exchange.
 
-A program that never speaks h3 holds a `client.ConnectionPool(.{ .quic = false })` in place of a
-`client.ConnectionPool(.{})` ([decision 124](decisions.md#decision-124)). It holds no QUIC connection and no QUIC TLS
-configuration, so it takes a fraction of the memory
-([the table](performance.md#memory-per-connection) gives both sizes). Its `init` takes `null` for the pool, and it has no
-`start_quic`, so a call of it does not compile. The consumer program holds one:
-
-```zig
-// The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
-const ConnectionPool = client_module.ConnectionPool(.{ .quic = false });
-var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
-```
-
-`init` builds the TLS configuration of each transport the pool offers, inside the pool, so
-the program does not move the pool after it. It returns these errors:
+`init` returns these errors:
 
 - `error.NoVersion`: the configuration offers neither transport.
-- `error.VersionUnavailable`: the configuration allows h3 on a pool with no QUIC.
-- `error.TooManyAnchors`, `error.TooManySuites` or `error.SuitesUnavailable`: the TLS value
-  names more than a TLS configuration holds.
+- `error.VersionUnavailable`: h3 is on, and the pool holds no QUIC.
+- `error.TooManyAnchors`, `error.TooManySuites` or `error.SuitesUnavailable`: the TLS value names
+  more than a TLS configuration holds.
 
-A program may call `init` again on a pool with no open transport and no exchange, for example
-with new addresses. While exchanges run, it calls `set_destination` instead (below).
-
-A program moves datagrams with addresses over QUIC and a stream of bytes over TCP, and it keeps
-time for the pool. Each turn passes the pool what each socket read, fires its deadlines, sends
-the datagrams the QUIC connection owes, and reads again. A TCP connection's bytes go out when
-the pool says `send`:
+### Each turn
 
 ```zig
 fn client_turn() !void {
@@ -1894,33 +1559,24 @@ fn client_turn() !void {
 }
 ```
 
-Each datagram goes to `receive` with the address it came from, and the pool consumes it whole:
+`link` and `datagram_link` stand in for the program's TCP and UDP sockets. Pass each datagram
+with the address it came from; the pool consumes it whole:
 
 ```zig
-fn read_datagrams(now_ns: u64) !void {
-    for (0..datagrams_per_turn_max) |_| {
-        const datagram = try datagram_link.receive(.client) orelse break;
-        // A connection takes a datagram only from the address its server answers from.
-        var rest: client.Input = .{ .datagram = .{ .bytes = datagram, .from = server_address } };
-        for (0..receive_calls_max) |_| {
-            const received = pool.receive(rest, now_ns);
-            if (received.consumed > 0) rest = .none;
-            const event = received.event orelse {
-                if (received.consumed == 0) break;
-                continue;
-            };
-            try report(event, now_ns);
-        }
-        datagram_link.consume(.client);
-    }
+// A connection takes a datagram only from the address its server answers from.
+var rest: client.Input = .{ .datagram = .{ .bytes = datagram, .from = server_address } };
+for (0..receive_calls_max) |_| {
+    const received = pool.receive(rest, now_ns);
+    if (received.consumed > 0) rest = .none;
+    const event = received.event orelse {
+        if (received.consumed == 0) break;
+        continue;
+    };
+    try report(event, now_ns);
 }
 ```
 
-A read of the TCP socket passes every byte the program still holds, or `.none` when it holds
-none, until the pool consumes nothing and reports nothing. The pool may consume fewer bytes
-than it was given: an h11 connection reads a held byte only once the response before it ends,
-and reads half a head again from its first byte. After each send, each event and each
-`on_instant`, the program reads the pool again.
+Pass the TCP bytes until the pool consumes nothing and reports nothing:
 
 ```zig
 fn drain(now_ns: u64) !void {
@@ -1945,106 +1601,23 @@ fn drain(now_ns: u64) !void {
 }
 ```
 
-A pool holds more than one TCP connection when `client.Config.tcp_connections` says so
-([decision 125](decisions.md#decision-125)). h11 carries one exchange at a time on a connection. So a pool of
-h11 connections opens another connection when an exchange waits and no open connection has room
-for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool example
-([`client_pool.zig`](../examples/client_pool.zig)) holds four:
+- Pass every byte you still hold, or `.none` when you hold none.
+- The pool may consume fewer bytes than given; pass the rest again on the next call.
+- Read the pool again after each send, each event and each `on_instant`.
+
+The loop bound comes from the pool:
 
 ```zig
-const ConnectionPool = client.ConnectionPool(.{ .quic = false });
-const tcp_connections: u16 = link_module.streams_max;
-var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
-var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
-var client_config: client.Config align(@alignOf(client.Config)) = undefined;
-```
-
-The program builds the configuration as it starts, since it asks its CPU for the features then:
-
-```zig
-client_config = .{
-    .authority = origin,
-    .protocols = .{ .h2 = false, .h3 = false },
-    .tcp_connections = tcp_connections,
-    // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
-    // colibri never asks it (decision 169).
-    .cpu_features = .detect(),
-};
-```
-
-Each connection is a socket of its own. The handle of each `open` names the connection's slot,
-and the program keeps one socket for each slot. Each later event names the connection too:
-`send` when it owes bytes, and `close` when it is over. The program reads each socket with the
-handle of its connection:
-
-```zig
-fn client_turn() !void {
-    try link.receive(.client);
-    const now_ns = link.now_ns(.client);
-    for (0..link_module.streams_max) |slot| try drain(@intCast(slot), now_ns);
-}
-
-/// Passes the pool the bytes the socket of `slot` read, until it consumes nothing and reports
-/// nothing. With no socket in the slot it passes `.none`, which reports what the pool owes.
-fn drain(slot: u32, now_ns: u64) !void {
-    const socket = sockets[slot];
-    const input = link.queue(slot, .client);
-    var consumed: usize = 0;
-    for (0..receive_calls_max) |_| {
-        const held = input[consumed..];
-        // An event may close this socket, or open another in its slot: its bytes then go to no
-        // connection.
-        const current = socket != null and std.meta.eql(sockets[slot], socket);
-        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
-        const received = pool.receive(read, now_ns);
-        consumed += received.consumed;
-        const event = received.event orelse {
-            if (received.consumed == 0) break;
-            continue;
-        };
-        try report(event, now_ns);
-    }
-    // A socket closed during the read dropped its bytes with it.
-    if (socket != null and std.meta.eql(sockets[slot], socket)) link.consume(slot, .client, consumed);
-}
-```
-
-A program that gets a later DNS answer gives it to the pool with `set_destination`, while exchanges
-run. Each connection that opens after the call goes to the new addresses, from the first. Each
-open connection keeps its exchanges. The port stays the origin's. The pool keeps the h3
-alternative it learned, unless the new values name one.
-
-```zig
-        // A later DNS answer names another address. Each connection that opens from now on goes
-        // to it, and each open connection keeps its exchanges.
-        pool.set_destination(&.{ .addresses = &second_addresses, .port = server_port });
-```
-
-A program sizes its memory and bounds its loops with two limits of `client.constants` and one
-call of the pool, and needs no name from `h11` or `tls_provider` ([decision 124](decisions.md#decision-124) as
-amended by [decision 125](decisions.md#decision-125)):
-
-- `stream_input_len_min`: what the program holds of the TCP socket's bytes, at least, so that
-  `receive` takes some while `send_stream` has written what the connection owes. The pool takes
-  an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
-- `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
-- `ConnectionPool.receive_events_without_input_max(counts)`: the most `receive` calls in a row that
-  report an event and take no byte, for a pool of those counts. Another call of the pool between
-  them, such as `release_body`, starts a new run.
-
-The example bounds each read of the socket with them:
-
-```zig
-/// Calls of `receive` for one read of a socket, at most. Each call takes one byte or more of the
-/// link's queue, or reports an event and takes no byte, or ends the loop. At most
-/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no byte.
 const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool(.{}).receive_events_without_input_max(.{}) + 1);
 ```
 
-The pool's events say what the program does next, and an exchange ends in exactly one
-`finished` event, whatever happened to it. The event names the request and the response. Each
-event about a connection names its `client.ConnectionHandle`, which the connection's `open` named
-first ([decision 125](decisions.md#decision-125)):
+| Name | What it bounds |
+| --- | --- |
+| `client.constants.limits.stream_input_len_min` | The fewest TCP bytes to hold, so `receive` can take an h11 head, an h2 frame or a TLS record whole. |
+| `client.constants.limits.stream_output_len_min` | The smallest `output` for `send_stream`: the largest TLS record. |
+| `ConnectionPool.receive_events_without_input_max(counts)` | The most `receive` calls in a row that report an event and take no byte. |
+
+### Events
 
 ```zig
 fn report(event: client.Event, now_ns: u64) !void {
@@ -2078,95 +1651,27 @@ fn report(event: client.Event, now_ns: u64) !void {
 }
 ```
 
-A program writes what a TCP connection owes when the pool says `send`, until a call leaves room
-in its output:
-
-```zig
-fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {
-    for (0..sends_per_debt_max) |_| {
-        const written = pool.send_stream(connection, &output, now_ns);
-        try link.send(.client, output[0..written]);
-        if (written < output.len) return;
-    }
-    return error.ExchangeWrong;
-}
-```
-
-The response's `result`, a `client.Result`, says what happened to the exchange:
-
-| Result | What it means |
+| Event | What the program does |
 | --- | --- |
-| `response` | The final response arrived whole: `status`, `body_received()`, `headers` and `trailers`. |
-| `refused` | The server processed none of the request, so the program may send it on another connection. |
-| `reset` | The server reset the stream, and `error_code` names why. |
-| `closed` | The connection ended before the response was whole. The server may have processed the request. When no part of the response arrived, the pool first sent an idempotent request again, once ([decision 124](decisions.md#decision-124)). |
-| `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
-| `invalid` | The request is one the protocol refuses to send. |
-| `too_large` | The content did not fit `body`, or the headers or trailers did not fit their buffer. A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection with it ([decision 124](decisions.md#decision-124)). |
+| `open` | Open a UDP flow or connect a TCP socket to `open.to`, then call `start_quic` or `start_tcp` with `open.connection`. |
+| `send` | Call `send_stream` for the connection until a call leaves room in its output. |
+| `connected` | Nothing: it names the connection that takes the exchanges and its version. |
+| `ticket` | Call `take_ticket`, and offer the ticket in the last argument of a later start. |
+| `close` | Close the socket, and drop the bytes it read that you still hold. |
+| `finished` | Read the response; its memory and the request's are yours again. |
+| `closed` | Nothing: after `shutdown`, every exchange ended and every transport closed. |
+| `headers`, `body`, `body_taken` | Only a [streamed exchange](#streamed-bodies) reports them. |
 
-`status` is a `client.Status`. It holds a code only after the final head arrived, so read it
-when `result` is `response` or `too_large` ([decision 158](decisions.md#decision-158) ruling 5).
+- Each connection event names a `client.ConnectionHandle`, which its `open` named first.
+- Keep `open.to`'s `scope_id` in the socket address's `sin6_scope_id` for a link-local IPv6
+  address.
+- Set `TCP_NODELAY` on each TCP socket, so a small request leaves at once.
+- Under `.prefer = .tcp`, QUIC opens once TCP fails; under `.quic`, TCP opens when QUIC fails or
+  `fallback_delay_ns` passes.
+- The first connection whose handshake completes takes the exchanges.
 
-The client accepts any status of three digits, 000 to 999, over h11, h2 and h3. A code outside
-100 to 599 is invalid, and RFC 9110 §15 tells a client to process it as a 5xx. Thus
-`status.class()` returns `.server_error` for such a code, and the response is a final response,
-never an interim one. `@intFromEnum(status)` gives the code as it arrived, and `_` holds it. A
-status that is not three digits makes the response `malformed`. A server cannot send a code
-outside 100 to 599 ([decision 158](decisions.md#decision-158) ruling 17).
-
-The events:
-
-- `open` names a connection, its transport and where it goes. The program opens a UDP flow or
-  connects a TCP socket to `open.to`, then calls `start_quic`, or `start_tcp` with the
-  connection's handle. `open.to` keeps the `scope_id` the program set on the address, the
-  interface a link-local IPv6 address (fe80::/10) is reached through, which the program puts in
-  the socket address's `sin6_scope_id`. A program turns Nagle's algorithm off on each TCP socket it connects, with
-  `TCP_NODELAY`, as a server does on each socket it accepts, so a small request leaves at once. Each later call and event about the connection names that handle. QUIC may open when the origin
-  is known to speak h3, or when `Config.quic_unadvertised` says to try it. Under `protocols.prefer =
-  .tcp`, the default, TCP opens first and QUIC opens once TCP fails. Under `.quic`, QUIC opens
-  first, and TCP opens when QUIC fails or `fallback_delay_ns` passes. The first connection whose
-  handshake completes takes the exchanges.
-- `send` names a TCP connection that owes bytes. The program calls `send_stream` for it until a
-  call leaves room in its output, which ends the debt. The pool says `send` again for the next
-  debt, once the connection read bytes or the program made another call.
-- `connected` names the connection that carries the exchanges, and its version: h3 over QUIC, or
-  the version ALPN picked over TCP.
-- `ticket` says the server issued a resumption ticket. `ConnectionPool.take_ticket` hands it over, and a
-  later connection offers it through the last argument of `start_tcp` or `start_quic`.
-- `close` names a connection that is over. Over TCP, `send_stream` wrote everything
-  first, the TLS close_notify too. The program closes the socket, and drops the bytes it read
-  from it and still holds: they are that connection's, and the next connection must not get them.
-- After `shutdown`, `closed` says the pool is over: every exchange ended and every transport
-  closed.
-
-`cancel(id, now_ns)` ends an exchange before its `finished` event, and the pool reports nothing
-for it. h2 and h3 reset its stream. An h11 connection cannot end one exchange alone, so it reads
-the rest of the response, drops it, and goes on with the next ([decision 146](decisions.md#decision-146)). The
-connection fails instead in three cases:
-
-- The response closes the connection: `Connection: close`, HTTP/1.0, or content that runs until
-  the close.
-- More than `client.constants.limits.drop_len_max` bytes of content are left, 256 KiB.
-- `Config.timeouts.drop_ns` runs out, 50 ms by default. The time starts at the cancel, or later,
-  when the response before it ends. `deadline_ns` names the instant, and `on_instant` fires it.
-
-The exchanges after it then end as a failed connection ends them, and the pool moves them.
-
-The example opens no later connection, so its `take_ticket` wipes each ticket the pool hands
-over:
-
-```zig
-fn take_ticket(connection: client.ConnectionHandle) void {
-    const ticket = pool.take_ticket(connection) orelse return;
-    var held = ticket;
-    held.wipe();
-    tickets += 1;
-}
-```
-
-A program starts each connection that an `open` names. The pool draws a QUIC connection's IDs
-and h3's grease value from the source of the context in its TLS value, and the handshake draws the
-rest from it too ([decision 175](decisions.md#decision-175)):
+Start each transport an `open` names. Its TLS session draws from the source of the context in
+`tls` ([decision 175](decisions.md#decision-175)):
 
 ```zig
 fn open_transport(open: client.Open, now_ns: u64) !void {
@@ -2187,14 +1692,60 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
 }
 ```
 
-In the example the TCP connection completes its handshake first, so the pool abandons the QUIC
-connection. That connection ends only after its closing period, three PTOs (RFC 9000 §10.2). It
-has no RTT sample, so each PTO is about 1 s (RFC 9002 §6.2.2). Its `close` and `closed` thus
-come about 3 s after `connected`.
+Write what a TCP connection owes on `send`:
 
-A socket that fails to connect, that the peer closed, or that failed later goes to
-`transport_closed`. The example's second pool shows a connect that fails. It offers TCP alone,
-so the attempt has no transport left, and the exchange ends `refused`:
+```zig
+fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {
+    for (0..sends_per_debt_max) |_| {
+        const written = pool.send_stream(connection, &output, now_ns);
+        try link.send(.client, output[0..written]);
+        if (written < output.len) return;
+    }
+    return error.ExchangeWrong;
+}
+```
+
+A program that opens no later connection wipes each ticket:
+
+```zig
+fn take_ticket(connection: client.ConnectionHandle) void {
+    const ticket = pool.take_ticket(connection) orelse return;
+    var held = ticket;
+    held.wipe();
+    tickets += 1;
+}
+```
+
+### Results
+
+```zig
+fn arrived(response: *const client.Response, status: client.Status, content: []const u8) bool {
+    if (response.result != .response or response.status != status) return false;
+    return std.mem.eql(u8, response.body_received(), content);
+}
+```
+
+The response's `result`, a `client.Result`, says how the exchange ended:
+
+| Result | What it means |
+| --- | --- |
+| `response` | The final response arrived whole: `status`, `body_received()`, `headers` and `trailers`. |
+| `refused` | The server processed none of the request, so you may send it on another connection. |
+| `reset` | The server reset the stream; `error_code` names why. |
+| `closed` | The connection ended before the response was whole; the server may have processed the request. |
+| `malformed` | colibri refused the response under the protocol's rules, or a content coding was corrupt. |
+| `invalid` | The protocol refuses to send the request. |
+| `too_large` | The body, the headers or the trailers did not fit their buffer. |
+
+- Read `status`, a `client.Status`, only when `result` is `response` or `too_large`
+  ([decision 158](decisions.md#decision-158) ruling 5).
+- A code outside 100-599 reads as `.server_error` from `status.class()`; `@intFromEnum(status)`
+  gives the raw code.
+- A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection
+  too.
+
+Call `transport_closed` for a socket that fails to connect, that the peer closed, or that failed
+later:
 
 ```zig
 fn connect_refused() !void {
@@ -2218,20 +1769,15 @@ fn connect_refused() !void {
 }
 ```
 
-A pool asks for a second TCP socket when an exchange the server refused unprocessed moves to
-another connection (RFC 9113 §8.7). It reports the first socket's `close` before it. A program
-that opens no second socket calls `transport_closed` with the handle the second `open` named,
-and the exchange ends `refused`.
+With no transport left, the exchange ends `refused`. The pool moves a refused exchange to another
+connection, and sends an idempotent request once more when its connection closed before any
+response arrived ([decision 124](decisions.md#decision-124)). A request goes out twice at most
+(`client.constants.limits.moves_max`), and any other method ends `closed` for you to decide.
 
-A connection can also close before any of a response arrives. The pool then sends an
-idempotent request again on another connection (RFC 9110 §9.2.2): GET, HEAD, OPTIONS, TRACE, PUT
-and DELETE. A refusal and a close share one budget, `client.constants.limits.moves_max`, so a
-request goes out twice at most. A request with any other method ends `closed`, and the program
-decides whether to send it again.
+- When a moved exchange asks for a second socket you do not open, call `transport_closed` with
+  the handle that `open` named.
 
-`deadline_ns` names the instant the pool next needs `on_instant`: the end of the fallback
-delay, or QUIC's next timer. Both sides sleep until the sooner of their deadlines when nothing
-waits:
+### Time and cancel
 
 ```zig
 fn sleep_ns() u64 {
@@ -2247,26 +1793,81 @@ fn sleep_ns() u64 {
 }
 ```
 
-A pool has no deadline of its own for an exchange: QUIC's idle timeout is the one limit it
-runs. A server that answers slowly, or never, holds an exchange until the program ends it. So a
-program sets its own limit on each exchange and calls `cancel` when the limit passes. The
-deadlines of [decision 110](decisions.md#decision-110) are the server's.
+`deadline_ns` names the instant the pool next needs `on_instant`. The pool's limits are
+`timeouts.connect_ns`, `timeouts.drop_ns` and QUIC's idle timeout. No deadline bounds a whole
+exchange, so set your own limit on each one and call `cancel` when it passes.
 
-A client that decodes content codings names them in `Config.codings`, and places the pool
-of decoders each needs ([decision 101](decisions.md#decision-101)).
+- `cancel(id, now_ns)` ends an exchange with no `finished` event; h2 and h3 reset its stream.
+- h11 reads and drops the rest of a cancelled response ([decision 146](decisions.md#decision-146)).
+- The h11 connection fails instead on a close-delimited response, past
+  `client.constants.limits.drop_len_max` (256 KiB), or when `drop_ns` runs out.
+
+### Several TCP connections
+
+From [`examples/client_pool.zig`](../examples/client_pool.zig), a pool of four h11 connections:
+
+```zig
+const ConnectionPool = client.ConnectionPool(.{ .quic = false });
+const tcp_connections: u16 = link_module.streams_max;
+var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
+var client_config: client.Config align(@alignOf(client.Config)) = undefined;
+```
+
+```zig
+client_config = .{
+    .authority = origin,
+    .protocols = .{ .h2 = false, .h3 = false },
+    .tcp_connections = tcp_connections,
+    // The CPU features the pool's decoders run on. The program asks its CPU once, here, and
+    // colibri never asks it (decision 169).
+    .cpu_features = .detect(),
+};
+```
+
+Keep one socket for each slot that `open.connection.slot` names, and read each with its handle:
+
+```zig
+fn drain(slot: u32, now_ns: u64) !void {
+    const socket = sockets[slot];
+    const input = link.queue(slot, .client);
+    var consumed: usize = 0;
+    for (0..receive_calls_max) |_| {
+        const held = input[consumed..];
+        // An event may close this socket, or open another in its slot: its bytes then go to no
+        // connection.
+        const current = socket != null and std.meta.eql(sockets[slot], socket);
+        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
+        const received = pool.receive(read, now_ns);
+        consumed += received.consumed;
+        const event = received.event orelse {
+            if (received.consumed == 0) break;
+            continue;
+        };
+        try report(event, now_ns);
+    }
+    // A socket closed during the read dropped its bytes with it.
+    if (socket != null and std.meta.eql(sockets[slot], socket)) link.consume(slot, .client, consumed);
+}
+```
+
+An h11 pool opens another connection when an exchange waits and no open connection has room. An
+h2 pool opens no second connection (RFC 9113 §9.1). Give a later DNS answer with `set_destination`:
+
+```zig
+// A later DNS answer names another address. Each connection that opens from now on goes
+// to it, and each open connection keeps its exchanges.
+pool.set_destination(&.{ .addresses = &second_addresses, .port = server_port });
+```
+
+- Keep `addresses` in place until the next `set_destination` or `init`.
+- The port stays the origin's, and the pool keeps the h3 alternative it learned unless the new
+  values name one.
 
 ### Streamed bodies
 
-A streamed exchange sends its request body in pieces and reads its response body in pieces
-([decision 153](decisions.md#decision-153)). The pool copies no piece of either body. A gRPC or Connect client
-needs this, because one call can send and receive messages for as long as it runs. The code here
-is from [`examples/client_stream.zig`](../examples/client_stream.zig), which streams a gRPC-shaped
-call both ways over h2 in cleartext. Its server, in
-[`examples/client_stream_peer.zig`](../examples/client_stream_peer.zig), sends back each message
-when it arrives.
-
-`Request.streamed` says which body goes in pieces. A streamed request has an empty `body`. The
-`body` of a streamed response holds one piece at a time, so it can be shorter than the response:
+From [`examples/client_stream.zig`](../examples/client_stream.zig), a gRPC-shaped call streamed both
+ways over h2 in cleartext:
 
 ```zig
 const call: client.Request = .{
@@ -2286,26 +1887,15 @@ var response: client.Response align(@alignOf(client.Response)) = .{
 };
 ```
 
-`client.Streamed` has three fields:
+The pool copies no piece of either body ([decision 153](decisions.md#decision-153)). A streamed
+request has an empty `body`, and the response's `body` holds one piece at a time. `client.Streamed`
+has three fields:
 
 - `request`: the request body goes out through `write_body`.
 - `response`: the response body comes in through `body` events.
-- `request_len`: the length of the request body, when the program knows it. The request then
-  carries a Content-Length, and its pieces add up to that length. Without it, h11 sends the
-  request chunked (RFC 9112 §7.1), with one chunk for each piece. h2 and h3 send each piece in
-  DATA frames. A request with trailers goes chunked over h11 even with a length.
+- `request_len`: the body's length when known, sent as Content-Length; without it h11 sends chunks.
 
-The request's trailers go after its last piece. The example's call says in a trailer how many
-messages it sent, and its server reads the trailer before it ends the response.
-
-`write_body(id, piece, end)` hands the pool the next piece of the request body. `end` is a
-`client.PieceEnd`: `.last` for the last piece, and `.more` for each other piece. The program keeps the piece in place until the exchange's
-`body_taken` event. Over h11 and h2, that event comes when the connection has written the piece.
-Over h3, it comes when the server has acknowledged the piece, because QUIC sends a lost byte again
-from the program's memory (RFC 9000 §13.3). The pool holds one piece of each exchange at a time.
-A piece that the program hands before a connection takes the exchange waits in the pool. The
-example hands the next message when the pool took the message before it and the server sent
-that message back whole:
+Hand each request piece with `write_body`:
 
 ```zig
 fn hand_next() !void {
@@ -2318,34 +1908,17 @@ fn hand_next() !void {
 }
 ```
 
+- Keep each piece in place until its `body_taken` event.
+- Hand the next piece only after `body_taken`: the pool holds one piece of an exchange.
+- Over h3, `body_taken` comes when the server acknowledged the piece.
+
 `write_body` returns a `client.WriteBodyError`:
 
 - `UnknownRequest`: the pool holds no exchange with that id.
-- `PieceHeld`: the pool holds a piece of the exchange that it has not taken.
+- `PieceHeld`: the pool has not taken the last piece.
 - `BodyEnded`: an earlier piece ended the body.
-- `BodyStopped`: no more of the body goes out. The exchange ended, or an h3 server sent
-  STOP_SENDING with H3_NO_ERROR (RFC 9114 §4.1). The exchange still finishes, and a response that
-  arrived whole ends `response`.
-
-Three events carry a streamed response:
-
-- `headers` says that the status and the headers are in the `Response`. It comes before the
-  first piece.
-- `body` carries the id and `len`, and `body[0..len]` holds the next piece. The program gives the
-  piece back with `release_body(id)`. Until then, the connection reads no more of the response.
-  Over h11 and h2 it reads no more of the connection. Over h2 and h3 the server gets no flow
-  credit back for the piece (RFC 9113 §5.2, RFC 9000 §4.1), so a fast server waits for the
-  program. Over h2 only the stream's credit waits. Over h3 the bytes of a held piece stay in the
-  receive pool, so the connection's credit for them waits too (RFC 9000 §4.1). Each request stream
-  starts with a window of `client.constants.policy.quic_stream_window` bytes, 65,536. The window
-  of a stream whose pieces the program releases quickly grows, up to the pool's capacity less one
-  such window ([decision 49](decisions.md#decision-49) as amended). A held stream thus keeps 65,536 bytes of
-  the pool free, and one download alone can use nearly the whole pool. While the server's credit
-  is below those 65,536 bytes, the client sends MAX_DATA as soon as the other streams consume
-  one byte. The other streams together can thus keep 65,536 bytes in the pool while the piece
-  is held, and each byte they consume gives one byte of credit back.
-- `finished` comes only after the program released the last piece. The trailers are then in
-  `Response.trailers`.
+- `BodyStopped`: the exchange ended, or an h3 server sent STOP_SENDING; the exchange still
+  finishes.
 
 ```zig
 // The response's status and headers arrived, before any of its body.
@@ -2360,8 +1933,6 @@ Three events carry a streamed response:
 .body => |held| try on_piece(held),
 ```
 
-A `body` event holds a `client.Event.Piece`:
-
 ```zig
 fn on_piece(held: client.Event.Piece) !void {
     if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
@@ -2373,21 +1944,14 @@ fn on_piece(held: client.Event.Piece) !void {
 }
 ```
 
-`Headers.get` reads the first header of a name. A `client.Headers.Iterator` walks each header in
-the order it arrived, for a header that can come more than once, such as Set-Cookie (RFC 9110
-§5.3):
+Three events carry a streamed response:
 
-```zig
-var lines: client.Headers.Iterator = response.headers.iterator();
-var content_types: usize = 0;
-// Bounded: each header takes bytes of the buffer, which holds `section_len`.
-for (0..section_len) |_| {
-    const line = lines.next() orelse break;
-    if (std.ascii.eqlIgnoreCase(line.name, "content-type")) content_types += 1;
-}
-```
+- `headers`: the status and headers are in the `Response`, before the first piece.
+- `body`: `body[0..len]` holds the next piece; give it back with `release_body(id)`.
+- `finished`: comes after you release the last piece, with the trailers in `Response.trailers`.
 
-A gRPC call ends with its status in the trailers:
+Release each piece soon; a piece you hold stops its stream
+([decision 49](decisions.md#decision-49)). Over h11 and h2 a held piece stops the whole connection.
 
 ```zig
 fn on_finished(ended: client.Finished) !void {
@@ -2399,47 +1963,26 @@ fn on_finished(ended: client.Finished) !void {
 }
 ```
 
-The other rules of a streamed exchange:
-
-- The program can call `release_body` while it reads the pool's events, as the example does. The
-  next `receive` reads the response on.
-- Over h2 and h3 the request body can go on after the response's head arrives (RFC 9113 §8.1),
-  as it does in the example. Over h11, a response that ends while the request body goes out ends
-  the connection ([decision 124](decisions.md#decision-124) ruling 2).
-- The pool sends a streamed exchange again on another connection only before its first
-  `body_taken` and before its `headers`. After that the pool holds no whole request, so an
-  exchange that a server refused ends `closed`, not `refused`.
+- You may call `release_body` while you read the pool's events.
+- Over h2 and h3 the request body may go on after the response's head; over h11 a response that
+  ends first ends the connection ([decision 124](decisions.md#decision-124) ruling 2).
+- The pool moves a streamed exchange only before its first `body_taken` and its `headers`; after
+  that a refused exchange ends `closed`.
 - `cancel` gives back the request piece and the response piece at once.
-- A transport that closes while the program holds a piece ends the exchange after the release.
-  It ends `response` when the connection read the whole response, and `closed` when some of it
-  still waits in the input. Release each piece and pass the rest of the input before
-  `transport_closed`.
-- The client offers no content coding for a streamed response, so its pieces come as the server
-  sent them.
-- One streamed exchange can report four events with no input: `headers`, `body`, `body_taken` and
-  `finished`. `receive_events_without_input_max` counts them. Over TLS and h3 the next piece can
-  wait in the connection, so each `release_body` can give one more `body` with no input. The
-  release starts a new run, so a program that releases inside its loop counts the run again from
-  there.
+- Release each piece and pass the rest of the input before `transport_closed`.
+- The client offers no content coding for a streamed response.
+- Each `release_body` starts a new run of `receive_events_without_input_max`.
 
 ## The protocol modules
 
-The sections below are for a program that wants one version by itself: h11 or h2 with no TLS or
-with a TLS stack of its own, or QUIC without HTTP. The `server` and `client` modules are built on
-the same calls.
+Use these modules for one version by itself: h11 or h2 with no TLS or your own TLS, or QUIC with
+no HTTP. The `server` and `client` modules are built on the same calls.
 
 ## h11
 
-One `h11.Connection` is one HTTP/1.1 connection. `receive(input, decoded)` consumes the
-bytes of at most one event: a head, a run of body data, or the end of a body. Loop over it until
-it consumes nothing and returns no event. `decoded` is where the body of a message coded with
-`gzip` or `deflate` goes; a program that places no decoders passes it empty.
-
-The code below is from [`examples/h11_exchange.zig`](../examples/h11_exchange.zig), where `link`
-stands in for a program's socket. A client writes a request head into a buffer it owns and sends
-it. This one sends the body from its own buffer, so `count_body` counts it against the
-Content-Length and colibri copies none of it (decision 95); `write_body` would copy it into the
-output buffer instead:
+One `h11.Connection` is one HTTP/1.1 connection. From
+[`examples/h11_exchange.zig`](../examples/h11_exchange.zig), where `link` stands in for a socket,
+a client writes a request head and sends its body from its own buffer:
 
 ```zig
 const put_len = try client.write_request(&output, "PUT", "/upload", &.{
@@ -2452,11 +1995,7 @@ try link.send(.client, upload);
 _ = try client.write_end(&output, &.{});
 ```
 
-A client pipelines requests and gives each response to the oldest one. It stops pipelining after
-a request whose method is not idempotent until that request has its final response (decision 88).
-
-A server hands colibri what arrived and answers each request once it has read it. A request with
-no body ends with its head, so no `end` event follows it:
+A server passes what arrived to `receive` and answers each request once it has read it:
 
 ```zig
 const step = try server.receive(input, &.{});
@@ -2481,7 +2020,7 @@ if (step.event) |event| switch (event) {
 link.consume(.server, step.consumed);
 ```
 
-Answering is a head, the body, and the end, each written into the output buffer:
+An answer is a head, the body and the end, each written into the output buffer:
 
 ```zig
 const head_len = try server.write_response(&output, 200, "OK", &.{
@@ -2492,43 +2031,39 @@ _ = try server.write_end(output[written..], &.{});
 try link.send(.server, output[0..written]);
 ```
 
-A server reads one request at a time: it reads the next only after the final response to the
-current one is written. When `receive` fails, `has_pending` says colibri owes an error response,
-`write_pending` writes it, and the connection then closes (decision 92). `should_close` says when
-to close the transport, and `transport_closed` reports what a close cut short.
-
-Over TLS, call `attach_tls` once the handshake completes, and pass every record through the
-connection's `decrypt` and `encrypt`.
+- Call `receive(input, decoded)` until it consumes nothing and returns no event; pass
+  `decoded` empty when the connection has no decoders.
+- `count_body` sends the body from your buffer, and `write_body` copies it into the output
+  ([decision 95](decisions.md#decision-95)).
+- A client pipelines, and stops after a request that is not idempotent until its final response
+  arrives ([decision 88](decisions.md#decision-88)).
+- A server reads the next request only after it writes the final response to the current one
+  ([decision 92](decisions.md#decision-92)).
+- When `receive` fails and `has_pending` is true, call `write_pending`, send its bytes, then
+  close.
+- Close the transport when `should_close` says so, and call `transport_closed` when it closes.
+- Over TLS, call `attach_tls` once the handshake completes, and pass every record through
+  `decrypt` and `encrypt`.
 
 ### The gzip and deflate transfer codings
 
-A body may arrive coded with `gzip` or `deflate` under `chunked` (RFC 9112 §7.2). stdx decodes it,
-and each decoder holds a window of 32,768 bytes, so a connection keeps none of its own. Your
-program places a pool, `h11.coding.Pool(.{})` or `h11.coding.Pool(.{ .count = count })`, calls
-`init()` on it once, and gives its `storage()` to each connection in
-`Options.decoders`. Connections share the pool, and one takes a decoder only while a message
-carries a coding (decision 91). Each decoder runs on the connection's `Options.cpu_features`
-([decision 169](decisions.md#decision-169)): `h11.coding.CpuFeatures.detect()`, which your program calls once,
-for the CPU's fastest paths. The field has no default, so each connection states it, and colibri
-never asks the CPU itself.
+No example places a decoder pool yet. Place one `h11.coding.Pool(.{})`, call `init()` once, and
+give its `storage()` to each connection in `Options.decoders`
+([decision 91](decisions.md#decision-91)). `receive` then decodes into `decoded`, and each `data`
+event is a slice of it, valid until the next call ([decision 98](decisions.md#decision-98)).
 
-With a pool, `receive` decodes straight into the `decoded` buffer you pass it, and each `data`
-event is a slice of that buffer, valid until you pass it again (decision 98). A larger buffer means
-fewer calls. A server answers a coded request 501 when it has no pool, 503 when every decoder is
-taken, 400 when the body is corrupt, and 501 when it uses a feature stdx refuses. A client with a
-pool offers both codings in TE (RFC 9112 §7.4), and one without refuses a response that uses them.
+| Case | A server answers | A client |
+| --- | --- | --- |
+| No pool | 501 | refuses a coded response, and offers no coding in TE |
+| Every decoder taken | 503 | |
+| Corrupt body | 400 | |
+| A feature stdx refuses | 501 | |
 
 ## h2
 
-One `h2.Connection` is one HTTP/2 connection. `receive(input, now_ns)` consumes at most
-one whole frame and returns at most one event. When it consumes nothing, `has_pending` says
-whether colibri must write first, and `write_pending(output, now_ns)` writes the connection
-preface, colibri's SETTINGS, and every frame it owes: acknowledgments, WINDOW_UPDATE, RST_STREAM
-and GOAWAY.
-
-Each side of [`examples/h2_exchange.zig`](../examples/h2_exchange.zig) runs this loop once a
-round: it reads every frame that arrived, then writes what colibri owes, with what the server's
-answer adds in between:
+One `h2.Connection` is one HTTP/2 connection. Each side of
+[`examples/h2_exchange.zig`](../examples/h2_exchange.zig) runs this round: read every frame, then
+write what colibri owes, with the server's answer between:
 
 ```zig
 const input = try link.receive(side);
@@ -2552,50 +2087,65 @@ written += connection.write_pending(output[written..], link.now_ns(side));
 try link.send(side, output[0..written]);
 ```
 
-Events are a request or a response head with its field section (`connection.field_section()`),
-trailers, data, a stream the peer reset or colibri refused, the peer's GOAWAY, and the SETTINGS
-exchange. `event.ended_stream()` names the stream an event ended, whichever of the request,
-response, DATA or trailers ended it. A client opens a stream with `write_request`, a server
-answers with `write_response`, and both send content with `write_data`, which writes as much as
-the flow-control windows allow. `sendable_len` says how many bytes `write_data` would send now,
-so a program sizes a write, or waits for the peer's WINDOW_UPDATE when it says 0. A program that
-holds its content in its own buffer calls `write_data_header` instead. It writes the header of the
-frame `write_data` would write into `room_len` bytes, into nine bytes the program passes. The
-program sends the frame's `consumed` bytes right after the header, before any other byte: after
-it in one buffer, or sealed with it by `tls_provider`'s `encrypt_parts` ([decisions 138 and
-139](decisions.md#decision-138)). `write_trailers` ends either side's message with a trailer
-section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and the
-next `write_pending` writes its RST_STREAM: it needs no room, however many streams the caller
-resets between two writes (decision 113). `shutdown` begins a graceful close.
+The server's answer writes the head, then a DATA frame header, then the content from its own
+memory:
+
+```zig
+const head_len = try server.write_response(buffer, stream_id, 200, &.{
+    .{ .name = "content-length", .value = std.fmt.comptimePrint("{d}", .{greeting.len}) },
+}, false);
+// The windows and the buffer hold the whole greeting, which `sendable_len` says before it is
+// written. A program with more content than they hold writes what it says, and the rest after
+// the peer's WINDOW_UPDATE.
+std.debug.assert(server.sendable_len(stream_id, buffer.len - head_len, greeting.len) == greeting.len);
+const frame = buffer[head_len..];
+const data = try server.write_data_header(frame[0..h2.constants.protocol.frame_header_len], frame.len, stream_id, greeting.len, true);
+std.debug.assert(data.consumed == greeting.len);
+// The frame's data follows its header, before any other byte of the connection.
+@memcpy(frame[data.written..][0..data.consumed], greeting[0..data.consumed]);
+return head_len + data.written + data.consumed;
+```
+
+| Call | What it writes or returns | When |
+| --- | --- | --- |
+| `receive(input, now_ns)` | consumes at most one frame, returns at most one event | each time bytes arrive |
+| `write_pending(output, now_ns)` | the preface, SETTINGS, acknowledgments, WINDOW_UPDATE, RST_STREAM, GOAWAY | when `has_pending` is true |
+| `write_request` | a request head on a new stream | a client opens a stream |
+| `write_response` | a response head | a server answers a stream |
+| `write_data` | DATA, as much as the flow-control windows allow | content in colibri's output |
+| `sendable_len` | the bytes `write_data` would send now | before a write; at 0, wait for WINDOW_UPDATE |
+| `write_data_header` | the 9-byte header of the frame `write_data` would write | content in your own buffer ([decision 138](decisions.md#decision-138)) |
+| `write_trailers` | a trailer section that ends the message | after the final header section (RFC 9113 §8.1) |
+| `reset_stream` | nothing; the next `write_pending` writes RST_STREAM | to end one stream ([decision 113](decisions.md#decision-113)) |
+| `shutdown` | nothing; begins a graceful close | to close the connection |
+
+- `connection.field_section()` holds the field section of a head or trailers event.
+- `event.ended_stream()` names the stream an event ended.
+- Send a frame's `consumed` bytes right after the header from `write_data_header`, before any
+  other byte.
+- Over TLS, the header and the content may go in one record through `encrypt_parts`
+  ([decision 139](decisions.md#decision-139)).
 
 ## TLS
 
-The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take.
-stdx asks chapulin for one module that holds its TCP object and its QUIC object, and colibri
-reads that module as `stdx.crypto` (decision 174). The module defines `ch_assert_fail`, which a
-failed chapulin assertion calls (decision 172). By default it panics with the condition and
-chapulin's source line. A program that reports the failure its own way declares
-`chapulinAssertFail` in its root file, and chapulin's module calls it:
+The `tls` module runs the TLS 1.3 sessions of `stdx.crypto` behind the vtables h11, h2 and QUIC
+take ([decision 174](decisions.md#decision-174)). From
+[`tools/consumer/main.zig`](../tools/consumer/main.zig), a program makes one `stdx.crypto.Context`
+when it starts:
 
 ```zig
-/// chapulin's module calls this when one of its assertions fails, in place of its own report
-/// (decision 172). A program that declares no such function gets chapulin's panic.
-pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
-    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
-}
+pub fn main(init: std.process.Init) !void {
+    // The random source of every TLS session: the operating system's entropy.
+    var secure: SecureRandom = .{ .io = init.io };
+    // The CPU features the program detects once, for its codecs (decision 169) and for TLS.
+    const cpu_features: platform.CpuFeatures = .detect();
+    // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
+    _ = platform.set_data_independent_timing(cpu_features, true);
+    // The program's one context, which each TLS value holds (decision 175).
+    const crypto = stdx.crypto.init(cpu_features, secure.random());
 ```
 
-A program makes one `stdx.crypto.Context` when it starts, with `stdx.crypto.init(features,
-random)`, and every TLS value holds it ([decision 175](decisions.md#decision-175)). It holds two things:
-
-- `features`: the program's one `stdx.platform.CpuFeatures.detect()`, which the codecs take too.
-  stdx maps them to chapulin's description of the CPU, so colibri maps none.
-- `random`: the source each session draws its secrets from, and nothing else. The engine and the
-  pool draw their QUIC connection IDs, tokens and grease values from it too.
-
-A program that seeds the source replays its sessions, and a program that serves peers draws from
-the operating system. This one wraps `io.randomSecure`, which has no weaker fallback, and halts
-when a draw fails:
+Its random source wraps `io.randomSecure` and halts when a draw fails:
 
 ```zig
 const SecureRandom = struct {
@@ -2612,53 +2162,38 @@ const SecureRandom = struct {
 };
 ```
 
-```zig
-pub fn main(init: std.process.Init) !void {
-    // The random source of every TLS session: the operating system's entropy.
-    var secure: SecureRandom = .{ .io = init.io };
-    // The CPU features the program detects once, for its codecs (decision 169) and for TLS.
-    const cpu_features: platform.CpuFeatures = .detect();
-    // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
-    _ = platform.set_data_independent_timing(cpu_features, true);
-    // The program's one context, which each TLS value holds (decision 175).
-    const crypto = stdx.crypto.init(cpu_features, secure.random());
-```
-
-stdx states the timing of the thread that converts a configuration. On x86-64 it states it for
-every core. On arm64 it states it where the features hold FEAT_DIT and the thread set PSTATE.DIT,
-so a program calls `set_data_independent_timing` on each thread that runs TLS. On any other
-architecture it states nothing. A session runs the AES instructions only under the statement and
-where the features hold AES and the carry-less multiply. Otherwise it runs none, and holds
-TLS_CHACHA20_POLY1305_SHA256 alone. colibri sets no CPU mode and asks the CPU nothing.
-
-The program converts its values once into a configuration, which every session of one chapulin
-object borrows. It then starts a session for each connection, and the session's `init` takes the
-configuration's context. Over TCP, `handshake` takes what the socket read and writes what the
-session owes the peer. Once the handshake completes, the session's `provider()` goes to the
-connection's `attach_tls`. When it fails, `failure_written()` counts the bytes it wrote at the
-front of the output, the alert that says why last (RFC 9846 §6.2). The program sends them, then
-closes the connection. An output of `tls.record.Client.handshake_output_len_min` bytes takes all
-a client owes in one call. Each configuration names the most anchors and ALPN protocols it takes,
-`anchors_max` and `protocols_max`.
+It converts its values once into a configuration, then starts a session and writes its
+ClientHello:
 
 ```zig
-    const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
-    try tls_config.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
-        .alpn = &.{ "h2", "http/1.1" },
-        .crypto = crypto,
-    });
-    try tls_client.start(&tls_config, now_seconds, null);
-    const hello = try tls_client.handshake(&.{}, &output);
+const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
+try tls_config.init(.{
+    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
+    .alpn = &.{ "h2", "http/1.1" },
+    .crypto = crypto,
+});
+try tls_client.start(&tls_config, now_seconds, null);
+const hello = try tls_client.handshake(&.{}, &output);
 ```
 
-A program that finds an error in what it read, after the handshake, sends the fatal alert that
-names it with `fail`, then closes the connection. An example is a record longer than RFC 9846 §5.2
-allows, which record_overflow names. `fail` writes at most `tls.record.alert_record_len` bytes
-into the output and fails the session. It takes the error alerts of RFC 9846 §6.2 alone, on a
-connected session: a refused call returns a `tls.record.FailError`, writes nothing and leaves the
-session as it was. `tls.record.Server` has the same call. In the excerpt below, the handshake has
-not completed, so the call must return `error.NotConnected` and send nothing.
+- Each TLS value holds the one context ([decision 175](decisions.md#decision-175)).
+- The random source feeds every session secret, QUIC connection ID, token and grease value.
+- Call `set_data_independent_timing` on each thread that runs TLS.
+- Without the AES and DIT statement, a session offers TLS_CHACHA20_POLY1305_SHA256 alone.
+- `handshake` takes the bytes the socket read, and writes what the session owes the peer.
+- An output of `tls.record.Client.handshake_output_len_min` bytes takes all a client owes in one
+  call.
+- When `handshake` fails, send the first `failure_written()` bytes of the output, then close
+  (RFC 9846 §6.2).
+- Once the handshake completes, pass the session's `provider()` to the connection's `attach_tls`.
+- Each configuration takes at most `anchors_max` anchors and `protocols_max` ALPN protocols.
+- The TLS stack bounds a run of KeyUpdates; a server's `Ended.reason` names it as the limit
+  `key_updates`.
+
+### Alerts and negotiated parameters
+
+A program that finds an error after the handshake sends the alert with `fail`, then closes. Here
+the handshake has not completed, so the call returns `error.NotConnected` and writes nothing:
 
 ```zig
 if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else |failure| {
@@ -2666,10 +2201,11 @@ if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else 
 }
 ```
 
-What a handshake selected is a `tls_provider.Negotiated`: the version, the cipher suite and the
-key-exchange group, each as its codepoint, such as 0x11EC for X25519MLKEM768 ([decision
-140](decisions.md)). A record session's provider answers `negotiated_parameters`, and a
-`tls.quic.Client` answers `negotiated()`. Each is null until the handshake completed:
+- `fail` writes at most `tls.record.alert_record_len` bytes; `tls.record.Server` has it too.
+- A refused `fail` returns a `tls.record.FailError` and leaves the session as it was.
+
+What the handshake selected is a `tls_provider.Negotiated`, null until the handshake completes
+([decision 140](decisions.md#decision-140)):
 
 ```zig
 const provider = tls_client.provider();
@@ -2679,36 +2215,14 @@ if (provider.negotiated_parameters()) |chosen| {
 }
 ```
 
-For QUIC, a `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
-`quic.Connection`, which starts chapulin's session when it sets its transport parameters. A server
-that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
+- Each field is a codepoint: the version, the cipher suite and the group, such as 0x11EC for
+  X25519MLKEM768.
+- A `tls.quic.Client` answers `negotiated()` in place of `negotiated_parameters`.
 
-An operator hands a server its certificate chain and its key, and a client its CA bundle, as PEM
-files (RFC 7468). `tls.pem` reads each from memory the program read it into, with no I/O, into
-rooms the program places and keeps in place while a session uses them ([decision
-141](decisions.md)). Each call skips the text lines around its blocks, as RFC 7468 §2 and §5.2
-permit, such as the Subject and Issuer lines a tool writes before a certificate. It returns
-`error.Invalid` for a file it refuses: a block of another label, an encrypted key, a key that is
-neither P-256, RSA nor ML-DSA-87, a key the end-entity certificate does not carry, or more than fits
-the rooms. Decoding authenticates nothing: the files are trusted because the operator placed them.
+### PEM files
 
-- `tls.pem.chain(file, der, room)` returns the chain `tls.Identity.chain` takes, the end-entity
-  first, at most `tls.constants.limits.certificate_chain_len_max` certificates.
-- `tls.pem.key(crypto, file, leaf, &key)` reads a key block, on the CPU features of the
-  `stdx.crypto.Context` `crypto`, into a `tls.Key`, which a `tls.Identity`
-  points at, and sets `key.scheme` from the key's algorithm ([decision 147](decisions.md#decision-147)):
-  `ecdsa_secp256r1_sha256` for a P-256 key under `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
-  (SEC 1), `rsa_pss_rsae_sha256` for an RSA key of two primes and the exponent 65537 under
-  `PRIVATE KEY`, and `mldsa87` for an ML-DSA-87 key under `PRIVATE KEY` (RFC 9881 §6). chapulin
-  signs once with an RSA key and verifies the signature, so a key that does not match the leaf is
-  refused. The program wipes the key with `wipe()` once no session uses it, and wipes its own copy
-  of the file.
-- `tls.pem.anchors(file, der, room)` returns the anchors `Trust.web_pki.anchors` takes, at most
-  `tls.constants.limits.anchors_max`, such as a curl-style bundle with a title line before each
-  block.
-
-A DER room of three quarters of a file's length holds its DER. The server of
-[`examples/server_exchange.zig`](../examples/server_exchange.zig) reads its identity so:
+From [`examples/server_exchange.zig`](../examples/server_exchange.zig), a server reads its
+chain and key:
 
 ```zig
 const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
@@ -2716,35 +2230,76 @@ try tls.pem.key(crypto, identity.key_pem, chain[0], &key);
 identities[0] = .{ .chain = chain, .key = &key };
 ```
 
-A server holds at most one identity for each scheme in `tls.Server.identities`, and chapulin
-signs with the one the client offers: ML-DSA-87 first, then ECDSA P-256. A `tls.Key` holds
-7,488 bytes of key room, the size of an ML-DSA-87 key pair, whatever its scheme. `init` returns
-`error.IdentityRepeated` for two identities of one scheme, `error.IdentityUnfilled` for a key
-with no scheme, and `error.IdentityUnavailable` for ML-DSA-87 on a target without chapulin's host
-object.
-
-The client of [`examples/client_exchange.zig`](../examples/client_exchange.zig) reads its anchors:
+From [`examples/client_exchange.zig`](../examples/client_exchange.zig), a client reads its CA
+bundle:
 
 ```zig
 const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
 ```
 
+| Call | Returns | At most |
+| --- | --- | --- |
+| `tls.pem.chain(file, der, room)` | `tls.Identity.chain`, the end-entity first | `tls.constants.limits.certificate_chain_len_max` |
+| `tls.pem.key(crypto, file, leaf, &key)` | fills a `tls.Key` and sets `key.scheme` | one key block |
+| `tls.pem.anchors(file, der, room)` | `Trust.web_pki.anchors` | `tls.constants.limits.anchors_max` |
+
+| Key block | `key.scheme` |
+| --- | --- |
+| P-256 under `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY` (SEC 1) | `ecdsa_secp256r1_sha256` |
+| RSA of two primes and exponent 65537 under `PRIVATE KEY` | `rsa_pss_rsae_sha256` |
+| ML-DSA-87 under `PRIVATE KEY` (RFC 9881 §6) | `mldsa87` |
+
+- Each call reads from memory the program filled, and does no I/O
+  ([decision 141](decisions.md#decision-141)).
+- Keep the DER room and the slice room in place while a session uses them.
+- A DER room of three quarters of the file's length holds its DER.
+- Each call skips text lines around its blocks (RFC 7468 §2 and §5.2).
+- A call returns `error.Invalid` for a block of another label, an encrypted key, or more than the
+  rooms hold.
+- `pem.key` returns `error.Invalid` for a key that is neither P-256, RSA nor ML-DSA-87, or that the
+  leaf does not carry.
+- Decoding authenticates nothing: the operator placed the files.
+- Call `key.wipe()` once no session uses the key, and wipe your copy of the file.
+
+### Server identities
+
+- `tls.Server.identities` holds at most one identity per scheme
+  ([decision 147](decisions.md#decision-147)).
+- The server signs with ML-DSA-87 when the client offers it, then ECDSA P-256, then RSA-PSS.
+- A `tls.Key` holds 7,488 bytes of key room, the size of an ML-DSA-87 key pair.
+- `init` returns `error.IdentityRepeated` for two identities of one scheme.
+- `init` returns `error.IdentityUnfilled` for a key with no scheme.
+- `init` returns `error.IdentityUnavailable` for ML-DSA-87 on a target other than arm64 or x86-64.
+
+### QUIC and the assertion hook
+
+- A `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
+  `quic.Connection`.
+- A server that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
+
+The crypto module defines `ch_assert_fail`, which panics by default
+([decision 172](decisions.md#decision-172)). A program that reports the failure its own way
+declares `chapulinAssertFail` in its root file:
+
+```zig
+/// chapulin's module calls this when one of its assertions fails, in place of its own report
+/// (decision 172). A program that declares no such function gets chapulin's panic.
+pub fn chapulinAssertFail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
+    std.debug.panic("this program stops: chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
+}
+```
+
 ## DNSSEC
 
-The `dnssec` module checks DNSSEC signatures and DS digests through chapulin, in the same object
-`tls` links ([decision 142](decisions.md#decision-142)). A resolver builds the records' data itself and feeds
-it in pieces, so nothing is copied, allocated or read. `dnssec.algorithm(number)` and
-`dnssec.digest_type(number)` say whether colibri checks what a record names: algorithms 8, 10,
-13, 14 and 15, and digest types 1, 2 and 4. Each answers null for any other number, and for every
-number on a target that is not arm64 or x86-64, whose chapulin object holds no DNSSEC.
+From [`examples/dnssec_check.zig`](../examples/dnssec_check.zig), a resolver asks whether colibri
+checks what a record names:
 
-A `dnssec.Hash` the program holds reads an RRSIG's signed data (RFC 4034 §3.1.8.1), and
-`dnssec.verify` checks the signature over its digest. `key` is the DNSKEY's Public Key field as it
-arrives, RFC 3110's form for RSA, and `init` takes the signature too, because Ed25519 hashes it
-first (RFC 8080). `verify` returns `error.SignatureVerificationFailed` for a signature the key does not
-verify, and `error.InvalidEncoding` for a key, digest or signature of the wrong form. colibri sets no floor on an RSA
-key's length, which is the resolver's to set. The program of
-[`examples/dnssec_check.zig`](../examples/dnssec_check.zig) checks RFC 6605's RRSIG:
+```zig
+const algorithm = dnssec.algorithm(13) orelse return error.AlgorithmUnchecked;
+const digest_type = dnssec.digest_type(2) orelse return error.DigestUnchecked;
+```
+
+It then streams an RRSIG's signed data into a hash and checks the signature:
 
 ```zig
 fn check(algorithm: dnssec.Algorithm, key: []const u8, signature: []const u8, data: []const u8) dnssec.Error!void {
@@ -2755,77 +2310,60 @@ fn check(algorithm: dnssec.Algorithm, key: []const u8, signature: []const u8, da
 }
 ```
 
-`dnssec.Hash.digest(digest_type)` starts a plain digest, for a DS record (RFC 4034 §5.1.4) or one
-round of NSEC3's hash (RFC 5155 §5), which the resolver iterates itself.
+`dnssec` checks algorithms 8, 10, 13, 14 and 15, and digest types 1, 2 and 4, through
+`stdx.crypto` ([decision 142](decisions.md#decision-142)).
+
+- Both lookups return null for any other number, and for every number off arm64 and x86-64.
+- Build the signed data yourself (RFC 4034 §3.1.8.1); colibri copies, allocates and reads none.
+- Pass `key` as the DNSKEY's Public Key field, in RFC 3110's form for RSA.
+- `Hash.init` takes the signature, because Ed25519 hashes it first (RFC 8080).
+- `verify` returns `error.SignatureVerificationFailed` for a signature the key does not verify.
+- `verify` returns `error.InvalidEncoding` for a key, digest or signature of the wrong form.
+- colibri sets no floor on an RSA key's length; the resolver sets it.
+- `dnssec.Hash.digest(digest_type)` starts a plain digest for a DS record (RFC 4034 §5.1.4) or one
+  NSEC3 round (RFC 5155 §5).
 
 ## QUIC and h3
 
-A `quic.Connection` is one QUIC connection. Your program moves datagrams and time
-through four calls:
-- `quic.Connection.receive` takes one datagram the peer sent, with its ECN marking and
-  its source address.
-- `quic.Connection.send` writes the next datagram colibri owes into your buffer, or returns
-  null when it owes nothing.
-- `quic.Connection.deadline` names the instant the connection next needs to run, for loss
-  detection, acknowledgments and idle timeout.
-- `quic.Connection.on_instant` runs what that instant is for.
+No example drives `quic.Connection` or `h3.Connection` directly yet.
+[`src/testing/quic/udp/udp_peer.zig`](../src/testing/quic/udp/udp_peer.zig) is a whole endpoint
+over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds an h3 server and client.
 
-Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the bytes of
-each stream as the flow-control windows allow.
+| `quic.Connection` call | What it does | Scratch |
+| --- | --- | --- |
+| `receive` | takes one datagram, with its ECN marking and source address | `quic.Connection.ReceiveScratch` |
+| `send` | writes the next datagram colibri owes, or returns null | `SendScratch(options)` with its `SendScratchOptions` |
+| `deadline` | names the next instant the connection needs to run | |
+| `on_instant` | runs what that instant is for | |
 
-Your program places the scratch each call works in. `receive` takes a
-`quic.Connection.ReceiveScratch`. `send` takes its `quic.Connection.SendScratchOptions` and a
-`quic.Connection.SendScratch(options)` of the same options. Each option has a default, so
-`SendScratch(.{})` holds the smallest maximum datagram size of RFC 9000 §14.1.
+- Pass a `StreamProvider` to `send`; it gives colibri each stream's bytes as the windows allow.
+- `SendScratch(.{})` holds the smallest maximum datagram size of RFC 9000 §14.1.
+- Pass `packet_number_skips`, one `u64` drawn from your random source at start
+  ([decision 123](decisions.md#decision-123)).
+- After each datagram, call `h3.Connection.receive` until it returns null.
+- Use the h3 connection's `provider` around your stream provider; h3 serves its control and QPACK
+  streams.
+- `write_request`, `write_response`, `write_trailers` and `write_data_header` write h3 frames, and
+  you send the content after them.
+- Each h3 call that writes or reads a frame takes the instant.
 
-Pass `packet_number_skips`, one `u64` your program draws from its source at start, so that the
-connection skips a 1-RTT packet number now and then. An ACK of a skipped number then shows a peer
-that acknowledges packets it never received (RFC 9000 §21.4, [decision 123](decisions.md#decision-123)). The
-server's and the client's QUIC connections do this for you.
+To log a connection as qlog ([decision 102](decisions.md#decision-102)):
 
-An `h3.Connection` runs HTTP/3 over one QUIC connection. After each datagram, call its
-`receive` until it returns null; each call returns at most one event. `provider` wraps your stream
-provider so that h3 serves its control and QPACK streams itself. `write_request`,
-`write_response`, `write_trailers` and `write_data_header` write frames into your buffer, and you
-send the content behind them on the request stream. Each h3 call that writes or reads a frame
-takes the instant, as QUIC's calls do.
-
-To log a connection as qlog ([decision 102](decisions.md#decision-102)), place a `qlog.Log` over a buffer
-with `Log.init(buffer, cpu_features)`, write its header with `Log.start`, and pass it as the `qlog`
-option of both the QUIC connection and the h3 connection, so one trace holds both. `cpu_features` is
-`qlog.CpuFeatures.detect()`, called once, or `qlog.CpuFeatures.target()`: colibri never asks the CPU
-itself, and the records are the same bytes either way. colibri appends one record per event; your
-program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
-`log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis. To start a log on a QUIC
-connection that `init` already made, pass it to `quic.Connection.attach_log`.
-
-[`src/testing/quic/udp/udp_peer.zig`](../src/testing/quic/udp/udp_peer.zig) is a whole QUIC
-endpoint over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds the h3 server and
-client built on it.
+- Place a `qlog.Log` with `Log.init(buffer, cpu_features)`, and write its header with
+  `Log.start`.
+- Pass it as the `qlog` option of the QUIC connection and of the h3 connection.
+- Write `log.bytes()` where you want, then call `log.clear()`.
+- Use `quic.Connection.attach_log` for a connection that `init` already made.
+- `tools/qlog_to_qvis.py` converts a log for qvis.
 
 ## Sizes
 
-Every connection is a struct your program places, and its size is fixed at compile time. The
-table of [Memory per connection](performance.md#memory-per-connection) gives the size of each
-engine, pool, connection and TLS session. `zig build test` fails when that table differs from
-what the build compiles.
+Every struct a program places has a size fixed at compile time. The table of
+[Memory per connection](performance.md#memory-per-connection) gives each engine, pool,
+connection and TLS session, and `zig build test` fails when it differs from the build.
 
-One more struct, `@sizeOf` in ReleaseSafe with Zig 0.16.0 on aarch64 macOS, on 2026-09-26:
-
-| Struct | Bytes |
-| --- | --- |
-| `h11.coding.Pool(.{})` | 691,472, 16 decoders the connections given it share |
-
-The buffers your program reads into and writes from come on top, and QUIC's calls also take
-scratch storage your program places; `udp_peer.zig` shows both.
-
-A client that decodes `zstd` or `br` places a pool of decoders for each, and calls each pool's
-`init()` once. Measured the same way on
-2026-09-30, each decoder of a `client.ZstdDecoderPool(count)` is 8,683,024 bytes, most of them RFC
-9659 §3's 8 MB window, and each of a `client.BrotliDecoderPool(count)` is 19,483,040, most of them
-RFC 7932 §9.1's 16 MiB window. An exchange takes a decoder of each coding it offers as its request
-goes out, and keeps only the one its response uses once the response's head arrives
-([decision 101](decisions.md#decision-101)).
-
-The named limits in each module's `constants.zig` set these sizes, and
-[`docs/decisions.md`](decisions.md) records why each limit has its value.
+- Your read and write buffers, and QUIC's scratch, come on top of those sizes.
+- A client that decodes `zstd` or `br` places a `client.ZstdDecoderPool(count)` or
+  `client.BrotliDecoderPool(count)` and calls its `init()` once
+  ([decision 101](decisions.md#decision-101)).
+- Each module's `constants.zig` names the limits that set the sizes.

@@ -41,9 +41,9 @@ Some checks need more:
 ## The rules a change keeps
 
 - **No I/O, no heap, no clock.** colibri holds no `Allocator`, and reads no clock or random
-  source. It makes no system call, except in `src/colibri/rotor_host*.zig`: the `.private` kind of
-  `colibri.Server` and `colibri.Client` binds sockets and runs Rotor's loop there (decisions 150
-  and 159). The caller owns every buffer and passes every instant. The lint refuses each of these.
+  source. The caller owns every buffer and passes every instant, and the lint refuses a breach.
+  - The one exception: the `.private` kind of `colibri.Server` and `colibri.Client` binds sockets
+    and runs Rotor's loop in `src/colibri/rotor_host*.zig` (decisions 150 and 159).
 - **The public API comes first.** A module's root, `src/<module>/<module>.zig`, is the one place a
   name becomes public, and a test lists its names with `core.public_names.expect`. A new public
   name goes on that list in the commit that adds it, with an example in `examples/` and an entry in
@@ -64,10 +64,12 @@ Some checks need more:
 
 ## Tests are proved by mutation
 
-A test must fail when the code it covers is broken. When you add or change a check, break it on
-purpose and confirm a test fails. Report each mutation as `CAUGHT` or `NOT CAUGHT` in the commit
-body or in the step's entry in `docs/design.md` §8. A `NOT CAUGHT` means a test is missing, so
-write it.
+A test must fail when the code it covers is broken. When you add or change a check:
+
+1. Break it on purpose, and confirm a test fails.
+2. Report each mutation as `CAUGHT` or `NOT CAUGHT`, in the commit body or in the step's entry
+   in `docs/design.md` §8.
+3. A `NOT CAUGHT` means a test is missing. Write it.
 
 A new reader of a peer's bytes also gets a fuzz property and, where inputs longer than two
 bytes matter, cases in the simulator's input checks.

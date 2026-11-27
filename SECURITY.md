@@ -20,12 +20,15 @@ the assessment.
 
 ## Scope
 
-In scope: every library module that the `colibri` package exports, which read a peer's bytes and
-write the bytes colibri owes. The socket code of the `.private` kind, in
-`src/colibri/rotor_host*.zig`, is in scope too. A peer's input that makes colibri crash, trip an assertion, read or write
-outside a buffer, loop without bound, or accept a message the RFCs require it to refuse is a
-vulnerability. So is a parse that frames a message differently from what RFC 9112 states, which
-is how request smuggling starts.
+In scope: every library module that the `colibri` package exports, and the socket code of the
+`.private` kind in `src/colibri/rotor_host*.zig`. A vulnerability is a peer's input that makes
+colibri do one of these:
+
+- crash, or trip an assertion;
+- read or write outside a buffer;
+- loop without bound;
+- accept a message the RFCs require it to refuse;
+- frame a message differently from what RFC 9112 states, which is how request smuggling starts.
 
 Out of scope, so triage stays fast:
 - `src/testing/`, `src/sim/`, `src/golden/` and `tools/`, which are test-only and never packaged.

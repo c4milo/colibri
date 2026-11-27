@@ -15,8 +15,8 @@ const config = @import("config.zig");
 const Context = @import("stdx").crypto.Context;
 
 /// A file chapulin refuses: a block of a label other than the call's, an encrypted key, a key that
-/// is not P-256 or that the leaf does not carry, or more than fits the rooms. The text lines
-/// around the blocks are skipped (RFC 7468 §2 and §5.2).
+/// is not P-256, RSA or ML-DSA-87, or that the leaf does not carry, or more than fits the rooms.
+/// The text lines around the blocks are skipped (RFC 7468 §2 and §5.2).
 pub const Error = error{Invalid};
 
 /// Reads the CERTIFICATE blocks of `file`, the end-entity first (RFC 9846 §4.5.1), into the DER
