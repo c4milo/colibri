@@ -101,7 +101,19 @@ const routes = .{
         .{ .get, "/greetings/:name", greet_named, .{ .path = Name } },
     },
 };
+```
 
+- `.routes` names each route's method, path and function.
+- `.middleware` lists middleware that run before each route. Here `Numbered` numbers each
+  request ([Middleware](docs/usage.md#middleware)).
+- `.Values` is a struct a middleware fills for one request, which the route reads with
+  `ctx.values(Values)` ([Request context](docs/usage.md#request-context)).
+- `.error_handler` answers a request whose route returned an error, with the status your program
+  chooses.
+
+A server that needs no middleware leaves out `.Values` and `.middleware`.
+
+```zig
 /// The router's pool: an entry for each request at once, with room for its response. No route
 /// takes a request with a body, so the router keeps no copy of a header (`header_bytes`).
 const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
