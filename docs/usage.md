@@ -2571,10 +2571,11 @@ resets between two writes (decision 113). `shutdown` begins a graceful close.
 ## TLS
 
 The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take.
-`colibri` asks chapulin for one module that holds its TCP object and its QUIC object, and that
-module defines `ch_assert_fail`, which a failed chapulin assertion calls (decision 172). By default
-it panics with the condition and chapulin's source line. A program that reports the failure its
-own way declares `chapulinAssertFail` in its root file, and chapulin's module calls it:
+stdx asks chapulin for one module that holds its TCP object and its QUIC object, and colibri
+reads that module as `stdx.crypto` (decision 174). The module defines `ch_assert_fail`, which a
+failed chapulin assertion calls (decision 172). By default it panics with the condition and
+chapulin's source line. A program that reports the failure its own way declares
+`chapulinAssertFail` in its root file, and chapulin's module calls it:
 
 ```zig
 /// chapulin's module calls this when one of its assertions fails, in place of its own report
