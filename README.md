@@ -17,7 +17,7 @@ The protocol code does no I/O:
   into your buffers.
 - So the simulator can replay a connection from a seed, byte for byte.
 
-`colibri.Server` and `colibri.Client` run that loop for you on
+`colibri.Server` and `colibri.Client` run network I/O for you on
 [Rotor](https://github.com/c4milo/rotor).
 
 The name is Spanish for hummingbird.
