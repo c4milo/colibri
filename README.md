@@ -63,7 +63,7 @@ exe.root_module.addImport("stdx", stdx.module("stdx"));
 
 - `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
   assertions stay on in production.
-- `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop that
+- `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the I/O engine that
   `colibri.Server` and `colibri.Client` run on. A program that runs them on its own loop, or that
   drives one protocol by itself, leaves the option out
   ([decision 159](docs/decisions/0159-colibriclient-and-colibriserver-take-a-host.md)).
