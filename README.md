@@ -131,6 +131,16 @@ uses. Four options size it:
 - `header_bytes`: the copy of a request's headers while its body arrives. A larger header gets
   431. With 0, the router copies nothing and calls the route at the head.
 
+To choose `response_bytes`:
+
+- It bounds the bytes in flight, not the body. Over h11 and h2 the engine copies each `flush` at
+  once, so a route can send a longer body in pieces.
+- Start with your largest headers plus the largest write you make at once.
+- Over h3 the bytes stay until the client acknowledges them, so a response sends about
+  `response_bytes` a round trip. A long download over h3 needs more.
+- The memory it costs is `requests` times `response_bytes`. A write that does not fit fails, so a
+  test of your largest response finds a size that is too small.
+
 [Router](docs/usage.md#router) gives each option in full.
 
 ```zig
@@ -143,6 +153,11 @@ var http_server: Server align(@alignOf(Server)) = undefined;
 /// 167). A server that serves no TLS over TCP passes no buffer.
 var tls_buffer: [server.Config.tls_buffer_len(connections)]u8 = undefined;
 ```
+
+The router and the server state `align(@alignOf(T))`. Zig 0.16's x86-64 backend, which builds Debug on x86-64
+Linux, can place a global at a smaller alignment than its type needs, and the program then
+crashes. The `align` makes every backend place it right, and `zig build lint` requires it in
+colibri's own tree.
 
 In `main`, detect the CPU once, make one `stdx.crypto.Context`, and start the server:
 
