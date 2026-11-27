@@ -6,7 +6,7 @@
 
 - [ ] `zig build test` passes.
 - [ ] Each check I added or changed has a mutation result, `CAUGHT` or `NOT CAUGHT`, in the
-      commit body or in the step's entry in `docs/design.md` §8.
+      commit body or in the step's file in `docs/design/steps/`.
 - [ ] Each check that an RFC requires cites the RFC and the section on its line.
 - [ ] Each commit is a Conventional Commit, and `zig build lint-commits` passes.
 - [ ] Each public name I added is on its root's list, with an example in `examples/` and an
