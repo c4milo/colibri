@@ -4,7 +4,7 @@
 //! engine's request, and the entry copies nothing. The engine's event, a middleware's
 //! `on_request` and a struct route's `on_request` come before the body, so a read of
 //! `request.body` there fails. The tests run against an engine that records each call, then over
-//! h11, h2 and h3. `router_whole_head_test.zig` holds the tests of a router whose `header_bytes`
+//! h11, h2 and h3. `router_whole_head_test.zig` holds the tests of a router whose `request_header_bytes`
 //! is 0.
 const std = @import("std");
 const http = @import("http");
@@ -50,7 +50,7 @@ fn Fixture(comptime Pool: type) type {
     };
 }
 
-test "RFC 6585 §5: a header one octet past header_bytes gets 431, and the route no call" {
+test "RFC 6585 §5: a header one octet past request_header_bytes gets 431, and the route no call" {
     var fixture: Fixture(ExactPool) = .{};
     fixture.head(try whole.named_request("/echo", whole.first_name ++ "!", false));
     try testing.expectEqual(431, @intFromEnum(fixture.recorder.heads[0].status));
@@ -58,7 +58,7 @@ test "RFC 6585 §5: a header one octet past header_bytes gets 431, and the route
     try testing.expectEqual(0, fixture.app.calls);
 }
 
-test "decision 163 ruling 5: a header of exactly header_bytes is copied, and the route called" {
+test "decision 163 ruling 5: a header of exactly request_header_bytes is copied, and the route called" {
     var fixture: Fixture(ExactPool) = .{};
     const request = try whole.named_request("/echo", whole.first_name, false);
     try testing.expectEqual(whole.exact_header_bytes, whole.copy_len(&request));
@@ -66,25 +66,25 @@ test "decision 163 ruling 5: a header of exactly header_bytes is copied, and the
     try testing.expectEqual(0, fixture.recorder.head_count);
     fixture.body("x", true);
     try testing.expectEqual(1, fixture.app.calls);
-    try testing.expectEqualStrings("x", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("x", fixture.recorder.request_body_bytes());
 }
 
-test "RFC 9110 §15.5.14: a body one octet past body_bytes gets 413, and the route no call" {
+test "RFC 9110 §15.5.14: a body one octet past request_body_bytes gets 413, and the route no call" {
     var fixture: Fixture(ExactPool) = .{};
     fixture.head(try whole.named_request("/echo", whole.first_name, false));
-    fixture.body(whole.full_body[0 .. whole.body_bytes - 1], false);
+    fixture.body(whole.full_body[0 .. whole.request_body_bytes - 1], false);
     fixture.body("!!", true);
     try testing.expectEqual(413, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.app.calls);
 }
 
-test "decision 163 ruling 4: a body of exactly body_bytes reaches the route whole" {
+test "decision 163 ruling 4: a body of exactly request_body_bytes reaches the route whole" {
     var fixture: Fixture(ExactPool) = .{};
     fixture.head(try whole.named_request("/echo", whole.first_name, false));
-    fixture.body(whole.full_body[0 .. whole.body_bytes - 1], false);
+    fixture.body(whole.full_body[0 .. whole.request_body_bytes - 1], false);
     fixture.body("!", true);
     try testing.expectEqual(1, fixture.app.calls);
-    try testing.expectEqualStrings(whole.full_body[0 .. whole.body_bytes - 1] ++ "!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings(whole.full_body[0 .. whole.request_body_bytes - 1] ++ "!", fixture.recorder.request_body_bytes());
 }
 
 test "decision 163 ruling 5: a request with no body gets the engine's request, and no copy" {
@@ -257,7 +257,7 @@ test "decision 163 ruling 5: a late call reads the method and the target after a
 /// Passes one DATA frame of `bytes` on `stream_id`, which ends the stream when `end` is set (RFC
 /// 9113 §6.1).
 fn give_data(handle: event.ConnectionHandle, stream_id: u32, bytes: []const u8, end: bool) !void {
-    var frame: [h2.constants.protocol.frame_header_len + whole.body_bytes]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + whole.request_body_bytes]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_data(&writer, stream_id, bytes, end, 0);
     _ = tcp_support.give(handle, writer.written());

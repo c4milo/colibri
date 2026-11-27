@@ -28,7 +28,7 @@ const started: server.Timestamp = .{ .unix_seconds = fixture.now_seconds, .monot
 
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
 const internal_server_error: server.Status = .internal_server_error;
-const response_bytes = 64;
+const response_buffer_bytes = 64;
 
 const routes = .{
     .error_handler = on_error,
@@ -36,7 +36,7 @@ const routes = .{
         .{ .get, "/", answer },
     },
 };
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Router = server.Router(void, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.end();

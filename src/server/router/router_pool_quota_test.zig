@@ -26,7 +26,7 @@ const route_count = services * methods;
 /// The entries of the pool, bytes of each entry's response memory, and the requests the test
 /// sends. Test-only.
 const requests = 2;
-const response_bytes = 64;
+const response_buffer_bytes = 64;
 const sent = 2;
 
 /// The table builds an even route and an odd route on two paths of its code. Test-only.
@@ -77,7 +77,7 @@ const routes = routes: {
 
 const table = .{ .error_handler = on_error, .routes = routes };
 
-const Pool = Router(App, table, .{ .requests = requests, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Pool = Router(App, table, .{ .requests = requests, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 test "design §8 step 54: a table of 256 struct routes compiles, and each event reaches its route" {
     var app: App = .{};

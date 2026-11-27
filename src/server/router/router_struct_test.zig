@@ -68,7 +68,7 @@ const Lines = struct {
 /// body's last byte.
 fn whole(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {
     app.bodies += 1;
-    var bytes: [body_bytes]u8 = undefined;
+    var bytes: [request_body_bytes]u8 = undefined;
     const len = try request.body.readSliceShort(&bytes);
     try response.body().writeAll(bytes[0..len]);
     try response.end();
@@ -142,13 +142,13 @@ const routes = .{
     },
 };
 
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes });
 
 /// Bytes of each entry's response, body and header memory, and the status the error function
 /// chooses. Test-only.
-const response_bytes = 128;
-const body_bytes = 16;
-const header_bytes = 64;
+const response_buffer_bytes = 128;
+const request_body_bytes = 16;
+const request_header_bytes = 64;
 const unprocessable: http.Status = .unprocessable_content;
 
 const Fixture = struct {
@@ -221,10 +221,10 @@ test "decision 163 ruling 4: a function route gets one call, after the body's la
     try testing.expectEqual(0, fixture.app.bodies);
     fixture.body("g", true);
     try testing.expectEqual(1, fixture.app.bodies);
-    try testing.expectEqualStrings("abcdefg", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("abcdefg", fixture.recorder.request_body_bytes());
 }
 
-test "RFC 9110 §15.5.14: a body larger than body_bytes gets 413" {
+test "RFC 9110 §15.5.14: a body larger than request_body_bytes gets 413" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/whole", false);
     fixture.body("0123456789abcdef!", false);
@@ -251,14 +251,14 @@ test "decision 163 ruling 6: next writes a response over many events, and ends i
     var fixture: Fixture = .{};
     fixture.recorder.room = 1;
     fixture.head("GET", "/count", true);
-    try testing.expectEqualStrings("0", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("0", fixture.recorder.request_body_bytes());
     // Bounded: each writable event lets the engine take one byte more.
     for (0..Counter.digits.len + 1) |_| {
         if (fixture.recorder.ended) break;
         fixture.recorder.room = 1;
         fixture.handle(.{ .writable = .{ .id = @bitCast(@as(u128, 1)), .user_data = fixture.recorder.user_data } });
     }
-    try testing.expectEqualStrings(Counter.digits, fixture.recorder.body_bytes());
+    try testing.expectEqualStrings(Counter.digits, fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
@@ -284,7 +284,7 @@ test "decision 127 as amended: next runs while the request body is open" {
     fixture.body("abcd", false);
     try testing.expectEqual(0, fixture.app.nexts);
     writable_after_room(&fixture);
-    try testing.expectEqualStrings("abcd", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("abcd", fixture.recorder.request_body_bytes());
     // The call wrote nothing while the body is open: no second call, and no cancel.
     try testing.expectEqual(1, fixture.app.nexts);
     try testing.expectEqual(0, fixture.recorder.cancelled);
@@ -316,5 +316,5 @@ test "decision 163 ruling 4: a writable event before the body's end calls no fun
     try testing.expectEqual(0, fixture.recorder.head_count);
     fixture.body("c", true);
     try testing.expectEqual(1, fixture.app.bodies);
-    try testing.expectEqualStrings("abc", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("abc", fixture.recorder.request_body_bytes());
 }

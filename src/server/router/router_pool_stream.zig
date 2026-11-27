@@ -37,7 +37,7 @@ pub inline fn start(comptime P: type, pool: *P, comptime index: usize, entry: *P
     const wrapped = wraps and entry.held.reader != &entry.body.cursor.reader;
     // `next` peeks through a wrapper, which needs a buffer to peek into (std.Io.Reader).
     assert(!wrapped or entry.held.reader.buffer.len > 0);
-    // The router's reader holds kept bytes in the entry's `body_bytes` itself. `read` points the
+    // The router's reader holds kept bytes in the entry's `request_body_bytes` itself. `read` points the
     // storage of a wrapper's stream at the bytes past the held ones.
     entry.body_stream = .{ .reader = entry.held.reader, .storage = &entry.body.held, .wrapped = wrapped };
     const options = comptime router_pool.route_options(Parts(P).table.routes[index]);
@@ -75,7 +75,7 @@ fn wraps_body(comptime P: type, comptime index: usize) bool {
 }
 
 /// Calls `on_data` over the bytes that the entry held and `bytes`. Then it keeps the bytes that
-/// the call left unread, which the engine's next event writes over, in the entry's `body_bytes`.
+/// the call left unread, which the engine's next event writes over, in the entry's `request_body_bytes`.
 fn read(comptime P: type, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, bytes: []const u8, end: bool) router_body.Error!router_call.Outcome {
     const handler = Parts(P).table.routes[index][router_call.handler_part];
     const wraps = comptime wraps_body(P, index);
@@ -99,7 +99,7 @@ fn read(comptime P: type, comptime index: usize, entry: *Parts(P).Entry, context
     return outcome;
 }
 
-/// Points the storage of a wrapper's stream at the entry's `body_bytes` past the bytes that the
+/// Points the storage of a wrapper's stream at the entry's `request_body_bytes` past the bytes that the
 /// router holds. The kept bytes that the stream stored stay at its end.
 fn give_storage(entry: anytype) void {
     const stream = &entry.body_stream;
@@ -112,7 +112,7 @@ fn hold_clear(entry: anytype, held_len: usize) router_body.Error!void {
     const stream = &entry.body_stream;
     // RFC 9110 §15.5.14: content larger than the server takes gets 413, kept bytes too.
     if (stream.too_large) return error.ContentTooLarge;
-    // RFC 9110 §15.5.14: the kept bytes and the bytes the router holds share `body_bytes`.
+    // RFC 9110 §15.5.14: the kept bytes and the bytes the router holds share `request_body_bytes`.
     if (held_len + router_body.stored_len(stream) > entry.body.held.len) return error.ContentTooLarge;
 }
 
@@ -120,7 +120,7 @@ fn hold_clear(entry: anytype, held_len: usize) router_body.Error!void {
 /// the last piece could not take get 413 when the response is still open.
 fn read_last(entry: anytype, outcome: router_call.Outcome) router_body.Error!router_call.Outcome {
     entry.body.delivered = true;
-    // RFC 9110 §15.5.14: kept bytes past the entry's `body_bytes` get 413, at the body's end too.
+    // RFC 9110 §15.5.14: kept bytes past the entry's `request_body_bytes` get 413, at the body's end too.
     if (entry.body_stream.too_large and !route_ended(&entry.response)) return error.ContentTooLarge;
     return outcome;
 }

@@ -1,5 +1,5 @@
 //! The router's copy of a request's header, for a function route whose request has a body
-//! (decision 163 ruling 5, design §8 step 50e). A router copies only when `header_bytes` is above
+//! (decision 163 ruling 5, design §8 step 50e). A router copies only when `request_header_bytes` is above
 //! 0. The root exports none of it.
 //!
 //! The engine's event points into storage that its next `receive` writes again. In h2 and h3, the
@@ -31,23 +31,23 @@ comptime {
 /// Bytes of one line record in a copy.
 pub const line_record_len = @sizeOf(Line);
 
-/// What `copy` refuses: the header's live parts do not fit the entry's `header_bytes`.
+/// What `copy` refuses: the header's live parts do not fit the entry's `request_header_bytes`.
 pub const Error = error{HeaderTooLarge};
 
 /// The copy an entry holds: its bytes, the `Slice` that the copy's `Headers` points to, and the
-/// request, whose slices point into `octets`. With `header_bytes` 0 the router copies no header,
+/// request, whose slices point into `octets`. With `request_header_bytes` 0 the router copies no header,
 /// so the copy holds nothing (the owner's ruling of 2026-11-13).
-pub fn Header(comptime header_bytes: usize) type {
-    if (header_bytes == 0) return struct {};
+pub fn Header(comptime request_header_bytes: usize) type {
+    if (request_header_bytes == 0) return struct {};
     return struct {
-        octets: [header_bytes]u8 = undefined,
+        octets: [request_header_bytes]u8 = undefined,
         lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
         request: event.Request = undefined,
     };
 }
 
 comptime {
-    // A router whose `header_bytes` is 0 calls each function route at the header, so its entries
+    // A router whose `request_header_bytes` is 0 calls each function route at the header, so its entries
     // spend no byte on a copy.
     assert(@sizeOf(Header(0)) == 0);
 }

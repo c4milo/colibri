@@ -8,7 +8,7 @@
 //! names no entry.
 //!
 //! A function route gets the whole request in one call (decision 163 ruling 4). The call comes at
-//! the head when the head ended the request, or when `header_bytes` is 0. Else it comes when the
+//! the head when the head ended the request, or when `request_header_bytes` is 0. Else it comes when the
 //! body ended. The entry then holds a copy of the request's header and every byte of its body
 //! (`router_copy.zig`, ruling 5).
 //!
@@ -41,11 +41,11 @@ pub const Options = struct {
     /// Bytes of each entry's response memory: the copies of its headers and trailers, and the
     /// bytes its body's writer writes. A program names it, 0 included, since the router cannot
     /// know the size of its responses (decision 163 ruling 9).
-    response_bytes: usize,
+    response_buffer_bytes: usize,
     /// Bytes of each entry's request body memory: the bytes that a stream route's `on_data` left
     /// unread or kept, and every byte of a function route's body. A body past it gets 413 (RFC
-    /// 9110 §15.5.14). A program names it, 0 included, as it names `response_bytes`.
-    body_bytes: usize,
+    /// 9110 §15.5.14). A program names it, 0 included, as it names `response_buffer_bytes`.
+    request_body_bytes: usize,
     /// Bytes of each entry's copy of a request's header, for a function route whose request has a
     /// body (decision 163 ruling 5). A program names it, 0 included, since the router cannot know
     /// the size of its requests.
@@ -62,8 +62,8 @@ pub const Options = struct {
     /// authority, the path and the query are those fields' values. A `:path` that starts with `?`
     /// has the static "/" as its path, one byte more. Over h11 the copy holds the method and the
     /// target too, and each part that lies in neither the target nor a line, such as the scheme.
-    /// A header past `header_bytes` gets 431 (RFC 6585 §5), with no call.
-    header_bytes: usize,
+    /// A header past `request_header_bytes` gets 431 (RFC 6585 §5), with no call.
+    request_header_bytes: usize,
 };
 
 /// What `handle` did with an event: it took it, or it hands it back, for the program to act on.
@@ -101,9 +101,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// request's id alone.
         request_context: RequestContext = .{ .request_id = event.id_of(0) },
         values: ValuesOf = undefined,
-        memory: [options_of.response_bytes]u8 = undefined,
+        memory: [options_of.response_buffer_bytes]u8 = undefined,
         state: [state_layout.size]u8 align(state_layout.alignment) = undefined,
-        body: router_body.Body(options_of.body_bytes) = .{},
+        body: router_body.Body(options_of.request_body_bytes) = .{},
         /// The stream of a stream route's request body, in a table that has a stream route.
         body_stream: StreamField(streams_of) = undefined,
         /// The middleware of the request's chain that ran, whose `on_finished` runs at its end.
@@ -112,7 +112,7 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         middleware_states: [wrap_layout.size]u8 align(wrap_layout.alignment) = undefined,
         held: router_wrap.Held(wrap_layout.chain_max) = .{},
         /// The copy of the request's header, for a function route whose request has a body.
-        header: router_copy.Header(options_of.header_bytes) = .{},
+        header: router_copy.Header(options_of.request_header_bytes) = .{},
     };
     comptime {
         // An entry starts with a context that lends no path and no query, and `call_on_request`
@@ -163,9 +163,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         /// long as fewer than `requests` of them wait.
         ///
         /// A function route of a request with a body gets its call at the head when
-        /// `header_bytes` is 0. With `header_bytes` above 0, the router copies the request's
+        /// `request_header_bytes` is 0. With `request_header_bytes` above 0, the router copies the request's
         /// header and holds its body, and calls the function at the body's end. A header past
-        /// `header_bytes` gets 431, and a body past `body_bytes` gets 413, with no call.
+        /// `request_header_bytes` gets 431, and a body past `request_body_bytes` gets 413, with no call.
         pub fn handle(router: *Self, context: *ContextOf, engine: anytype, received: *const event.Event) Handled {
             switch (received.*) {
                 .request => |*request| on_request(Self, router, context, engine, request),
@@ -209,7 +209,7 @@ pub fn Parts(comptime P: type) type {
         pub const Context = P.Context;
         pub const Table = P.Table;
         pub const table = P.table;
-        pub const header_bytes = P.options.header_bytes;
+        pub const request_header_bytes = P.options.request_header_bytes;
     };
 }
 

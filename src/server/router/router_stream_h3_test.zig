@@ -18,9 +18,9 @@ const engine = &quic_support.engine_support.engine;
 
 /// Bytes of the entry's response memory, of the response, sixteen times as many, and of each
 /// message. Test-only.
-const response_bytes = 512;
+const response_buffer_bytes = 512;
 const stream_turns = 16;
-const stream_len = stream_turns * response_bytes;
+const stream_len = stream_turns * response_buffer_bytes;
 const message_len = 100;
 /// The rounds a test pumps at most, and the rounds between two losses of each side.
 const rounds_max = 512;
@@ -48,8 +48,8 @@ const routes = .{
     },
 };
 
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
-const LongPool = Router(App, routes, .{ .requests = 1, .response_bytes = long_response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
+const LongPool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = long_response_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 /// The routers and their route's settings, which the program hooks reach. Test-only.
 var router: Pool align(@alignOf(Pool)) = .{};
@@ -65,7 +65,7 @@ fn take_long(reported: event.Event) void {
     _ = long_router.handle(&app, engine, &reported);
 }
 
-test "design §8 step 46: a struct route sends sixteen times response_bytes over h3, with loss" {
+test "design §8 step 46: a struct route sends sixteen times response_buffer_bytes over h3, with loss" {
     try quic_support.start_engine(null);
     try quic_support.connect();
     router = .{};

@@ -16,7 +16,7 @@ const engine = &quic_support.engine_support.engine;
 /// the route's response memory. Test-only.
 const pieces = "abc";
 const memories_per_reply = 8;
-const reply_len = memories_per_reply * duplex.response_bytes;
+const reply_len = memories_per_reply * duplex.response_buffer_bytes;
 /// The rounds a test pumps for each piece at most.
 const rounds_max = 128;
 const ok_code: u16 = 200;

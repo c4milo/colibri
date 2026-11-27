@@ -12,9 +12,9 @@ const Router = @import("router.zig").Router;
 
 /// Bytes of the entry's response memory, body memory and header memory, and of each message the
 /// route writes. Test-only.
-pub const response_bytes = 256;
-const body_bytes = 16;
-const header_bytes = 128;
+pub const response_buffer_bytes = 256;
+const request_body_bytes = 16;
+const request_header_bytes = 128;
 const message_len = 100;
 /// The prime that `octet_at` counts modulo, so no message repeats the one before it.
 const pattern_period = 251;
@@ -88,7 +88,7 @@ pub const Duplex = struct {
 /// engine has room.
 pub fn whole(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {
     app.whole_calls += 1;
-    var bytes: [body_bytes]u8 = undefined;
+    var bytes: [request_body_bytes]u8 = undefined;
     app.body_len = try request.body.readSliceShort(&bytes);
     var state: Duplex.State = .{ .owed = app.head_len, .body_ended = true };
     try write_owed(app, &state, response);
@@ -127,4 +127,4 @@ const routes = .{
     },
 };
 
-pub const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
+pub const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes });

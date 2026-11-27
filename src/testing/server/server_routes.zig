@@ -109,9 +109,9 @@ fn Table(comptime lines: []const u8) type {
         /// One worker's pool of request entries.
         pub const Pool = server.Router(void, routes, .{
             .requests = constants.routes_requests_max,
-            .response_bytes = constants.routes_response_bytes,
-            .body_bytes = constants.routes_body_bytes,
-            .header_bytes = constants.routes_header_bytes,
+            .response_buffer_bytes = constants.routes_response_buffer_bytes,
+            .request_body_bytes = constants.routes_request_body_bytes,
+            .request_header_bytes = constants.routes_request_header_bytes,
         });
     };
 }
@@ -216,7 +216,7 @@ test "design §8 step 50b: a POST route answers once its whole body arrived" {
     try testing.expect(pool.handle(&context, &engine, &.{ .request = head }) == .taken);
     // The route reads its body whole, so neither the header nor the first piece gets an answer.
     try testing.expectEqual(0, engine.status);
-    const piece = [_]u8{'x'} ** (constants.routes_body_bytes / 2);
+    const piece = [_]u8{'x'} ** (constants.routes_request_body_bytes / 2);
     const first: server.RequestBody = .{ .id = head.id, .user_data = engine.user_data, .bytes = &piece, .end = false };
     try testing.expect(pool.handle(&context, &engine, &.{ .body = first }) == .taken);
     try testing.expectEqual(0, engine.status);

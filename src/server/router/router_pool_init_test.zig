@@ -20,12 +20,12 @@ const small_bytes = 64;
 const large_bytes = 65536;
 
 /// A router with a header copy, so that each field `init` writes one field down holds a buffer.
-const Sample = router_module.Router(void, router_call.sample_table, .{ .requests = requests, .response_bytes = small_bytes, .body_bytes = small_bytes, .header_bytes = small_bytes });
+const Sample = router_module.Router(void, router_call.sample_table, .{ .requests = requests, .response_buffer_bytes = small_bytes, .request_body_bytes = small_bytes, .request_header_bytes = small_bytes });
 var sample: Sample align(@alignOf(Sample)) = undefined;
 
 /// A router of large buffers. No test starts it with `.{}`, so the test binary holds no constant of
 /// its default.
-const Large = router_module.Router(void, router_call.sample_table, .{ .requests = requests, .response_bytes = large_bytes, .body_bytes = large_bytes, .header_bytes = large_bytes });
+const Large = router_module.Router(void, router_call.sample_table, .{ .requests = requests, .response_buffer_bytes = large_bytes, .request_body_bytes = large_bytes, .request_header_bytes = large_bytes });
 var large: Large align(@alignOf(Large)) = undefined;
 
 test "decision 158 ruling 1: init frees each entry and writes each field a request reads first" {

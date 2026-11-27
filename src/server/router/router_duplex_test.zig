@@ -19,8 +19,8 @@ const engine = &support.engine;
 /// route's response memory. Test-only.
 const pieces = "abc";
 const memories_per_reply = 4;
-const h11_reply_len = server_constants.limits.output_len + memories_per_reply * duplex.response_bytes;
-const h2_reply_len = memories_per_reply * duplex.response_bytes;
+const h11_reply_len = server_constants.limits.output_len + memories_per_reply * duplex.response_buffer_bytes;
+const h2_reply_len = memories_per_reply * duplex.response_buffer_bytes;
 /// Bytes of a function route's reply: two windows, which its response memory holds.
 const windows_per_reply = 2;
 const whole_reply_len = windows_per_reply * small_window;

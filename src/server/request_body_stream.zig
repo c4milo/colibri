@@ -10,7 +10,7 @@
 //! and gRPC frame theirs. At the body's end, `next` gives the kept bytes once more as the last
 //! piece, so a route reads a body with no length whole, as Connect's unary call sends it.
 //!
-//! Through a wrapper, `next` copies the kept bytes into the entry's `body_bytes`, and joins the
+//! Through a wrapper, `next` copies the kept bytes into the entry's `request_body_bytes`, and joins the
 //! bytes that the wrapper gives later there (decision 163 ruling 6 as amended). So it asks a
 //! wrapper for one byte past those it gave, never more. A wrapper's `rebase` may hold fewer
 //! bytes than its buffer, as std's flate decompressor does, which keeps its window there. A
@@ -26,7 +26,7 @@ pub const RequestBodyStream = struct {
     /// The reader of the body: the router's, over the bytes of the event and the bytes it held,
     /// or the last wrapper of a middleware's `wrap_body`.
     reader: *std.Io.Reader,
-    /// The bytes of the entry's `body_bytes` that kept bytes may take, whose length bounds them.
+    /// The bytes of the entry's `request_body_bytes` that kept bytes may take, whose length bounds them.
     /// The router's reader holds kept bytes there itself. Through a wrapper, the router points
     /// `storage` at the bytes past the ones it holds, and `next` copies kept bytes to its end.
     storage: []u8 = &.{},
@@ -64,7 +64,7 @@ pub const RequestBodyStream = struct {
     /// arrive later. A later `keep` takes the place of an earlier one, and `keep(0)` keeps none.
     /// A `keep` of the body's last piece keeps nothing.
     ///
-    /// The kept bytes take the entry's `body_bytes` when they outlive the engine's event, or
+    /// The kept bytes take the entry's `request_body_bytes` when they outlive the engine's event, or
     /// when they come through a middleware's wrapper. Kept bytes that do not fit there get 413
     /// (RFC 9110 §15.5.14), at the body's end too.
     pub fn keep(stream: *RequestBodyStream, len: usize) void {
@@ -130,7 +130,7 @@ fn next_stored(stream: *RequestBodyStream) ?[]const u8 {
         return next_buffered(stream);
     }
     if (!stream.stored) {
-        // RFC 9110 §15.5.14: kept bytes past the entry's `body_bytes` get 413.
+        // RFC 9110 §15.5.14: kept bytes past the entry's `request_body_bytes` get 413.
         if (kept > stream.storage.len) return mark_too_large(stream);
         store_kept(stream);
     }
@@ -139,7 +139,7 @@ fn next_stored(stream: *RequestBodyStream) ?[]const u8 {
     stream.given = kept;
     const fresh = stream.reader.peekGreedy(1) catch |failure| return past_end(stream, failure);
     const room = stream.storage.len - kept;
-    // RFC 9110 §15.5.14: kept bytes that fill the entry's `body_bytes` join no later byte.
+    // RFC 9110 §15.5.14: kept bytes that fill the entry's `request_body_bytes` join no later byte.
     if (room == 0) return mark_too_large(stream);
     return join(stream, fresh[0..@min(fresh.len, room)]);
 }
@@ -184,10 +184,10 @@ const router_body = @import("router/router_body.zig");
 
 /// A stream over the router's reader, and the bytes of each event. Test-only.
 const Fixture = struct {
-    body: router_body.Body(body_bytes) = .{},
+    body: router_body.Body(request_body_bytes) = .{},
     stream: RequestBodyStream = undefined,
 
-    const body_bytes = 16;
+    const request_body_bytes = 16;
 
     fn start(fixture: *Fixture) void {
         fixture.stream = .{ .reader = &fixture.body.cursor.reader, .storage = &fixture.body.held };

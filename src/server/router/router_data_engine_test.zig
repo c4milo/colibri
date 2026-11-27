@@ -4,7 +4,7 @@
 //! Over h2 the end of the body comes with the last DATA frame, so `ended` is true at the last
 //! piece. Over h11 and h3 the end comes in a later event with no bytes. At the end, a route that
 //! kept the whole body reads it as the last piece (decision 163 ruling 6 as amended). Through a
-//! wrapper, the router copies kept bytes into the entry's `body_bytes`, and no other piece.
+//! wrapper, the router copies kept bytes into the entry's `request_body_bytes`, and no other piece.
 const std = @import("std");
 const h2 = @import("h2");
 const quic = @import("quic");
@@ -28,7 +28,7 @@ const first_piece = "ab";
 const second_piece = "cd";
 const first_part = "\x03ab";
 const second_part = "c";
-/// A body with no length that the route keeps whole, and one byte past `body_bytes` in two parts.
+/// A body with no length that the route keeps whole, and one byte past `request_body_bytes` in two parts.
 const whole_body = first_piece ++ second_piece;
 const long_first = "01234567";
 const long_second = "89abcdef!";
@@ -179,7 +179,7 @@ test "decision 163 ruling 6 as amended: a body kept whole is read as the last pi
     try testing.expect(h11_sent(handle, "200"));
 }
 
-test "RFC 9110 §15.5.14: a body kept past body_bytes gets 413, over h11" {
+test "RFC 9110 §15.5.14: a body kept past request_body_bytes gets 413, over h11" {
     const handle = try start_tcp();
     _ = tcp_support.give(handle, h11_post("/whole", "17"));
     _ = tcp_support.give(handle, long_first);
@@ -278,7 +278,7 @@ test "decision 163 ruling 6 as amended: a body kept whole is read as the last pi
     try testing.expectEqual(ok_code, written_status());
 }
 
-test "RFC 9110 §15.5.14: a last piece kept past body_bytes gets 413, over h2" {
+test "RFC 9110 §15.5.14: a last piece kept past request_body_bytes gets 413, over h2" {
     const handle = try start_h2("/whole");
     // The end comes with the bytes, so the router holds none of them.
     try give_data(handle, long_first ++ long_second, true);
@@ -363,7 +363,7 @@ test "decision 163 ruling 6 as amended: a body kept whole is read as the last pi
     try expect_whole(1);
 }
 
-test "RFC 9110 §15.5.14: a body kept past body_bytes gets 413, over h3" {
+test "RFC 9110 §15.5.14: a body kept past request_body_bytes gets 413, over h3" {
     const fetch = try start_quic("/whole", long_first ++ long_second);
     defer quic_support.seen_support.program = null;
     try supply(fetch, long_first.len, false);

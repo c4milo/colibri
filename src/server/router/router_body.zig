@@ -6,21 +6,21 @@
 //! `error.EndOfStream`. A stream route's `server.RequestBodyStream` reads the body through it, or
 //! through the last wrapper of a middleware's `wrap_body` (decision 163 ruling 6). The bytes that
 //! `on_data` leaves unread, those that `keep` kept among them, are copied into the entry's
-//! `body_bytes`, and the next `on_data` reads them first. Through a wrapper, the stream copies the
-//! bytes that `keep` kept to the end of `body_bytes` instead, and the bytes that the router holds
+//! `request_body_bytes`, and the next `on_data` reads them first. Through a wrapper, the stream copies the
+//! bytes that `keep` kept to the end of `request_body_bytes` instead, and the bytes that the router holds
 //! stay clear of them (decision 163 ruling 6 as amended). A function route's every byte is copied
 //! there, and the route reads them all at the body's end (decision 163 ruling 4).
 const std = @import("std");
 const assert = std.debug.assert;
 const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStream;
 
-/// What `append` refuses: the body does not fit the entry's `body_bytes`.
+/// What `append` refuses: the body does not fit the entry's `request_body_bytes`.
 pub const Error = error{ContentTooLarge};
 
-pub fn Body(comptime body_bytes: usize) type {
+pub fn Body(comptime request_body_bytes: usize) type {
     return struct {
         /// The bytes a call left unread, then the bytes that arrived after them.
-        held: [body_bytes]u8 = undefined,
+        held: [request_body_bytes]u8 = undefined,
         held_len: usize = 0,
         /// Whether the route got the last byte, or the router dropped the body, so no body event
         /// calls the route again.
@@ -32,7 +32,7 @@ pub fn Body(comptime body_bytes: usize) type {
         /// Adds `bytes` after the held ones. A body that does not fit is refused.
         pub fn append(body: *Self, bytes: []const u8) Error!void {
             // RFC 9110 §15.5.14: content larger than the server takes gets 413.
-            if (body.held_len + bytes.len > body_bytes) return error.ContentTooLarge;
+            if (body.held_len + bytes.len > request_body_bytes) return error.ContentTooLarge;
             @memcpy(body.held[body.held_len..][0..bytes.len], bytes);
             body.held_len += bytes.len;
         }

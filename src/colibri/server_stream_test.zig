@@ -30,14 +30,14 @@ fn fetch_stream(protocols: client.Protocols, secure: bool, udp: bool, handler: *
     try fixture.run();
 }
 
-test "design §8 step 46: a route streams sixteen times response_bytes over h11" {
+test "design §8 step 46: a route streams sixteen times response_buffer_bytes over h11" {
     var handler: fixture.Handler = .{};
     try fetch_stream(.{ .h2 = false }, false, false, &handler);
     try testing.expectEqual(client.Protocol.h11, handler.connected.?);
     try testing.expectEqual(1, handler.streams);
 }
 
-test "design §8 step 46: a route streams sixteen times response_bytes over h2" {
+test "design §8 step 46: a route streams sixteen times response_buffer_bytes over h2" {
     var handler: fixture.Handler = .{};
     // RFC 9113 §3.3: a client that knows the server speaks h2 sends the preface at once.
     try fetch_stream(.{ .h11 = false }, false, false, &handler);
@@ -45,7 +45,7 @@ test "design §8 step 46: a route streams sixteen times response_bytes over h2" 
     try testing.expectEqual(1, handler.streams);
 }
 
-test "design §8 step 46: a route streams sixteen times response_bytes over h3" {
+test "design §8 step 46: a route streams sixteen times response_buffer_bytes over h3" {
     var handler: fixture.Handler = .{};
     // RFC 9114 §3.1: the pool tries QUIC first, and the server's QUIC handshake selects h3.
     try fetch_stream(.{ .prefer = .quic }, true, true, &handler);

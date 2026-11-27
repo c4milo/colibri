@@ -16,7 +16,7 @@
 //! The bytes of `body` go into the entry's memory after the headers. The body's writer writes
 //! again into memory whose bytes the engine released (decisions 103 and 127 as amended, design §8
 //! step 46): at once over h11 and h2, and over h3 once the peer acknowledged them. So
-//! `response_bytes` bounds the bytes in flight, not the response. One `writeAll` of one slice
+//! `response_buffer_bytes` bounds the bytes in flight, not the response. One `writeAll` of one slice
 //! goes into the memory whole, or fails with `error.WriteFailed` and writes nothing, and a stream
 //! route writes it again in `next`.
 //!

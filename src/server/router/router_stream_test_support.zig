@@ -1,5 +1,5 @@
 //! What the tests of a long response through a stream route share (design §8 step 46): a route
-//! that writes a response many times longer than `response_bytes` through `body()`, one message
+//! that writes a response many times longer than `response_buffer_bytes` through `body()`, one message
 //! at a time, and an engine that reads each run in place until the test acknowledges it, as h3
 //! does (RFC 9000 §3.1), or copies each run at once, as h11 and h2 do. The engine records each
 //! byte it took, and checks that no run it holds changes before its release. Test-only.

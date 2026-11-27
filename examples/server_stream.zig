@@ -75,13 +75,13 @@ const pieces_per_event_max = 4;
 const requests_max = 1;
 /// Bytes of the entry's response memory: the copies of the header and of the trailer, and the
 /// replies that the connection has not taken.
-const response_bytes = 256;
+const response_buffer_bytes = 256;
 /// Bytes of the entry's body memory: what `keep` left unread between two body events, joined with
 /// the bytes of the next event. Bytes past it get 413 (RFC 9110 §15.5.14).
-const body_bytes = 256;
+const request_body_bytes = 256;
 /// Bytes of the entry's copy of a request's header. The one route is a stream route, which reads
 /// the header in `on_request` at the head, so the router copies no header.
-const header_bytes = 0;
+const request_header_bytes = 0;
 
 pub const Error = error{
     /// The connection had not ended within `turns_max` turns.
@@ -125,7 +125,7 @@ const routes = .{
     },
 };
 
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes });
 var router: Router align(@alignOf(Router)) = undefined;
 
 /// The trailer section that ends the call: gRPC's status 0 says the call succeeded.

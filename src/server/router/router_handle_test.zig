@@ -66,12 +66,12 @@ const routes = .{
 };
 
 /// A pool of two entries, so a third request at once finds none.
-const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = requests, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 /// The entries of the pool, bytes of each entry's response memory, and the statuses the error
 /// function chooses. Test-only.
 const requests = 2;
-const response_bytes = 128;
+const response_buffer_bytes = 128;
 const not_found: http.Status = .not_found;
 const server_error: http.Status = .internal_server_error;
 
@@ -108,14 +108,14 @@ test "decision 127: a route's function gets its path and query as structs, and a
     _ = fixture.request("GET", "/greetings/col%69bri?mark=%21");
     try testing.expectEqual(1, fixture.app.calls);
     try testing.expectEqual(200, @intFromEnum(fixture.recorder.heads[0].status));
-    try testing.expectEqualStrings("hello, colibri! x1", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("hello, colibri! x1", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
 
 test "decision 127: the wildcard is rest, and http.QueryParameters reads the pairs by name" {
     var fixture: Fixture = .{};
     _ = fixture.request("GET", "/files/a/b%20c?v=2");
-    try testing.expectEqualStrings("a/b c?2", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("a/b c?2", fixture.recorder.request_body_bytes());
 }
 
 test "RFC 9110 §15.5.1: a query that lacks a required pair gets 400, with no call" {
@@ -126,7 +126,7 @@ test "RFC 9110 §15.5.1: a query that lacks a required pair gets 400, with no ca
     // A function that leaves its response open has it ended by the router.
     fixture = .{};
     _ = fixture.request("GET", "/need?id=7");
-    try testing.expectEqualStrings("7", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("7", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
 
@@ -169,11 +169,11 @@ test "decision 127: a writable sends what the engine did not take" {
     var fixture: Fixture = .{};
     fixture.recorder.room = 4;
     const id = fixture.request("GET", "/greetings/x");
-    try testing.expectEqualStrings("hell", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("hell", fixture.recorder.request_body_bytes());
     fixture.recorder.room = std.math.maxInt(usize);
     const writable: event.Writable = .{ .id = id, .user_data = fixture.recorder.user_data };
     try testing.expect(fixture.pool.handle(&fixture.app, &fixture.recorder, &.{ .writable = writable }) == .taken);
-    try testing.expectEqualStrings("hello, x x1", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("hello, x x1", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
 

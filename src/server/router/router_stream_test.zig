@@ -1,6 +1,6 @@
 //! The tests of a long response through a stream route's `next` (design §8 step 46): the
 //! body's writer writes again into memory the engine released, so a response many times longer
-//! than `response_bytes` goes out whole and in order, and no run changes before its release.
+//! than `response_buffer_bytes` goes out whole and in order, and no run changes before its release.
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
@@ -17,9 +17,9 @@ const App = stream.App;
 const Holder = stream.Holder;
 
 /// Bytes of the entry's response memory, and of the response: sixteen times as many. Test-only.
-const response_bytes = 128;
+const response_buffer_bytes = 128;
 const stream_turns = 16;
-const stream_len = stream_turns * response_bytes;
+const stream_len = stream_turns * response_buffer_bytes;
 /// A message that does not divide the memory, so a write finds a region too short for it, and
 /// one that divides it, so the writer fills its region exactly.
 const message_len_odd = 24;
@@ -47,8 +47,8 @@ const routes = .{
     },
 };
 
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
-const LongPool = Router(App, routes, .{ .requests = 1, .response_bytes = long_response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
+const LongPool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = long_response_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 const Fixture = FixtureOf(Pool);
 
@@ -109,7 +109,7 @@ fn FixtureOf(comptime PoolOf: type) type {
     };
 }
 
-test "design §8 step 46: an engine that copies takes sixteen times response_bytes through body()" {
+test "design §8 step 46: an engine that copies takes sixteen times response_buffer_bytes through body()" {
     // h11 and h2 copy each run inside `write_body`, so the writer writes over it at once.
     var fixture: Fixture = .{
         .app = .{ .stream_len = stream_len, .message_len = message_len_odd },
@@ -147,7 +147,7 @@ test "design §8 step 46: the router calls next only when the writer has room" {
     };
     fixture.start();
     // Four messages fill the memory exactly, and the engine holds each.
-    try testing.expectEqual(response_bytes, fixture.holder.taken);
+    try testing.expectEqual(response_buffer_bytes, fixture.holder.taken);
     try testing.expectEqual(1, fixture.app.calls);
     // A `writable` that released nothing finds no room: the route is not called, and the response
     // waits again.
