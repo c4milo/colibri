@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
 [![release](https://img.shields.io/github/v/release/c4milo/colibri)](https://github.com/c4milo/colibri/releases/latest)
-[![line coverage](https://img.shields.io/badge/line_coverage-98.7%25-brightgreen.svg)](https://github.com/c4milo/colibri/actions/runs/43727822114)
+[![line coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fc4milo%2Fcolibri%2Fbadges%2F.github%2Fbadges%2Fcoverage.json)](https://github.com/c4milo/colibri/actions/workflows/ci.yml?query=branch%3Amain)
 
 An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC underneath HTTP/3.
 It is written from the RFCs, and every check it makes on a peer's input cites the section that
@@ -250,7 +250,8 @@ printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
 - **Mutation testing.** Every check is broken on purpose, and a test must fail. Each result is
   recorded as `CAUGHT` or `NOT CAUGHT` in the commit or in [`docs/design.md`](docs/design.md).
 - **Fuzzing and line coverage.** Every reader of a peer's bytes has a fuzz property. kcov counts
-  the lines of the library that the tests run, and the badge above shows a named CI run's count.
+  the lines of the library that the tests run. The badge above shows the count of the latest run
+  of CI on main.
 - **Lints.** `zig build lint` refuses a heap allocation, a system call, a clock or random read
   outside the test endpoints, an unbounded loop, a function above cognitive complexity 15, and a
   source file above 500 lines.
