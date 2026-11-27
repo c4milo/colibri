@@ -379,7 +379,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   `coverage` tool (`build/line_coverage.zig`, `tools/line_coverage.zig`). It prints each module's
   share of lines that the tests run, and the total. kcov runs on Linux alone: the script uses the
   host's kcov 43, or else an ubuntu:26.04 container, which needs Docker. `tools/ci.sh` runs it on
-  Linux and skips it on another host.
+  Linux and skips it on another host. On each push to main whose checks pass, the job
+  `line coverage badge (x86-64 Linux)` writes the total to `.github/badges/coverage.json` on the
+  orphan branch `badges`, which the README's badge reads
+  (https://github.com/c4milo/colibri/issues/167). It runs no check and is the one job that may
+  write to the repository.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
 - Route tables: `zig build router-check` compiles `tools/fixtures/router_refused.zig` once for each

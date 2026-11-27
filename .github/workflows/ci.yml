@@ -51,6 +51,9 @@ jobs:
     concurrency:
       group: checks-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    # The line coverage that tools/ci.sh counted, which the coverage-badge job publishes.
+    outputs:
+      coverage: ${{ steps.coverage.outputs.total }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -131,6 +134,13 @@ jobs:
       # checks, and the tla job runs them (decisions 47 and 67 as amended on 2026-11-05).
       - name: Run every check
         run: tools/ci.sh ci-report.md
+      # The total line of tools/line_coverage_check.sh, as the report holds it:
+      # `zig-out/coverage: note: [coverage] total 98.7% of 30200 lines`.
+      - name: Read the line coverage total
+        id: coverage
+        run: |
+          total="$(sed -n 's/.*\[coverage\] total \([0-9.]*\)% of .*/\1/p' ci-report.md | head -1)"
+          echo "total=${total}" >>"${GITHUB_OUTPUT}"
       - name: Save the image, and keep the Zig cache from growing without bound
         if: always()
         run: |
@@ -154,6 +164,50 @@ jobs:
           name: ci-report-${{ github.sha }}
           path: ci-report.md
           retention-days: 90
+
+  # The README's line coverage badge (https://github.com/c4milo/colibri/issues/167). On each push to
+  # main whose checks passed, the total that tools/ci.sh counted goes to the orphan branch `badges`
+  # as a shields.io endpoint, which the badge reads. The job runs no check and builds nothing, so
+  # it alone holds a token that may write, and the checks job keeps a token that reads.
+  coverage-badge:
+    name: line coverage badge (x86-64 Linux)
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.checks.outputs.coverage != ''
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-badge
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The token stays out of .git/config. The push below names it once.
+          persist-credentials: false
+      - name: Write the badge to the badges branch
+        env:
+          TOTAL: ${{ needs.checks.outputs.coverage }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          color="$(awk -v t="${TOTAL}" 'BEGIN { print (t >= 90) ? "brightgreen" : (t >= 80) ? "green" : (t >= 70) ? "yellowgreen" : (t >= 60) ? "yellow" : "orange" }')"
+          printf '{"schemaVersion":1,"label":"line coverage","message":"%s%%","color":"%s"}\n' "${TOTAL}" "${color}" >"${RUNNER_TEMP}/coverage.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --quiet origin badges 2>/dev/null; then
+            git switch --quiet badges
+          else
+            git switch --quiet --orphan badges
+          fi
+          mkdir -p .github/badges
+          cp "${RUNNER_TEMP}/coverage.json" .github/badges/coverage.json
+          if ! git ls-files --error-unmatch .github/badges/coverage.json >/dev/null 2>&1 ||
+              ! git diff --quiet -- .github/badges/coverage.json; then
+            git add .github/badges/coverage.json
+            git commit --quiet -m "chore: update the line coverage badge to ${TOTAL}%"
+            git push --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" badges
+          fi
 
   # The unit tests on arm64, on Linux and on macOS (decision 47 as amended). Every simulator check
   # pins its census in its test, so a pass shows that a seed replays byte-identically on a second
