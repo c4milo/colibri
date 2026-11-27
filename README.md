@@ -10,12 +10,15 @@ An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC und
 It is written from the RFCs, and every check it makes on a peer's input cites the section that
 requires it.
 
-The protocol code does no I/O. It never opens a socket, allocates memory, or reads the clock.
-Your program reads bytes from the network and passes them in. colibri writes its replies into
-buffers you own, and your program sends them. You pass in the current time too. So a connection
-depends only on what you give it, and the simulator can replay one from a seed, byte for byte.
-If you would rather not run that loop yourself, `colibri.Server` and `colibri.Client` run it for
-you on [Rotor](https://github.com/c4milo/rotor).
+The protocol code does no I/O:
+
+- It never opens a socket, allocates memory, or reads the clock.
+- Your program passes in the bytes it read and the current time, and sends what colibri writes
+  into your buffers.
+- So the simulator can replay a connection from a seed, byte for byte.
+
+`colibri.Server` and `colibri.Client` run that loop for you on
+[Rotor](https://github.com/c4milo/rotor).
 
 The name is Spanish for hummingbird.
 
@@ -270,33 +273,49 @@ Rotor's loop.
 [`docs/performance.md`](docs/performance.md#the-charts-of-the-readme) names each other server's
 version, reads each chart in full, and says how each number is measured and what limits it.
 
-**CPU time a request.** Over h2, hyper takes 3.2 times colibri's time. Over h3, axum on quinn
-takes 2.9 times, and quic-go 11.4 times. Over h11, nginx takes 1.22 times. Over h11 with TLS,
-fasthttp and hyper tie with colibri inside the noise
-([run 45898056242](https://github.com/c4milo/colibri/actions/runs/45898056242)).
+**CPU time a request**
+([run 45898056242](https://github.com/c4milo/colibri/actions/runs/45898056242)), against
+colibri's:
+
+| Protocol | Other servers |
+| --- | --- |
+| h2 | hyper 3.2 times |
+| h3 | axum on quinn 2.9 times, quic-go 11.4 times |
+| h11 | nginx 1.22 times |
+| h11 with TLS | fasthttp and hyper tie inside the noise |
 
 ![Bars of the CPU time a request of each server on one Neoverse-N2 core, by protocol: colibri takes 6.8 µs over h11, 8.4 µs over h11 with TLS, 1.5 µs over h2, 2.2 µs over h2 with TLS and 3.9 µs over h3; hyper takes 4.9 µs over h2; axum on quinn takes 11.3 µs over h3 and quic-go 44.2 µs](docs/images/cpu.svg)
 
-**Throughput.** Over h2, colibri serves 1,046,070 requests a second on one core, 4.8 times
-hyper's. Over h3 it serves 2.2 times axum's on quinn, and 9.6 times quic-go's. Over h11, colibri
-serves 1.20 times nginx's, past nginx's spread of 10.1%
-([run 45898059688](https://github.com/c4milo/colibri/actions/runs/45898059688)).
+**Throughput** on one core
+([run 45898059688](https://github.com/c4milo/colibri/actions/runs/45898059688)):
+
+| Protocol | colibri, requests a second | Against |
+| --- | --- | --- |
+| h2 | 1,046,070 | 4.8 times hyper |
+| h3 | 277,952 | 2.2 times axum on quinn, 9.6 times quic-go |
+| h11 | 148,680 | 1.20 times nginx, past nginx's spread of 10.1% |
 
 ![Bars of the requests a second each server serves on one Neoverse-N2 core, by protocol: over h2 colibri serves 1,046,070, hyper 217,040 and h2o 183,070; over h3 colibri serves 277,952, axum on quinn 129,040 and quic-go 29,046; over h11 colibri serves 148,680 and nginx 123,423](docs/images/throughput.svg)
 
-**Latency.** The p99 at fixed rates, over the GitHub API's routes. Over h2 at 80,000 requests a
-second, colibri's is 7.99 ms and axum's 12.81 ms. Over h3 at 20,000, colibri's is 3.07 ms and
-axum's 4.36 ms. Over h11 at 80,000, axum's is 5.51 ms and colibri's 6.67 ms
-([run 45898063826](https://github.com/c4milo/colibri/actions/runs/45898063826)).
+**Latency**: the p99 at fixed rates, over the GitHub API's routes
+([run 45898063826](https://github.com/c4milo/colibri/actions/runs/45898063826)):
+
+| Protocol | Rate, requests a second | colibri | axum |
+| --- | --- | --- | --- |
+| h2 | 80,000 | 7.99 ms | 12.81 ms |
+| h3 | 20,000 | 3.07 ms | 4.36 ms |
+| h11 | 80,000 | 6.67 ms | 5.51 ms |
 
 ![Lines of each server's p99 latency against the rate offered, on log scales, one panel for each of h11, h2, h2 over TLS and h3, with the bound of 10 ms: colibri stays under it up to 80,000 requests a second over h11 and h2, 40,000 over h2 over TLS and 20,000 over h3; axum stays under it up to 80,000 over h11, 40,000 over h2 and h2 over TLS and 20,000 over h3](docs/images/latency.svg)
 
 ## Platforms
 
-CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26.04 and macOS 26
-on arm64. Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does,
-but only these platforms are checked. `colibri.Server` and `colibri.Client` run on Rotor, on
-Linux and macOS. Published performance numbers come from Linux alone.
+- CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26.04 and
+  macOS 26 on arm64.
+- Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does. Only
+  the platforms above are checked.
+- `colibri.Server` and `colibri.Client` run on Rotor, on Linux and macOS.
+- Published performance numbers come from Linux alone.
 
 ## Documentation
 
