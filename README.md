@@ -118,7 +118,22 @@ A server that needs no middleware leaves out `.Values` and `.middleware`.
 /// takes a request with a body, so the router keeps no copy of a header (`header_bytes`).
 const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = undefined;
+```
 
+colibri allocates no memory while it runs. The router holds an entry for each request it answers
+at once, sized when your program declares the type, so `@sizeOf(Router)` is all the memory it
+uses. Four options size it:
+
+- `requests`: the requests it answers at once. One more gets 503.
+- `response_bytes`: each response's memory, which holds its headers and the body bytes not yet
+  sent. A write that does not fit fails with `error.WriteFailed`.
+- `body_bytes`: each request body's memory. A larger body gets 413. This server takes no body.
+- `header_bytes`: the copy of a request's headers while its body arrives. A larger header gets
+  431. With 0, the router copies nothing and calls the route at the head.
+
+[Router](docs/usage.md#router) gives each option in full.
+
+```zig
 /// A server that holds four TCP connections and four QUIC connections, on colibri's own loop. The
 /// program places the server once, outside any stack frame, and does not move it.
 const connections = 4;
