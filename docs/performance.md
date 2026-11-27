@@ -13,7 +13,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  eleven inputs, four more with `--h11`, and two more with `--h3`:
+  eleven inputs, four more with `--h11`, and four more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
@@ -44,6 +44,8 @@ Performance section states the rules, and design §11 holds the method's numbers
     alone, so colibri's does the same work. The h2load that sends them is the one
     `tools/h3load/Dockerfile` builds with HTTP/3, run from its image on the load generator's
     cores.
+  - `h3-bbr-many` and `h3-bbr-one`: the same two h3 loads with the server's `bbr` option, so each
+    connection runs BBRv3 in place of CUBIC (design §8 step 29d).
 - Each input runs one warm-up round, which the report discards, and then five rounds. With
   `--base`, the base and the change take turns in each round, and the order alternates. The report
   gives each input's median and spread, and the ratio of the change to the base with the losses
@@ -131,6 +133,8 @@ which the owner set on 2026-10-27 (design §8 step 13h). Its changes:
 - h2 encodes a response's block in its frame;
 - the test-only server swaps its receive buffers.
 
+The rule's verdict and the gain:
+
 - **The rule's verdict.** In [40749185281](https://github.com/c4milo/colibri/actions/runs/40749185281),
   h2-many lost 0.47% of its instructions per request in both jobs, inside the floor of 0.5%. No
   input lost past the noise in either job.
@@ -196,7 +200,7 @@ colibri's UDP server over the two h3 inputs (design §8 steps 13d and 13r), and 
 when both of its inputs are set:
 
 - quic-go's server comes from the image its project publishes for the QUIC Interop Runner, pinned
-  by digest, the one `tools/channel_interop.sh` runs. The report names the quic-go commit the
+  by digest, the one `tools/pool_interop.sh` runs. The report names the quic-go commit the
   image holds.
 - It runs in a container on the machine's network, on the core the judge pins servers to, which
   leaves Go one processor. `perf stat` counts the server's process from outside the container.
@@ -225,7 +229,9 @@ The latency run's oha costs more a request than h2load and wrk, and limits every
 ### Latency at fixed rates
 
 `bench/run.sh --latency` measures servers that route, under oha at fixed rates (design §8 step
-13f). Run [42532331627](https://github.com/c4milo/colibri/actions/runs/42532331627) is the
+13f). The README's latency chart comes from the later run of v0.22.0, which
+[The charts of the README](#the-charts-of-the-readme) describes. The table below is the earlier
+baseline of design §8 step 13f, kept for the comparison it records. Run [42532331627](https://github.com/c4milo/colibri/actions/runs/42532331627) is the
 baseline. It measured main at `29c407a4` on the judge, `ubuntu-24.04-arm` with Linux
 7.0.0-1017-azure, in two jobs on 2026-11-08. The baseline before it, run
 [40526708637](https://github.com/c4milo/colibri/actions/runs/40526708637) of 2026-10-27, ran on
@@ -365,8 +371,8 @@ itself holds none: a client's program passes one to `Pool.init`, whose default t
 A client's pool holds its TCP connections and its exchanges in memory that the program supplies:
 `Pool.memory_bytes(options)` bytes beside the fixed part that `@sizeOf` gives (decision 35 as
 amended), and the table lists both at the default counts.
-The two endpoints of one slot each hold one connection and the endpoint's fixed part, about 15.8 KB
-beside a TCP connection and 14.9 KB beside a QUIC one, of TLS and connection configuration, which
+The two endpoints of one slot each hold one connection and the endpoint's fixed part, about 15.8 KiB
+beside a TCP connection and 14.9 KiB beside a QUIC one, of TLS and connection configuration, which
 every endpoint holds once.
 
 With chapulin's host objects:
@@ -435,7 +441,16 @@ With chapulin's host objects:
 
 ```bash
 bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]
+bench/run.sh --latency [--network | --waits | --bulk] [--rounds <n>] [report.md]
+bench/run.sh --throughput [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]
+bench/run.sh --profile [--h11] [--h3] [report.md]
+python3 bench/chart.py cpu|throughput|latency <report.md> <run> [out.svg] [--release <tag>] [--previous <file>]
 zig build bench-memory
 tools/h3load.sh [requests] [port]
 tools/interop.sh [peers] [tests]
 ```
+
+The section "Commands" of [CLAUDE.md](../CLAUDE.md) says what each mode measures, what it needs,
+and which of its numbers are published: `--network` runs four tc netem profiles of delay and loss
+(design §8 step 13i), `--waits` records the server's core with `perf sched` (step 13j), and
+`--bulk` downloads a file of 2 MiB through a path of 20 Mbit/s (steps 13k, 29c and 35e).

@@ -1,4 +1,4 @@
-//! A pool's configuration (decision 120, design §8 step 21c): one TLS value, the versions the
+//! A pool's configuration (decision 120, design §8 step 21c): one TLS value, the protocols the
 //! client speaks, and what its TCP or QUIC connections alone take. `ConnectionPool.init` builds from it,
 //! in the pool's own storage, the TLS configuration of each transport the pool offers and
 //! the configuration each connection borrows. `client.zig` exports `Config` and `StartError`
@@ -21,9 +21,9 @@ const quic_connection = @import("../quic/quic_connection.zig");
 /// so the program may change or free it once `init` returns.
 pub const Config = struct {
     /// How the client judges the server, given once for TCP and QUIC, or null for cleartext. Its
-    /// `alpn` stays empty: the pool names the protocols `versions` allows (decision 117).
+    /// `alpn` stays empty: the pool names the protocols `protocols` allows (decision 117).
     tls: ?tls.Client = null,
-    /// The HTTP versions the client speaks (decision 117). A TCP connection speaks h11 or h2, and
+    /// The HTTP protocols the client speaks (decision 117). A TCP connection speaks h11 or h2, and
     /// a QUIC connection h3 alone (RFC 9114 §3.1).
     protocols: protocols_module.Protocols = .{},
     /// TCP connections the pool holds at most: from 1 to `constants.limits.pool_tcp_connections_max`

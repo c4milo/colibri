@@ -5,11 +5,20 @@ re-arguing the trade, not just editing the code. The README states what colibri 
 states why colibri does nothing more.
 
 Entries marked **owner** are waiting on a ruling and are not settled. Everything else is settled
-and is re-argued, not edited.
+and is re-argued, not edited. A later ruling changes a decision in one of three ways, and the
+words below name which:
+
+- **Amended**: a dated paragraph inside the decision, or a later decision that says it amends
+  this one, changes part of the ruling. The rest stands.
+- **Reversed**: a later decision rules the opposite, and the title says so.
+- **Adopted**: the decision was taken during a build step, before the owner ruled on it. It
+  stands until the owner overrules it.
+
+Each decision has an anchor, such as `decisions.md#decision-94`.
 
 ## Scope and shape
 
-1. **One library for h2 and h3, not two in one repository.** Cost: a module graph that has to be
+1. <a id="decision-1"></a>**One library for h2 and h3, not two in one repository.** Cost: a module graph that has to be
    defended, and a build that must prove the boundaries rather than assert them (§3 of
    docs/design.md). Gain: the code both protocols share — the Huffman coder, the prefixed
    integer codec, the RFC 9110 semantics core, the field validators, and every harness — is
@@ -22,7 +31,8 @@ and is re-argued, not edited.
    restating them. Two libraries would copy both, and two copies of a 257-symbol code table diverge
    over time.
 
-2. **No HTTP/1.1.** Cost: colibri cannot serve or speak to an h1 peer, and a consumer that needs
+2. <a id="decision-2"></a>**No HTTP/1.1. Reversed by [decision 88](#decision-88) on 2026-09-24:
+   colibri builds h11.** Cost: colibri cannot serve or speak to an h1 peer, and a consumer that needs
    one keeps whatever it already has. Gain: the whole of RFC 9112 stays out — the eight-step
    message-body-length precedence of §6.3, the chunked decoder of §7.1, `obs-fold` unfolding
    (§5.2), the whitespace-before-colon rejection of §5.1, the connection-persistence state
@@ -38,7 +48,7 @@ and is re-argued, not edited.
    Entry 88 amends this entry: colibri builds HTTP/1.1 as h11, client and server. The h2c upgrade
    stays out.
 
-3. **QUIC is a module inside colibri, not its own library.** Ruled by the owner on 2026-09-16. A
+3. <a id="decision-3"></a>**QUIC is a module inside colibri, not its own library.** Ruled by the owner on 2026-09-16. A
    module, `src/quic/`, that imports `core`, `wire`, `crypto` and `tls` and nothing else, and that
    may never import `http`, `h2`, `h3`, `hpack` or `qpack`. Cost: colibri's repository carries the
    larger half of the work, and somebody who wants QUIC alone takes an HTTP library to get it.
@@ -55,14 +65,14 @@ and is re-argued, not edited.
    Entry 102 amends this entry: `quic` also imports `qlog`, which imports stdx's `json` and
    `platform` alone (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
 
-4. **Client and server, both, from the first step.** Cost: roughly a third more state machine —
+4. <a id="decision-4"></a>**Client and server, both, from the first step.** Cost: roughly a third more state machine —
    stream-id parity in both directions (RFC 9113 §5.1.1), the two connection prefaces (§3.4),
    and both halves of every settings exchange. Gain: the conformance suites are server-side
    (h2spec, h3spec) and the interop runner needs both roles (design §9), so a client-only library
    could not be tested against anything. The server also *is* the product for stompy's `ops-api`
    and `platform-api`; a client-only library would be half a deliverable.
 
-5. **`quic` knows nothing about HTTP.** RFC 9000 defines a transport with streams and no opinion
+5. <a id="decision-5"></a>**`quic` knows nothing about HTTP.** RFC 9000 defines a transport with streams and no opinion
    about payloads. Cost: h3 cannot use a QUIC internal as a shortcut, and anything h3 needs from a
    stream must be expressible in transport terms. Gain: the boundary is the same one the RFCs
    draw, so a rule is only ever in one place, and the QUIC simulator is a transport simulator
@@ -70,7 +80,7 @@ and is re-argued, not edited.
 
 ## What the caller supplies
 
-6. **colibri owns no I/O.** No socket, no descriptor, no `poll`, no thread. The caller reads bytes
+6. <a id="decision-6"></a>**colibri owns no I/O.** No socket, no descriptor, no `poll`, no thread. The caller reads bytes
    and passes them to colibri; colibri writes bytes into storage the caller owns and tells it how
    many. Cost: the caller writes the event loop, and colibri cannot hide a syscall optimization from
    it. Gain: the same code runs under stompy's io_uring plane, under a test harness, and under the
@@ -83,7 +93,7 @@ and is re-argued, not edited.
    can substitute it, and an abstraction colibri defines would be a second one for the caller to
    adapt to.
 
-7. **Time is a value the caller passes, never a clock read.** Every function that needs the current
+7. <a id="decision-7"></a>**Time is a value the caller passes, never a clock read.** Every function that needs the current
    instant takes it as a parameter, typed as nanoseconds since an origin the caller chooses. Cost:
    the parameter appears on functions at every depth — RFC 9002's pseudocode reads `now()` at nine
    sites across five entry points, and the ninth is inside the congestion controller, so the instant
@@ -91,7 +101,7 @@ and is re-argued, not edited.
    deterministic, and a failure found at one seed replays exactly. No source file imports a clock,
    and `tools/lint/determinism.zig` enforces that.
 
-8. **The TLS provider is a caller-supplied vtable with no production implementation in this tree.**
+8. <a id="decision-8"></a>**The TLS provider is a caller-supplied vtable with no production implementation in this tree.**
    Two modes, because the two protocols need different things from TLS, and RFC 9001 §3 is
    explicit about why: QUIC "takes over the responsibilities of the TLS record layer".
    - *Record mode*, for h2: `handshake_read`/`handshake_write`, `encrypt_record`,
@@ -132,9 +142,10 @@ and is re-argued, not edited.
 
    Entry 94 amends this on 2026-09-26: colibri links chapulin, so a user no longer supplies a
    provider. The vtable stays inside colibri, filled by chapulin and by the simulator's null
-   provider, and the gain above, a library that links no TLS stack, is given up.
+   provider, and the gain above, a library that links no TLS stack, is given up. Since decision
+   174, colibri reads chapulin as `stdx.crypto` and pins no chapulin of its own.
 
-9. **Packet protection is a *second* caller-supplied vtable, so the TLS provider never has to carry
+9. <a id="decision-9"></a>**Packet protection is a *second* caller-supplied vtable, so the TLS provider never has to carry
    AES.** Ruled by the owner on 2026-09-16, and amended on 2026-09-19 by entry 48, which keeps
    the second vtable and replaces its members. As first ruled, `crypto.Suite` supplied
    `aead_seal`, `aead_open`, `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract` and
@@ -199,12 +210,13 @@ and is re-argued, not edited.
    first Handshake packet, so the caller still sees a configuration error rather than a peer fault.
    Since entry 48 colibri cannot see what a suite carries, so the rule is now about the one call
    that shows it: a suite that refuses `install_initial_keys` is a configuration error
-   ([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)).
+   ([invariant 25](invariants.md#inv-25)).
 
    Entry 94 amends this on 2026-09-26: colibri links chapulin, so a user no longer supplies this
-   vtable. It stays inside colibri, filled by chapulin and by the simulator's null suite.
+   vtable. It stays inside colibri, filled by chapulin and by the simulator's null suite. Since
+   decision 174, colibri reads chapulin as `stdx.crypto`.
 
-10. **chapulin provides all of colibri's crypto, through colibri's two vtables.** Ruled by the
+10. <a id="decision-10"></a>**chapulin provides all of colibri's crypto, through colibri's two vtables.** Ruled by the
     owner on 2026-09-16. chapulin fills both `tls.Provider` (entry 8) and `crypto.Suite` (entry
     9). colibri's library source never imports chapulin, so the packaged library still links no
     TLS stack and this tree still carries no production implementation of either vtable.
@@ -233,14 +245,15 @@ and is re-argued, not edited.
     `src/testing/` would be a new "Ask before".
 
     Entry 94 amends this on 2026-09-26: the library itself now links chapulin, pinned as a
-    package, and the adapters leave `src/testing/` for the library.
+    package, and the adapters leave `src/testing/` for the library. Decision 174 moved the pin
+    into stdx: colibri reads chapulin as `stdx.crypto`.
 
 ## What is shared between h2 and h3
 
 Entries 11 to 16 are the shared-surface question answered from the RFC text. Three of them
 correct a premise: a piece that looked shared and is not, or looked unshared and is.
 
-11. **The Huffman coder and the prefixed-integer codec are shared, and both are RFC 7541's.**
+11. <a id="decision-11"></a>**The Huffman coder and the prefixed-integer codec are shared, and both are RFC 7541's.**
     RFC 9204 §4.1.2 says the Huffman table of RFC 7541 Appendix B "is used without modification":
     257 symbols, codes of 5 to 30 bits, EOS = 0x3fffffff. One table in `.rodata`, one coder, no
     divergence. The coder also implements the three mandatory decode errors of RFC 7541 §5.2:
@@ -272,7 +285,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     unencoded strings — and the eviction loop is the same shape. The arithmetic is shared; the
     tables are not, which is the next entry.
 
-12. **The static tables and the index address space are not shared, and cannot be.** HPACK's
+12. <a id="decision-12"></a>**The static tables and the index address space are not shared, and cannot be.** HPACK's
     static table has 61 entries numbered from 1 (RFC 7541 Appendix A); QPACK's has 99 numbered
     from 0 (RFC 9204 Appendix A), and RFC 9204 §3.1 states the off-by-one deliberately. Worse
     than different contents: RFC 7541 §2.3.3 fuses static and dynamic into one address space where
@@ -297,7 +310,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     assumes a reliable, ordered byte stream and says nothing about out-of-order delivery — a
     structural assumption, not a syntactic one.
 
-13. **Correction to a premise: flow control is not shared.** The premise was one mechanism carried
+13. <a id="decision-13"></a>**Correction to a premise: flow control is not shared.** The premise was one mechanism carried
     by different frames. The two mechanisms are not the same. h2's flow
     control is a *credit* counter: 31-bit windows, an initial value of 65,535 (RFC 9113 §6.9.2),
     `WINDOW_UPDATE` adding credit, DATA payloads alone consuming it, and a send window that must be
@@ -313,7 +326,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     clearest evidence that the two cannot share one implementation; QUIC has no counterpart, because
     an offset limit needs no retroactive adjustment.
 
-14. **The stream *table* is not shared; a bounded slot pool is.** The candidate was the table and
+14. <a id="decision-14"></a>**The stream *table* is not shared; a bounded slot pool is.** The candidate was the table and
     its id and half-close rules. The rules differ between the protocols: h2 ids are 31-bit with
     client-odd and server-even parity and a closed set of seven states (RFC 9113 §5.1); QUIC ids are
     62-bit with the two low bits encoding initiator and directionality, and separate sending and
@@ -330,7 +343,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     (RFC 9000 §3.2; §21.8 is the exhaustion hazard that rule creates). Same hazard, same structure,
     different rules on top. `core` holds the structure; `h2` and `quic` hold the rules.
 
-15. **The semantics core is shared; the verdicts are not.** RFC 9110 §2.5 says core semantics do not
+15. <a id="decision-15"></a>**The semantics core is shared; the verdicts are not.** RFC 9110 §2.5 says core semantics do not
     change between versions, only their expression on the wire, and colibri draws the module
     boundary there. `src/http/` holds: method as an opaque case-sensitive token (§9.1); status as a
     `u16` in 100..599 with class from the first digit and an unrecognised code treated as the x00 of
@@ -387,7 +400,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     colibri's classification rather than an RFC 9114 rule. A conformant intermediary that forwards
     such a value unchanged is refused too, though only the value's first sender broke the grammar.
 
-16. **No caching, and the conformance bar for RFC 9111 is zero.** RFC 9111 §2 says caching is "an
+16. <a id="decision-16"></a>**No caching, and the conformance bar for RFC 9111 is zero.** RFC 9111 §2 says caching is "an
     entirely OPTIONAL feature of HTTP", every normative requirement in its §3 and §4 is scoped to
     the subject "a cache", and the single requirement binding a non-cache — §5.2, pass cache
     directives through in forwarded messages — binds *proxies*. colibri is neither. Cost: a
@@ -405,7 +418,7 @@ Each of the eight is a no with a reason, and each records what saying no still c
 because a refused feature still imposes obligations on the wire. A ninth, decision 118 on
 middleware, was reversed by decision 127 and stays here as a record.
 
-17. **Server push: no.** It is optional in both protocols. Cost of refusing, h2: a client must send
+17. <a id="decision-17"></a>**Server push: no.** It is optional in both protocols. Cost of refusing, h2: a client must send
     `SETTINGS_ENABLE_PUSH` (0x02) with value 0, because its initial value is 1 (RFC 9113 §6.5.2) and
     an endpoint that sends no such setting permits push; and until the peer's SETTINGS ACK arrives a
     `PUSH_PROMISE` may legally arrive, which cannot simply be dropped — it reserves a stream, its
@@ -422,7 +435,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     h2c Upgrade mechanism, not push. colibri's reason is "optional and unused", and writing
     "deprecated" would be a citation nobody can check.
 
-18. **Priorities: no to scheduling, yes to the mandatory parsing.** RFC 9113 §5.3.2 deprecates RFC
+18. <a id="decision-18"></a>**Priorities: no to scheduling, yes to the mandatory parsing.** RFC 9113 §5.3.2 deprecates RFC
     7540's priority signalling but deliberately keeps the frame syntax and some of its mandatory
     handling for interoperability, so colibri still owes all of: accept `PRIORITY` (0x02) in every
     stream state including idle and closed; a stream error of `FRAME_SIZE_ERROR` when its length is
@@ -440,7 +453,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     that without adopting 9218's scheme, and colibri does not send it today — its preface carries
     the six settings of RFC 9113 §6.5.2 alone. §2.1 permits that without adopting 9218's scheme.
 
-19. **Extended CONNECT: no.** `SETTINGS_ENABLE_CONNECT_PROTOCOL` is identifier 0x08 with initial
+19. <a id="decision-19"></a>**Extended CONNECT: no.** `SETTINGS_ENABLE_CONNECT_PROTOCOL` is identifier 0x08 with initial
     value 0 (RFC 8441 §9.1), and a client may use extended CONNECT only on receipt of value 1 (§3).
     Refusing is pure omission. What a non-supporting endpoint must still do is specified, and
     colibri needs no extra code for it: an unexpected `:protocol` is an undefined pseudo-header,
@@ -453,7 +466,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     define extended CONNECT. The document that does is outside the set colibri read, so this entry
     cites no section for it and colibri's h3 side treats `:protocol` as undefined.
 
-20. **0-RTT: no, in both protocols.** Refusal is the specified default and is expressed by
+20. <a id="decision-20"></a>**0-RTT: no, in both protocols.** Refusal is the specified default and is expressed by
     omission: a server omits the `early_data` extension from its NewSessionTicket (RFC 9001
     §4.6.1) and, mid-handshake, omits it from EncryptedExtensions (§4.6.2). Two structural
     reasons make this more than a scope cut. RFC 9001 §5.6 says a client MUST NOT use 0-RTT for
@@ -467,7 +480,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     Saying no also deletes the stream-state rollback a client must perform when a server rejects
     0-RTT (RFC 9001 §4.6.2), which is a path colibri would otherwise have to implement and test.
 
-21. **Connection migration: no to initiating it and no to accepting it — and this is the smallest
+21. <a id="decision-21"></a>**Connection migration: no to initiating it and no to accepting it — and this is the smallest
     saving of the seven.** The mechanism is the `disable_active_migration` transport parameter,
     identifier 0x0c with a zero-length value (RFC 9000 §18.2). It refuses exactly one thing: the
     peer using a *new local address* when sending to the address colibri used during the handshake.
@@ -497,7 +510,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     `disable_active_migration`, because RFC 9000 §9 exempts migration following a preferred
     address, so sending both permits the migration `disable_active_migration` refuses.
 
-22. **HTTP datagrams: no, at the QUIC layer.** `max_datagram_frame_size` is transport parameter 0x20
+22. <a id="decision-22"></a>**HTTP datagrams: no, at the QUIC layer.** `max_datagram_frame_size` is transport parameter 0x20
     with default 0, and 0 means the endpoint does not support DATAGRAM frames (RFC 9221 §3). Omit it
     and a conformant peer will not send one. The only wire obligation is the error case, and it is
     easy to get wrong: receiving a DATAGRAM frame without having advertised support must terminate
@@ -513,7 +526,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     Scope note: this covers the QUIC extension only. The HTTP-layer datagram binding is a separate
     document colibri has not read, and this entry makes no claim about it.
 
-23. **Multipath: no, and there is nothing to decline.** RFC 9000 is single-path by construction —
+23. <a id="decision-23"></a>**Multipath: no, and there is nothing to decline.** RFC 9000 is single-path by construction —
     §9.3 chooses the active path by the highest-numbered non-probing packet, one integer of state.
     Multipath is an extension defined outside the set colibri read, and RFC 9000 §7.4.2 says the
     absence of a transport parameter disables any optional feature negotiated by it, so the
@@ -521,7 +534,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     transport-parameter identifiers of the form 31*N+27 (§18.1), which exist to exercise
     that ignore path — and colibri tests it rather than assuming it.
 
-118. **Middleware: no.** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
+118. <a id="decision-118"></a>**Middleware: no. Reversed by [decision 127](#decision-127).** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
      compile-time chain of middleware, global and for each route. colibri's two middleware for
      content codings, `server.middleware.decode_request` and `encode_response`, are design §8 step
      25.7, which waits for https://github.com/c4milo/stdx/issues/21. The ruling below is the record
@@ -539,7 +552,7 @@ middleware, was reversed by decision 127 and stays here as a record.
      Cost of refusing: nothing on the wire. A program writes in its own loop what it would have
      put in middleware.
 
-148. **Prague congestion control: no.** Ruled by the owner on 2026-11-04, during
+148. <a id="decision-148"></a>**Prague congestion control: no.** Ruled by the owner on 2026-11-04, during
      https://github.com/c4milo/colibri/issues/123. Prague is the scalable controller of L4S, after
      DCTCP. Its one document is draft-briscoe-iccrg-prague-congestion-control-04 of July 2024, an
      individual draft for Experimental status, which expired in January 2025. Its authors write
@@ -553,12 +566,12 @@ middleware, was reversed by decision 127 and stays here as a record.
 
 ## Correctness
 
-24. **Reading the RFC is not evidence.** Every step in the build plan names which of the five
+24. <a id="decision-24"></a>**Reading the RFC is not evidence.** Every step in the build plan names which of the five
     checks proves it, and a step with no check is not a step. The five are the golden corpus,
     published test vectors, the conformance suites, interop against real stacks, and the
     deterministic simulator — with fuzzing over every parser and mutation over every test.
 
-25. **Published vectors before invented ones.** HPACK and the h2 frame layer both have published
+25. <a id="decision-25"></a>**Published vectors before invented ones.** HPACK and the h2 frame layer both have published
     corpora and colibri uses them rather than writing its own: `http2jp/hpack-test-case` and
     `http2jp/http2-frame-test-case`. **Correction worth recording:** there is no
     `httpwg/hpack-test-case`; that path does not exist, and the canonical repository is
@@ -573,13 +586,13 @@ middleware, was reversed by decision 127 and stays here as a record.
     encodings inside the RFC itself, and RFC 9001 Appendix A carries sample packet protection —
     both are corpus cases in `src/golden/` on the first commit of their step.
 
-26. **The golden corpus is exact bytes with a manifest**, in the layout stompy's `src/golden/`
+26. <a id="decision-26"></a>**The golden corpus is exact bytes with a manifest**, in the layout stompy's `src/golden/`
     uses: one directory per format, one file per case, and a manifest line per file naming its
     length, its checksum, its expected verdict and the parameters it was built from. Valid and
     invalid cases both, because a parser that accepts everything passes a valid-only corpus.
     `zig build golden` regenerates and refuses a directory carrying a `FROZEN` marker.
 
-27. **Conformance suites are checks, and their versions are pinned.** h2spec for the h2 server,
+27. <a id="decision-27"></a>**Conformance suites are checks, and their versions are pinned.** h2spec for the h2 server,
     h3spec for the h3 server. Both need a test-only server entry point, which design §9 names, and
     their maturity is not equal: h2spec has 147 cases but is written against RFC 7540 and 7541
     rather than 9113, with its last release in 2020 — so its version is pinned and a disagreement is
@@ -587,7 +600,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     cases and error cases only, with no happy path and no flow control, but it is the better
     maintained of the two. Neither is sufficient alone, so entry 28 adds interop testing.
 
-28. **Interop against real stacks, both directions, is the bar for h3.** The QUIC Interop Runner's
+28. <a id="decision-28"></a>**Interop against real stacks, both directions, is the bar for h3.** The QUIC Interop Runner's
     matrix is the standard, and joining it is a design constraint rather than a later chore: an
     endpoint implements a Docker contract reading `ROLE`, `TESTCASE` and `REQUESTS`, serving `/www`
     on port 443, writing to `/downloads`, emitting a keylog and qlog — and **exiting 127 for any
@@ -596,12 +609,12 @@ middleware, was reversed by decision 127 and stays here as a record.
     ALPN `hq-interop`, so that ALPN is a test-only entry point too. For h2 the equivalent is
     nghttp2, curl, Go's `net/http2` and h2o, in both directions.
 
-29. **Fuzz every parser, and every check is seeded.** A parser is anything that reads peer bytes:
+29. <a id="decision-29"></a>**Fuzz every parser, and every check is seeded.** A parser is anything that reads peer bytes:
     the frame readers, the packet reader, HPACK, QPACK, the varint and prefixed-integer decoders,
     the field validators, the transport-parameter reader. Every property function lives in the file
     it tests, with the shared harness in `src/core/fuzz.zig`.
 
-30. **The deterministic simulator is the check that the others cannot be.** Seeded connection
+30. <a id="decision-30"></a>**The deterministic simulator is the check that the others cannot be.** Seeded connection
     state, flow control, loss, reordering and recovery, with byte-identical replay across hosts
     and build modes as the pass condition. It is built before the protocol it drives (CLAUDE.md
     non-negotiable 7), which is possible only because entries 6, 7 and 8 made I/O, time and crypto
@@ -618,7 +631,7 @@ middleware, was reversed by decision 127 and stays here as a record.
 
 ## Performance
 
-31. **The workload colibri intends to win is many short connections with small requests and high
+31. <a id="decision-31"></a>**The workload colibri intends to win is many short connections with small requests and high
     connection churn**, not single-stream bulk throughput. Handshake cost and per-connection
     memory dominate there. colibri states where it expects to win, where it expects only to match,
     and where it expects to lose, and reports all three:
@@ -651,13 +664,13 @@ middleware, was reversed by decision 127 and stays here as a record.
     public. Publishing a rigorous one is a contribution nobody has made, and it is a stronger
     position than a throughput claim colibri would lose.
 
-32. **Real numbers come from Linux, and the machine is written down beside them.** io_uring,
+32. <a id="decision-32"></a>**Real numbers come from Linux, and the machine is written down beside them.** io_uring,
     UDP_SEGMENT, UDP_GRO, `sendmmsg`, SO_REUSEPORT and ECN handling are Linux mechanisms, and a
     number measured on the development Mac predicts nothing about them. Cost: the bench does not
     run in the inner loop. Gain: colibri never publishes a number that is an artifact of the wrong
     kernel. macOS runs the simulator, the corpus and the unit tests, which need no kernel at all.
 
-33. **The method is fixed before the first measurement, so the numbers cannot be shaped later.**
+33. <a id="decision-33"></a>**The method is fixed before the first measurement, so the numbers cannot be shaped later.**
     Pinned cores and a fixed governor; warmup discarded; at least five runs reported as median with
     spread, never a best-of; the A/B against the competitor in the same session on the same kernel;
     and the machine, the kernel, the certificate type, the cipher suite and the socket buffer sizes
@@ -694,7 +707,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     as first written and costs a machine to keep; and both, the N2 runner now and a dedicated
     machine for published numbers later.
 
-34. **The regression check has two layers.** It was ruled when there was no CI here; entry 47
+34. <a id="decision-34"></a>**The regression check has two layers.** It was ruled when there was no CI here; entry 47
     adds one and keeps both layers. The cheap layer runs
     inside the deterministic simulator and does not vary between runs: counted syscalls, copies
     and bytes per request, committed as exact numbers that a diff has to change on purpose.
@@ -710,7 +723,7 @@ middleware, was reversed by decision 127 and stays here as a record.
 
 Entry 35 was ruled after entries 1 to 34 were numbered, so it takes the next number.
 
-35. **colibri is zero heap.** Ruled by the owner on 2026-09-16. There is no `Allocator` anywhere in
+35. <a id="decision-35"></a>**colibri is zero heap.** Ruled by the owner on 2026-09-16. There is no `Allocator` anywhere in
     `src/`: no parameter, no field, no `std.heap`, and no test that allocates. The caller owns
     every connection struct and every buffer, and places each one where it chooses: static
     storage, its own arena, or memory it mapped. colibri exposes their sizes as comptime
@@ -767,7 +780,7 @@ Entry 35 was ruled after entries 1 to 34 were numbered, so it takes the next num
 
 Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next number.
 
-36. **colibri's developer tooling comes from pepegrillo, a Zig package pinned by hash.** Ruled by
+36. <a id="decision-36"></a>**colibri's developer tooling comes from pepegrillo, a Zig package pinned by hash.** Ruled by
     the owner on 2026-09-16. The lint driver and its generic rules, the cognitive-complexity
     scorer, the commit-message linter and the pre-push hook are in
     [github.com/c4milo/pepegrillo](https://github.com/c4milo/pepegrillo). `build.zig.zon` names it
@@ -792,7 +805,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 ## The simulator
 
-37. **The checks and the `zig build sim` command line are a module of their own, `sim_run`, rooted
+37. <a id="decision-37"></a>**The checks and the `zig build sim` command line are a module of their own, `sim_run`, rooted
     at `src/sim/run.zig`.** Ruled by the owner on 2026-09-16. A check drives a protocol module
     through the harness, so some module must import both `sim` and the module under test, and that
     is a new edge in the §3 graph. `sim_run` takes it: `core`, `wire` and `sim` at step 2, and each
@@ -807,7 +820,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     line with no home. Cost: `src/sim/run_main.zig` reads arguments and writes to the terminal, so
     `tools/lint/io.zig` exempts that one file by path.
 
-38. **Published vectors are vendored as the files their authors published, and a tool reads
+38. <a id="decision-38"></a>**Published vectors are vendored as the files their authors published, and a tool reads
     them.** Ruled by the owner on 2026-09-16 for `http2jp/hpack-test-case`, 478 JSON stories of
     66 MB, about 3 MB packed, at `src/hpack/hpack-test-case/` with its commit and license in
     `COLIBRI.md`. The library is zero heap (decision 35) and `std.json` allocates, so the module's
@@ -822,7 +835,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 ## The h2 connection
 
-39. **The connection consumes one frame per call and returns what it produced.** Design §4.1 has the
+39. <a id="decision-39"></a>**The connection consumes one frame per call and returns what it produced.** Design §4.1 has the
     caller hand colibri the bytes it read and learn how many were consumed. `receive` takes a slice
     and an instant, consumes at most one whole frame, and returns the count consumed and at most one
     event: a field section, a data payload, a stream reset, a GOAWAY, an acknowledged PING or
@@ -864,7 +877,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Cost: one check of the reply queue before each frame the server writes, which finds it empty
     in the common case.
 
-40. **A field block is decoded fragment by fragment, and the connection holds one partial
+40. <a id="decision-40"></a>**A field block is decoded fragment by fragment, and the connection holds one partial
     representation, never a whole block.** RFC 9113 §4.3 delivers a field block as a HEADERS or
     PUSH_PROMISE frame and any number of CONTINUATION frames, contiguous on the connection. Each
     fragment is fed to the HPACK decoder as it arrives, which reads every representation the
@@ -892,7 +905,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     still all-or-nothing per representation. A reader that resumes inside a representation would
     remove the buffer too, but it would replace that reader, and it was not chosen.
 
-41. **h2spec's two self-dependency cases are skipped, because RFC 9113 is the authority.** Ruled by
+41. <a id="decision-41"></a>**h2spec's two self-dependency cases are skipped, because RFC 9113 is the authority.** Ruled by
     the owner on 2026-09-18. h2spec 2.6.0 runs `http2/5.3.1/1` and `/2`, which send a HEADERS frame
     and a PRIORITY frame whose stream depends on itself and require a stream error of
     PROTOCOL_ERROR. That rule is RFC 7540 §5.3.1. RFC 9113 obsoletes RFC 7540, §5.3.2 drops the
@@ -907,7 +920,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     that h2spec never prints 146 of 146; `tools/h2spec.sh` names the two cases and fails if any
     other case fails.
 
-42. **A client accepts any number of interim responses, with no limit of colibri's own.** Ruled by
+42. <a id="decision-42"></a>**A client accepts any number of interim responses, with no limit of colibri's own.** Ruled by
     the owner on 2026-09-18. RFC 9113 §8.1 lets a server send any number of interim responses
     before the final one, and colibri holds none of them: each 1xx field section is decoded into
     the one field-block slot, returned to the caller as an event, and the slot is reused. Nothing
@@ -920,7 +933,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     RST_STREAM frames colibri sends and does not cover this. The ruling is "for now": a limit
     remains available if a peer is ever seen to abuse it.
 
-43. **The record-mode vtable carries `negotiated_parameters`, an eleventh member.** Ruled by the
+43. <a id="decision-43"></a>**The record-mode vtable carries `negotiated_parameters`, an eleventh member.** Ruled by the
     owner on 2026-09-18, amending entry 8. The member returns the version and cipher suite
     codepoints the handshake selected, or null before it has them. RFC 9113 §9.2 puts a MUST on
     implementations of HTTP/2 to use TLS 1.2 or higher, and colibri is the implementation that
@@ -939,7 +952,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     1.3, where §9.2.3's one rule is that a post-handshake CertificateRequest is a connection error
     of PROTOCOL_ERROR, which `decrypt_record`'s `Content` already carries.
 
-44. **The provider is an optional field on `h2.Connection`.** Ruled by the owner on 2026-09-18.
+44. <a id="decision-44"></a>**The provider is an optional field on `h2.Connection`.** Ruled by the owner on 2026-09-18.
     A connection with no provider is the cleartext prior-knowledge endpoint step 4 built and
     h2spec checks, so `init` keeps working unchanged and the simulator's cleartext check keeps the
     census it committed. A connection with one runs h2 over TLS.
@@ -954,7 +967,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     after TLS completes, so there is no HTTP/2 connection to send one on. RFC 7301 §3.2 makes it
     the provider's fatal `no_application_protocol` alert, value 120.
 
-45. **colibri admits TLS 1.3 alone, and three cipher suites.** Ruled by the owner on 2026-09-18.
+45. <a id="decision-45"></a>**colibri admits TLS 1.3 alone, and three cipher suites.** Ruled by the owner on 2026-09-18.
     The negotiated version must be 0x0304, and the suite must be one of TLS_AES_128_GCM_SHA256,
     TLS_AES_256_GCM_SHA384 or TLS_CHACHA20_POLY1305_SHA256 (RFC 9846 Appendix B.4). These are the
     three RFC 9846 §9.1 names: a compliant application MUST implement the first and SHOULD
@@ -974,7 +987,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     TLS 1.3 codepoints in the RFC itself. The narrower rule is both safer and the only one this
     repository can source.
 
-46. **Every endpoint in `src/testing/` does its I/O without blocking.** Ruled by the owner on
+46. <a id="decision-46"></a>**Every endpoint in `src/testing/` does its I/O without blocking.** Ruled by the owner on
     2026-09-19: the checks must show that colibri works under non-blocking I/O and uses the
     processor well, because that is how a consumer will run it. A test-only endpoint holds its
     connections in a fixed array, waits on all of them in one `poll` call, and makes no other call
@@ -1003,7 +1016,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     direction alone. Gain: the client that exists is the one the TLS provider will sit under, so
     no harness is written twice.
 
-47. **Every check runs on each push to main, and the run leaves a report.** Ruled by the owner on
+47. <a id="decision-47"></a>**Every check runs on each push to main, and the run leaves a report.** Ruled by the owner on
     2026-09-19, to spot regressions in interoperability and performance. This amends the premise
     of entry 34, "there is no CI here"; its two layers stay. `.github/workflows/ci.yml` installs
     Zig, h2spec and h2load, each pinned by checksum, and runs `tools/ci.sh`, which a person can run
@@ -1144,7 +1157,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - The weekly jobs and the nightly job do not run on a pull request.
     - A rule of the repository, and not this workflow, makes the two jobs required for a merge.
 
-48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
+48. <a id="decision-48"></a>**The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three
     encryption levels colibri uses (RFC 9001 §4.1.4, less 0-RTT, which entry 20 rules out):
@@ -1184,7 +1197,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     writes `seal` and `open` around its own AEAD, which is more work than five primitives were.
     The interop runner's keylog (design §9) must come from the provider, because colibri has
     nothing to log. Gain: colibri holds no secret in either mode
-    ([invariant 23](invariants.md#inv-23--colibri-holds-no-secret)).
+    ([invariant 23](invariants.md#inv-23)).
 
     Two alternatives lost. Entry 9's five primitives need the secrets out of the provider, which
     chapulin refuses, and would put §9.5's obligation in a library with no way to check it. One
@@ -1193,9 +1206,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     exists.
 
     Entry 94 amends this on 2026-09-26: chapulin fills the suite inside the library. Every rule
-    above stands, and colibri still holds no key.
+    above stands, and colibri still holds no key. Since decision 174, colibri reads chapulin as
+    `stdx.crypto`.
 
-49. **colibri auto-tunes its flow control receive window.** Ruled by the owner on 2026-09-19,
+49. <a id="decision-49"></a>**colibri auto-tunes its flow control receive window.** Ruled by the owner on 2026-09-19,
     after the first flow control landed with a fixed window and the cost was put to him. A fixed
     window caps one stream at `window / round trip` whatever the path can carry — a megabyte at
     a hundred milliseconds is about ten megabytes a second, on any link — because a sender that
@@ -1220,7 +1234,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Cost: two more numbers per receiver and a growth rule that a test must pin, and a window
     that no longer has one size a reader can predict from a transport parameter. Against
-    [decision 35](decisions.md#memory) the cap is what bounds the memory, so it is a named limit
+    [decision 35](decisions.md#decision-35) the cap is what bounds the memory, so it is a named limit
     like any other and a connection's worst case is still a comptime number. Gain: throughput
     that follows the path rather than the initial parameter, which is the one place §11.1's
     workload does not protect colibri — a short connection never reaches the window, but the
@@ -1270,7 +1284,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       get at most one reserve while a piece is held, less what they consumed since the last
       MAX_DATA, and possibly none.
 
-50. **Where RFC 9002 disagrees with itself about the round trip variation, colibri follows
+50. <a id="decision-50"></a>**Where RFC 9002 disagrees with itself about the round trip variation, colibri follows
     Appendix A.7.** This is design §12 question 4, which step 10 was required to settle in writing
     and pin with a test.
 
@@ -1311,7 +1325,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     rejected because the appendix is the algorithm and because the error it makes when it is wrong
     is a spurious probe rather than a late one.
 
-51. **h2 and h3 share their message validation through `http`, and each names its own errors.**
+51. <a id="decision-51"></a>**h2 and h3 share their message validation through `http`, and each names its own errors.**
     Ruled by the owner on 2026-09-20, answering design §12 question 6.
 
     RFC 9114 §4.1 to §4.3 restates most of RFC 9113 §8. The checks are the same: the
@@ -1360,7 +1374,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     call h2's code adds an `h3` to `h2` edge that design §3 does not have, and every check would
     cite RFC 9113 while running for h3, which non-negotiable 9 forbids.
 
-52. **I/O stays outside colibri, and the test endpoints keep their own loops for now.** Ruled by
+52. <a id="decision-52"></a>**I/O stays outside colibri, and the test endpoints keep their own loops for now.** Ruled by
     the owner on 2026-09-20, and amended on 2026-09-22 by entry 58, which adopts Rotor for the UDP
     endpoints.
 
@@ -1383,7 +1397,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     CLAUDE.md's "Ask before" covers.
 
 
-53. **colibri reads RFC 9846, not RFC 8446, and re-cited all 158 citations against the revision
+53. <a id="decision-53"></a>**colibri reads RFC 9846, not RFC 8446, and re-cited all 158 citations against the revision
     rather than renumbering them by hand.** Ruled by the owner on 2026-09-20.
 
     RFC 9846 is the July 2026 revision of TLS 1.3. It obsoletes RFC 8446, keeps the same version
@@ -1425,7 +1439,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     `tools/tls_handshake.sh ../chapulin` still prints `complete alpn=h2 version=0x0304
     suite=0x1303`.
 
-54. **The four choices RFC 9000 and RFC 9001 leave to a sender, ruled together.** Ruled by the
+54. <a id="decision-54"></a>**The four choices RFC 9000 and RFC 9001 leave to a sender, ruled together.** Ruled by the
     owner on 2026-09-20, before the send path was written, because each one changes what a
     packet costs and all four would otherwise be settled by whoever typed first.
 
@@ -1459,7 +1473,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     constant says so: 128 risks refusing a Retry from a server that mints something larger, and
     512 buys headroom at the cost of a larger fixed header buffer on every connection.
 
-55. **The Retry token is the caller's to mint and to check, and the instant is a parameter.**
+55. <a id="decision-55"></a>**The Retry token is the caller's to mint and to check, and the instant is a parameter.**
     Ruled by the owner on 2026-09-20, and amended on 2026-09-23: the token carries the two
     connection IDs a server that sent a Retry needs again.
 
@@ -1500,7 +1514,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Connection ID to the first Destination Connection ID. That puts per-Retry state and its expiry
     in every caller, and the token would no longer bind the IDs it vouches for.
 
-56. **One STREAM frame per packet, so a lost packet's stream bytes are one range.** Ruled by the
+56. <a id="decision-56"></a>**One STREAM frame per packet, so a lost packet's stream bytes are one range.** Ruled by the
     owner on 2026-09-22, and amended the same day by entry 57, which replaces its rewind on loss
     and its last paragraph.
 
@@ -1537,7 +1551,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     contract from "hold until consumed" to "hold until acknowledged". Which stream sends next is
     the frame scheduler's, not this entry's.
 
-57. **The caller keeps a stream's unacknowledged bytes, and colibri reads them through a stream
+57. <a id="decision-57"></a>**The caller keeps a stream's unacknowledged bytes, and colibri reads them through a stream
     provider.** Ruled by the owner on 2026-09-22. It amends entry 56: one STREAM frame per packet
     and the flat range on `Record` stand, and this entry replaces the rest.
 
@@ -1609,7 +1623,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     of a loss** by asking for each stream's send offset before every write. That is entry 56 made
     explicit, and it puts resend logic in every caller, where colibri's simulator cannot test it.
 
-58. **Rotor is the loop of `src/testing/`'s UDP endpoints, a third test-only dependency.** Ruled
+58. <a id="decision-58"></a>**Rotor is the loop of `src/testing/`'s UDP endpoints, a third test-only dependency.** Ruled
     by the owner on 2026-09-22. It amends entry 52, which deferred the question to step 9e, and
     entry 63 extends it: the loop reports the instant the endpoints pass to colibri.
 
@@ -1635,7 +1649,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     already measures itself against both, the rows it loses included.
     **`std.Io`'s evented implementations** take an allocator, which decision 46 already refused.
 
-59. **The connection drives RFC 9002's loss recovery.** Ruled by the owner on 2026-09-23.
+59. <a id="decision-59"></a>**The connection drives RFC 9002's loss recovery.** Ruled by the owner on 2026-09-23.
 
     The design said recovery was the caller's to drive, and nothing drove it. A `Connection` holds
     a `Recovery`, but `send` recorded no packet in it, an ACK frame updated only the packet number
@@ -1657,7 +1671,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     was, but it puts the order of RFC 9002's steps in every caller, where the simulator cannot
     check it, and a caller that forgets one breaks recovery with nothing to say so.
 
-60. **One call takes a received datagram.** Ruled by the owner on 2026-09-23, and amended the same
+60. <a id="decision-60"></a>**One call takes a received datagram.** Ruled by the owner on 2026-09-23, and amended the same
     day by entry 62, which has colibri, not the caller, mark each level's keys installed.
 
     Receiving a datagram took seven steps, and no library code ran them. They were: count the
@@ -1680,7 +1694,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     never counts a datagram, then breaks §13.1 or §8.1 with nothing to say so. It is decision 59's
     reasoning, applied to the receive side.
 
-61. **colibri reassembles received stream bytes into a pool the caller places.** Ruled by the
+61. <a id="decision-61"></a>**colibri reassembles received stream bytes into a pool the caller places.** Ruled by the
     owner on 2026-09-23. It settles [#41](https://github.com/c4milo/colibri/issues/41) and
     [#42](https://github.com/c4milo/colibri/issues/42).
 
@@ -1724,7 +1738,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     write into the middle of a list at the full walk; a cap on the blocks past a gap, which an
     honest peer with heavy loss and a large window could reach; and the cost left as it was.
 
-62. **colibri marks each level's keys installed, reading them from the suite, before the next
+62. <a id="decision-62"></a>**colibri marks each level's keys installed, reading them from the suite, before the next
     packet.** Ruled by the owner on 2026-09-23. It amends entry 60 and settles
     [#45](https://github.com/c4milo/colibri/issues/45).
 
@@ -1755,7 +1769,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     limit unless a second entry point skipped the count. Leaving it costs every handshake at least
     one round trip.
 
-63. **The test-only UDP endpoints take the instant from Rotor's loop.** Ruled by the owner on
+63. <a id="decision-63"></a>**The test-only UDP endpoints take the instant from Rotor's loop.** Ruled by the owner on
     2026-09-23. It extends entry 58 and leaves entry 7 as it stands.
 
     A QUIC endpoint on a real network needs the current instant for RTT estimates, loss recovery,
@@ -1778,7 +1792,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     PATH_CHALLENGE data must be unpredictable. So `determinism` no longer reads `src/testing/`,
     and `testing-clock` holds it to this entry's clock rule alone.
 
-64. **A PTO at the Initial or Handshake level declares that level's packets in flight lost, so its
+64. <a id="decision-64"></a>**A PTO at the Initial or Handshake level declares that level's packets in flight lost, so its
     probe carries their CRYPTO bytes.** Ruled by the owner on 2026-09-23. It keeps entry 57's rule
     that no byte is in two packets at once, and settles the QUIC Interop Runner's handshake loss
     case.
@@ -1823,7 +1837,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       frames the bytes again. A single probe, such as decision 70's in another space, and a
       flight longer than one packet, whose second probe carries the next bytes, are as before.
 
-65. **A server whose client shows it lacks the server's Initial CRYPTO bytes sends them again at
+65. <a id="decision-65"></a>**A server whose client shows it lacks the server's Initial CRYPTO bytes sends them again at
     once, at most twice per connection.** Ruled by the owner on 2026-09-23. It takes RFC 9002
     §6.2.3's option to speed up handshake completion, and moves the bytes as entry 64 does.
 
@@ -1859,7 +1873,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Decision 71 amends this entry: the second resend waits until one PTO has passed since the
     first.
 
-66. **A PTO at the application level declares the oldest ack-eliciting packets in flight lost, as
+66. <a id="decision-66"></a>**A PTO at the application level declares the oldest ack-eliciting packets in flight lost, as
     many as the probes it owes, so the probes carry what those packets held.** Ruled by the owner
     on 2026-09-23. It extends entry 64 to the application level with a bound.
 
@@ -1879,7 +1893,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     only slow most of it arrives twice. Leaving PING probes keeps a lost request waiting on an
     acknowledgment that may be lost as well.
 
-67. **TLA+ specifications, checked by the TLC model checker, check the designs colibri's protocol
+67. <a id="decision-67"></a>**TLA+ specifications, checked by the TLC model checker, check the designs colibri's protocol
     decisions rule.** Ruled by the owner on 2026-09-23, and amended the same day: the runner lives
     in pepegrillo and the models in `spec/tla/`. TLC is the fourth tool colibri takes from outside,
     beside chapulin, pepegrillo and Rotor, and like them the library never links it.
@@ -1937,7 +1951,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Cost: a change that breaks a model, or a trace check, fails the next nightly run and not its
     push. Gain: the push job spends no time in TLC, and one job holds every TLC run.
 
-68. **A caller says, with two flags, whether it reads received ECN codepoints and whether it sets
+68. <a id="decision-68"></a>**A caller says, with two flags, whether it reads received ECN codepoints and whether it sets
     them on what it sends.** Ruled by the owner on 2026-09-24.
 
     RFC 9000 §13.4 splits ECN into two halves, and each needs something only a socket has.
@@ -1957,7 +1971,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: one flag for both halves. A caller whose socket can do only one half
     would then get neither, though the RFC treats the two as separate.
 
-69. **An endpoint with `ecn_marks` tests a path with its first ten marked packets or three PTOs,
+69. <a id="decision-69"></a>**An endpoint with `ecn_marks` tests a path with its first ten marked packets or three PTOs,
     whichever ends first, as RFC 9000 Appendix A.4 describes.** Ruled by the owner on 2026-09-24.
 
     Decision 68 marked every datagram until §13.4.2.1's count checks failed. A path that drops
@@ -1988,7 +2002,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       endpoint mark such a path failed; here it stays unknown, which sends the same Not-ECT and
       still becomes capable if a late acknowledgment shows a marked packet arrived.
 
-70. **A PTO also probes every other packet number space that has ack-eliciting packets in
+70. <a id="decision-70"></a>**A PTO also probes every other packet number space that has ack-eliciting packets in
     flight, one packet each, coalesced into the same datagram when it fits.** Ruled by the owner
     on 2026-09-24. It takes RFC 9002 §6.2.4's SHOULD, which colibri had not.
 
@@ -2013,7 +2027,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: probing only the space whose timer expired, which is what colibri
     did, and which leaves the peer holding packets it has no keys for.
 
-71. **Decision 65's second early resend waits until one PTO has passed since the first.** Ruled by
+71. <a id="decision-71"></a>**Decision 65's second early resend waits until one PTO has passed since the first.** Ruled by
     the owner on 2026-09-24. It amends entry 65.
 
     A client whose PTO fires sends two probes at once (RFC 9002 §6.2.4), and each is an Initial
@@ -2030,7 +2044,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Resends as entry 65 had them: one burst of loss can take both.
     - A limit of one resend: RFC 9002 §6.2.3's example, which entry 65 already refused.
 
-72. **The caller names the peer address each datagram came from, and colibri decides when the path
+72. <a id="decision-72"></a>**The caller names the peer address each datagram came from, and colibri decides when the path
     moves.** Ruled by the owner on 2026-09-24. It carries out what entry 21 requires of an endpoint
     that refuses migration: RFC 9000 §9's rules for a peer whose address changes anyway, as NAT
     rebinding does.
@@ -2082,7 +2096,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     ACK and was lost, a client whose window that ACK would have freed could not answer the
     resends. The cost is a pause of about one round trip in data on each move.
 
-73. **An endpoint that sends only ACK frames adds a PING about once a round trip, as RFC 9000
+73. <a id="decision-73"></a>**An endpoint that sends only ACK frames adds a PING about once a round trip, as RFC 9000
     §13.2.4 suggests.** Adopted on 2026-09-24, while building decision 72; the owner may overrule
     it.
 
@@ -2123,7 +2137,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     (decision 107). colibri follows RFC 9000 in this case, and the count of two is what TLC
     checks ends the exchange.
 
-74. **The QPACK decoder hands a blocked field section back to the caller unread, and holds the
+74. <a id="decision-74"></a>**The QPACK decoder hands a blocked field section back to the caller unread, and holds the
     decoder instructions it owes until the caller asks for them.** Adopted on 2026-09-24 for
     design §8 step 11; the owner may overrule it.
 
@@ -2171,7 +2185,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     streams can then fill with streams that are ready, and `read_section` returns
     `read_ready_first`, consuming nothing, until the caller reads one.
 
-75. **The QPACK vectors are a lazy Zig package, fetched once and pinned by hash, and a tool
+75. <a id="decision-75"></a>**The QPACK vectors are a lazy Zig package, fetched once and pinned by hash, and a tool
     decodes them in `zig build test`.** Ruled by the owner on 2026-09-24 for design §8 step 11.
 
     `qpackers/qifs` holds six inputs and 529 files six encoders made of them, 119 MB unpacked.
@@ -2196,7 +2210,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A script that fetches the corpus on demand. Entry 38 refused this for HPACK because it takes
       the check out of `zig build test`, and a package keeps it in.
 
-76. **The QPACK encoder inserts before it writes a section, and references only entries that are
+76. <a id="decision-76"></a>**The QPACK encoder inserts before it writes a section, and references only entries that are
     safe to reference.** Adopted on 2026-09-24 for design §8 step 11; the owner may overrule it.
 
     RFC 9204 §2.1 leaves to the encoder what to insert and when to risk a blocked stream.
@@ -2240,8 +2254,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A dynamic name reference in an insert. The static name or a literal name serves, and a
       reference to the dynamic table's own bytes would need a copy before the insert evicts them.
 
-77. **Lean 4 proves the pure arithmetic under colibri's codecs, and vector files tie each proved
-    definition to the Zig function it mirrors.** Ruled by the owner on 2026-09-24, on issue #52:
+77. <a id="decision-77"></a>**Lean 4 proves the pure arithmetic under colibri's codecs, and vector files tie each proved
+    definition to the Zig function it mirrors.** Ruled by the owner on 2026-09-24, on issue [#52](https://github.com/c4milo/colibri/issues/52):
     the Lean toolchain is a dependency, pinned in `spec/lean/lean-toolchain`, built with lake
     through pepegrillo's `lean` tool, with no Mathlib. Entry 67 placed the project in `spec/lean/`.
 
@@ -2268,7 +2282,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       and the Zig code would stop being the one people read and review.
     - Proving the Zig code itself. There is no verifier for Zig.
 
-78. **colibri reports how far a stream's bytes are acknowledged from its start.** Ruled by the
+78. <a id="decision-78"></a>**colibri reports how far a stream's bytes are acknowledged from its start.** Ruled by the
     owner on 2026-09-24, for design §8 step 12. It amends entry 57, which said colibri reports no
     acknowledged prefix.
 
@@ -2295,7 +2309,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       inserting after a fixed budget. It needs nothing from `quic`, but no peer could use a
       dynamic table toward colibri.
 
-79. **h3 keeps the bytes of its own three streams, and the caller keeps every request stream's.**
+79. <a id="decision-79"></a>**h3 keeps the bytes of its own three streams, and the caller keeps every request stream's.**
     Ruled by the owner on 2026-09-24, for design §8 step 12. Entry 57 left the bytes h3 writes
     itself for h3 to settle.
     - The control stream and QPACK's encoder and decoder streams are h3's. It writes them and
@@ -2315,7 +2329,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     hold up to one encoded field section per open stream, `field_section_size_max` bytes each,
     in memory decision 35 counts.
 
-80. **An application may copy a stream's received bytes without reading them, and take them
+80. <a id="decision-80"></a>**An application may copy a stream's received bytes without reading them, and take them
     later.** Adopted on 2026-09-24 for design §8 step 12; the owner may overrule it. It adds to
     entry 61.
 
@@ -2340,7 +2354,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A read that hands out the pool's blocks in place. It saves the copy, but a frame across two
       blocks needs one anyway, and the caller would hold pointers into colibri's pool across calls.
 
-81. **h3 lets the QPACK encoder insert only what the encoder stream's flow-control credit
+81. <a id="decision-81"></a>**h3 lets the QPACK encoder insert only what the encoder stream's flow-control credit
     carries.** Adopted on 2026-09-24 for design §8 step 12; the owner may overrule it. It carries
     out entry 76, whose encoder takes the room of the encoder stream's writer as "the
     flow-control credit §2.1.3 asks the encoder to respect".
@@ -2368,7 +2382,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Hold the insert in the encoder until credit arrives. Entry 76 inserts before it writes the
       section, and a section that references a held entry blocks all the same.
 
-82. **The test-only TLS server drives chapulin's record-mode handshake.** Ruled by the owner on
+82. <a id="decision-82"></a>**The test-only TLS server drives chapulin's record-mode handshake.** Ruled by the owner on
     2026-09-24, for design §8 step 5 and https://github.com/c4milo/colibri/issues/20. Entry 46
     stands: this is the handshake it was waiting for.
 
@@ -2403,7 +2417,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A thread for each handshake, joining the poll set when done. It keeps the loop from waiting,
       at the cost of threads and a pool in a file that has neither.
 
-83. **The h2 endpoints run on Rotor too.** Ruled by the owner on 2026-09-24, for
+83. <a id="decision-83"></a>**The h2 endpoints run on Rotor too.** Ruled by the owner on 2026-09-24, for
     https://github.com/c4milo/colibri/issues/61. It amends entry 58, which kept the h2 endpoints
     on `poll` because moving them "buys nothing".
     - `h2-server`, in cleartext and in its `--tls` mode, runs one Rotor loop per worker, each with
@@ -2426,9 +2440,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: keep `poll` for h2, as entry 58 had it. The h2 endpoints passed
     h2spec and interop on it. The owner chose one loop model over leaving the endpoints on two.
 
-84. **After the TLS provider fails, the suite says where the CONNECTION_CLOSE can go.** Ruled by
+84. <a id="decision-84"></a>**After the TLS provider fails, the suite says where the CONNECTION_CLOSE can go.** Ruled by
     the owner on 2026-09-24, for https://github.com/c4milo/colibri/issues/59. It amends
-    [invariant 21](invariants.md).
+    [invariant 21](invariants.md#inv-21).
 
     RFC 9001 §4.8 owes the peer a CONNECTION_CLOSE when TLS fails. A TLS stack that failed keeps
     only the write keys the close needs, and wipes every read key. chapulin keeps one close per
@@ -2453,7 +2467,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     call for close packets after a failure. It grows entry 48's vtable, and colibri would still
     need to learn which levels the suite no longer holds.
 
-85. **The QUIC object is built `SUITE=aesgcm`, and every chapulin endpoint checks the object
+85. <a id="decision-85"></a>**The QUIC object is built `SUITE=aesgcm`, and every chapulin endpoint checks the object
     against the headers before it starts.** Ruled by the owner on 2026-09-24, relayed by the
     chapulin session, for design §8 step 12's h3spec check.
 
@@ -2476,7 +2490,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: a build option naming the suite, so a ChaCha20-only object still
     links. It keeps two object shapes alive, and only one of them can run h3spec.
 
-86. **colibri exports its ten library modules by name, so a project that depends on it builds
+86. <a id="decision-86"></a>**colibri exports its ten library modules by name, so a project that depends on it builds
     against them.** Ruled by the owner on 2026-09-25, relayed by the cocuyo session.
     - `build/modules.zig` creates `core`, `wire`, `http`, `tls`, `crypto`, `hpack`, `qpack`,
       `quic`, `h2` and `h3` with `b.addModule`. Each carries the imports design §3 gives it, and a
@@ -2495,7 +2509,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     `h11` joined them on 2026-09-25, when design §8 step 15a created it, so eleven are exported.
     `tls` joined them on 2026-09-26, when design §8 step 16b created it, so twelve are.
 
-87. **The simulator's h3 trace run logs every variable of `spec/tla/h3_connection`, and TLC checks
+87. <a id="decision-87"></a>**The simulator's h3 trace run logs every variable of `spec/tla/h3_connection`, and TLC checks
     each seed's log is a behavior of the model.** Ruled by the owner on 2026-09-25, for
     https://github.com/c4milo/colibri/issues/58.
 
@@ -2522,7 +2536,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Check only the flow scope, from the existing h3 check's QPACK counts. The GOAWAY and cancel
       rules would stay checked by the model alone.
 
-88. **colibri builds HTTP/1.1 as h11, client and server.** Ruled by the owner on 2026-09-24 and
+88. <a id="decision-88"></a>**colibri builds HTTP/1.1 as h11, client and server.** Ruled by the owner on 2026-09-24 and
     2026-09-25, for https://github.com/c4milo/colibri/issues/60. It amends entry 2.
     - Both roles, for completeness. The server takes on the request smuggling surface of RFC 9112
       §11.2, so every request-parsing check has a test proved by mutation.
@@ -2576,7 +2590,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - `chunked` removed and the other codings passed to the caller still encoded. It moves the
       decoding into every caller, and the server still needs the caller to accept or refuse.
 
-89. **colibri writes its own decoder for the `gzip` and `deflate` codings, in `src/deflate/`.**
+89. <a id="decision-89"></a>**colibri writes its own decoder for the `gzip` and `deflate` codings, in `src/deflate/`.**
     Ruled by the owner on 2026-09-25, for https://github.com/c4milo/colibri/issues/60.
     - The module holds RFC 1951's inflate, the zlib wrapper of RFC 1950 with its Adler-32 check,
       and the gzip wrapper of RFC 1952 with its CRC-32 check. It imports `core` alone, and `h11`
@@ -2603,7 +2617,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Entry 90 moves this decoder, and the check that proves it, to stdx.
 
-90. **The compression codecs live in stdx, a repository of their own, and colibri imports it.**
+90. <a id="decision-90"></a>**The compression codecs live in stdx, a repository of their own, and colibri imports it.**
     Ruled by the owner on 2026-09-25. It amends entry 89, which put the decoder in `src/deflate/`,
     and entry 35, under which the library imports no package.
     - stdx (https://github.com/c4milo/stdx) holds compression codecs, each with an encoder and a
@@ -2623,7 +2637,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - stdx holding colibri's `core` as well. Every colibri module would change its imports before
       any codec work, and stdx would carry limits that belong to HTTP.
 
-91. **How h11 uses stdx's gzip and deflate decoders.** Ruled by the owner on 2026-09-25, for
+91. <a id="decision-91"></a>**How h11 uses stdx's gzip and deflate decoders.** Ruled by the owner on 2026-09-25, for
     https://github.com/c4milo/colibri/issues/64. It settles what entries 88 and 90 left open.
     - One compression coding at most on a body: `chunked`, plus at most one of `gzip` or
       `deflate`. RFC 9112 §6.1 lets `Transfer-Encoding` list several codings, and colibri knows of
@@ -2673,7 +2687,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     shortens the body deadlines with `set_deadlines`. Refused: a shorter cap on the time of a
     coded body, which would be a new named limit.
 
-92. **How an h11 connection runs.** Ruled by the owner on 2026-09-25, for design §8 step 15b.
+92. <a id="decision-92"></a>**How an h11 connection runs.** Ruled by the owner on 2026-09-25, for design §8 step 15b.
     - colibri writes a server's error responses itself, as h2 writes its own GOAWAY and
       RST_STREAM. The response carries `Connection: close` and no content, and the connection
       closes after it. The statuses:
@@ -2706,7 +2720,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Answering an oversized field section with 400, which RFC 9110 §5.4's "appropriate 4xx"
       allows. 431 tells the client which limit it passed.
 
-93. **h2's `write_request` takes an indexing choice for each field line.** Ruled by the owner on
+93. <a id="decision-93"></a>**h2's `write_request` takes an indexing choice for each field line.** Ruled by the owner on
     2026-09-26, for a caller that sends a DNS query in `:path` (RFC 8484) and must keep it out of
     every table on the path (RFC 7541 §7.1.3).
     - `Request.indexing` holds a choice for each pseudo-header field, and `write_request` takes a
@@ -2724,8 +2738,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Offering `incremental` too. The encoder would have to take back a refused block's inserts,
       which means copying the dynamic table before every request.
 
-94. **colibri links chapulin as its TLS stack and its packet protection.** Ruled by the owner on
+94. <a id="decision-94"></a>**colibri links chapulin as its TLS stack and its packet protection.** Ruled by the owner on
     2026-09-26. It amends non-negotiable 2 and entries 8, 9, 10 and 48.
+
+    **Status: amended by decisions 172, 174 and 175.** The rule that stands: colibri's library links
+    chapulin as its TLS stack and its packet protection, and holds no key. colibri pins no chapulin
+    of its own. It reads chapulin as `stdx.crypto`, from the stdx commit `build.zig.zon` pins, and
+    stdx asks chapulin for its one module (decisions 172 and 174). Each session draws from the
+    random source of the program's `stdx.crypto.Context` (decision 175). The text below records the
+    ruling of 2026-09-26: its pin, its build of chapulin's objects and `RAND=extern` are superseded.
 
     Every user of colibri had to write the code between a TLS stack and colibri's two vtables, and
     that code is where the choices that decide a connection's security are made: whether the
@@ -2875,7 +2896,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     not change. colibri calls each function by its new name, and its own names do not change.
     Design §8 step 16 records each move.
 
-95. **h11 counts body bytes the caller sends from its own buffer.** Ruled by the owner on
+95. <a id="decision-95"></a>**h11 counts body bytes the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.
     - `Connection.count_body(len)` counts `len` bytes against the body the head declared, as
@@ -2899,7 +2920,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     next. A caller that counts one thing and sends another frames the message wrongly, which is
     how request smuggling starts.
 
-96. **`examples/` holds programs a dependent writes, run on Rotor's loop over an in-memory link.**
+96. <a id="decision-96"></a>**`examples/` holds programs a dependent writes, run on Rotor's loop over an in-memory link.**
     Ruled by the owner on 2026-09-26, who asked for examples like chapulin's and for them to use
     Rotor and memory. It amends decision 58, which gave Rotor to `src/testing/` alone.
     - Each example is a program that imports the library modules by the names a dependent uses
@@ -2940,7 +2961,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Bytes passed between the two sides with no loop at all. It is shorter, but it shows no
       program's shape: where the loop, the time and colibri's calls meet.
 
-97. **The library's TLS module is `tls`, and the vtable it fills is `tls_provider`.** Ruled by the
+97. <a id="decision-97"></a>**The library's TLS module is `tls`, and the vtable it fills is `tls_provider`.** Ruled by the
     owner on 2026-09-26, for design §8 step 16b.
     - The module a program imports for TLS and for QUIC's handshake and packet protection is
       `tls`, the name Go's `crypto/tls`, Node's `tls` and Zig's `std.crypto.tls` give theirs. It
@@ -3121,7 +3142,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: the SHA-256 claim on x86-64 from the probe's `sha256` alone. A core
     that hides SSE4.1 and shows the SHA extensions would fault, and no judge measures x86-64.
 
-98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
+98. <a id="decision-98"></a>**h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded bytes reach the
     application.
     - `receive(input, decoded)` takes the buffer, and stdx's decoder writes straight into it. Each
@@ -3148,7 +3169,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Cost: every h11 caller passes a second argument, an empty slice when it places no pool.
 
-99. **colibri's runs of the QUIC Interop Runner count the client's connection attempts as
+99. <a id="decision-99"></a>**colibri's runs of the QUIC Interop Runner count the client's connection attempts as
     handshakes.** Ruled by the owner on 2026-09-27, for
     [#72](https://github.com/c4milo/colibri/issues/72).
 
@@ -3216,7 +3237,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509)
       carries this count, and the patch is its commit.
 
-100. **A version-choosing HTTP client and a server of the same shape, above h11, h2 and h3.**
+100. <a id="decision-100"></a>**A version-choosing HTTP client and a server of the same shape, above h11, h2 and h3.**
      Ruled by the owner on 2026-09-27, for
      [#70](https://github.com/c4milo/colibri/issues/70), which cocuyo asked for.
      - Two library modules, `client` and `server`, for HTTP in general and not for DoH: cocuyo
@@ -3252,7 +3273,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: design §3 gains two modules and the edges into `h11`, `h2`, `h3`, `quic` and `tls`, and
      design §8 step 17 builds them.
 
-101. **The client and server code content with stdx's encoders and decoders.** Ruled by the owner
+101. <a id="decision-101"></a>**The client and server code content with stdx's encoders and decoders.** Ruled by the owner
      on 2026-09-27, for [#70](https://github.com/c4milo/colibri/issues/70). It adds content codings
      (RFC 9110 §8.4) to decision 100's modules.
      - The server's configuration names the codings it may apply, in its order of preference, and
@@ -3342,7 +3363,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A `br` window of 4 MiB, the default of Google's encoder. A server that codes with a larger
        window would have its responses refused.
 
-102. **colibri writes qlog when its caller asks, from the pinned drafts.** Ruled by the owner on
+102. <a id="decision-102"></a>**colibri writes qlog when its caller asks, from the pinned drafts.** Ruled by the owner on
      2026-09-27. The QUIC Interop Runner asks each endpoint for a qlog (entry 28), and colibri's
      had none (design §8 step 9e).
      - `src/qlog/` is a library module that imports `core` alone. `quic` and `h3` import it and
@@ -3447,7 +3468,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the type it aliases, so the type has one name in stdx and in colibri. A program that named
      `Features` names `CpuFeatures`, which is the change the previous amendment refused.
 
-103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
+103. <a id="decision-103"></a>**The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for
      design §8 step 17b and [#70](https://github.com/c4milo/colibri/issues/70).
      - A `server.Endpoint` holds up to a build-time number of QUIC connections. It routes each
@@ -3495,7 +3516,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: over h3, a stream that `body()` writes sends at most about `response_bytes` in each round
      trip, so a program that streams sets a larger `response_bytes`.
 
-104. **An h2 connection model, and a trace check of colibri's h2 against it.** Ruled by the owner
+104. <a id="decision-104"></a>**An h2 connection model, and a trace check of colibri's h2 against it.** Ruled by the owner
      on 2026-09-27, for [#75](https://github.com/c4milo/colibri/issues/75), after c32cabe found that
      h2's `write_data` let a server send DATA before its response's head (RFC 9113 §8.1). It comes
      before design §8 step 17b.
@@ -3520,7 +3541,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: step 17b waits for the h2 check.
 
-105. **A model of the client's exchanges, and a trace check of the client against it.** Ruled by
+105. <a id="decision-105"></a>**A model of the client's exchanges, and a trace check of the client against it.** Ruled by
      the owner on 2026-09-28, for [#70](https://github.com/c4milo/colibri/issues/70), after design
      §8 step 17d's tests found two faults in the client over QUIC. A shut-down connection never
      closed, because it owed a GOAWAY it never sent. A failed connection left each stream holding
@@ -3554,7 +3575,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: step 17d gains a model and a trace run, and step 17b waits longer.
 
-106. **colibri's runs of the QUIC Interop Runner pass a rebinding test's new path once the client
+106. <a id="decision-106"></a>**colibri's runs of the QUIC Interop Runner pass a rebinding test's new path once the client
      answers any PATH_CHALLENGE sent on it.** Ruled by the owner on 2026-09-28, for
      [#78](https://github.com/c4milo/colibri/issues/78).
 
@@ -3574,7 +3595,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        Once it is merged, the pin moves to the merge and the patch goes.
 
      The alternatives refused:
-     - Leave the check as it is, and keep #78 open as a known flake. The rebinding cases then fail
+     - Leave the check as it is, and keep [#78](https://github.com/c4milo/colibri/issues/78) open as a known flake. The rebinding cases then fail
        now and then on paths the client did validate: 1 of the 18 colibri ran in on 2026-09-28,
        and 3 of 12 on 2026-09-27.
      - Send the change upstream without the patch. colibri's runs keep failing until it is merged.
@@ -3582,7 +3603,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: until the upstream change is merged, colibri's runs check a rule the public runner does
      not.
 
-107. **A probe above the Initial level repeats the latest ACK frame.** Adopted on 2026-09-28 for
+107. <a id="decision-107"></a>**A probe above the Initial level repeats the latest ACK frame.** Adopted on 2026-09-28 for
      [#76](https://github.com/c4milo/colibri/issues/76); the owner may overrule it.
 
      RFC 9000 §13.2: "When sending a packet for any reason, an endpoint SHOULD attempt to include
@@ -3616,7 +3637,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Leave probes as they were. A request whose acknowledgments were all lost waits for the
        peer's idle timeout.
 
-108. **QUIC version 2 beside version 1: each packet names its version, and a client switches
+108. <a id="decision-108"></a>**QUIC version 2 beside version 1: each packet names its version, and a client switches
      once.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54). It amends decision 48, and chapulin's
      decision 79 is its other half.
@@ -3650,7 +3671,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Wait for chapulin's callback and build version 2 whole. The client, and a server that
        accepts version 2 from the start, need nothing more from chapulin.
 
-109. **What h11 does with the bytes after a CONNECT or an Upgrade request.** Ruled by the owner on
+109. <a id="decision-109"></a>**What h11 does with the bytes after a CONNECT or an Upgrade request.** Ruled by the owner on
      2026-09-29, after RFC 9931 joined `docs/rfcs/`. It amends decision 92. RFC 9931 §4.1 names
      the hazard: until the answer arrives, the client cannot know whether the server reads what
      follows as HTTP/1.1 or in the new protocol, and a server that reads it as HTTP/1.1 can take a
@@ -3692,7 +3713,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      without one, and otherwise nothing while the server waited for more. The alternatives
      refused: checking the request line's first byte alone, and leaving the scanner as it was.
 
-110. **The server's defences against denial of service: Rapid Reset first, then deadlines.** Ruled
+110. <a id="decision-110"></a>**The server's defences against denial of service: Rapid Reset first, then deadlines.** Ruled
      by the owner on 2026-09-29 for [#82](https://github.com/c4milo/colibri/issues/82), on the
      proposal in that issue. colibri reads no clock, so it closed no connection on time, and h2
      counted no stream the peer reset.
@@ -4037,7 +4058,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          then judge a peer for the round trip in which it waits for its WINDOW_UPDATE, which the
          fourth amendment refused.
 
-111. **A server switches every client that lists version 2, and a client resumes in its ticket's
+111. <a id="decision-111"></a>**A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes
      decision 108.
@@ -4071,7 +4092,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - For the ticket: refusing a ticket of the other version, as step 19b left it, so the caller
        starts without it and runs a full handshake.
 
-112. **The QUIC Interop Runner reports quinn's client in the `v2` case without failing the run.**
+112. <a id="decision-112"></a>**The QUIC Interop Runner reports quinn's client in the `v2` case without failing the run.**
      Ruled by the owner on 2026-09-29, with design §8 step 19e. quinn's client runs the runner's
      `v2` case, but its ClientHello carries no version_information. RFC 9369 §4 requires every
      endpoint that supports version 2 to send it. RFC 9368 §2.3 has a server choose from the
@@ -4088,7 +4109,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The alternatives refused: skipping the pair, and leaving the weekly job red until quinn
      changes.
 
-113. **A RST_STREAM the caller asks for is owed by the stream's record, not queued.** Adopted on
+113. <a id="decision-113"></a>**A RST_STREAM the caller asks for is owed by the stream's record, not queued.** Adopted on
      2026-09-30, after the deadline work of [#82](https://github.com/c4milo/colibri/issues/82)
      found the crash; the owner may overrule it. h2's reply queue asserted a free slot on each
      push, among `stream_replies_max`, 32. The reading checks for one before each frame, but
@@ -4126,7 +4147,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `spec/tla/h2_flow_control` models the caller's resets: the queue stays within its limit with
      the resets on the records, and passes it with the resets queued and no room checked.
 
-114. **No check `tools/ci.sh` runs binds a fixed port: the kernel chooses each one.** Ruled by the
+114. <a id="decision-114"></a>**No check `tools/ci.sh` runs binds a fixed port: the kernel chooses each one.** Ruled by the
      owner on 2026-10-03, for [#94](https://github.com/c4milo/colibri/issues/94). The check
      scripts listened on fixed ports and gave their containers the same names in every run, so
      two runs on one machine collided. Sessions that share a machine held each other for the
@@ -4152,7 +4173,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A range of ports for each worktree. It needs a rule that hands the ranges out, and two
        runs in one worktree still collide.
 
-115. **A type's public functions are the calls a program makes, and a module's root exports the
+115. <a id="decision-115"></a>**A type's public functions are the calls a program makes, and a module's root exports the
      types a program names.** Ruled by the owner on 2026-10-04, who asked why so much of `server`
      and `client` was public, for design §8 step 17f. It trims the types of decisions 100 and 103
      and changes none of the calls a program makes.
@@ -4229,7 +4250,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Fewer calls, such as `should_close` folded into what `send` returns. It changes the loop a
        program writes, and the owner chose to keep the calls.
 
-116. **Over h3 the server owes a 100 (Continue) on a request's head alone, and none to a request
+116. <a id="decision-116"></a>**Over h3 the server owes a 100 (Continue) on a request's head alone, and none to a request
      whose stream has ended.** Adopted on 2026-10-04 for design §8 step 17i; the owner may
      overrule it.
      The server over TCP owes a 100 (Continue) to a request that expects one and has content
@@ -4308,7 +4329,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: one field on a public type of `h3`, and a second order of events over h3 that the
      simulator's h3 endpoints and the test-only h3 server must each handle.
 
-117. **A program names no HTTP version outside `versions`, and one endpoint serves every
+117. <a id="decision-117"></a>**A program names no HTTP version outside `versions`, and one endpoint serves every
      connection.** Ruled by the owner on 2026-10-04 in
      [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21 carries it.
 
@@ -4406,7 +4427,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The alternatives that lost: a wait for every QUIC connection that still ends, as under
      `.tcp`, and the old rule, written down as it was.
 
-119. **How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
+119. <a id="decision-119"></a>**How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
      which decision 117 rules; the owner may overrule any part of it.
      - A request's `Id` is a packed struct: a `ConnectionHandle` and the request's number on
        that connection. A QUIC stream ID takes 62 bits, so a slot does not fit beside it in a
@@ -4508,7 +4529,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `QuicConnection` stay exported until step 21d, and a program is to place neither: the root
      exports no name for the configuration either takes.
 
-120. **A client's channel builds its TLS configurations, draws what a QUIC connection starts
+120. <a id="decision-120"></a>**A client's channel builds its TLS configurations, draws what a QUIC connection starts
      from, and carries every exchange a program makes.** Ruled by the owner on 2026-10-12 in
      [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21c carries it.
 
@@ -4610,7 +4631,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A program drops the bytes it still holds from a socket when the channel says `close`:
        they are that connection's, and the next connection on the transport must not get them.
 
-121. **The roots of `server` and `client` export what an endpoint and a channel take and
+121. <a id="decision-121"></a>**The roots of `server` and `client` export what an endpoint and a channel take and
      return.** Ruled by the owner on 2026-10-13 in
      [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21d carries it.
 
@@ -4746,7 +4767,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          `refused`. The first channel still shows the fallback delay, so this is not the
          alternative refused above.
 
-122. **`server.routes` matches a method and a path through a table the program declares at
+122. <a id="decision-122"></a>**`server.routes` matches a method and a path through a table the program declares at
      compile time.** Ruled by the owner on 2026-10-13 in
      [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21e carries it.
 
@@ -5052,7 +5073,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      comparison with the eight tokens, though most programs route or print the token and never
      read the enum.
 
-123. **QUIC skips packet numbers in its 1-RTT space to catch an optimistic ACK.** Ruled by the
+123. <a id="decision-123"></a>**QUIC skips packet numbers in its 1-RTT space to catch an optimistic ACK.** Ruled by the
      owner on 2026-10-17, after the review of design §8 step 20e.
 
      RFC 9000 §21.4: a peer that acknowledges packets it has not received makes a sender's
@@ -5080,7 +5101,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - One interval for the whole connection. A peer that sees one skip knows the rest, and leaves
        them out of its forged frames.
 
-124. **What `client` gives a program that leaves the protocol modules.** Ruled by the owner on
+124. <a id="decision-124"></a>**What `client` gives a program that leaves the protocol modules.** Ruled by the owner on
      2026-10-17, for design §8 step 21f. A dependent planned its move from `h11` to
      `client.Channel` and listed what `client` lacked, with the evidence on both sides. Step
      21f's own question, whether `h11`, `h2`, `h3` and `quic` stay exported, waits for that move.
@@ -5199,7 +5220,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      program. A program that holds a slot for a large response it would drop then holds it until
      the content drains.
 
-125. **`client.Pool` holds several TCP connections to one origin, counted at run time.** Ruled by
+125. <a id="decision-125"></a>**`client.Pool` holds several TCP connections to one origin, counted at run time.** Ruled by
      the owner on 2026-10-17 and 2026-10-19, for design §8 step 22
      ([#108](https://github.com/c4milo/colibri/issues/108)). A program that sends many requests
      at once to one origin over h11 needs one TCP connection for each, because h11 carries one
@@ -5284,7 +5305,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      and event that names a transport names a connection instead. A program supplies the pool's
      memory, and calls `memory_bytes` first.
 
-126. **The `server` and `client` APIs name each HTTP concept once, in colibri's own model.** Ruled
+126. <a id="decision-126"></a>**The `server` and `client` APIs name each HTTP concept once, in colibri's own model.** Ruled
      by the owner on 2026-10-20 and 2026-10-21. The RFCs name one concept in different words for
      each version, so they cannot give one API across h11, h2 and h3. The owner: "clearly the
      RFCs are not letting us align concepts and API across the different http versions", and
@@ -5374,7 +5395,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - "bytes" in CLAUDE.md's own text alone, under the rule as it stood.
        - Changing the old text only when a later change edits it.
 
-127. **The server reads a request's query, and a route table calls the program's functions, with
+127. <a id="decision-127"></a>**The server reads a request's query, and a route table calls the program's functions, with
      middleware.** Ruled by the owner on 2026-10-20 and 2026-10-21. Amends decisions 101, 118 and
      122. The owner asked how other Zig servers do it. http.zig, zap, jetzig and tokamak each call
      a handler that the program registers. Zig's own `std.http.Server` reads a body through a
@@ -5485,7 +5506,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Keep the code, and tell a program not to flush more often than the peer acknowledges. A
        program cannot see the acknowledgments, so it cannot follow that rule.
 
-128. **A route table's walk backs up for a method, as it backs up for a path.** Ruled by the
+128. <a id="decision-128"></a>**A route table's walk backs up for a method, as it backs up for a path.** Ruled by the
      owner on 2026-10-28, who chose it from three ways and then ruled on this text. Amends
      decision 122 rulings 10 and 12.
 
@@ -5529,7 +5550,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        path. That is the behaviour of ruling 1, and colibri keeps its own order of precedence
        (literal, parameter, wildcard), which decision 122 ruled.
 
-129. **A route names its parameters, and two routes may name one position differently.** Ruled
+129. <a id="decision-129"></a>**A route names its parameters, and two routes may name one position differently.** Ruled
      by the owner on 2026-10-28, who chose it from the patterns that the API tables showed and
      then ruled on this text. Amends decision 122 ruling 5.
 
@@ -5558,7 +5579,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A trie node for each name. Two routes that differ only by a parameter's name would then
        match one path twice, and the order of decision 122 would have to choose between names.
 
-130. **A QUIC connection's client may hold 100 requests open, and gets each stream back as it
+130. <a id="decision-130"></a>**A QUIC connection's client may hold 100 requests open, and gets each stream back as it
      closes.** Ruled by the owner on 2026-10-29, after design §8 step 13i's first run on the
      judge.
 
@@ -5606,7 +5627,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The alternative that lost: keep ruling 2 as it was, with the extra packets.
 
-131. **A packet carries up to 16 STREAM frames, and a ring holds the ranges after its first.**
+131. <a id="decision-131"></a>**A packet carries up to 16 STREAM frames, and a ring holds the ranges after its first.**
      Ruled by the owner on 2026-10-29. Amends decision 56, which asked to be revisited against a
      measured number. Decision 57 stands: the caller keeps the bytes, and loss resends exactly
      what was lost.
@@ -5649,7 +5670,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Keep one frame a packet, and give CUBIC (RFC 9438) the gap. CUBIC halves the window less,
        but each response would still cost colibri a packet's header and tag.
 
-132. **h2 puts a response's field lines into HPACK's dynamic table, and empties both tables after a
+132. <a id="decision-132"></a>**h2 puts a response's field lines into HPACK's dynamic table, and empties both tables after a
      block it abandoned.** Ruled by the owner on 2026-10-29, for
      [#113](https://github.com/c4milo/colibri/issues/113). It leaves decision 93 as it is, for
      requests.
@@ -5684,7 +5705,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the inserts still held, and an entry they would evict must count as absent: more code on
        each line, for a case that rarely comes.
 
-133. **The congestion controller is CUBIC (RFC 9438), in place of RFC 9002's NewReno.** Ruled by the
+133. <a id="decision-133"></a>**The congestion controller is CUBIC (RFC 9438), in place of RFC 9002's NewReno.** Ruled by the
      owner on 2026-10-29, after design §8 step 26 and a comparison of three controllers.
 
      Under random loss on a long path, colibri's h3 still lagged quic-go and quinn after decision
@@ -5726,7 +5747,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Appendix B as written, with no HyStart++. The cost is a third controller to test: a
      simulator check, a TLA+ model and a Lean proof of its own, as CUBIC has.
 
-134. **colibri may read the BBR draft, and builds BBRv3 beside CUBIC once CUBIC has landed.** Ruled
+134. <a id="decision-134"></a>**colibri may read the BBR draft, and builds BBRv3 beside CUBIC once CUBIC has landed.** Ruled
      by the owner on 2026-10-29, with decision 133. A third exception to non-negotiable 10, after
      decisions 102 and 127.
 
@@ -5750,7 +5771,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - BBRv1, which quinn ships. Google replaced it, and its losses in shallow buffers are orders
        of magnitude above CUBIC's (Cao et al., IMC 2019).
 
-135. **CUBIC's first slow start is HyStart++ (RFC 9406).** Ruled by the owner on 2026-10-29, as
+135. <a id="decision-135"></a>**CUBIC's first slow start is HyStart++ (RFC 9406).** Ruled by the owner on 2026-10-29, as
      design §8 step 28. RFC 9438 §4.10 says CUBIC SHOULD use it.
 
      Slow start doubles the window each round trip until a loss. On a path with a deep queue,
@@ -5779,7 +5800,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the numbers of all three.
      - L = 8, for a sender that does not pace. colibri paces.
 
-136. **BBRv3 draws its probe waits from one value the caller draws, a connection takes its
+136. <a id="decision-136"></a>**BBRv3 draws its probe waits from one value the caller draws, a connection takes its
      controller from one enum, and a bulk download measures it first.** Ruled by the owner on
      2026-10-30, for decision 134 and design §8 steps 13k and 29.
 
@@ -5813,7 +5834,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The `network` input of step 13i alone. Its loads are limited by the application, and BBRv3
        differs from CUBIC only when the window fills.
 
-137. **Each library module groups its constants by who sets them: the protocol, the limits,
+137. <a id="decision-137"></a>**Each library module groups its constants by who sets them: the protocol, the limits,
      the policy, and each algorithm's parameters, one file each.** Ruled by the owner on
      2026-10-30, for design §8 step 30.
 
@@ -5853,7 +5874,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The file by itself as the guard of the limits. A changed value would pass every check,
        and the ruling would rest on a reader who noticed it.
 
-138. **h2 writes a DATA frame's header for data the caller writes after it.** Ruled by the owner
+138. <a id="decision-138"></a>**h2 writes a DATA frame's header for data the caller writes after it.** Ruled by the owner
      on 2026-10-30, for https://github.com/c4milo/colibri/issues/105: the client sends a
      request's content from the program's memory, as decision 95 lets h11 do.
      - `Connection.write_data_header(output, stream_id, payload_len, end_stream)` writes the
@@ -5883,7 +5904,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      is the bytes the whole frame may take. Over TLS the frame's data never shares a buffer with
      its header, so `output` could not size the frame.
 
-139. **A provider seals a frame's header and its data from two slices.** Ruled by the owner on
+139. <a id="decision-139"></a>**A provider seals a frame's header and its data from two slices.** Ruled by the owner on
      2026-10-30, for https://github.com/c4milo/colibri/issues/105, after chapulin added
      `writeParts` (chapulin's decision 167, https://github.com/c4milo/chapulin/issues/212). It
      amends decision 8, which fixes the vtable's list, and decision 138.
@@ -5910,7 +5931,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the vtable. A request's content up to one record is still copied over TLS, so its head does
      not go out alone.
 
-140. **A handshake's key-exchange group is reported beside its cipher suite.** Ruled by the owner
+140. <a id="decision-140"></a>**A handshake's key-exchange group is reported beside its cipher suite.** Ruled by the owner
      on 2026-10-31, for cocuyo, which reports how each DNS connection is protected.
      - `tls_provider.Negotiated` gains `group: u16`, the NamedGroup codepoint of the server's
        KeyShareEntry (RFC 9846 §4.3.8): 0x11EC for X25519MLKEM768, 0x001D for x25519 and 0x0017
@@ -5928,9 +5949,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: a program that builds a `Negotiated`, such as a test provider, sets one more field.
 
-141. **`tls.pem` reads the PEM files an operator holds.** Ruled by the owner on 2026-10-31, for
+141. <a id="decision-141"></a>**`tls.pem` reads the PEM files an operator holds.** Ruled by the owner on 2026-10-31, for
      https://github.com/c4milo/colibri/issues/97. chapulin decodes the files (its decision 131)
-     and takes Zig slices since chapulin#213, so `tls` shapes nothing but colibri's anchor type.
+     and takes Zig slices since [chapulin#213](https://github.com/c4milo/chapulin/issues/213), so `tls` shapes nothing but colibri's anchor type.
      - `tls.pem.chain(file, der, room)`, `tls.pem.p256_key(cpu, file, leaf, &key)` and
        `tls.pem.anchors(file, der, room)`, and the type `tls.P256Key`. None reads a file, each
        fills rooms the program places, and each returns `error.Invalid` for a refused file.
@@ -5956,7 +5977,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      copied once, from chapulin's type of the object into `tls.Anchor`.
 
 
-142. **DNSSEC's signature checks are a module of their own, `dnssec`, and not a part of `tls`.**
+142. <a id="decision-142"></a>**DNSSEC's signature checks are a module of their own, `dnssec`, and not a part of `tls`.**
      Ruled by the owner on 2026-10-31, for cocuyo's DNSSEC Stage B
      ([#122](https://github.com/c4milo/colibri/issues/122)). chapulin checks DNSSEC signatures
      under its build option DNSSEC=on (chapulin's decision 169), in the same TCP object that holds
@@ -5979,7 +6000,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a module and an edge in the module graph, and a TCP object that grows by the DNSSEC
      code in every program that links colibri.
 
-143. **BBRv3 is the default congestion controller of colibri's QUIC connections.** Ruled by the
+143. <a id="decision-143"></a>**BBRv3 is the default congestion controller of colibri's QUIC connections.** Ruled by the
      owner on 2026-11-01, for decision 134's third ruling and design §8 step 29c. It amends
      decision 134's second ruling and decision 136's second, which made CUBIC the default.
 
@@ -6008,7 +6029,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: with no loss, a BBRv3 connection gets less of a deep queue than a CUBIC connection
      that shares it.
 
-144. **`-Dfuzz` builds the unit tests with Zig 0.16.0's test runner, one line fixed.** Ruled by
+144. <a id="decision-144"></a>**`-Dfuzz` builds the unit tests with Zig 0.16.0's test runner, one line fixed.** Ruled by
      the owner on 2026-11-01, for decision 29
      ([#53](https://github.com/c4milo/colibri/issues/53)). Zig 0.16.0's runner does not compile
      with `-ffuzz`. At test_runner.zig:566 it passes a `std.builtin.StackTrace` to
@@ -6032,7 +6053,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: the build depends on one line of Zig's runner, so another 0.16 release can stop
      `-Dfuzz`. The build then says so, and `zig build test` is not affected.
 
-146. **An h11 client bounds the drop of a response the caller no longer reads.** Ruled by the
+145. <a id="decision-145"></a>**No ruling.** This number went to a draft that the owner never
+     ruled on. Design §8 step 29d.15 cites the draft.
+
+146. <a id="decision-146"></a>**An h11 client bounds the drop of a response the caller no longer reads.** Ruled by the
      owner on 2026-11-02 ([#125](https://github.com/c4milo/colibri/issues/125)). Decision 124
      keeps an h11 connection when the caller cancels an exchange, or when its content does not fit:
      the connection reads the rest of the response and drops it (RFC 9112 §9.3). That drop had no
@@ -6070,7 +6094,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: `cancel` changes its signature, so every program that cancels changes its call. A
      dropped response past a bound costs a new TCP connection, and over TLS a new handshake.
 
-147. **A server's identities are one shape for every signature algorithm, and ML-DSA-87 is one.**
+147. <a id="decision-147"></a>**A server's identities are one shape for every signature algorithm, and ML-DSA-87 is one.**
      Ruled by the owner on 2026-11-02, for https://github.com/c4milo/colibri/issues/115 (design §8
      step 33c). chapulin `2b0c5c9e` (its decision 180) gives every host server object a third
      identity slot, `mldsa87`, and signs with it first whenever the client offers it and the slot
@@ -6117,7 +6141,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      server accept takes 28,752 bytes of stack on arm64, where it took 12,752, whether or not an
      ML-DSA-87 identity is set.
 
-149. **colibri's QUIC connections may resume congestion state, by RFC 9959's Careful Resume.**
+149. <a id="decision-149"></a>**colibri's QUIC connections may resume congestion state, by RFC 9959's Careful Resume.**
      Ruled by the owner on 2026-11-04 (design §8 step 35). RFC 9959 lets a sender start a later
      connection near an earlier one's rate, through its Reconnaissance, Unvalidated, Validating
      and Safe Retreat phases. colibri holds no state between connections (non-negotiable 1), so
@@ -6153,7 +6177,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Calls that name the connection, in place of the address that `take` got, ruled on
        2026-11-14. Each call would change for every program, to fix what one address fixes.
 
-150. **`colibri` binds, reads its files and runs the loop, through a `std.Io` the program may pass.**
+150. <a id="decision-150"></a>**`colibri` binds, reads its files and runs the loop, through a `std.Io` the program may pass.**
      Ruled by the owner on 2026-11-04 (design §8 step 37), after a comparison of Zig's HTTP server
      libraries. The owner asked for the shape of httpx.zig's server: a host, a port and the
      server's certificate files in a configuration, a router, and one call that runs. Asked how
@@ -6268,7 +6292,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `.files` read through a local `std.Io.Threaded` (ruling 11): a second I/O implementation in
        `colibri`, beside Rotor's loop.
 
-151. **`server` encodes and decodes JSON through stdx's `json` module.** Ruled by the owner on
+151. <a id="decision-151"></a>**`server` encodes and decodes JSON through stdx's `json` module.** Ruled by the owner on
      2026-11-04 (design §8 step 36), with decision 150. `server` gains an edge to stdx's `json`
      module, which `qlog` already imports (decision 102).
      1. `ResponseWriter.json(value)` encodes a value into the response body with stdx's encoder,
@@ -6280,7 +6304,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Alternatives that lost:
      - Responses alone.
      - No edge: programs use `std.json` or stdx themselves, as they do now.
-152. **`client.Response` holds its headers and trailers in a `Headers` and a `Trailers`.**
+152. <a id="decision-152"></a>**`client.Response` holds its headers and trailers in a `Headers` and a `Trailers`.**
      Ruled by the owner on 2026-11-05 (design §8 step 38), with points 7 to 9 added the same day,
      for a dependent that implements Connect
      and gRPC, whose status arrives in trailer fields such as `grpc-status`. Until now the client
@@ -6332,7 +6356,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        each stream. A request whose two sections do not fit in it together ends `invalid` at
        `open`. docs/usage.md states it.
      - `added_fields_max` goes from 3 to 5, for TE and, over h11, Connection.
-153. **A client that runs on a `std.Io`, with streamed bodies under it.** Ruled by the owner on
+153. <a id="decision-153"></a>**A client that runs on a `std.Io`, with streamed bodies under it.** Ruled by the owner on
      2026-11-05 (design §8 step 39), as the client's counterpart of `colibri` (decision 150). A
      dependent that implements Connect and gRPC streams request and response bodies, and runs its
      client both over sockets and in memory.
@@ -6454,7 +6478,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        stream (RFC 9114 §5.2) and h3 still reads it.
      - For ruling 12: keep two copies, through the h3 connection's 16,384-byte buffer.
 
-154. **One reading of quic-go's congestion controller, to explain a gap the judge measured.**
+154. <a id="decision-154"></a>**One reading of quic-go's congestion controller, to explain a gap the judge measured.**
      Ruled by the owner on 2026-11-05. It makes one exception to non-negotiable 10. At 1% loss on
      the judge's bottleneck, quic-go's NewReno gets twice the goodput of colibri's (design §8 step
      34), and the owner asked why.
@@ -6470,7 +6494,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The qlog and the audit alone. They show what differs, but may not show why.
      - No question: the gap stays unexplained.
 
-155. **QUIC finds each path's datagram size by DPLPMTUD (RFC 9000 §14.3, RFC 8899).** Ruled by
+155. <a id="decision-155"></a>**QUIC finds each path's datagram size by DPLPMTUD (RFC 9000 §14.3, RFC 8899).** Ruled by
      the owner on 2026-11-05 (design §8 step 40), after decision 154 found that 1,200-byte
      datagrams cost colibri about a fifth of quic-go's goodput at 1% loss (design §8 step 34).
      RFC 8899 is pinned in `docs/rfcs/`.
@@ -6502,7 +6526,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Trust the peer's `max_udp_payload_size` alone. It says nothing of the path between.
      - Stay at 1,200 bytes, as RFC 9000 §14.2 allows. It costs every controller.
 
-156. **`colibri.Client` and `colibri.Server` run on a Rotor loop that the program may share.**
+156. <a id="decision-156"></a>**`colibri.Client` and `colibri.Server` run on a Rotor loop that the program may share.**
      Ruled by the owner on 2026-11-06 (design §8 step 44), for v0.15.0, and amended by the owner
      the same day. On 2026-11-08 the owner cut v0.15.0 from main without step 44, so this decision
      ships in v0.16.0, and each "v0.15.0" below reads as v0.16.0. A program that runs colibri beside another library, such as a resolver, needs
@@ -6875,7 +6899,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `Client` and `Server` it now wins for two reasons. The compiler refuses `fetch` and `run`
        on a shared loop, and the configuration requires `loop` only where it applies.
 
-157. **A server's endpoint finds a datagram's connection from its Destination Connection ID in
+157. <a id="decision-157"></a>**A server's endpoint finds a datagram's connection from its Destination Connection ID in
      one table entry.** Ruled by the owner on 2026-11-06 (design §8 step 29d.17).
      One UDP socket carries every QUIC connection of a `server.Endpoint`. RFC 9000 §5.2 matches a
      packet to its connection by its Destination Connection ID (DCID), because the peer's address
@@ -6928,7 +6952,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A call from `quic` that reports each retired ID, the owner's choice before the code: the
        count the server already reads tells it the same, with no new public name.
 
-158. **colibri's public API follows TigerStyle first, and Zig 0.16's std where TigerStyle says
+158. <a id="decision-158"></a>**colibri's public API follows TigerStyle first, and Zig 0.16's std where TigerStyle says
      nothing.** Ruled by the owner on 2026-11-07 (design §8 step 45), for v0.15.0. An audit
      compared each public name of colibri with the idioms of Zig 0.16's std. It found 12
      patterns. A second pass checked 14 more findings: 7 were real, and they join patterns 5, 6,
@@ -7286,7 +7310,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `of` kept, as the finding above ruled. A Zig programmer finds the name strange.
      - `init` for `server.RequestContext` alone. colibri's constructors then use two names.
 
-159. **`colibri.Client` and `colibri.Server` take a host interface in colibri's own terms, and
+159. <a id="decision-159"></a>**`colibri.Client` and `colibri.Server` take a host interface in colibri's own terms, and
      Rotor is one host.** Ruled by the owner on 2026-11-08 (design §8 step 44), for v0.16.0.
      The owner accepted this text on the same day, with the answers at its end. This decision
      amends decisions 150 (rulings 3, 9 and 12), 156 and 158 (ruling 6). The owner cut v0.15.0
@@ -7840,7 +7864,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `shutdown_send` (ruling 9). It is in Rotor v0.10.0's core. It joins the Rotor calls that
        the adapter uses, and the parts of answer 8 that Rotor's core must keep.
 
-160. **The h11 server reads the rest of a body that its response did not wait for, or closes in
+160. <a id="decision-160"></a>**The h11 server reads the rest of a body that its response did not wait for, or closes in
      stages.** Ruled by the owner on 2026-11-09, for v0.16.0 (design §8 step 47). connectrpc's
      conformance case `unexpected-verb` over h11 sent a POST with content, and the router answered
      405 at the head. The server closed with the body unread, and the client read a reset in place
@@ -7954,7 +7978,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        9112 §9.6 starts with the half-close.
      - A bound in `server.Limits` or `server.Timeouts`. The owner ruled two named limits.
 
-161. **colibri's servers issue session tickets, and colibri.Client resumes with them.** Ruled by
+161. <a id="decision-161"></a>**colibri's servers issue session tickets, and colibri.Client resumes with them.** Ruled by
      the owner on 2026-11-10, and for the client on 2026-11-11, for v0.16.0 (design §8 step 48). Step 13j's profiles found that wrk resumes almost
      every session with hyper, and that colibri's TCP servers issue no ticket. So each connection
      to colibri runs a full handshake with its signature. RFC 9846 §2.2 describes resumption, and
@@ -8040,7 +8064,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      new key sealed, so a program that runs several servers gives each one the new key in one
      pass.
 
-162. **colibri exports nothing of chapulin, and its object file for TLS over TCP holds JWS and
+162. <a id="decision-162"></a>**colibri exports nothing of chapulin, and its object file for TLS over TCP holds JWS and
      SCRAM.** Ruled by the owner on 2026-11-11, for design §8 step 49. Stompy's proxy calls
      chapulin for its TLS and its login checks, and connect-zig checks JSON Web Signatures with
      chapulin. A program links one copy of chapulin's object file, and colibri's build compiles it
@@ -8072,7 +8096,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: every program that links colibri on a host target holds the JWS and SCRAM code. A
      program that names chapulin copies colibri's request, and changes it when colibri does.
 
-163. **The router's handlers take the program's context, the request's context, a request and a
+163. <a id="decision-163"></a>**The router's handlers take the program's context, the request's context, a request and a
      response, and a handler's form says what it gets.** Ruled by the owner on 2026-11-11 and
      2026-11-12, for design §8 step 50 and v0.17.0, as connect-zig's decisions 35 and 36 split a
      call. Two things led to it. A middleware had no place for what it learns about one request
@@ -8222,7 +8246,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      connection keeps the `http.FieldSection.Slice` of its event, 32 bytes, so `server.Headers`
      stays at 16 bytes in each copy of an event.
 
-164. **Line coverage comes from pepegrillo's tool under kcov, and the badge from a named CI run.**
+164. <a id="decision-164"></a>**Line coverage comes from pepegrillo's tool under kcov, and the badge from a named CI run.**
      Ruled by the owner on 2026-11-15, as connect-zig's decision 43.
      - Zig 0.16 has no line coverage of its own for tests. pepegrillo's `coverage` tool, pinned at
        `97e7cfd`, runs each library module's test binary under kcov 43. It prints each module's
@@ -8243,7 +8267,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A JSON file that the workflow pushes to a branch, for a shields.io endpoint badge. It needs
        a step in the workflow file that writes to the repository.
 
-165. **The server's `receive` writes its result through a pointer, and a `server.Router` takes
+165. <a id="decision-165"></a>**The server's `receive` writes its result through a pointer, and a `server.Router` takes
      `*const server.Event`, from v0.19.0.** Ruled by the owner on 2026-11-17, for
      [#133](https://github.com/c4milo/colibri/issues/133).
      - `server.Event` holds 160 bytes, and `server.ReceiveResult` 192. Each layer of the engine,
@@ -8289,7 +8313,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      in or out. The rule that a change of every program's loop must win past the noise yields to
      that ruling for this change alone.
 
-166. **A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
+166. <a id="decision-166"></a>**A program sets six sizes of a TCP connection through `server.Capacity`, at compile time,
      from v0.19.0, as ruled first; amended the same day to sizes colibri sets itself.** Ruled by
      the owner on 2026-11-18, for the last item of
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 62).
@@ -8358,7 +8382,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - So the output stays 49,161 bytes, and no floor on the room lands. The branch
        `one-frame-65b` keeps the trial.
 
-167. **A TCP connection over TLS takes its TLS session from a buffer the program passes in
+167. <a id="decision-167"></a>**A TCP connection over TLS takes its TLS session from a buffer the program passes in
      `server.Config.tls_buffer`, from v0.19.0.** Ruled by the owner on 2026-11-18, for
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 64).
      - Every TCP slot of an engine holds a TLS session, `tls.record.Server` of 41,808 bytes, and
@@ -8390,7 +8414,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          library never asks a caller to align a buffer.
        - A field of its own in `colibri.ServerConfig`. It then holds two fields for one buffer.
 
-168. **A server keeps the 1-RTT packets that arrive before its handshake completes, and opens them
+168. <a id="decision-168"></a>**A server keeps the 1-RTT packets that arrive before its handshake completes, and opens them
      once it completes.** Ruled by the owner on 2026-11-23, for
      [#153](https://github.com/c4milo/colibri/issues/153) (design §8 step 71).
      - RFC 9001 §5.7 forbids a server to process a 1-RTT packet before its handshake completes. It
@@ -8422,7 +8446,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - A store in the endpoint that the connections in their handshakes share. It takes less
          memory in all, but one peer can fill it for the others.
 
-169. **A configuration holds the program's CPU features, and a codec pool holds none.** Ruled by
+169. <a id="decision-169"></a>**A configuration holds the program's CPU features, and a codec pool holds none.** Ruled by
      the owner on 2026-11-24, for [#156](https://github.com/c4milo/colibri/issues/156) (design §8
      step 72). It amends decisions 98, 101 and 158 ruling 10, which gave the features to each
      pool's `init`.
@@ -8465,7 +8489,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - A field `cpu_features` of `colibri.ServerConfig` beside `cpu`, which the server copies
          into its engine's configuration. It is a second place for one value.
 
-170. **The package exports one module, `colibri`, whose root names each library module.** Ruled by
+170. <a id="decision-170"></a>**The package exports one module, `colibri`, whose root names each library module.** Ruled by
      the owner on 2026-11-25, who asked that a program import one module. It amends decisions 86,
      96, 101 and 156 ruling 14.
      - `colibri`'s root names the sixteen other library modules: `core`, `wire`, `http`,
@@ -8499,7 +8523,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - The seventeen names kept beside `colibri`. No dependent's build would break, and a
          program in cleartext would still link no chapulin.
 
-171. **colibri takes stdx's one module, `stdx`.** Ruled by the owner on 2026-11-25, for v0.20.0.
+171. <a id="decision-171"></a>**colibri takes stdx's one module, `stdx`.** Ruled by the owner on 2026-11-25, for v0.20.0.
      stdx at `b643d58` exports one module, `stdx`, and retires `codec`, `gzip`, `zlib`, `zstd`,
      `brotli`, `json` and `platform` as module names (stdx's decision 6 as amended that day).
      - colibri pins stdx at `b643d58`. Each module that read a module of stdx imports `stdx`
@@ -8512,7 +8536,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the bump, as stdx's own change says.
      - The alternative refused: v0.20.0 on the old stdx, and the move in the next release. The
        owner chose one release for every break of this week.
-172. **colibri asks chapulin once, and chapulin's module defines `ch_assert_fail`.** Ruled by the
+172. <a id="decision-172"></a>**colibri asks chapulin once, and chapulin's module defines `ch_assert_fail`.** Ruled by the
      owner on 2026-11-25: "Colibrí should only import chapulin once". Amends decision 94, which
      left the hook to each program. A program that only wanted h11 had to define a C symbol of a
      library it never called.
@@ -8529,7 +8553,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        a program that declares none to link with chapulin's `ch_assert_fail`.
      - The alternatives refused: a weak export in each object, which Zig refuses; and a hook in
        chapulin's module of each transport, which two requests would export twice.
-173. **A server's UDP socket shares its port with SO_REUSEPORT.** Ruled by the owner on
+173. <a id="decision-173"></a>**A server's UDP socket shares its port with SO_REUSEPORT.** Ruled by the owner on
      2026-11-25, for [#155](https://github.com/c4milo/colibri/issues/155). Amends decision 150
      ruling 7, which lets a program start more servers on one port. The listener of
      `colibri.Server` shared its port, and its UDP socket for h3 did not. So a second server over
@@ -8545,7 +8569,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        SO_ATTACH_REUSEPORT_EBPF, are a later step.
      - The alternatives refused: a configuration field that asks for the option, which keeps a
        lone server's bind exclusive; and Rotor's option alone, with colibri left as it was.
-174. **colibri takes chapulin through stdx, as `stdx.crypto`.** Ruled by the owner on 2026-11-25,
+174. <a id="decision-174"></a>**colibri takes chapulin through stdx, as `stdx.crypto`.** Ruled by the owner on 2026-11-25,
      for v0.22.0. Amends decision 94, under which colibri pinned chapulin and asked it for its
      objects itself. stdx at `5de7d89f` holds `stdx.crypto`, chapulin's one module, and is the one
      package that asks chapulin for it (stdx's decision 87 as amended). A program that links
@@ -8566,7 +8590,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The alternatives refused: colibri's own chapulin pin beside stdx's, which links two
        chapulin modules into a program that calls both; and a key-log image that reads `tls` over
        the second stdx and the other modules over the first, which Zig refuses.
-175. **colibri takes the program's `stdx.crypto.Context` once, in the TLS values.** Ruled by the
+175. <a id="decision-175"></a>**colibri takes the program's `stdx.crypto.Context` once, in the TLS values.** Ruled by the
      owner on 2026-11-26: "Take stdx.crypto.Context" and "One source everywhere". It amends
      decisions 94 as amended on 2026-09-27, 97 as amended, 150 ruling 9 and 169, for v0.22.0.
      stdx at `9dd95be8` owns chapulin's description of the CPU and its random source (stdx's
@@ -8633,7 +8657,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - colibri's own map of the features to chapulin's description of the CPU, as before.
          stdx owns that map, and two maps would drift.
 
-176. **A TCP socket sends from its connection's output, through `output_stream` and
+176. <a id="decision-176"></a>**A TCP socket sends from its connection's output, through `output_stream` and
      `sent_stream`.** Ruled by the owner on 2026-11-26, for
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 79).
      - A socket of `colibri.Server` held an output of `output_len` bytes, 49,161, beside the

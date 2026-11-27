@@ -115,7 +115,7 @@ pub const Response = struct {
     /// How the exchange ended, set once it has.
     result: Result = .pending,
     /// The final response's status code (RFC 9110 §15). The client sets it at the final head, so
-    /// it also holds the status when the outcome is `too_large`. Before the final head it holds no
+    /// it also holds the status when `result` is `too_large`. Before the final head it holds no
     /// status code, so a program reads `result` to know whether a final status arrived (decision
     /// 158 ruling 5).
     status: http.Status = undefined,
@@ -134,7 +134,7 @@ pub const Response = struct {
     /// when the content arrived uncoded or in a coding the client passes on as it came.
     coding: ?http.content_coding.Coding = null,
 
-    /// The response's body, once the outcome is `response`.
+    /// The response's body, once `result` is `response`.
     pub fn body_received(response: *const Response) []const u8 {
         assert(response.result == .response);
         return response.body[0..response.body_len];
@@ -151,7 +151,7 @@ pub const NeverIndexed = struct {
     headers: []const Header = &.{},
 };
 
-/// An exchange that ended: its id, the request, and the response, whose outcome says how. The
+/// An exchange that ended: its id, the request, and the response, whose `result` says how. The
 /// program may reuse the memory of both.
 pub const Finished = struct {
     id: RequestId,

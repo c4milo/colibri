@@ -27,8 +27,9 @@ zig build test
 
 `zig build hooks` points git at `.githooks`, which checks commit messages. `zig build test` runs
 the lint first, then every module's tests and the golden corpus. The first build fetches the
-packages `build.zig.zon` pins: chapulin and stdx, which the library links, and pepegrillo, Rotor
-and the QPACK vectors, which the tooling and the tests use.
+packages `build.zig.zon` pins: stdx, which the library links, and pepegrillo, Rotor and the QPACK
+vectors, which the tooling and the tests use. stdx brings chapulin, the TLS stack, as
+`stdx.crypto`, so colibri pins no chapulin of its own.
 
 Some checks need more:
 - the TLS checks need a Go toolchain, which mints the test identity and runs the Go peers;
@@ -39,9 +40,14 @@ Some checks need more:
 
 ## The rules a change keeps
 
-- **No I/O, no heap, no clock.** colibri makes no system call, holds no `Allocator`, and reads no
-  clock or random source. The caller owns every buffer and passes every instant. The lint refuses
-  each of these.
+- **No I/O, no heap, no clock.** colibri holds no `Allocator`, and reads no clock or random
+  source. It makes no system call, except in `src/colibri/rotor_host*.zig`: the `.private` kind of
+  `colibri.Server` and `colibri.Client` binds sockets and runs Rotor's loop there (decisions 150
+  and 159). The caller owns every buffer and passes every instant. The lint refuses each of these.
+- **The public API comes first.** A module's root, `src/<module>/<module>.zig`, is the one place a
+  name becomes public, and a test lists its names with `core.public_names.expect`. A new public
+  name goes on that list in the commit that adds it, with an example in `examples/` and an entry in
+  [`docs/usage.md`](docs/usage.md).
 - **Every limit is named.** A limit lives in its module's `constants.zig`, never inline. Every
   loop is bounded.
 - **Every RFC rule is cited.** A check that exists because an RFC requires it carries the RFC and
@@ -69,20 +75,23 @@ bytes matter, cases in the simulator's input checks.
 ## Commits
 
 Commits are [Conventional Commits](https://www.conventionalcommits.org/):
-`type(scope): description`.
+`type(scope)!: description`, where `!` marks a breaking change.
 - The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci` or `chore`.
 - The scope, when present, is a module or an area: `h11`, `h2`, `h3`, `quic`, `hpack`, `qpack`,
-  `wire`, `http`, `tls`, `crypto`, `core`, `server`, `client`, `qlog`, `dnssec`, `sim`, `golden`
-  or `bench`.
+  `wire`, `http`, `tls`, `crypto`, `core`, `server`, `client`, `qlog`, `dnssec`, `colibri`, `sim`,
+  `golden` or `bench`. Another scope gets a warning, not a refusal, because
+  [`docs/design.md`](docs/design.md) §3 holds the module graph.
 - The description is imperative and lowercase, with no period, and the subject line fits in 72
   columns.
-- The body says why, in at most 3 paragraphs and 100 words, with lines of at most 100 columns.
+- The body says why, in at most 4 paragraphs and 150 words, with lines of at most 100 columns.
   Reasoning that outlives the commit goes in `docs/`.
+- A commit message and a pull request description name no AI tool. They carry no
+  `Co-Authored-By` trailer for one and no "Generated with" line.
 
 `zig build lint-commits` checks every commit since `origin/main`. Stage files by path, never with
 `git add -A`.
 
-## Asking first
+## Ask first
 
 Open an issue before you:
 - change a named limit;

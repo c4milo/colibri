@@ -1,28 +1,8 @@
 # Examples
 
-Each file here is a complete program of the kind a project that depends on colibri writes. It
-imports `colibri`, the one module a dependent reaches, and runs a colibri client and a colibri
-server against each other.
-
-| Example | What it shows |
-| --- | --- |
-| [`server_exchange.zig`](server_exchange.zig) | The `server` module over TCP and QUIC through one `server.Engine`. A TCP client gets h2 by ALPN and sends five requests, and a QUIC client sends a GET over h3. The server passes the engine each socket's bytes and each datagram, and sends what `output_stream` lends from the engine's memory, with `sent_stream` after each send ([decision 176](../docs/decisions.md)). It passes each event to a router of `server.Router`, which calls the function of each request's route. One route names its path and its query as `.path` and `.query`, and reads them from its `server.RequestContext`. A function route reads the POST's whole body through `request.body`. The router writes a 405 with its Allow field and a 404 itself. Its QUIC connections run BBRv3 (`congestion_controller = .bbr`). It calls `transport_closed` for a socket its peer closed first, shortens the idle deadline of its QUIC connection with `set_timeouts`, advertises h3 with `h3_alternative`, and calls `shutdown` once both clients are done. |
-| [`colibri_server.zig`](colibri_server.zig) | The `colibri` module: a `colibri.Server` with the test identity binds 127.0.0.1 on port 0 and runs a route table on Rotor's loop, on a thread of its own. A `colibri.Client` sends two GETs over h11, h2 and h3 in turn, and checks each response byte for byte. With every version allowed, it opens TCP first by default and speaks h2, and with `.prefer = .quic` it speaks h3. A client with no handler then runs one GET through `fetch`, and cancels a second exchange with `cancel`. The program then calls `shutdown` and `deinit`. It opens loopback sockets ([decision 96](../docs/decisions.md) as amended). |
-| [`colibri_hosted.zig`](colibri_hosted.zig) | The `.hosted` kind: the program is the host of a `colibri.Server` and a `colibri.Client` at once, and joins them over `link.zig` in memory. Each turn writes the operations of an object, and the program gives back a completion for each. The client sends two GETs over h2 with TLS, and the program checks each response byte for byte. Both objects hold the program's one `stdx.crypto.Context`, over the operating system's entropy through `io.randomSecure` ([decision 175](../docs/decisions.md)). It opens no socket ([decision 159](../docs/decisions.md)). |
-| [`colibri_shared_rotor.zig`](colibri_shared_rotor.zig) | The program's own adapter of `.hosted` objects on one Rotor loop, beside a timer of its own. The program binds a listener on `::` before the server's `init`. The client sends a GET to 127.0.0.1, and after the timer fires, `set_destination` sends the next connection to ::1. It binds loopback, as `colibri_server.zig` does ([decision 96](../docs/decisions.md) as amended). |
-| [`server_peers.zig`](server_peers.zig) | Not an example by itself, but the two clients the server example answers: one `client.ConnectionPool` over TCP alone, and one over QUIC alone. |
-| [`server_stream.zig`](server_stream.zig) | A stream route of `server.Router` over h2 in cleartext: a struct route with `on_request`, `on_data` and `on_finished` answers a gRPC-shaped POST ([decision 163](../docs/decisions.md) ruling 6). `on_data` reads each length-prefixed message through the `server.RequestBodyStream`'s `next`. It writes and flushes a reply to each message once it is whole, before the request body ends. The client cuts the second message across two body events, and `keep` leaves its first bytes unread until the rest arrives. Once `ended` is true, the route ends its response with `grpc-status` in its trailers. The route has no `next`, because each reply fits the response's memory at once. |
-| [`server_stream_peer.zig`](server_stream_peer.zig) | Not an example by itself, but the client the stream route example answers: one `client.ConnectionPool(.{ .quic = false })`. It hands the request body in three pieces, and hands each piece only once the replies to the messages before it came back. |
-| [`client_exchange.zig`](client_exchange.zig) | The `client` module through one `client.ConnectionPool`, on a network that drops every UDP datagram. The pool offers h3 over QUIC and h2 over TCP. Its configuration asks for QUIC first with `.prefer = .quic`. It opens QUIC first, opens TCP once the fallback delay passes, and carries a GET and a POST over h2. Three more requests get 405 with an Allow value, 404 and 501, because no route serves them. The client starts the connection each `open` asks for, closes each transport at its `close`, takes the server's ticket, and calls `shutdown`. The abandoned QUIC connection ends after its closing period, so the run takes about 3 s. A second pool shows a connect that fails: the client calls `transport_closed`, and the exchange ends `refused`. |
-| [`client_pool.zig`](client_pool.zig) | The `client` module through one `client.ConnectionPool(.{ .quic = false })` of four TCP connections, over h11 in cleartext. Two GETs open two connections, one for each, since h11 carries one exchange at a time on a connection. A later DNS answer goes to the pool through `set_destination`, and four more GETs take the two open connections and open two more, to the new address. The client keeps one socket for each slot that an `open` names, writes what a connection owes at its `send`, and closes the socket at its `close`. |
-| [`client_stream.zig`](client_stream.zig) | Streamed bodies through one `client.ConnectionPool(.{ .quic = false })`, over h2 in cleartext ([decision 153](../docs/decisions.md)). A gRPC-shaped POST sends three messages, each a request piece that `write_body` hands and the pool reports taken. The server answers at the request's head and sends back each message when it arrives. The response comes in pieces of 16 bytes, and the client releases each one with `release_body`. The client hands the next message when the one before came back whole, so the request body goes on after the response's head. The request's trailers follow its last message, and the call ends with `grpc-status` in the response's trailers ([decision 152](../docs/decisions.md)). |
-| [`client_stream_peer.zig`](client_stream_peer.zig) | Not an example by itself, but the server the stream example sends to: one `server.Engine` with one TCP slot in cleartext, which answers the call at its head, writes each piece of the request body back with `write_body`, reads the request's trailers, and ends with `write_trailers`. |
-| [`client_pool_peer.zig`](client_pool_peer.zig) | Not an example by itself, but the server the pool example sends to: one `server.Engine` with four TCP slots in cleartext, which accepts each socket the client connects. |
-| [`client_peer.zig`](client_peer.zig) | Not an example by itself, but the server the client example sends to: one `server.Engine` with one TCP slot and no UDP socket. Each of its routes names the function that answers the request, and it answers 405, 404 or 501 to a request that no route serves. |
-| [`dnssec_check.zig`](dnssec_check.zig) | The `dnssec` module by itself. A resolver checks RFC 6605's P-256 RRSIG over www.example.net's A record, which it builds and streams into a `dnssec.Hash`, sees one changed byte fail, and checks the DS digest of the DNSKEY. |
-| [`h11_exchange.zig`](h11_exchange.zig) | The `h11` module by itself. A client pipelines a GET and a PUT, and sends the PUT's body from its own buffer with `count_body`. The server reads one request at a time and answers each. |
-| [`h2_exchange.zig`](h2_exchange.zig) | The `h2` module by itself. A client and a server exchange their prefaces and SETTINGS, and the server answers a GET with HEADERS and DATA. Each side runs the loop every h2 program runs: `receive` one frame at a time, then `write_pending`. |
-| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig), [`link_streams.zig`](link_streams.zig) | Not examples of colibri, but what the others run over: the stand-ins for a program's sockets, one for a stream of bytes, one for datagrams, and one for several streams, a socket each. The datagram link runs on the loops of a stream link, or on loops the program starts, so each side runs one loop. A blocked datagram link drops every datagram, as a network that drops UDP does. |
+Each example is a program that a project depending on colibri could write. It imports
+`colibri` alone, the one module a dependent reaches, and checks what arrived byte for byte. Most
+run a colibri client against a colibri server.
 
 Run every example, or one:
 
@@ -31,35 +11,55 @@ zig build examples
 zig build example-server_exchange
 ```
 
-Each example checks what arrived against what was sent, byte for byte, and exits with an error
-when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
-CI. Seventy-three deliberate breaks each made `zig build examples` fail: 28 of the server example,
-24 of the client example, 9 of the pool example, 4 of the stream example and 8 of the stream route
-example. They break the calls
-each example makes, its peers and the links. Three more breaks made no example fail:
-- the client keeps the bytes of a socket after its `close`, and the stream link keeps a stream's
-  bytes after its close. No socket holds bytes then.
-- the stream example hands a message before the pool took the one before. Over h2 the server
-  sends a message back only after the connection wrote it, so the take always comes first. Over
-  h3 the take waits for the server's acknowledgment, and the check is needed.
+`tools/ci.sh` runs them on every push, so an example that stops working fails CI.
 
-The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`
-fails when a quote no longer matches them.
+## The examples
+
+| Example | What it shows |
+| --- | --- |
+| [`colibri_server.zig`](colibri_server.zig) | `colibri.Server` and `colibri.Client` on colibri's own Rotor loop (`.private`): a route table on 127.0.0.1, GETs over h11, h2 and h3, `fetch`, `cancel`, `shutdown` and `deinit`. |
+| [`colibri_hosted.zig`](colibri_hosted.zig) | The `.hosted` kind: the program hosts a server and a client in memory, with `turn` and `complete`, and rotates the ticket key with `set_ticket_key`. |
+| [`colibri_shared_rotor.zig`](colibri_shared_rotor.zig) | A program's own adapter of `.hosted` objects on one Rotor loop, beside a timer of its own, and `set_destination` to a new address. |
+| [`server_exchange.zig`](server_exchange.zig) | One `server.Engine` over TCP and QUIC, with a `server.Router`: routes, path and query structs, middleware, `output_stream` and `sent_stream`, deadlines, `set_timeouts`, `h3_alternative` and `shutdown`. |
+| [`server_stream.zig`](server_stream.zig) | A stream route that answers a gRPC-shaped POST as its body arrives: `on_request`, `on_data`, `on_finished`, and `next`, `keep` and `ended` on the request body. |
+| [`client_exchange.zig`](client_exchange.zig) | One `client.ConnectionPool` that opens QUIC first and falls back to TCP: `open`, `send`, `close`, tickets, a refused connect and `transport_closed`. |
+| [`client_pool.zig`](client_pool.zig) | A pool of four TCP connections over h11, and `set_destination` after a later DNS answer. |
+| [`client_stream.zig`](client_stream.zig) | Streamed bodies: `write_body`, `release_body`, and the request's and the response's trailers. |
+| [`h11_exchange.zig`](h11_exchange.zig) | The `h11` module by itself: a pipelined GET and PUT, and `count_body`. |
+| [`h2_exchange.zig`](h2_exchange.zig) | The `h2` module by itself: the prefaces, SETTINGS, and the `receive` and `write_pending` loop. |
+| [`dnssec_check.zig`](dnssec_check.zig) | The `dnssec` module by itself: an RRSIG check over a streamed `dnssec.Hash`, and a DS digest. |
+
+Each file's `//!` header says what it does, step by step.
+
+## The peers and the links
+
+These files are parts of the examples, not examples by themselves:
+
+| File | What it is |
+| --- | --- |
+| [`server_peers.zig`](server_peers.zig) | The two clients `server_exchange.zig` answers: one pool over TCP alone, and one over QUIC alone. |
+| [`server_resume.zig`](server_resume.zig) | The `server.ResumeProvider` `server_exchange.zig` gives its engine, which keeps RFC 9959's saved sets for each client host ([decision 149](../docs/decisions.md#decision-149)). |
+| [`server_stream_peer.zig`](server_stream_peer.zig) | The client `server_stream.zig` answers. |
+| [`client_peer.zig`](client_peer.zig) | The server `client_exchange.zig` sends to. |
+| [`client_pool_peer.zig`](client_pool_peer.zig) | The server `client_pool.zig` sends to. |
+| [`client_stream_peer.zig`](client_stream_peer.zig) | The server `client_stream.zig` sends to. |
+| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig), [`link_streams.zig`](link_streams.zig) | The stand-ins for a program's sockets: one stream of bytes, datagrams, and several streams. A blocked datagram link drops every datagram, as a network that drops UDP does. |
 
 ## The link
 
-colibri does no I/O, so a program brings its own sockets and its own event loop. These examples
-bring [Rotor](https://github.com/c4milo/rotor)'s loop and no socket at all
-([decision 96](../docs/decisions.md)):
-- the client and the server each run on a Rotor loop of their own, in one process and on one
-  thread;
+colibri does no I/O, so a program brings its own sockets and its own event loop. Every example
+except `colibri_server.zig` and `colibri_shared_rotor.zig` opens no socket. Those two bind
+loopback ([decision 96](../docs/decisions.md#decision-96) as amended). The others run over the
+links:
+
+- the client and the server each run on a Rotor loop of their own, in one process;
 - what one side sends is copied into the other side's queue in memory, and the sending loop posts
   the other a message saying how many bytes arrived;
 - the instant colibri takes is the one the side's loop read at its last tick, and a side with
   nothing to read waits in its loop until its next deadline.
 
-A real program replaces `link.zig` and `link_datagram.zig` with its own sockets. The colibri calls
-stay the same.
+A real program replaces `link.zig`, `link_datagram.zig` and `link_streams.zig` with its own
+sockets. The colibri calls stay the same.
 
 ## The identity
 
@@ -67,5 +67,18 @@ The examples over TLS present colibri's test identity, a CA and a leaf for `loca
 [`src/testing/testdata/`](../src/testing/testdata/), and judge it at an instant it is valid at. A
 real program loads its own certificate and key, and passes the Unix time its clock reads.
 
-The test-only endpoints in [`src/testing/`](../src/testing/) run every protocol over real sockets,
-and show a whole program with them.
+The test-only endpoints in [`src/testing/`](../src/testing/) run every protocol over real sockets.
+
+## How the examples are checked
+
+Every Zig block in README.md, docs/usage.md and this page is an excerpt of these programs or of
+`tools/consumer*/`, and `tools/doc_snippets.sh` fails when one no longer matches.
+
+Seventy-three deliberate breaks each made `zig build examples` fail: 28 of the server example, 24
+of the client example, 9 of the pool example, 4 of the stream example and 8 of the stream route
+example. Three more breaks made no example fail:
+
+- The client keeps the bytes of a socket after its `close`. No socket holds bytes then.
+- The stream link keeps a stream's bytes after its close, for the same reason.
+- The stream example hands a message before the pool took the one before. Over h2 the server
+  sends a message back only after the connection wrote it, so the take always comes first.
