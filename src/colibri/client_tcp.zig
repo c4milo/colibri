@@ -79,6 +79,7 @@ fn take(state: anytype, slot: usize, asked: client.Open) void {
         .waiting = null,
     };
     state.sockets[slot].open();
+    state.outputs[slot].clear();
     state.touched.set(slot);
 }
 
@@ -130,7 +131,7 @@ pub fn complete(run: anytype, slot: usize, kind: socket_module.Kind, result: hos
     switch (kind) {
         .connect => on_connected(state, slot, result, now_ns),
         .receive => socket.on_received(result),
-        .send => socket.on_sent(result),
+        .send => state.outputs[slot].took(socket.on_sent(result)),
         .close => socket.closed = true,
         // A client never closes its write side alone (`socket_module.client_operations_per_socket`).
         .shutdown => unreachable,
@@ -217,13 +218,13 @@ fn step(run: anytype, slot: usize, now_ns: u64) void {
     } else state.pending.set(slot);
 }
 
-/// Writes what the slot's connection owes into its socket's room.
+/// Writes what the slot's connection owes into its socket's output.
 fn write(state: anytype, slot: usize, now_ns: u64) usize {
-    const socket = &state.sockets[slot];
-    const room = socket.room();
+    const output = &state.outputs[slot];
+    const room = output.room();
     if (room.len == 0) return 0;
     const written = state.pool.send_stream(state.connections[slot].handle, room, now_ns);
-    socket.wrote(written);
+    output.wrote(written);
     return written;
 }
 
@@ -243,11 +244,21 @@ pub fn arm(state: anytype, out: *operation_table.Outbox, now_ns: u64) void {
             continue;
         }
         // A connecting socket wrote nothing, so `Socket.arm` writes its close alone.
-        assert(!connection.connecting or socket.output_len == 0);
+        assert(!connection.connecting or state.outputs[slot].len == 0);
         if (connection.connecting and !socket.closing) continue;
+        give_unsent(state, slot);
         if (!socket.arm(out, &state.operations, slot)) left.set(slot);
     }
     state.touched.setUnion(left);
+}
+
+/// Gives the socket of `slot` every octet its output holds that no send took, which its next
+/// send writes. A socket with a send in flight keeps what that send writes.
+fn give_unsent(state: anytype, slot: usize) void {
+    const socket = &state.sockets[slot];
+    if (socket.sending) return;
+    _ = socket.drop_unsent();
+    socket.give(state.outputs[slot].unsent());
 }
 
 /// Writes the connect of `slot`, whose deadline starts at `now_ns` (decision 153 ruling 9).

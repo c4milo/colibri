@@ -422,4 +422,6 @@ test {
     _ = @import("fake_host_test.zig");
     _ = @import("server_half_close_test.zig");
     _ = @import("fake_host_pair_test.zig");
+    _ = @import("fake_host_send_test.zig");
+    _ = @import("fake_host_meter_test.zig");
 }

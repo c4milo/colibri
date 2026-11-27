@@ -5,24 +5,25 @@
 //! side.
 //!
 //! The program keeps one entry for each socket, and the entry outlives the engine's slot: the
-//! engine frees a slot when it reports the connection's `ended`, straight after its `close`,
-//! while the socket may still hold octets to send. So `entry_of` maps each slot to the entry of
-//! the connection the slot holds now, every event is routed through it, and an entry keeps its
-//! connection's whole handle, whose generation a later connection in the slot does not share.
+//! engine frees a slot when it reports the connection's `ended`, while the socket still waits for
+//! the final event of its operations. So `entry_of` maps each slot to the entry of the connection
+//! the slot holds now, every event is routed through it, and an entry keeps its connection's whole
+//! handle, whose generation a later connection in the slot does not share.
 //!
-//! `step` serves one socket. It repeats four things until none of the first three moves:
+//! `step` serves one socket. It repeats three things until none of the first two moves:
 //!   1. passes the socket's input to the engine and routes every event it reports;
 //!   2. writes as much of the owed responses as the connection takes, oldest first;
-//!   3. calls `send_stream` once, into the socket's room;
-//!   4. reads the engine's events until it reports none.
-//! An event the last pass's fourth thing reads for this socket's connection needs no pass of its
-//! own. It is a `close` or an `ended`, which the caller reads from the entry, or a `send` whose
-//! record did not fit the room left: the socket then has a send in flight, and the step that
-//! follows it has the room.
-//! So the responses to the requests one read carried leave in one `send_stream`, and nothing is
-//! read between a response's write and its send, which would pause an h2 stream's send meter
-//! (decision 119 as amended). h11 reads a pipelined request only once the response before it is
-//! done (decision 92), which the fourth thing reports, so the next pass reads it.
+//!   3. reads the engine's events until it reports none.
+//! An event the last pass's third thing reads for this socket's connection needs no pass of its
+//! own: a `close` or an `ended`, which the caller reads from the entry, or a `send`.
+//! Once a turn, the caller gives each socket with no send in flight what `lend` returns: what
+//! its connection owes, which the engine lends where it holds it (decision 176). So the responses
+//! to the requests one read carried leave in one send (decision 119 as amended). A read of the
+//! turn that finds a response not lent yet pauses an h2 stream's send meter, and the lend at the
+//! same instant takes the meter's window back (decision 110 as amended on 2026-11-27). `sent`
+//! hands back what each send took. h11 reads a pipelined request only
+//! once the response before it is done (decision 92), which the third thing reports, so the next
+//! pass reads it.
 //!
 //! An event may name another connection than the one `step` serves: a deadline fired there, or
 //! its turn came in the engine's ring. The event changes that connection's entry, and `pending`
@@ -51,10 +52,8 @@ pub const Routes = union(enum) {
 pub const Step = struct {
     /// Octets of the caller's input the connection consumed.
     consumed: usize,
-    /// Octets written into the caller's output, to be sent in order.
-    written: usize,
     /// Whether the engine has reported the connection's `close`: the socket closes once the
-    /// octets written so far are out.
+    /// octets lent so far are out.
     done: bool,
 };
 
@@ -71,9 +70,6 @@ pub const Entry = struct {
     /// The engine reported the connection's `half_close`: the program closes the socket's write
     /// side once the octets it holds are out, and reads on (decision 160).
     half_closing: bool = false,
-    /// The connection owes octets no `send_stream` has taken: the engine reported a `send`, a
-    /// response was written, or the last `send_stream` filled its room.
-    send_owed: bool,
     answers: server_session_answer.Answers,
 };
 
@@ -127,7 +123,6 @@ pub fn Session(comptime connections_max: usize) type {
                 entry.attached = false;
                 entry.closing = false;
                 entry.half_closing = false;
-                entry.send_owed = false;
                 entry.answers.reset(null);
             }
             session.events_max = events_per_step_max;
@@ -146,10 +141,26 @@ pub fn Session(comptime connections_max: usize) type {
             return accept_into(session, index, tls, echo, now_ns);
         }
 
-        /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input` and
-        /// writes what it can into `output`. See the header.
-        pub fn step(session: *Self, index: usize, input: []u8, output: []u8, now_ns: u64) Step {
-            return step_entry(session, index, input, output, now_ns);
+        /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input`. See
+        /// the header.
+        pub fn step(session: *Self, index: usize, input: []u8, now_ns: u64) Step {
+            return step_entry(session, index, input, now_ns);
+        }
+
+        /// What entry `index`'s connection owes its socket, which the engine lends where it holds
+        /// it: what an earlier lend gave, and more (decision 176). Empty for a connection that
+        /// ended, whose handle names nothing. The caller calls it while the socket has no send in
+        /// flight.
+        pub fn lend(session: *Self, index: usize) []const u8 {
+            return session.engine.output_stream(session.entries[index].handle, session.now_ns);
+        }
+
+        /// The socket of entry `index` sent `sent_len` octets of what the engine lent, at
+        /// `now_ns`: 0 for a send that failed or never went (decision 176). The engine ends a
+        /// connection whose socket closed only after this call. The caller marks the entry.
+        pub fn sent(session: *Self, index: usize, sent_len: usize, now_ns: u64) void {
+            session.now_ns = now_ns;
+            session.engine.sent_stream(session.entries[index].handle, sent_len, now_ns);
         }
 
         /// The socket of entry `index` closed before the engine asked: its peer closed it, or a
@@ -202,31 +213,27 @@ fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo,
     entry.attached = true;
     entry.closing = false;
     entry.half_closing = false;
-    entry.send_owed = false;
     entry.answers.reset(echo);
     return true;
 }
 
 /// `step` of a session of any size.
-fn step_entry(session: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) Step {
+fn step_entry(session: anytype, index: usize, input: []u8, now_ns: u64) Step {
     const entry = &session.entries[index];
     session.now_ns = now_ns;
     var consumed: usize = 0;
-    var written: usize = 0;
     // Bounded: a pass in which nothing moves ends the loop.
     for (0..session.events_max) |_| {
         const taken = read(session, entry, input[consumed..]);
         consumed += taken.consumed;
         const finished = answer(session, entry);
-        const sent = send(session, entry, output[written..]);
-        written += sent;
         drain(session);
-        if (taken.moved or finished > 0 or sent > 0) continue;
+        if (taken.moved or finished > 0) continue;
         // See the header for what the drain above may have read for this entry.
         session.pending.unset(index);
         break;
     } else session.pending.set(index);
-    return .{ .consumed = consumed, .written = written, .done = entry.closing };
+    return .{ .consumed = consumed, .done = entry.closing };
 }
 
 /// `peer_closed` of a session of any size.
@@ -262,19 +269,7 @@ fn read(session: anytype, entry: *Entry, input: []u8) Read {
 /// finished. What the engine took, the connection owes its socket. A connection that ended
 /// owes none: each of its requests ended first (INV-30).
 fn answer(session: anytype, entry: *Entry) usize {
-    const written = entry.answers.write(&session.engine, entry.handle);
-    if (written.wrote) entry.send_owed = true;
-    return written.finished;
-}
-
-/// Writes what the entry's connection owes into `room`, when it owes anything. A call that fills
-/// the room leaves more owed (decision 119), so the entry stays owing for the step that has room
-/// again. The handle of a connection that ended names nothing, and the engine writes nothing.
-fn send(session: anytype, entry: *Entry, room: []u8) usize {
-    if (!entry.send_owed or room.len == 0) return 0;
-    const written = session.engine.send_stream(entry.handle, room, session.now_ns);
-    entry.send_owed = written == room.len;
-    return written;
+    return entry.answers.write(&session.engine, entry.handle);
 }
 
 /// Reads the engine's events until it reports none, routing each.
@@ -309,7 +304,8 @@ fn on_event(session: anytype, reported: *const server.Event) void {
             .cancelled => named(session, finished.id.connection).answers.forget(finished.id.number),
         },
         .writable => |writable| _ = named(session, writable.id.connection),
-        .send => |handle| named(session, handle).send_owed = true,
+        // The socket takes the octets when the caller arms it.
+        .send => |handle| _ = named(session, handle),
         .half_close => |handle| named(session, handle).half_closing = true,
         .close => |handle| named(session, handle).closing = true,
         // The slot takes another connection from here on, and the entry stays its socket's.
@@ -353,4 +349,5 @@ fn named(session: anytype, handle: server.ConnectionHandle) *Entry {
 
 test {
     _ = @import("server_session_test.zig");
+    _ = @import("server_session_meter_test.zig");
 }

@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const client = @import("client");
 const tls = @import("tls");
 const socket_module = @import("socket.zig");
+const socket_output = @import("socket_output.zig");
 const operation_table = @import("operation_table.zig");
 const client_tcp = @import("client_tcp.zig");
 const client_loop = @import("client_loop.zig");
@@ -110,9 +111,10 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// offers QUIC, and whether its host sends segments (decision 156 ruling 13).
         udp: client_loop.Datagrams,
         datagram_segments: bool,
-        /// Each TCP slot's socket and what the client holds for it (`client_tcp.zig`), and the
-        /// operations in flight.
+        /// Each TCP slot's socket, the octets it holds to send (`socket_output.zig`), and what the
+        /// client holds for it (`client_tcp.zig`), and the operations in flight.
         sockets: [tcp_connections]socket_module.Socket,
+        outputs: [tcp_connections]socket_output.Output,
         connections: [tcp_connections]client_tcp.Connection,
         operations: operation_table.Table(client_loop.slot_count(tcp_connections, capacity.quic)),
         /// The sockets a completion named since their last step, and the sockets a turn changed.

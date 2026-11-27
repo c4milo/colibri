@@ -1,21 +1,24 @@
 //! One TCP socket of a `colibri.Server` or a `colibri.Client`, with no protocol and no I/O in
-//! it: the octets read but not consumed, the octets its connection produced that the socket has
-//! not taken yet, and the operations in flight. The driver hands each completion to the socket it
-//! names, and `server_pump.zig` passes the octets between a socket and its connection. Moved from
-//! the test-only server's `server_socket.zig` for design §8 step 37b. Its host does the I/O
-//! (decision 159).
+//! it: the octets read but not consumed, the octets the next send writes, and the operations in
+//! flight. The driver hands each completion to the socket it names, and `server_pump.zig` passes
+//! the octets between a socket and its connection. Moved from the test-only server's
+//! `server_socket.zig` for design §8 step 37b. Its host does the I/O (decision 159).
 //!
 //! A socket has one input buffer (design §8 step 60). A receive writes into the octets free after
 //! the unread ones, and the host owns them until its completion (decision 159, rule 1). The
 //! session consumes the input from the front by moving `input_start`, also while a receive is in
 //! flight, so what arrives always follows the unread octets. Octets left unread, such as half a
 //! frame, move to the front only before the next receive is written, when no receive owns the
-//! buffer. A send reads `output[output_sent..output_len]`, and the session only appends after
-//! that: once the output is full, it waits for the send.
+//! buffer.
 //!
-//! A socket outlives its connection. The engine frees a connection's slot as soon as it has
-//! reported its `close`, while the socket still sends the last octets and waits for the final
-//! completion of each operation, so the socket is free for another connection only after those.
+//! A socket holds no output (design §8 step 79). Its driver gives it the octets a send writes,
+//! in `outgoing`: a client's from the buffer of `socket_output.zig`, and a server's from what its
+//! engine lends with `output_stream` (decision 176). They stay where they are until the send's
+//! completion, and `on_sent` gives the driver the count to hand back.
+//!
+//! A socket outlives its connection. The engine frees a connection's slot once it has reported
+//! its `ended`, which waits for the lent send's completion. The socket still waits for the final
+//! completion of each other operation, so it is free for another connection only after those.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -63,7 +66,7 @@ pub fn count_of(result: host.Completion.Result) ?u32 {
 /// The unread octets a socket holds at most: its input buffer's.
 const input_capacity = constants.limits.socket_input_len;
 
-/// One socket a driver holds. Over TLS, `input` and `output` hold records.
+/// One socket a driver holds. Over TLS, `input` and `outgoing` hold records.
 pub const Socket = struct {
     /// The input buffer (see the header): the unread octets, and after them the octets a receive
     /// writes.
@@ -71,11 +74,9 @@ pub const Socket = struct {
     /// Where the unread octets start in the input, and how many there are.
     input_start: usize,
     input_len: usize,
-    output: [constants.limits.socket_output_len]u8,
-    /// Octets of `output` the connection has produced.
-    output_len: usize,
-    /// Octets of `output` the socket has taken, which are always the first ones.
-    output_sent: usize,
+    /// The octets the next send writes, or the send in flight writes, which the driver gave (see
+    /// the header). Empty once a send's completion came.
+    outgoing: []const u8,
     /// The operations in flight. The socket is free again once it is closed and none is.
     receiving: bool,
     sending: bool,
@@ -98,8 +99,7 @@ pub const Socket = struct {
     pub fn open(socket: *Socket) void {
         socket.input_start = 0;
         socket.input_len = 0;
-        socket.output_len = 0;
-        socket.output_sent = 0;
+        socket.outgoing = &.{};
         socket.receiving = false;
         socket.sending = false;
         socket.close_submitted = false;
@@ -144,27 +144,43 @@ pub const Socket = struct {
         return socket.input[socket.input_start + socket.input_len ..];
     }
 
-    /// Counts what a send took. A send that failed leaves the socket `failed`.
-    pub fn on_sent(socket: *Socket, result: host.Completion.Result) void {
+    /// Takes the octets the next send writes. They stay where they are until its completion. Before
+    /// the send starts, a new gift holds the earlier one from the same front, and more.
+    pub fn give(socket: *Socket, octets: []const u8) void {
+        assert(!socket.sending);
+        assert(socket.outgoing.len == 0 or (octets.ptr == socket.outgoing.ptr and octets.len >= socket.outgoing.len));
+        socket.outgoing = octets;
+    }
+
+    /// Ends the send in flight, and returns the octets it took: 0 for a send that failed, which
+    /// leaves the socket `failed`. The driver hands the count back to whoever gave the octets.
+    pub fn on_sent(socket: *Socket, result: host.Completion.Result) usize {
+        assert(socket.sending);
         socket.sending = false;
-        const sent = count_of(result) orelse {
+        const given = socket.outgoing.len;
+        socket.outgoing = &.{};
+        const sent: usize = count_of(result) orelse {
             socket.failed = true;
-            return;
+            return 0;
         };
-        socket.output_sent += sent;
-        assert(socket.output_sent <= socket.output_len);
-        // Every octet is gone and no send is in flight, so the buffer starts again at its front.
-        if (socket.output_sent == socket.output_len) {
-            socket.output_len = 0;
-            socket.output_sent = 0;
-        }
+        assert(sent <= given);
+        return sent;
+    }
+
+    /// Drops octets that the driver gave and no send took, and returns how many it held: the
+    /// socket stopped before it wrote their send.
+    pub fn drop_unsent(socket: *Socket) usize {
+        if (socket.sending) return 0;
+        const given = socket.outgoing.len;
+        socket.outgoing = &.{};
+        return given;
     }
 
     /// Whether the write side closes now: the engine closes the connection in stages, and the
     /// octets left are out (RFC 9112 §9.6, decision 160).
     pub fn half_close_due(socket: *const Socket) bool {
         if (!socket.half_closing or socket.shutdown_submitted or socket.stopped()) return false;
-        return !socket.sending and socket.output_sent == socket.output_len;
+        return !socket.sending and socket.outgoing.len == 0;
     }
 
     /// Takes the end of the shutdown of the write side. One that failed, or that a close ended,
@@ -199,16 +215,6 @@ pub const Socket = struct {
         socket.input_len -= consumed;
     }
 
-    /// Where the connection writes what the socket sends next.
-    pub fn room(socket: *Socket) []u8 {
-        return socket.output[socket.output_len..];
-    }
-
-    pub fn wrote(socket: *Socket, written: usize) void {
-        assert(written <= socket.output.len - socket.output_len);
-        socket.output_len += written;
-    }
-
     /// Writes what the socket needs next: its close once it is failed or closing and drained, and
     /// no shutdown is in flight, otherwise a send of what is owed, the shutdown of its write side
     /// once a staged close has sent everything, and a receive while there is room for more.
@@ -216,7 +222,7 @@ pub const Socket = struct {
     /// for an operation the socket needs, so the next turn writes it.
     pub fn arm(socket: *Socket, out: *operation_table.Outbox, table: anytype, index: usize) bool {
         if (socket.close_submitted) return true;
-        const drained = socket.output_sent == socket.output_len;
+        const drained = socket.outgoing.len == 0;
         if (socket.failed or (socket.closing and drained)) {
             // The close waits for the shutdown's completion. io_uring runs a shutdown on a worker
             // thread, which finds the descriptor only when it starts, so the cancel before Rotor's
@@ -249,7 +255,7 @@ pub const Socket = struct {
             },
             .send => blk: {
                 socket.sending = true;
-                break :blk .{ .send = .{ .socket = socket_id, .bytes = socket.output[socket.output_sent..socket.output_len] } };
+                break :blk .{ .send = .{ .socket = socket_id, .bytes = socket.outgoing } };
             },
             .shutdown => blk: {
                 socket.shutdown_submitted = true;
@@ -321,84 +327,8 @@ test "design §8 step 60: octets consumed while a receive is in flight leave the
     try testing.expectEqual('z', test_socket.unread()[input_capacity - 1]);
 }
 
-test "decision 159: a socket writes the operations it needs, and none while they are in flight" {
-    var table: operation_table.Table(slots_per_socket) = .empty;
-    var operations: [operations_per_socket]host.Operation = undefined;
-    var out: operation_table.Outbox = .{ .operations = &operations };
-    test_socket.open();
-    test_socket.wrote(3);
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expectEqual(2, out.len);
-    try testing.expectEqual(3, operations[0].kind.send.bytes.len);
-    try testing.expectEqual(input_capacity, operations[1].kind.receive.buffer.len);
-    try testing.expectEqual(2, table.count);
-    // Both are in flight, so a second turn writes nothing.
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expectEqual(2, out.len);
-    // A failed socket writes its close alone, and an outbox with no room leaves it owed.
-    test_socket.failed = true;
-    out = .{ .operations = operations[0..0] };
-    try testing.expect(!test_socket.arm(&out, &table, 0));
-    try testing.expect(out.full and !test_socket.close_submitted);
-    out = .{ .operations = &operations };
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expect(operations[0].kind == .close);
-    try testing.expect(test_socket.close_submitted);
-}
-
-test "decision 159: a socket whose close completes first is finished only after its receive's final completion" {
-    test_socket.open();
-    test_socket.receiving = true;
-    test_socket.sending = true;
-    // Rule 2: the host may give the close's completion before those of the operations it ended.
-    test_socket.closed = true;
-    try testing.expect(!test_socket.finished());
-    test_socket.on_sent(.canceled);
-    try testing.expect(!test_socket.finished());
-    test_socket.on_received(.canceled);
-    try testing.expect(test_socket.finished());
-    // The same holds when the send's final completion comes last.
-    test_socket.open();
-    test_socket.receiving = true;
-    test_socket.sending = true;
-    test_socket.closed = true;
-    test_socket.on_received(.canceled);
-    try testing.expect(!test_socket.finished());
-    test_socket.on_sent(.canceled);
-    try testing.expect(test_socket.finished());
-}
-
-test "decision 160: the write side closes once the octets are out, and the socket is finished after it" {
-    var table: operation_table.Table(slots_per_socket) = .empty;
-    var operations: [operations_per_socket]host.Operation = undefined;
-    var out: operation_table.Outbox = .{ .operations = &operations };
-    test_socket.open();
-    test_socket.half_closing = true;
-    test_socket.wrote(3);
-    // RFC 9112 §9.6: the response goes out first.
-    try testing.expect(!test_socket.half_close_due());
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    try testing.expectEqual(2, out.len);
-    try testing.expect(operations[0].kind == .send and operations[1].kind == .receive);
-    test_socket.on_sent(.{ .sent = 3 });
-    try testing.expect(test_socket.half_close_due());
-    out = .{ .operations = &operations };
-    try testing.expect(test_socket.arm(&out, &table, 0));
-    // The shutdown is written once, and the receive stays in flight.
-    try testing.expectEqual(1, out.len);
-    try testing.expectEqual(0, @intFromEnum(operations[0].kind.shutdown_send.socket));
-    try testing.expect(test_socket.receiving and !test_socket.half_close_due());
-    // The close may complete before the shutdown that it ended.
-    test_socket.closed = true;
-    try testing.expect(!test_socket.finished());
-    test_socket.on_received(.canceled);
-    test_socket.on_shut_down(.canceled);
-    try testing.expect(test_socket.finished() and test_socket.failed);
-    // A socket that failed shuts nothing down.
-    test_socket.open();
-    test_socket.half_closing = true;
-    test_socket.failed = true;
-    try testing.expect(!test_socket.half_close_due());
+test {
+    _ = @import("socket_send_test.zig");
 }
 
 /// The bit of a receive step's kind octet that consumes while the receive is in flight. Test-only.

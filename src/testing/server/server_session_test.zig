@@ -2,7 +2,7 @@
 //! every request is answered once it is read whole, in the order it was read, and the echo mode
 //! answers with what h11 parsed. Then two connections on one engine: an event reaches the entry
 //! of the connection it names, a slot serves a new entry while its last one still holds its
-//! socket, and a `send_stream` that filled its room is called again. The TLS half is `server`'s,
+//! socket, and a lend that a send took in part goes on with its rest. The TLS half is `server`'s,
 //! and `src/server/` tests it.
 const std = @import("std");
 const server = @import("server");
@@ -53,17 +53,43 @@ fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
     return &test_session;
 }
 
+/// What a test's step did: the input it consumed, the octets its socket sent into the test's
+/// output, and whether the engine reported the connection's `close`. Test-only.
+const Stepped = struct { consumed: usize, written: usize, done: bool };
+
 /// Steps entry 0 over `input`, copied where the connection may read it, a tick after the step
 /// before. Test-only.
-fn step(input: []const u8, output: []u8) session_module.Step {
+fn step(input: []const u8, output: []u8) Stepped {
     return step_entry(0, input, output);
 }
 
 /// Steps entry `index` the same way. Test-only.
-fn step_entry(index: usize, input: []const u8, output: []u8) session_module.Step {
+fn step_entry(index: usize, input: []const u8, output: []u8) Stepped {
     @memcpy(test_input[0..input.len], input);
     test_now_ns += constants.tick_ns;
-    return test_session.step(index, test_input[0..input.len], output, test_now_ns);
+    return step_over(index, test_input[0..input.len], output);
+}
+
+/// Steps entry `index` over `input` as a socket whose sends complete at once, each lend into
+/// `output` as far as it holds, until a lend does not go whole (decision 176). Test-only.
+fn step_over(index: usize, input: []u8, output: []u8) Stepped {
+    const first = test_session.step(index, input, test_now_ns);
+    var result: Stepped = .{ .consumed = first.consumed, .written = 0, .done = first.done };
+    // Bounded: each pass sends a lend, or ends the loop.
+    for (0..test_output_len) |_| {
+        const lent = test_session.lend(index);
+        const room = output[result.written..];
+        const taken = @min(room.len, lent.len);
+        @memcpy(room[0..taken], lent[0..taken]);
+        result.written += taken;
+        if (lent.len == 0) break;
+        test_session.sent(index, taken, test_now_ns);
+        if (taken < lent.len) break;
+        const stepped = test_session.step(index, input[result.consumed..], test_now_ns);
+        result.consumed += stepped.consumed;
+        result.done = stepped.done;
+    }
+    return result;
 }
 
 /// The responses entry `index` owes. Test-only.
@@ -125,8 +151,8 @@ test "RFC 9110 §9.3.2 and RFC 9112 §9.6: HEAD gets no body, and the close opti
         "\r\ncontent-length: " ++ constants.response_content_length ++ "\r\nConnection: close\r\n\r\n";
     try testing.expectEqualStrings(closed, test_output[0..stepped.written]);
     try testing.expect(stepped.done);
-    // The request after the close is never read.
-    try testing.expect(stepped.consumed < input.len);
+    // The request after the close is never read: the connection reads no more, and drops it.
+    try testing.expectEqual(0, test_session.entries[0].answers.reading_count + owed_count(0));
 }
 
 test "decision 92: a refused h11 request gets its error response, and then the session is done" {
@@ -170,28 +196,15 @@ test "the echo mode answers each h11 request with the JSON of what h11 read" {
     try testing.expectEqualStrings(head ++ json, test_output[0..stepped.written]);
 }
 
-test "the echo mode answers content past its limit with 413, and writes a long echo in slices" {
+test "the echo mode answers content past its limit with 413" {
     _ = try fresh_session(.h11, &test_echo);
     const head = "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: " ++
         std.fmt.comptimePrint("{d}", .{constants.echo_body_len_max + 1}) ++ "\r\n\r\n";
     @memcpy(test_input[0..head.len], head);
     @memset(test_input[head.len..][0 .. constants.echo_body_len_max + 1], 'x');
     test_now_ns += constants.tick_ns;
-    const refused = test_session.step(0, test_input[0 .. head.len + constants.echo_body_len_max + 1], &test_output, test_now_ns);
+    const refused = step_over(0, test_input[0 .. head.len + constants.echo_body_len_max + 1], &test_output);
     try testing.expect(std.mem.startsWith(u8, test_output[0..refused.written], "HTTP/1.1 413 Content Too Large\r\n"));
-    // A GET whose echo is longer than the output: the content goes out over several steps.
-    _ = try fresh_session(.h11, &test_echo);
-    const get = "GET /" ++ "a" ** 1200 ++ " HTTP/1.1\r\nHost: a\r\n\r\n";
-    var steps: usize = 0;
-    var sent_len: usize = 0;
-    for (0..test_output_len) |_| {
-        const stepped = step(if (steps == 0) get else "", test_output[0..test_small_output_len]);
-        steps += 1;
-        sent_len += stepped.written;
-        if (owed_count(0) == 0 and stepped.written == 0) break;
-    }
-    try testing.expect(steps > 2);
-    try testing.expect(sent_len > test_small_output_len);
 }
 
 /// A `--body` longer than the output, the response it makes, and where the steps collect it.
@@ -319,13 +332,12 @@ test "decision 119: an event that names another connection reaches that connecti
     const first = step_entry(0, client_preface, &test_output);
     try testing.expectEqual(h2.constants.protocol.frame_type_settings, test_output[type_index]);
     try testing.expect(first.written > 0);
-    // The step of entry 0 read the `send` of entry 1, which owes it and waits for its own step.
-    try testing.expect(test_session.entries[1].send_owed);
+    // The step of entry 0 read the `send` of entry 1, which waits for its own step.
     try testing.expectEqual(@as(?usize, 1), test_session.next_pending());
     try testing.expectEqual(null, test_session.next_pending());
     const second = step_entry(1, "", &test_other_output);
     try testing.expectEqual(h2.constants.protocol.frame_type_settings, test_other_output[type_index]);
-    try testing.expect(second.written > 0 and !test_session.entries[1].send_owed);
+    try testing.expect(second.written > 0);
     // Each connection's request is answered on its own stream and in its own output.
     _ = step_entry(1, client_preface, &test_other_output);
     const answered = step_entry(1, get_frame(1), &test_other_output);
@@ -429,7 +441,7 @@ fn content_length(head: []const u8) !usize {
     return std.fmt.parseInt(usize, head[start..end], constants.port_radix);
 }
 
-test "decision 119: a send_stream that filled its room stays owed until the response is out" {
+test "decision 176: a long echo goes out in slices, each lend's rest after the part a send took" {
     _ = try fresh_session(.h11, &test_echo);
     // An echo many times the room each step has.
     const long_get = "GET /" ++ "a" ** 1200 ++ " HTTP/1.1\r\nHost: a\r\n\r\n";
@@ -439,8 +451,6 @@ test "decision 119: a send_stream that filled its room stays owed until the resp
         const room = test_output[gathered..][0..test_small_output_len];
         const stepped = step_entry(0, if (steps == 0) long_get else "", room);
         if (stepped.written == 0) break;
-        // A step that filled its room leaves the send owed, and the next one calls again.
-        try testing.expectEqual(stepped.written == room.len, test_session.entries[0].send_owed);
         gathered += stepped.written;
         steps += 1;
     }
@@ -477,15 +487,13 @@ test "an entry a new socket takes starts with nothing owed and not closing" {
     // The entry's next socket: its connection reads and answers, and is not closing.
     try testing.expect(test_session.accept(0, false, null, test_now_ns));
     try testing.expect(!entry.closing);
-    // Its peer leaves while the response's send is owed: the room held one octet.
+    // Its peer leaves while the response's send is owed: the send took one octet.
     var cramped: [1]u8 = undefined;
     try testing.expect(!step_entry(0, get_h11, &cramped).done);
-    try testing.expect(entry.send_owed);
     test_session.peer_closed(0, test_now_ns);
-    try testing.expect(entry.send_owed and !entry.attached);
+    try testing.expect(!entry.attached);
     // The third socket's connection owes nothing of the second's.
     try testing.expect(test_session.accept(0, false, null, test_now_ns));
-    try testing.expect(!entry.send_owed);
     const answered = step_entry(0, get_h11, &test_output);
     try testing.expectEqualStrings(response ++ constants.response_body, test_output[0..answered.written]);
     try testing.expect(!answered.done);

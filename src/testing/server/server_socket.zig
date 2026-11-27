@@ -1,6 +1,5 @@
 //! One socket of the test-only server (`../server.zig`), with no protocol in it: the octets read
-//! but not consumed, the octets its connection produced that the socket has not taken yet, and
-//! the Rotor operations in flight. `server_worker.zig` holds a worker's sockets, hands each event
+//! but not consumed, the octets the next send writes, and the Rotor operations in flight. `server_worker.zig` holds a worker's sockets, hands each event
 //! to the one it names, and passes the octets between a socket and its connection in the
 //! worker's session (`server_session.zig`).
 //!
@@ -9,11 +8,15 @@
 //! 3). The session consumes the input from the front by moving `input_start`, also while a receive
 //! is in flight, so what arrives always follows the unread octets. Octets left unread, such as half
 //! a frame, move to the front only before the next receive is submitted, when no receive owns the
-//! buffer. A send reads `output[output_sent..output_len]`, and the session only appends after that.
+//! buffer.
 //!
-//! A socket outlives its connection. The engine frees a connection's slot as soon as it has
-//! reported its `close`, while the socket still sends the last octets and waits for the final
-//! event of each operation, so the socket is free for another connection only after those.
+//! A socket holds no output, as `colibri.Server`'s holds none (design §8 step 79). A send writes
+//! `outgoing`, the octets the engine lends with `output_stream` (decision 176), which stay where
+//! they are until its final event. `on_sent` gives the session the count to hand back.
+//!
+//! A socket outlives its connection. The engine frees a connection's slot once it has reported
+//! its `ended`, which waits for the lent send's final event. The socket still waits for the final
+//! event of each other operation, so it is free for another connection only after those.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -36,7 +39,7 @@ pub fn user_data(index: usize, kind: Kind) u64 {
 /// The unread octets a socket holds at most: its input buffer's.
 const input_capacity = constants.wire_read_len;
 
-/// One socket a worker holds. Over TLS, `input` and `output` hold records.
+/// One socket a worker holds. Over TLS, `input` and `outgoing` hold records.
 pub const Socket = struct {
     descriptor: rotor.Descriptor,
     /// The input buffer (see the header): the unread octets, and after them the octets a receive
@@ -45,11 +48,9 @@ pub const Socket = struct {
     /// Where the unread octets start in the input, and how many there are.
     input_start: usize,
     input_len: usize,
-    output: [constants.write_buffer_len]u8,
-    /// Octets of `output` the connection has produced.
-    output_len: usize,
-    /// Octets of `output` the socket has taken, which are always the first ones.
-    output_sent: usize,
+    /// The octets the next send writes, or the send in flight writes, which the engine lent (see
+    /// the header). Empty once a send's final event came.
+    outgoing: []const u8,
     /// The operations in flight. The socket is free again once it is closed and none is.
     receiving: bool,
     sending: bool,
@@ -73,8 +74,7 @@ pub const Socket = struct {
         socket.descriptor = descriptor;
         socket.input_start = 0;
         socket.input_len = 0;
-        socket.output_len = 0;
-        socket.output_sent = 0;
+        socket.outgoing = &.{};
         socket.receiving = false;
         socket.sending = false;
         socket.close_submitted = false;
@@ -119,20 +119,36 @@ pub const Socket = struct {
         return socket.input[socket.input_start + socket.input_len ..];
     }
 
-    /// Counts what a send took. A send that failed leaves the socket `failed`.
-    pub fn on_sent(socket: *Socket, event: rotor.Event) void {
+    /// Takes the octets the next send writes. They stay where they are until its final event.
+    /// Before the send starts, a new gift holds the earlier one from the same front, and more.
+    pub fn give(socket: *Socket, octets: []const u8) void {
+        assert(!socket.sending);
+        assert(socket.outgoing.len == 0 or (octets.ptr == socket.outgoing.ptr and octets.len >= socket.outgoing.len));
+        socket.outgoing = octets;
+    }
+
+    /// Ends the send in flight, and returns the octets it took: 0 for a send that failed, which
+    /// leaves the socket `failed`. The session hands the count back to the engine.
+    pub fn on_sent(socket: *Socket, event: rotor.Event) usize {
+        assert(socket.sending);
         socket.sending = false;
-        const sent = event.outcome() catch {
+        const given = socket.outgoing.len;
+        socket.outgoing = &.{};
+        const sent: usize = event.outcome() catch {
             socket.failed = true;
-            return;
+            return 0;
         };
-        socket.output_sent += sent;
-        assert(socket.output_sent <= socket.output_len);
-        // Every octet is gone and no send is in flight, so the buffer starts again at its front.
-        if (socket.output_sent == socket.output_len) {
-            socket.output_len = 0;
-            socket.output_sent = 0;
-        }
+        assert(sent <= given);
+        return sent;
+    }
+
+    /// Drops octets the engine lent and no send took, and returns how many it held: the socket
+    /// stopped before it submitted their send.
+    pub fn drop_unsent(socket: *Socket) usize {
+        if (socket.sending) return 0;
+        const given = socket.outgoing.len;
+        socket.outgoing = &.{};
+        return given;
     }
 
     /// Takes the end of the shutdown of the write side. One that failed leaves the socket `failed`.
@@ -167,19 +183,9 @@ pub const Socket = struct {
         socket.input_len -= consumed;
     }
 
-    /// Where the connection writes what the socket sends next.
-    pub fn room(socket: *Socket) []u8 {
-        return socket.output[socket.output_len..];
-    }
-
-    pub fn wrote(socket: *Socket, written: usize) void {
-        assert(written <= socket.output.len - socket.output_len);
-        socket.output_len += written;
-    }
-
     /// Whether the socket ends: it failed, or it is closing and its octets are out.
     fn ending(socket: *const Socket) bool {
-        return socket.failed or (socket.closing and socket.output_sent == socket.output_len);
+        return socket.failed or (socket.closing and socket.outgoing.len == 0);
     }
 
     /// Whether the socket submits its close now: it ends, and no shutdown is in flight. io_uring
@@ -197,7 +203,7 @@ pub const Socket = struct {
     /// worker's `*rotor.Loop`, or a test's record of what `arm` submits.
     pub fn arm(socket: *Socket, loop: anytype, index: usize) void {
         if (socket.close_submitted) return;
-        const drained = socket.output_sent == socket.output_len;
+        const drained = socket.outgoing.len == 0;
         if (socket.close_due()) return socket.submit(loop, index, .close);
         if (socket.ending()) return;
         if (!socket.sending and !drained) socket.submit(loop, index, .send);
@@ -219,7 +225,7 @@ pub const Socket = struct {
             },
             .send => blk: {
                 socket.sending = true;
-                break :blk rotor.Operation.send(user_data(index, kind), socket.descriptor, socket.output[socket.output_sent..socket.output_len]);
+                break :blk rotor.Operation.send(user_data(index, kind), socket.descriptor, socket.outgoing);
             },
             // Rotor's close cancels the socket's receive and send first.
             .close => blk: {
@@ -321,9 +327,10 @@ test "decision 160: a socket that fails while its shutdown is in flight closes a
     // A socket the engine closes waits for its octets as well as for the shutdown.
     test_socket.open(0);
     test_socket.closing = true;
-    test_socket.output_len = 3;
+    test_socket.give("abc");
     try testing.expect(!test_socket.close_due());
-    test_socket.output_sent = 3;
+    test_socket.sending = true;
+    try testing.expectEqual(3, test_socket.on_sent(rotor.Event.success(user_data(0, .send), 3)));
     try testing.expect(test_socket.close_due());
 }
 

@@ -62,6 +62,7 @@ const files = struct {
     pub const datagram_batch = @import("datagram_batch.zig");
     pub const datagram_socket = @import("datagram_socket.zig");
     pub const socket = @import("socket.zig");
+    pub const socket_output = @import("socket_output.zig");
 };
 
 pub const Server = files.server.Server;

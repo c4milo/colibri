@@ -52,18 +52,12 @@ const resumes = @import("server_resume.zig");
 const Link = link_module.Link;
 const DatagramLink = datagram_module.DatagramLink;
 
-/// The octets the server writes for a TCP connection before it sends them, at most.
-const output_len = 16384;
-
 /// Turns of the server and its clients before the example gives up.
 const turns_max = 256;
 
 /// Events the server takes after one input, and datagrams it reads or writes in one turn, at most.
 const events_per_input_max = 64;
 const datagrams_per_turn_max = 32;
-
-/// Calls to `send_stream` that one `send` event takes, at most.
-const sends_per_event_max = 8;
 
 /// The longest the server sleeps when no octet waits, in nanoseconds: 100 ms.
 const wait_ns_max: u64 = 100_000_000;
@@ -97,15 +91,12 @@ pub const Error = error{
     ExchangeUnfinished,
     /// What arrived is not what was sent.
     ExchangeWrong,
-    /// A connection still owed octets after `sends_per_event_max` calls to `send_stream`.
-    SendUnfinished,
 };
 
 // The links and the engine hold megabytes, so they live outside the stack. The datagram link
 // runs on the stream link's loops.
 var link: Link align(@alignOf(Link)) = undefined;
 var datagram_link: DatagramLink align(@alignOf(DatagramLink)) = undefined;
-var output: [output_len]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The server: its configuration, which holds the TLS identity, and the engine that holds its
@@ -369,8 +360,8 @@ fn serve(event: *const server.Event, now_ns: u64) !void {
             // socket, and passes on what the socket reads. The `close` follows.
             .half_close => half_closes += 1,
             // colibri reads and writes nothing more on this TCP connection. A program closes the
-            // socket once the socket has taken the octets `send_stream` returned, and owes the
-            // engine no call: the connection's `ended` follows by itself.
+            // socket once it has sent the octets it took, and owes the engine no call: the
+            // connection's `ended` follows by itself.
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
             .ended => |over| try count_ended(over, now_ns),
@@ -467,18 +458,19 @@ fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: any
     response.status = .internal_server_error;
 }
 
-/// Sends what `connection` owes its socket, after its `send` event. A call that fills the buffer
-/// leaves more owed, so the program calls again, and a call that leaves room ends the `send`. A
-/// program whose socket is full stops here, and calls again when the socket takes more.
+/// Sends what `connection` owes its socket, after its `send` event. The engine lends the octets
+/// where it holds them, so the send copies none into a buffer of the program's (decision 176).
+/// `sent_stream` then says how many the send took: 0 for one that failed. The engine reports
+/// another `send` for any octets left.
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
     // This example has one TCP link, so only the connection it carries may owe octets.
     if (connection != accepted) return error.ExchangeWrong;
-    for (0..sends_per_event_max) |_| {
-        const written = engine.send_stream(connection, &output, now_ns);
-        try link.send(.server, output[0..written]);
-        if (written < output.len) return;
-    }
-    return error.SendUnfinished;
+    const owed = engine.output_stream(connection, now_ns);
+    link.send(.server, owed) catch |failure| {
+        engine.sent_stream(connection, 0, now_ns);
+        return failure;
+    };
+    engine.sent_stream(connection, owed.len, now_ns);
 }
 
 /// Counts a connection that is over. `failed` says colibri closed it because its peer broke a

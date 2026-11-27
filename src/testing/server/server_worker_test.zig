@@ -1,8 +1,8 @@
 //! The tests of one worker of the test-only server (`server_worker.zig`), in cleartext. They call
 //! `handle` with events they make and never arm a socket, so no operation is submitted and no
-//! loop runs: a peer that leaves, a deadline, a slot that serves a new socket while its last one
-//! still sends, a send that makes room, the echo of two sockets, and a read of events that stops
-//! at its bound. The last test alone runs the worker's loop, over a socket on 127.0.0.1, and
+//! loop runs: a peer that leaves, a deadline, a slot that waits for its socket's last send, a send
+//! that took part of what the engine lent, the echo of two sockets, and a read of events that
+//! stops at its bound. The last test alone runs the worker's loop, over a socket on 127.0.0.1, and
 //! names the instant of each turn: a socket that receives again after its half-close (decision
 //! 160).
 const std = @import("std");
@@ -59,9 +59,19 @@ fn deliver(worker: *Worker, index: usize, octets: []const u8, now_ns: u64) void 
     handle(worker, &.{event_of(index, .receive, @intCast(octets.len))}, null, now_ns);
 }
 
-/// What the socket at `index` holds to send. Test-only.
+/// What the socket at `index` holds to send: what the engine lends it, as `arm` gives it
+/// (decision 176). Test-only.
 fn staged(worker: *Worker, index: usize) []const u8 {
-    return worker.sockets[index].output[0..worker.sockets[index].output_len];
+    server_worker.lend(worker, index);
+    return worker.sockets[index].outgoing;
+}
+
+/// The send of the socket at `index` takes `count` octets of what it was lent, as the final event
+/// of a send that `arm` would have submitted. Test-only.
+fn send_took(worker: *Worker, index: usize, count: usize) void {
+    server_worker.lend(worker, index);
+    worker.sockets[index].sending = true;
+    handle(worker, &.{event_of(index, .send, @intCast(count))}, null, constants.tick_ns);
 }
 
 test "with port 0, every worker's listener has the port the kernel chose for the first" {
@@ -107,7 +117,7 @@ test "decision 110: a silent connection is closed once its deadline is handed to
     handle(worker, &.{}, deadline_ns, deadline_ns);
     try testing.expect(worker.sockets[index].closing);
     try testing.expect(!worker.session.entries[index].attached);
-    try testing.expectEqual(0, worker.sockets[index].output_len);
+    try testing.expectEqual(0, worker.sockets[index].outgoing.len);
 }
 
 test "the tick waits until the engine's deadline, and not at all while work is left" {
@@ -125,64 +135,60 @@ test "the tick waits until the engine's deadline, and not at all while work is l
     try testing.expectEqual(rotor.constants.wait_ns_max, server_worker.wait_ns(worker, null, 0));
 }
 
-test "with every socket taken, a slot serves a new socket while its last one still sends" {
+test "decision 176: a slot waits for its socket's last send, then serves the next socket" {
     const worker = try fresh_worker();
     for (0..constants.connections_per_worker_max) |_| _ = accept(worker, 0);
     try testing.expectEqual(null, server_worker.free_socket(worker));
-    // The first socket's connection ends with its response, which the socket has not sent: no
-    // send's event arrived. Its slot is free, and the socket is not.
+    // The first socket's connection ends with its response, which the socket has not sent: the
+    // engine lent it, and the slot waits for the send.
     const first = worker.session.entries[0].handle;
     deliver(worker, 0, get_close, constants.tick_ns);
-    try testing.expect(worker.sockets[0].closing and worker.sockets[0].live);
-    try testing.expect(!worker.session.engine.live[first.slot]);
+    try testing.expect(!worker.sockets[0].closing and worker.sockets[0].live);
+    try testing.expect(worker.session.engine.live[first.slot]);
     try testing.expectEqualStrings(response_closing, staged(worker, 0));
-    // Another socket's peer leaves, and Rotor closes it: one socket is free, and the engine
-    // hands out the slot freed first, the first socket's.
-    const other: usize = 5;
-    handle(worker, &.{ event_of(other, .receive, 0), event_of(other, .close, 0) }, null, constants.tick_ns);
-    try testing.expectEqual(other, accept(worker, constants.tick_ns));
-    const second = worker.session.entries[other].handle;
+    // The send takes it all, and the connection closes and ends: the slot is free, and the socket
+    // closes.
+    send_took(worker, 0, response_closing.len);
+    try testing.expect(worker.sockets[0].closing);
+    try testing.expect(!worker.session.entries[0].attached);
+    try testing.expect(!worker.session.engine.live[first.slot]);
+    handle(worker, &.{event_of(0, .close, 0)}, null, constants.tick_ns);
+    // The next socket takes the freed slot, whose new generation its events carry.
+    try testing.expectEqual(0, accept(worker, constants.tick_ns));
+    const second = worker.session.entries[0].handle;
     try testing.expectEqual(first.slot, second.slot);
     try testing.expect(first.generation != second.generation);
-    // The new connection's events name the first socket's slot, and reach the new socket.
-    deliver(worker, other, get, constants.tick_ns);
-    try testing.expectEqualStrings(response, staged(worker, other));
-    try testing.expectEqualStrings(response_closing, staged(worker, 0));
-    // The first socket's send fails late. Its connection ended, so the engine hears nothing,
-    // and the connection now in its slot stays.
-    handle(worker, &.{rotor.Event.failure(server_socket.user_data(0, .send), .connection_reset)}, null, constants.tick_ns);
-    try testing.expect(worker.sockets[0].failed);
-    try testing.expect(worker.session.entries[other].attached);
-    try testing.expect(worker.session.engine.live[second.slot]);
+    deliver(worker, 0, get, constants.tick_ns);
+    try testing.expectEqualStrings(response, staged(worker, 0));
 }
 
-test "a socket whose send made room takes the rest its connection owes" {
+test "decision 176: a send that took part of what the engine lent sends the rest next" {
+    const worker = try fresh_worker();
+    const index = accept(worker, 0);
+    deliver(worker, index, get, constants.tick_ns);
+    try testing.expectEqualStrings(response, staged(worker, index));
+    // The send takes ten octets. The rest moves to the front of the engine's output, and the
+    // socket's next send writes it.
+    const taken_len = 10;
+    send_took(worker, index, taken_len);
+    try testing.expectEqualStrings(response[taken_len..], staged(worker, index));
+}
+
+test "decision 176: a socket with a send in flight reads on, and sends the answer after it" {
     const worker = try fresh_worker();
     const index = accept(worker, 0);
     const socket = &worker.sockets[index];
-    // The socket holds octets it has not sent, with room for a few more.
-    const room_len = 10;
-    socket.output_len = socket.output.len - room_len;
     deliver(worker, index, get, constants.tick_ns);
-    try testing.expectEqual(socket.output.len, socket.output_len);
-    try testing.expectEqualStrings(response[0..room_len], socket.output[socket.output.len - room_len ..]);
-    // The send takes every octet, so the buffer starts again, and the connection's send, which
-    // filled its room, goes on.
-    handle(worker, &.{event_of(index, .send, @intCast(socket.output.len))}, null, constants.tick_ns);
-    try testing.expectEqualStrings(response[room_len..], staged(worker, index));
-}
-
-test "a socket with no room to send holds its input until a send makes room" {
-    const worker = try fresh_worker();
-    const index = accept(worker, 0);
-    const socket = &worker.sockets[index];
-    // A peer that reads nothing: the socket's output is full, so its request is not read.
-    socket.output_len = socket.output.len;
+    // The first answer's send starts, as `arm` starts it.
+    try testing.expectEqualStrings(response, staged(worker, index));
+    socket.sending = true;
+    // The next request arrives while the first answer's send is in flight: the socket reads it,
+    // and its answer waits in the engine.
     deliver(worker, index, get, constants.tick_ns);
-    try testing.expectEqual(get.len, socket.input_len);
-    try testing.expectEqual(0, worker.session.entries[index].answers.owed_count);
-    handle(worker, &.{event_of(index, .send, @intCast(socket.output.len))}, null, constants.tick_ns);
     try testing.expectEqual(0, socket.input_len);
+    try testing.expectEqualStrings(response, staged(worker, index));
+    // The send ends, and the socket takes the second answer.
+    send_took(worker, index, response.len);
     try testing.expectEqualStrings(response, staged(worker, index));
 }
 
@@ -216,6 +222,9 @@ test "steps that stop at their bound are taken again until the response is whole
     deliver(worker, index, get_close, constants.tick_ns);
     try testing.expect(worker.session.settled());
     try testing.expectEqualStrings(response_closing, staged(worker, index));
+    // The engine closes the connection once the send took the response.
+    send_took(worker, index, response_closing.len);
+    try testing.expect(worker.session.settled());
     try testing.expect(worker.sockets[index].closing);
     try testing.expect(!worker.session.entries[index].attached);
 }
@@ -291,16 +300,17 @@ test "decision 160: a 405 before a body past the bound goes out whole, then the 
     const index = accept(worker, 0);
     const socket = &worker.sockets[index];
     deliver(worker, index, "POST /emojis HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc", constants.tick_ns);
-    // RFC 9112 §9.6: the socket holds the whole response, and its write side closes once `arm`
-    // finds it sent.
+    // RFC 9112 §9.6: the socket holds the whole response, and the engine asks for the half-close
+    // once the send took it, which `arm` then submits.
     try testing.expect(std.mem.startsWith(u8, staged(worker, index), "HTTP/1.1 405 "));
     try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\n"));
+    try testing.expect(!socket.half_closing);
+    send_took(worker, index, socket.outgoing.len);
     try testing.expect(socket.half_closing and !socket.closing);
-    handle(worker, &.{event_of(index, .send, @intCast(socket.output_len))}, null, constants.tick_ns);
     // The peer's octets after the half-close are read and discarded, and nothing is sent.
     deliver(worker, index, "more of the body", constants.tick_ns);
     try testing.expectEqual(0, socket.unread().len);
-    try testing.expectEqual(0, socket.output_len);
+    try testing.expectEqual(0, socket.outgoing.len);
     // The shutdown ends, then the peer closes, which ends the connection.
     handle(worker, &.{event_of(index, .shutdown, 0)}, null, constants.tick_ns);
     try testing.expect(!socket.failed and worker.session.entries[index].attached);

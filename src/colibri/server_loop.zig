@@ -67,7 +67,7 @@ pub fn start(state: anytype, now: server.Timestamp) !void {
 /// instant.
 pub fn reset(state: anytype, now_ns: u64) void {
     for (&state.sockets) |*socket| socket.live = false;
-    for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false };
+    for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false };
     state.entry_of = @splat(null);
     state.pending = .initEmpty();
     state.touched = .initEmpty();
@@ -99,7 +99,7 @@ pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     }
     serve(run, now_ns);
     write_accept(state, &out);
-    arm(state, &out);
+    arm(run, &out, now_ns);
     if (state.udp.served) state.udp.write(&out, &state.operations, !state.shut_down, &state.engine, now_ns);
     return .{ .operations = out.len, .wait = wait(state, out.full) };
 }
@@ -140,7 +140,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     assert(socket.live);
     switch (kind) {
         .receive => socket.on_received(completion.result),
-        .send => socket.on_sent(completion.result),
+        .send => pump.sent(run, index, socket.on_sent(completion.result), now_ns),
         .close => socket.closed = true,
         .shutdown => socket.on_shut_down(completion.result),
         // A server's sockets come from its listener, so it connects none.
@@ -208,8 +208,8 @@ fn serve(run: anytype, now_ns: u64) void {
     }
 }
 
-/// Steps the socket at `index`: its unread octets go in, and what its connection owes is appended
-/// to its output. A socket the host has finished with, whose connection has ended, frees its entry.
+/// Steps the socket at `index`: its unread octets go in, and it takes what its connection lends.
+/// A socket the host has finished with, whose connection has ended, frees its entry.
 fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     const state = run;
     const socket = &state.sockets[index];
@@ -220,26 +220,27 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     }
     state.touched.set(index);
     if (socket.stopped()) return;
-    const room = socket.room();
-    if (room.len > 0) {
-        const stepped = pump.step(run, index, socket.unread(), room, now_ns);
-        socket.wrote(stepped.written);
-        socket.consume(stepped.consumed);
-    }
+    pump.step(run, index, socket, now_ns);
     // The engine closed the connection: the socket closes once its octets are out.
     if (state.entries[index].closing) socket.closing = true;
     // The engine closes in stages: the socket's write side closes once its octets are out.
     if (state.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Writes what each socket this turn changed needs next. A socket whose operation found no room
-/// stays changed for the next turn.
-fn arm(state: anytype, out: *operation_table.Outbox) void {
+/// Writes what each socket this turn changed needs next, at `now_ns`. A socket takes what its
+/// connection lends first, and a stopped one hands back what it was lent and no send took
+/// (decision 176): the completion of its close, which `peer_closed` then reads, lets the engine end
+/// the connection. A socket whose operation found no room stays changed for the next turn.
+fn arm(run: anytype, out: *operation_table.Outbox, now_ns: u64) void {
+    const state = run;
     var left: @TypeOf(state.touched) = .initEmpty();
     for (0..state.sockets.len) |_| {
         const index = state.touched.toggleFirstSet() orelse break;
         const socket = &state.sockets[index];
         if (!socket.live) continue;
+        if (!socket.stopped()) {
+            pump.lend(run, index);
+        } else if (socket.drop_unsent() > 0) pump.sent(run, index, 0, now_ns);
         if (!socket.arm(out, &state.operations, index)) left.set(index);
     }
     state.touched.setUnion(left);

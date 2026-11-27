@@ -222,7 +222,7 @@ fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     assert(socket.live);
     switch (kind) {
         .receive => socket.on_received(event),
-        .send => socket.on_sent(event),
+        .send => worker.session.sent(index, socket.on_sent(event), now_ns),
         .close => socket.closed = true,
         .shutdown => socket.on_shut_down(event),
     }
@@ -282,9 +282,8 @@ fn serve(worker: *Worker, now_ns: u64) void {
     }
 }
 
-/// Steps the session over the socket at `index`: its unread octets go in, and what its connection
-/// owes is appended to its output. A socket with no room left waits for its send's event. A
-/// socket Rotor has finished with, whose connection the engine has ended, frees its entry.
+/// Steps the session over the socket at `index`: its unread octets go in. A socket Rotor has
+/// finished with, whose connection the engine has ended, frees its entry.
 fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     const socket = &worker.sockets[index];
     if (!socket.live) return;
@@ -294,24 +293,31 @@ fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     }
     worker.touched.set(index);
     if (socket.stopped()) return;
-    const room = socket.room();
-    if (room.len > 0) {
-        const stepped = worker.session.step(index, socket.unread(), room, now_ns);
-        socket.wrote(stepped.written);
-        socket.consume(stepped.consumed);
-    }
+    const stepped = worker.session.step(index, socket.unread(), now_ns);
+    socket.consume(stepped.consumed);
     // The engine closed the connection: the socket closes once its octets are out.
     if (worker.session.entries[index].closing) socket.closing = true;
     // The engine closes in stages: the socket's write side closes once its octets are out.
     if (worker.session.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Submits what each socket this turn changed needs next.
+/// Gives the socket at `index` what its connection owes, which the engine lends: the octets of an
+/// earlier gift and more, while the socket is open and has no send in flight (decision 176).
+pub fn lend(worker: *Worker, index: usize) void {
+    const socket = &worker.sockets[index];
+    if (!socket.live or socket.stopped() or socket.sending) return;
+    const lent = worker.session.lend(index);
+    if (lent.len > 0) socket.give(lent);
+}
+
+/// Submits what each socket this turn changed needs next, once it took what its connection lends.
 pub fn arm(worker: *Worker) void {
     for (0..constants.connections_per_worker_max) |_| {
         const index = worker.touched.toggleFirstSet() orelse return;
         const socket = &worker.sockets[index];
-        if (socket.live) socket.arm(&worker.loop, index);
+        if (!socket.live) continue;
+        lend(worker, index);
+        socket.arm(&worker.loop, index);
     }
 }
 

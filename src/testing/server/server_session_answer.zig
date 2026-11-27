@@ -39,13 +39,6 @@ const too_large_status: u16 = 413;
 /// The answer to CONNECT, a tunnel the server does not implement (RFC 9110 §9.3.6, §15.6.2).
 const not_implemented_status: u16 = 501;
 
-/// What one `write` did: the responses it finished, and whether the engine took anything, which
-/// the connection then owes its socket.
-pub const Written = struct {
-    finished: usize,
-    wrote: bool,
-};
-
 pub const Answers = struct {
     /// Requests whose head arrived and whose end has not, and requests owed a response, oldest
     /// first.
@@ -56,8 +49,6 @@ pub const Answers = struct {
     /// Whether the oldest owed response's head is written, and octets of its content sent.
     head_written: bool,
     content_sent: usize,
-    /// Whether the engine took a head or content since `write` began.
-    wrote: bool,
     /// Where the `--echo` mode keeps the request it returns, or null in every other mode.
     echo: ?*h11_echo.Echo,
 
@@ -67,7 +58,6 @@ pub const Answers = struct {
         answers.owed_count = 0;
         answers.head_written = false;
         answers.content_sent = 0;
-        answers.wrote = false;
         answers.echo = echo;
     }
 
@@ -123,16 +113,16 @@ pub const Answers = struct {
         remove(&answers.owed, &answers.owed_count, index);
     }
 
-    /// Writes as much of the owed responses as `engine` takes for `connection`, oldest first.
-    pub fn write(answers: *Answers, engine: anytype, connection: server.ConnectionHandle) Written {
-        answers.wrote = false;
+    /// Writes as much of the owed responses as `engine` takes for `connection`, oldest first, and
+    /// returns how many it finished.
+    pub fn write(answers: *Answers, engine: anytype, connection: server.ConnectionHandle) usize {
         var finished: usize = 0;
         for (0..constants.responses_owed_max) |_| {
             if (answers.owed_count == 0) break;
             if (!answers.write_oldest(engine, connection)) break;
             finished += 1;
         }
-        return .{ .finished = finished, .wrote = answers.wrote };
+        return finished;
     }
 
     /// Writes what is left of the oldest owed response, and returns whether it is written whole.
@@ -142,7 +132,6 @@ pub const Answers = struct {
         if (!answers.head_written) {
             answers.write_head(engine, id, oldest) catch |failure| return answers.write_failed(failure);
             answers.head_written = true;
-            answers.wrote = true;
             if (oldest.head or oldest.connect or answers.echo_refused()) {
                 answers.finish_oldest();
                 return true;
@@ -153,7 +142,6 @@ pub const Answers = struct {
             return answers.write_failed(failure);
         };
         answers.content_sent += taken;
-        answers.wrote = true;
         if (answers.content_sent < octets.len) return false;
         answers.finish_oldest();
         return true;

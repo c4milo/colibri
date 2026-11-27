@@ -8,12 +8,18 @@
 //! while the socket may still hold octets to send. So `entry_of` maps each slot to the entry of
 //! the connection the slot holds now, and an entry keeps its connection's whole handle.
 //!
-//! `step` serves one socket. It repeats three things until none of the first two moves:
+//! `step` serves one socket. It repeats two things until the first one moves nothing:
 //!   1. passes the socket's input to the engine and routes every event it reports;
-//!   2. calls `send_stream` once, into the socket's room;
-//!   3. reads the engine's events until it reports none.
+//!   2. reads the engine's events until it reports none.
 //! The router writes each response as it takes the request's events, so the responses to the
-//! requests one read carried leave in one `send_stream` (decision 119 as amended).
+//! requests one read carried leave in one send (decision 119 as amended).
+//!
+//! Once a turn, each socket with no send in flight takes what its connection owes, which the
+//! engine lends where it holds it (decision 176): `lend`, when the driver arms the socket. So the
+//! turn's one send carries every response the turn wrote. A read of the turn that finds a
+//! response not lent yet pauses an h2 stream's send meter, and the lend at the same instant takes
+//! the meter's window back (decision 110 as amended on 2026-11-27). A socket with a send in
+//! flight takes nothing until `sent` hands back what the send took.
 //!
 //! Each function takes `run`, the server, which holds the program's router and context behind
 //! `erased.zig`'s `Router`.
@@ -21,14 +27,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
 const constants = @import("constants.zig");
-
-/// What one step did.
-pub const Step = struct {
-    /// Octets of the socket's input the connection consumed.
-    consumed: usize,
-    /// Octets written into the socket's output, to be sent in order.
-    written: usize,
-};
 
 /// What the server holds for one socket's connection.
 pub const Entry = struct {
@@ -42,8 +40,6 @@ pub const Entry = struct {
     /// The engine reported the connection's `half_close`: the socket's write side closes once its
     /// octets are out, and its receives go on (decision 160).
     half_closing: bool = false,
-    /// The connection owes octets no `send_stream` has taken.
-    send_owed: bool,
 };
 
 /// The handle of an entry no socket has taken yet. Generation 0 names no connection (decision
@@ -61,30 +57,44 @@ pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
     // A slot the engine hands out is one whose last connection it reported `ended`.
     assert(state.entry_of[handle.slot] == null);
     state.entry_of[handle.slot] = @intCast(index);
-    entry.* = .{ .handle = handle, .attached = true, .closing = false, .send_owed = false };
+    entry.* = .{ .handle = handle, .attached = true, .closing = false };
     return true;
 }
 
-/// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input`, and writes what
-/// it can into `output`. See the header.
-pub fn step(run: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) Step {
+/// Serves `socket`, the socket of entry `index`, at `now_ns`: consumes what it can of its unread
+/// octets. See the header.
+pub fn step(run: anytype, index: usize, socket: anytype, now_ns: u64) void {
     const state = run;
     const entry = &state.entries[index];
     state.now_ns = now_ns;
-    var consumed: usize = 0;
-    var written: usize = 0;
     // Bounded: a pass in which nothing moves ends the loop.
     for (0..constants.limits.events_per_step_max) |_| {
-        const taken = read(run, entry, input[consumed..]);
-        consumed += taken.consumed;
-        const sent = send(state, entry, output[written..]);
-        written += sent;
+        const taken = read(run, entry, socket.unread());
+        socket.consume(taken.consumed);
         drain(run);
-        if (taken.moved or sent > 0) continue;
+        if (taken.moved) continue;
         state.pending.unset(index);
         break;
     } else state.pending.set(index);
-    return .{ .consumed = consumed, .written = written };
+}
+
+/// Gives the socket of entry `index` what its connection owes, where the engine holds it
+/// (decision 176): what an earlier lend gave and more. A socket with a send in flight takes
+/// nothing, and one whose connection ended takes nothing, since its handle names none. The socket
+/// sends from there, and `sent` hands back what each send took.
+pub fn lend(run: anytype, index: usize) void {
+    const state = run;
+    const socket = &state.sockets[index];
+    if (socket.sending) return;
+    const lent = state.engine.output_stream(state.entries[index].handle, state.now_ns);
+    if (lent.len > 0) socket.give(lent);
+}
+
+/// The socket of entry `index` sent `sent` octets of what `lend` lent: 0 for a send that failed
+/// or never went. The engine ends a connection whose socket closed only after this call.
+pub fn sent(run: anytype, index: usize, sent_len: usize, now_ns: u64) void {
+    const state = run;
+    state.engine.sent_stream(state.entries[index].handle, sent_len, now_ns);
 }
 
 /// The socket of entry `index` closed before the engine asked: its peer closed it, or a read, a
@@ -116,15 +126,6 @@ fn read(run: anytype, entry: *Entry, input: []u8) Read {
         taken.moved = true;
     }
     return taken;
-}
-
-/// Writes what the entry's connection owes into `room`. A call that fills the room leaves more
-/// owed (decision 119), so the entry stays owing for the step that has room again.
-fn send(state: anytype, entry: *Entry, room: []u8) usize {
-    if (!entry.send_owed or room.len == 0) return 0;
-    const written = state.engine.send_stream(entry.handle, room, state.now_ns);
-    entry.send_owed = written == room.len;
-    return written;
 }
 
 /// Reads the engine's events until it reports none, routing each.
@@ -169,7 +170,8 @@ fn request_connection(reported: *const server.Event) ?server.ConnectionHandle {
 
 fn on_connection_event(state: anytype, reported: *const server.Event) void {
     switch (reported.*) {
-        .send => |handle| named(state, handle).send_owed = true,
+        // The socket takes the octets when the driver arms it.
+        .send => |handle| _ = named(state, handle),
         .half_close => |handle| named(state, handle).half_closing = true,
         .close => |handle| named(state, handle).closing = true,
         // A QUIC connection has no socket of its own, and its slot frees in the engine.
