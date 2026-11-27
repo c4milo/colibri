@@ -186,7 +186,12 @@ defer http_server.shutdown();
   the system. A test can pass a seeded source and replay a connection
   ([decision 175](docs/decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)).
 - `identity` is the certificate chain and the key as PEM text, which your program reads from its
-  files. `now_seconds` is the Unix time, which your program reads from its clock.
+  files.
+- `now_seconds` is the Unix time, which your program reads from its clock once, at start. colibri
+  reads no clock: it adds the time its loop has run to that value. A server stamps its session
+  tickets with the result, and a client checks a certificate's dates against it
+  ([decision 161](docs/decisions/0161-colibris-servers-issue-session-tickets-and.md)). The example
+  passes a fixed instant at which its test certificate is valid.
 - `set_data_independent_timing` sets PSTATE.DIT on arm64, so the TLS code runs in constant time.
   Call it on each thread that runs TLS.
 - Port 0 asks the system for a port, and `http_server.port()` returns it.
