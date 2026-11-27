@@ -13,7 +13,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  eleven inputs, four more with `--h11`, and two more with `--h3`:
+  eleven inputs, four more with `--h11`, and four more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
@@ -44,6 +44,8 @@ Performance section states the rules, and design §11 holds the method's numbers
     alone, so colibri's does the same work. The h2load that sends them is the one
     `tools/h3load/Dockerfile` builds with HTTP/3, run from its image on the load generator's
     cores.
+  - `h3-bbr-many` and `h3-bbr-one`: the same two h3 loads with the server's `bbr` option, so each
+    connection runs BBRv3 in place of CUBIC (design §8 step 29d).
 - Each input runs one warm-up round, which the report discards, and then five rounds. With
   `--base`, the base and the change take turns in each round, and the order alternates. The report
   gives each input's median and spread, and the ratio of the change to the base with the losses
@@ -196,7 +198,7 @@ colibri's UDP server over the two h3 inputs (design §8 steps 13d and 13r), and 
 when both of its inputs are set:
 
 - quic-go's server comes from the image its project publishes for the QUIC Interop Runner, pinned
-  by digest, the one `tools/channel_interop.sh` runs. The report names the quic-go commit the
+  by digest, the one `tools/pool_interop.sh` runs. The report names the quic-go commit the
   image holds.
 - It runs in a container on the machine's network, on the core the judge pins servers to, which
   leaves Go one processor. `perf stat` counts the server's process from outside the container.

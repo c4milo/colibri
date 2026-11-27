@@ -72,7 +72,7 @@ Add colibri to your `build.zig.zon`:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.22.0
 ```
 
-Import `colibri`, the one module the package exports ([decision 170](docs/decisions.md)):
+Import `colibri`, the one module the package exports ([decision 170](docs/decisions.md#decision-170)):
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
@@ -83,11 +83,11 @@ exe.root_module.addImport("colibri", colibri.module("colibri"));
 assertions stay on in production. `.rotor = true` fetches
 [Rotor](https://github.com/c4milo/rotor), the loop that `colibri.Server` and `colibri.Client` run
 on. A program that runs them on its own loop, or that drives one protocol by itself, leaves the
-option out and fetches no Rotor ([decision 159](docs/decisions.md)).
+option out and fetches no Rotor ([decision 159](docs/decisions.md#decision-159)).
 
 Your program detects its CPU features once, through [stdx](https://github.com/c4milo/stdx)'s
 `platform` module, and makes one `stdx.crypto.Context` of them and its source of randomness,
-which every TLS value holds ([decision 175](docs/decisions.md)). Depend on stdx at the commit
+which every TLS value holds ([decision 175](docs/decisions.md#decision-175)). Depend on stdx at the commit
 colibri's `build.zig.zon` pins, with colibri's options:
 
 ```zig
@@ -266,7 +266,7 @@ Linux and macOS. Published performance numbers come from Linux alone.
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |
 | [`docs/performance.md`](docs/performance.md) | How colibri measures a change, its baselines, and the memory each object takes |
-| [`docs/chapulin.md`](docs/chapulin.md) | What colibri needs from `stdx.crypto`, its TLS stack |
+| [`docs/chapulin.md`](docs/chapulin.md) | The 2026-09 request to chapulin, the TLS stack under `stdx.crypto`, kept as history |
 | [`docs/rfcs/`](docs/rfcs/) | The RFCs colibri is written from, unmodified, with their checksums |
 
 ## Limits

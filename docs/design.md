@@ -24,7 +24,7 @@ depends on stompy and never names it in source.
 **Deliberately excluded:** caching, server push, priority scheduling, extended CONNECT, 0-RTT,
 active connection migration, QUIC datagrams and multipath. [Decisions 16 to 23](decisions.md)
 give each one a reason and state what saying no still costs on the wire. HTTP/1.1 was excluded
-too, until [decision 88](decisions.md) amended decision 2 to build it as h11.
+too, until [decision 88](decisions.md#decision-88) amended decision 2 to build it as h11.
 
 ## 2. What the two protocols actually are
 
@@ -45,7 +45,7 @@ the Flags field for the same reason (Appendix A.2), and leaves stream concurrenc
 (Appendix A.1).
 
 So the work is not split evenly. QUIC is the larger half of colibri by a wide margin, and
-[decision 3](decisions.md#scope-and-shape) puts it in a module that knows nothing about HTTP.
+[decision 3](decisions.md#decision-3) puts it in a module that knows nothing about HTTP.
 
 ## 3. Module graph
 
@@ -57,11 +57,11 @@ core   <- wire   <- hpack <- h2
                  <- qpack <- h3
 core   <- http   <- h2, h3, h11
 core   <- tls_provider <- h2, h11, quic, tls
-chapulin <- tls, dnssec, tls_keylog, testing_quic, testing_udp
-stdx   <- h11, sim_run, client, server, tls, colibri
+stdx   <- h11, qlog, tls, dnssec, client, server, colibri, sim_run
+stdx (crypto_keylog) <- tls_keylog, testing_quic, testing_udp
 core   <- crypto <- quic, tls
 core   <- dnssec
-stdx   <- qlog   <- quic, h3
+qlog   <- quic, h3
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic, client, server, tls <- sim_run
@@ -82,59 +82,60 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `core` | limits, assertions, the bounded reader and writer, the slot pool | nothing | — |
 | `wire` | varint, prefixed integer, Huffman, string literal | `core` | 9000 §16, 7541 §5.1, §5.2, App. B |
 | `http` | the version-independent semantics core | `core` | 9110 |
-| `tls_provider` | the TLS provider vtable, which `tls` and the simulator fill ([decision 97](decisions.md)) | `core` | 9846, 7301, 9001 §4 |
+| `tls_provider` | the TLS provider vtable, which `tls` and the simulator fill ([decision 97](decisions.md#decision-97)) | `core` | 9846, 7301, 9001 §4 |
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` and `platform` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
+| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md#decision-102)) | stdx, of which it reads `json` and `platform` ([decision 102](decisions.md#decision-102) as amended and [171](decisions.md)) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider`, `qlog` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic`, `qlog` | 9114 |
-| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
-| `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94 and 97](decisions.md)) | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
-| `dnssec` | DNSSEC's signature checks and DS digests over chapulin's TCP object, the one `tls` links ([decision 142](decisions.md)) | `core` for its tests' lists, and chapulin's TCP object, built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
-| `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
-| `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
-| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md)). On `.hosted` the program is the host, and colibri does no I/O | Each of the sixteen other library modules, which its root names: it is the one module the package exports ([decision 170](decisions.md)). stdx, for the `stdx.crypto.Context` a server's configuration takes ([decision 175](decisions.md)). And Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md), which amends [decision 150](decisions.md) rulings 3 and 6) | — |
-| `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
+| `h11` | HTTP/1.1 ([decision 88](decisions.md#decision-88)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md#decision-90)) | 9112 |
+| `tls` | TLS 1.3 over `stdx.crypto`, which is chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94, 97 and 174](decisions.md#decision-94)) | `tls_provider`, `crypto`, and stdx, whose `crypto` carries chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
+| `dnssec` | DNSSEC's signature checks and DS digests over `stdx.crypto`'s TCP object, the one `tls` links ([decisions 142 and 174](decisions.md#decision-142)) | `core` for its tests' lists, and stdx, whose TCP object is built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
+| `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md#decision-100)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md#decision-101)) | 9110, 9112, 9113, 9114, 7838, 9460 |
+| `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md#decision-100)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md#decision-101)) | 9110, 9112, 9113, 9114, 7838 |
+| `colibri` | `colibri.Server` and `colibri.Client`, which run `server` and `client` behind a host contract of colibri's own ([decision 159](decisions.md#decision-159)). On `.private`, colibri's Rotor adapter binds the sockets and runs the loop: the one library code that does I/O ([decisions 150 and 153](decisions.md#decision-150)). On `.hosted` the program is the host, and colibri does no I/O | Each of the sixteen other library modules, which its root names: it is the one module the package exports ([decision 170](decisions.md#decision-170)). stdx, for the `stdx.crypto.Context` a server's configuration takes ([decision 175](decisions.md#decision-175)). And Rotor, a lazy dependency that a build fetches only with the build option `rotor` ([decision 159](decisions.md#decision-159), which amends [decision 150](decisions.md#decision-150) rulings 3 and 6) | — |
+| `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, a second stdx built with `crypto_keylog`, whose chapulin objects are built `KEYLOG=on` ([decision 174](decisions.md#decision-174)), and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26), and `client` and `tls` at step 17d, whose client trace run drives the client's connections over chapulin (decision 105, the owner's ruling of 2026-09-28), with `testdata` for the identity its servers present, and `server` at step 17e, whose content-coding check runs the client against it (the owner's ruling of 2026-09-29) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
-| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, `server`, which its h11 and h2 server runs on from step 17a, and `rotor` ([decision 83](decisions.md)) | — |
+| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, `server`, which its h11 and h2 server runs on from step 17a, and `rotor` ([decision 83](decisions.md#decision-83)) | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 | `testing_tls`, `testing_tls_server` | the two one-connection TLS checks of §8 step 5, a root each for its `main` | `core`, `h2` for the shared constants, `tls_provider` and `tls` | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over `tls.quic` in one process | `h2` for the shared constants, `quic`, `tls_keylog` as `tls`, and its QUIC object's module for `ch_keylog` | — |
-| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, `rotor`, `tls_keylog` as `tls` with its QUIC object's module, and from step 17b `server`, an instance over `tls_keylog` that nothing packaged sees, which its h3 server runs on (the owner's ruling of 2026-09-28) | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#decision-58)) | `h2` for the shared constants, `h3` from step 12, `quic`, `rotor`, `tls_keylog` as `tls` with its QUIC object's module, and from step 17b `server`, an instance over `tls_keylog` that nothing packaged sees, which its h3 server runs on (the owner's ruling of 2026-09-28) | — |
 
 The architecture depends on four of these edges and forbids one.
 
 - **`quic` does not import `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`.** This is
-  [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
-  [decision 5](decisions.md#scope-and-shape). The check that proves it is that the QUIC simulator
+  [invariant 26](invariants.md#inv-26) and
+  [decision 5](decisions.md#decision-5). The check that proves it is that the QUIC simulator
   builds and runs with no HTTP module in the graph at all — not a lint rule, a link.
 - **`sim` imports `core`, `tls_provider` and `crypto`, and no protocol module.** It implements the same two
   vtables a real caller does, so the build hands its null providers to the protocol modules in
   place of the caller's and nothing is conditionally compiled. It cannot import a protocol module,
   which is what keeps the harness from knowing anything the caller would not. A check drives a
   protocol module through the harness, so the one module that imports both is `sim_run`, rooted at
-  `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#the-simulator)).
+  `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#decision-37)).
   The QUIC checks have a root of their own, `sim_run_quic` at `src/sim/run_quic.zig`, because
   `sim_run` imports `h2`: a QUIC check placed there would run with an HTTP module in its graph,
   and the first edge of this list is proved by a build that has none.
 - **`wire` is shared by both families and holds two different integer codecs.**
-  [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why the split is *field
+  [decision 11](decisions.md#decision-11) explains why the split is *field
   compression against framing* and not h2 against h3.
 - **No protocol module imports `tls`.** h11, h2 and quic take a provider, and a program makes a
-  session with `tls` and hands its provider over, so a cleartext program never links chapulin
-  ([decision 97](decisions.md)).
+  session with `tls` and hands its provider over ([decision 97](decisions.md#decision-97)). `colibri` imports
+  `tls`, so every program that imports `colibri` links chapulin through `stdx.crypto`, a program
+  in cleartext too ([decisions 170 and 174](decisions.md#decision-170)).
 - **Nothing imports `h2`, `h3` or `h11` but `client` and `server`.** The protocol modules are the
   roots a consumer picks from, and `client` and `server` are consumers above all three, which
-  choose the version for their caller ([decision 100](decisions.md)). No library module but
+  choose the version for their caller ([decision 100](decisions.md#decision-100)). No library module but
   `colibri` imports `client` or `server` in turn, and no library module imports `colibri`
-  ([decision 150](decisions.md) ruling 1). `testing` is a consumer like any other: the library it drives cannot use the
+  ([decision 150](decisions.md#decision-150) ruling 1). `testing` is a consumer like any other: the library it drives cannot use the
   socket it opens, because the edge runs one way and nothing imports `testing` back.
 
 ## 4. What the caller supplies
@@ -166,13 +167,13 @@ deadline colibri computes and the caller honours.
 ### 4.3 The TLS provider
 
 Two modes, because RFC 9001 §3 says QUIC "takes over the responsibilities of the TLS record
-layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); the shape is:
+layer". The full list is [decision 8](decisions.md#decision-8); the shape is:
 
 | Operation | Record mode (h2) | QUIC mode (h3) |
 |---|---|---|
 | handshake bytes | record-framed, over TCP | unframed messages, per encryption level |
-| application protection | `encrypt_record` / `decrypt_record`, and `writable_len` / `encrypt_parts` for a frame's header and its data ([decision 139](decisions.md#what-the-caller-supplies)) | absent — colibri protects packets itself |
-| secrets | never exposed | never exposed to colibri: the provider hands them to the suite ([decision 48](decisions.md#what-the-caller-supplies)) |
+| application protection | `encrypt_record` / `decrypt_record`, and `writable_len` / `encrypt_parts` for a frame's header and its data ([decision 139](decisions.md#decision-139)) | absent — colibri protects packets itself |
+| secrets | never exposed | never exposed to colibri: the provider hands them to the suite ([decision 48](decisions.md#decision-48)) |
 | key derivation | provider-internal | provider-internal |
 | transport parameters | absent | `set_transport_params` / `peer_transport_params` |
 | ALPN | `negotiated_alpn` | `negotiated_alpn` |
@@ -195,7 +196,7 @@ the client when `HANDSHAKE_DONE` arrives.
 ### 4.4 The crypto suite
 
 QUIC only; h2 needs none of it, because the provider does the record layer. The suite holds every
-key of a connection and colibri holds none ([decision 48](decisions.md#what-the-caller-supplies)),
+key of a connection and colibri holds none ([decision 48](decisions.md#decision-48)),
 so its members are whole-packet operations at an encryption level (RFC 9001 §4.1.4):
 
 | Member | What it does | RFC 9001 |
@@ -219,8 +220,8 @@ RFC 9001 fixes three things to AES whatever suite TLS negotiates: Initial packet
 integrity tag (§5.8). A suite must carry those and whatever TLS goes on to negotiate (§5.3,
 §5.4.1). colibri cannot see what a suite carries, so a suite that refuses `install_initial_keys`
 is a configuration error
-([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)),
-never a peer's fault. [Decision 9](decisions.md#what-the-caller-supplies) is why this is a second
+([invariant 25](invariants.md#inv-25)),
+never a peer's fault. [Decision 9](decisions.md#decision-9) is why this is a second
 vtable, and decision 48 is why its members are these.
 
 ### 4.5 The stream provider
@@ -232,11 +233,11 @@ the stream's bytes from `offset` into `output` and returns how many it wrote. co
 inside `send` alone, for new bytes and for lost ones, and the caller may drop a stream's bytes
 once colibri reports the stream in Data Recvd (§3.1) or reset. The provider answers the same
 bytes for an offset every time, which RFC 9000 §2.2 requires and colibri cannot check.
-[Decision 57](decisions.md#the-h2-connection) is the ruling and the alternatives it beat.
+[Decision 57](decisions.md#decision-57) is the ruling and the alternatives it beat.
 
 ## 5. What is shared, and what only looks shared
 
-[decisions 11 to 16](decisions.md#what-is-shared-between-h2-and-h3) argue each of these from the
+[decisions 11 to 16](decisions.md#decision-11) argue each of these from the
 RFC text. The summary, because it is the question the module graph answers:
 
 | Candidate | Verdict | Module or file |
@@ -392,7 +393,7 @@ most are `H3_FRAME_UNEXPECTED` 0x0105, `H3_MESSAGE_ERROR` 0x010e, `H3_ID_ERROR` 
 Greasing is prescriptive rather than optional: RFC 9114 §7.2.4.1 says endpoints SHOULD send a
 reserved setting, and §8.1 says they SHOULD sometimes send a reserved error code in place of
 `H3_NO_ERROR`. colibri does both. It holds no generator of its own
-([invariant 5](invariants.md#inv-5--colibri-draws-only-from-the-source-its-caller-passes-and-reads-no-uninitialised-memory)):
+([invariant 5](invariants.md#inv-5)):
 the server's endpoint and the client's channel draw the reserved value from the source the caller
 passes when a connection starts, so a seed still replays.
 
@@ -443,7 +444,7 @@ a run fed in one piece.
 Every one is declared in a `constants.zig` and never inline. The RFCs leave most of these to the
 implementation and say so, so they are named here rather than chosen at a call
 site. A limit that sizes storage sizes storage the caller owns: colibri allocates nothing
-([decision 35](decisions.md#memory)), exposes each struct's size as a comptime constant, and
+([decision 35](decisions.md#decision-35)), exposes each struct's size as a comptime constant, and
 leaves the caller to place the struct. A count the caller sets at run time, such as a pool's TCP
 connections, sizes memory through `memory_bytes(options)` (decision 35 as amended).
 
@@ -501,14 +502,14 @@ a `NOT CAUGHT` blocks the step.
 
 Sizes are the owner's estimate of effort, given for planning and not as a commitment.
 
-- **Step 0 — scaffolding.** `build.zig` with the §3 module graph, `constants.zig` per module, the
+- <a id="step-0"></a>**Step 0 — scaffolding.** `build.zig` with the §3 module graph, `constants.zig` per module, the
   linters ported from stompy (cognitive complexity, file length, heap, determinism, unbounded
   loop, relative-import, magic numbers, markdown GFM) plus colibri's own three: the `io` import
   denylist, the module-graph rule, and the RFC-citation rule, which fails a validation branch
   carrying no RFC section comment. Commit hooks.
   **Check:** `zig build lint` and `zig build test` pass, and a deliberately added `@import("http")`
   inside `src/quic/` fails to build. That last clause proves
-  [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) is enforced by the build
+  [invariant 26](invariants.md#inv-26) is enforced by the build
   rather than by review. *Small.*
 
   **Check passed, 2026-09-16.** `zig build test` exits 0: the lint scores 396 functions across
@@ -559,7 +560,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and the lint must report every rule over a canary tree holding one violation of each. Each rule's
   mutations are in its commit, and every one is **CAUGHT**.
 
-- **Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
+- <a id="step-1"></a>**Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
   in 1..8 and sized for 62 bits, the Huffman coder over RFC 7541 Appendix B, the string literal
   including QPACK's mid-byte prefix form, the `tchar` and field-value validators, the
   connection-option denylist, the status and method models. **Check:** a golden corpus with a
@@ -574,16 +575,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `src/wire/huffman_table.zig` is what RFC 7541 Appendix B yields.
 
   - **Reader and writer.** `core.Reader` and `core.Writer` work over caller-owned slices and hold
-    no memory ([decision 35](decisions.md#memory)). A read or write that does not fit returns an
+    no memory ([decision 35](decisions.md#decision-35)). A read or write that does not fit returns an
     error and moves no cursor, and each entry point asserts that the cursor is inside the slice
-    ([invariant 3](invariants.md#inv-3--every-write-is-inside-the-callers-buffer)). Every decoder
+    ([invariant 3](invariants.md#inv-3)). Every decoder
     built on them consumes a whole structure or nothing.
   - **Huffman table.** `tools/huffman_table.zig` generates the table from the RFC text. It reads
     both code columns of every row and refuses a row where they disagree. Comptime asserts in
     `src/wire/huffman.zig` pin Kraft equality, EOS as thirty set bits, and the canonical order the
     decoder depends on. The bytes 204 and 22 encode to `ff ff fb ff ff ff ff 7f`, whose run of
     thirty-four ones decodes with no EOS
-    ([decision 11](decisions.md#what-is-shared-between-h2-and-h3)).
+    ([decision 11](decisions.md#decision-11)).
   - **Corpus.** `src/golden/` holds 32 cases in four formats, 14 of them invalid, each format with
     a version 1 manifest: 10 varint, 9 prefixed integer, 7 Huffman and 6 string literal. They cover
     one valid case and one truncation per varint length, RFC 9000 Appendix A.1's five sample
@@ -1105,7 +1106,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   instructions fell by about 181 a request in both jobs. On h3-many they fell by 279 and 375,
   inside the h3 inputs' spread of 1.8% to 3.3%. The probe on the laptop gave 433.
 
-- **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
+- <a id="step-2"></a>**Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
   I/O, time and crypto in the caller's hands. **Check:** the step 1 decoders driven through the
@@ -1167,7 +1168,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   piece, the reverse, and a replay restarted from the seed rather than from the generator as it
   stood after the stream was drawn.
 
-- **Step 3 — HPACK.** Static table, dynamic table with the shared size arithmetic, all five
+- <a id="step-3"></a>**Step 3 — HPACK.** Static table, dynamic table with the shared size arithmetic, all five
   representations, the size-update instruction. **Check:** `http2jp/hpack-test-case` decoded across
   **every** encoder directory, not only nghttp2's — the naive, static and linear strategies crossed
   with Huffman and plain are what exercise the dynamic table; round-trip of `raw-data`; the three
@@ -1353,11 +1354,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 214 in the first
   job and by 215 in the second.
 
-- **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
+- <a id="step-4"></a>**Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send
   window and the retroactive settings sweep, GOAWAY, `RST_STREAM`, the field-block reassembly
-  slot, request and response validation. Push refused per [decision 17](decisions.md), priority
-  parsed but never scheduled per [decision 18](decisions.md). **Check:** `h2spec` green at the
+  slot, request and response validation. Push refused per [decision 17](decisions.md#decision-17), priority
+  parsed but never scheduled per [decision 18](decisions.md#decision-18). **Check:** `h2spec` green at the
   pinned version against the test-only prior-knowledge cleartext h2 server of §9 — h2spec connects
   in cleartext unless `-t` is given — with every skipped case named and justified;
   `http2jp/http2-frame-test-case`; the step 2 driver checking
@@ -1370,7 +1371,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   0 skipped, 2 failed` against h2spec 2.6.0, and the script names the two: both test RFC 7540
   §5.3.1's rule that a stream cannot depend on itself, which RFC 9113 §5.3.2 dropped with the rest
   of the priority scheme, leaving §6.3 two rules that colibri does enforce
-  ([decision 41](decisions.md#the-h2-connection)). `h2-frames` prints
+  ([decision 41](decisions.md#decision-41)). `h2-frames` prints
   `cases=34 normal=12 errors=22 round_trips=12`. The simulator check prints
   `connection: seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588870
   crc32=0xe8f7c0b4`, the same number in Debug and `-Drelease`.
@@ -1491,7 +1492,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `verdict`, all **CAUGHT** by the check alone.
 
   **The connection model and its trace check, 2026-09-27**
-  ([#75](https://github.com/c4milo/colibri/issues/75), [decision 104](decisions.md)).
+  ([#75](https://github.com/c4milo/colibri/issues/75), [decision 104](decisions.md#decision-104)).
   - `spec/tla/h2_connection` models a colibri client and server over one connection. It holds each
     stream's state at both endpoints (RFC 9113 §5.1), each message's order in each direction
     (§8.1), RST_STREAM crossing frames in flight (§6.4) and GOAWAY (§6.8). Each rule colibri keeps
@@ -1533,7 +1534,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - frames above a GOAWAY colibri sent not ignored: 60 of 64 pass;
     - the client opens a stream after a GOAWAY it read: 52 of 64 pass.
 
-  **The caller's resets, 2026-09-30** ([decision 113](decisions.md)).
+  **The caller's resets, 2026-09-30** ([decision 113](decisions.md#decision-113)).
   - `reset_stream` pushed its RST_STREAM into the reply queue with no room check, and the push
     asserted a free slot among `stream_replies_max`. Before the fix, six tests stopped on that
     assertion. At a server: 128 resets between two writes, 128 before an open, and 127 before an
@@ -1930,15 +1931,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-one the server's user instructions per connection fell by 7,165 in the
   first job and by 7,220 in the second, where the disassembly gave 7,193.
 
-- **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
+- <a id="step-5"></a>**Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
   Go's `net/http2` and h2o, **both directions**, with the exact versions recorded.
 
   **This step waits on chapulin, and so does every later check that needs TLS.** The check needs a
   TLS 1.3 *server*, certificate signing included, and colibri's library supplies none:
-  [decision 8](decisions.md#what-the-caller-supplies) keeps production implementations out of the
-  tree. [Decision 10](decisions.md#what-the-caller-supplies) answers the "Ask before" this paragraph
+  [decision 8](decisions.md#decision-8) keeps production implementations out of the
+  tree. [Decision 10](decisions.md#decision-10) answers the "Ask before" this paragraph
   used to raise: chapulin fills both vtables, and `src/testing/` links it while the packaged library
   never does. Steps 9, 10, 12 and 13 need the same server for the interop endpoint, h3spec and
   `secnetperf`, and step 7 needs chapulin's `crypto.Suite` for RFC 9001 Appendix A's vectors.
@@ -1949,13 +1950,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   step is not passed: its check is `h2spec -t -k` and interop in both directions, and both need a
   TLS 1.3 server that signs a certificate.
 
-  `src/tls/` declares the record-mode vtable of [decision 8](decisions.md#what-the-caller-supplies)
-  with [decision 43](decisions.md)'s eleventh member, `negotiated_parameters`, which reports the
+  `src/tls/` declares the record-mode vtable of [decision 8](decisions.md#decision-8)
+  with [decision 43](decisions.md#decision-43)'s eleventh member, `negotiated_parameters`, which reports the
   version and suite RFC 9113 §9.2 places rules on. `h2.Connection` gains an optional provider
-  ([decision 44](decisions.md)): with none it is the cleartext prior-knowledge endpoint step 4
+  ([decision 44](decisions.md#decision-44)): with none it is the cleartext prior-knowledge endpoint step 4
   built, unchanged. `attach_tls` refuses a handshake that has not completed, that selected anything
   but "h2" (§3.1, §3.3), or whose version and suite colibri does not admit — TLS 1.3 and three
-  suites, by [decision 45](decisions.md). `decrypt` applies §9.2.3: a post-handshake
+  suites, by [decision 45](decisions.md#decision-45). `decrypt` applies §9.2.3: a post-handshake
   CertificateRequest is a connection error of PROTOCOL_ERROR, a NewSessionTicket and a KeyUpdate
   reach h2 as nothing, a peer `close_notify` is the end of data (RFC 9846 §6.1) and every other
   alert ends the transport. Both buffers stay the caller's, so a connection carries no record
@@ -1983,7 +1984,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   client connection with no socket in it: it opens a stream for every exchange of a plan before it
   reads a response, sends request content as the windows allow, records what each frame meant, and
   queues a GOAWAY once every exchange has settled. `h2_client.zig` is the socket around it, and
-  [decision 46](decisions.md) shapes it: every socket is O_NONBLOCK from before it connects, one
+  [decision 46](decisions.md#decision-46) shapes it: every socket is O_NONBLOCK from before it connects, one
   thread holds up to 64 connections in one `poll` set, and no other call waits. It speaks cleartext
   h2 with prior knowledge (RFC 9113 §3.3), because chapulin's TLS client reads its socket through
   a callback that cannot say "nothing yet" (decision 46). `zig build h2-client` runs it and
@@ -2018,7 +2019,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the check became an assertion. A second run of all sixteen that remain: all **CAUGHT**.
 
   **Both directions of the handshake, live, 2026-09-20.** chapulin's TLS 1.3 client and its
-  server each fill `tls.Provider`, from `src/testing/` alone ([decision 10](decisions.md)); the
+  server each fill `tls.Provider`, from `src/testing/` alone ([decision 10](decisions.md#decision-10)); the
   packaged library still links no TLS stack and holds no key.
 
   The adapter has two phases, which is what lets a socket-owning TLS stack fill a vtable that owns
@@ -2077,7 +2078,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Still owed for the step.** `h2spec -t -k`; the same interop over TLS; and the server
   direction against curl, nghttp and Go's client, which cleartext could run today and nobody has
   yet. The provider itself is no longer owed: both roles are filled and both are proved live
-  above. What stands between here and `h2spec -t -k` is [decision 46](decisions.md) — chapulin's
+  above. What stands between here and `h2spec -t -k` is [decision 46](decisions.md#decision-46) — chapulin's
   handshake blocks, and the h2 server's rule is that `poll` is the only call that waits.
 
   **Ruled by the owner on 2026-09-20: wait for chapulin.** A serial TLS endpoint and a thread for
@@ -2089,7 +2090,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **`h2spec -t -k` passes, 2026-09-24.** chapulin now has a record-mode server driver.
   - `fcc6292`: the server object is built `TRANSPORT=record`, and `h2-server --tls` runs each
-    handshake inside its one `poll` call ([decision 82](decisions.md)).
+    handshake inside its one `poll` call ([decision 82](decisions.md#decision-82)).
   - colibri's checks found two chapulin defects: a ChangeCipherSpec sent through the blocking
     `send`, and records taken past the client's Finished. chapulin fixed both (`8e556ca`,
     `24301d1`), and colibri did not work around either.
@@ -2108,7 +2109,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   lost.
 
   **The h2 endpoints on Rotor, 2026-09-24.** `2315384` moves `h2-server`, cleartext and TLS, and
-  `h2-client` from their `poll` loops to Rotor ([decision 83](decisions.md),
+  `h2-client` from their `poll` loops to Rotor ([decision 83](decisions.md#decision-83),
   [#61](https://github.com/c4milo/colibri/issues/61)). 11 mutations, all CAUGHT.
   - On macOS arm64 (kqueue), h2spec printed 144 passed in both modes, and `tools/h2_interop.sh`
     printed `every exchange ended as planned against: go nghttpd h2o`.
@@ -2139,7 +2140,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 11 mutations, all CAUGHT.
 
   **The client drives chapulin's record-mode handshake, 2026-09-24.** The client object is now
-  built `TRANSPORT=record`, like the server's ([decision 82](decisions.md)). That fixes the
+  built `TRANSPORT=record`, like the server's ([decision 82](decisions.md#decision-82)). That fixes the
   failure above: a record that carries no data now leaves the session live.
   - `chapulin_client.zig` stages the ClientHello with `ch_record_init`, passes what the caller
     read to `ch_record_in`, and collects what it owes from `ch_record_out`. No call touches a
@@ -2238,12 +2239,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   reached, the cap reported as `TlsFailed`, an update not counted, and an update counted before it
   fits its output.
 
-- **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
+- <a id="step-6"></a>**Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
-  counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds
+  counted: [decision 35](decisions.md#decision-35) makes them zero, and `tools/lint/heap.zig` holds
   it. **Check:** the numbers are in the tree and a diff that changes one fails `zig build test`
   until the new number is committed on purpose. This is the cheap half of
-  [decision 34](decisions.md#performance) and it lands before any QUIC code, so the h2 half has a
+  [decision 34](decisions.md#decision-34) and it lands before any QUIC code, so the h2 half has a
   regression floor while the larger half is built. *Small.*
 
   **Check passed, 2026-09-18.** `src/sim/cost_check.zig` holds the cost of one request in three
@@ -2251,7 +2252,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   from outside — calls to `receive` and `write_pending`, the bytes each carried, and the crossings
   of the provider vtable — because the library counts nothing itself: §11's rules forbid a
   statistic that costs a branch on the per-frame path. Allocations are not counted;
-  [decision 35](decisions.md#memory) makes them zero.
+  [decision 35](decisions.md#decision-35) makes them zero.
 
   | Scenario | receive | write_pending | bytes in | bytes out | provider calls |
   |---|---|---|---|---|---|
@@ -2272,7 +2273,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   an extra field line, `write_pending` writing the preface in a call of its own, and a request
   omitting `:authority`.
 
-- **Step 7 — QUIC packet formats and the crypto vtable.** The RFC 8999 invariant reader as its own
+- <a id="step-7"></a>**Step 7 — QUIC packet formats and the crypto vtable.** The RFC 8999 invariant reader as its own
   file with an empty import set, the version-1 reader above it, long and short headers, packet
   number encoding and decoding, the Initial key schedule, packet protection, header protection,
   Retry integrity. **Check:** RFC 9001 Appendix A's sample packet protection, byte for byte, in the
@@ -2286,7 +2287,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Version and connection IDs of 0 to 255 bytes, the short header, and the Version Negotiation
   packet of §6 in both directions. It imports `std` and `core` and nothing else, and a comptime
   block in `packet_header.zig` fails the build if it imports a third module or names version 1's
-  connection ID maximum ([invariant 22](invariants.md#inv-22--a-version-independent-parse-reads-only-rfc-8999-fields)).
+  connection ID maximum ([invariant 22](invariants.md#inv-22)).
   `packet_header.zig` is the version 1 reader above it (RFC 9000 §17): the four long types, the
   Initial token, the Length that ends a packet so the next one of the datagram can be read
   (§12.2), Retry with its tag, and the short header. It reads as far as header protection
@@ -2320,13 +2321,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the build.
 
   **The crypto vtable, 2026-09-19.** The owner ruled the same day
-  ([decision 48](decisions.md#what-the-caller-supplies)): the suite holds every key and protects
+  ([decision 48](decisions.md#decision-48)): the suite holds every key and protects
   every packet, and colibri holds none. So this step no longer builds the Initial key schedule,
   packet protection, header protection or the Retry tag, which its first sentence still lists as
   it was planned. It builds what calls them. `src/crypto/suite.zig` is the vtable: ten members,
   each about a whole packet at an encryption level, and none that takes or returns a key. A test
   holds the member names to the decision's list
-  ([invariant 23](invariants.md#inv-23--colibri-holds-no-secret)). The `Suite` wrapper asserts
+  ([invariant 23](invariants.md#inv-23)). The `Suite` wrapper asserts
   colibri's half of the contract: a packet number inside its range, a Packet Number field of 1 to
   4 bytes, and the four bytes RFC 9001 §5.4.2 needs before the sample. Recovering a packet
   number (RFC 9000 Appendix A.3) moved to `src/crypto/packet_number.zig`, because §9.5 makes it
@@ -2352,7 +2353,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   256 seeds, 512 packets, 128,870 bytes, every field length drawn, digest `0xf0818926` in Debug
   and in `-Drelease`, on macOS 25.6 arm64. The check's module imports `sim` and `quic` and no
   HTTP module, so it is also the first build that holds
-  [decision 5](decisions.md#scope-and-shape)'s boundary; step 8 inherits that root. It has no
+  [decision 5](decisions.md#decision-5)'s boundary; step 8 inherits that root. It has no
   command line until step 8, and its test pins the digest.
 
   `zig build test` passes 705 of 705. Mutations: 30 applied over the null suite, its keys, and
@@ -2414,10 +2415,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   run once and not committed. 3 mutations in the Lean definitions stop the proofs, and 1 edit to
   a vector file is refused by `zig build lean`.
 
-- **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
+- <a id="step-8"></a>**Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
   marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
   byte-identically across hosts and build modes — and the harness **builds and runs with no HTTP
-  module in the graph**, which is the check for [decision 5](decisions.md#scope-and-shape).
+  module in the graph**, which is the check for [decision 5](decisions.md#decision-5).
   *Medium.*
 
   **Check passed, 2026-09-19.** `src/sim/network.zig` carries datagrams between two endpoints over
@@ -2490,7 +2491,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   identical — which is also why no field here exceeds one byte. Fields of two, three and four
   bytes are drawn by step 7's packet check, which sets the distance directly.
 
-- **Step 9 — QUIC transport, cut into five.** The owner ruled on 2026-09-19 that this step is
+- <a id="step-9"></a>**Step 9 — QUIC transport, cut into five.** The owner ruled on 2026-09-19 that this step is
   five (§12 question 5), after the first part of it showed where the dependencies already cut.
   Only the last waits on chapulin. **Check:** the step 8 simulator checking
   [invariants 17 to 21](invariants.md#quic) after every step; the QUIC Interop Runner's
@@ -2500,7 +2501,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   permanent 127s by decisions 21 and 20. That check belongs to step 9e, because nothing before
   it completes a connection.
 
-- **Step 9a — the frame layer.** Every frame type of RFC 9000 §19, read and written.
+- <a id="step-9a"></a>**Step 9a — the frame layer.** Every frame type of RFC 9000 §19, read and written.
   **Check:** each type round-trips, every rule §19 states as a FRAME_ENCODING_ERROR refuses the
   frame it names, and a frame cut anywhere is a truncation that consumes nothing. *Small.*
 
@@ -2575,7 +2576,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   writer leaves out. The third, a CRYPTO offset one past 2^62-1, did not come up in 32,768
   inputs.
 
-- **Step 9b — packet number spaces, acknowledgments, and how a connection ends.** The three
+- <a id="step-9b"></a>**Step 9b — packet number spaces, acknowledgments, and how a connection ends.** The three
   spaces of RFC 9000 §12.3, duplicate suppression, ACK generation and processing (§13.1, §13.2),
   the ECN counts (§13.4.1), the idle timeout (§10.1) and the closing and draining states
   (§10.2). **Check:** an ACK frame written from a space reads back through step 9a as the ranges
@@ -2702,7 +2703,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   others. 3 mutations in the Lean definitions stop the proofs, and 1 edit to a vector file is
   refused by `zig build lean`.
 
-- **Step 9c — streams and flow control.** RFC 9000 §2.1's identifiers, §3.1's sending state
+- <a id="step-9c"></a>**Step 9c — streams and flow control.** RFC 9000 §2.1's identifiers, §3.1's sending state
   machine and §3.2's receiving one, §4.5's final size, §4.1's stream and connection flow
   control, and §4.6's stream limits, with the blocked frames each produces. **Check:** every
   state and event pair of both machines enumerated; a sender never exceeds either limit and a
@@ -2739,18 +2740,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   application read rather than what arrived, which is what stops a stalled reader advertising
   room it does not have.
 
-  The receive window grows ([decision 49](decisions.md#memory), ruled the same day). A window
+  The receive window grows ([decision 49](decisions.md#decision-49), ruled the same day). A window
   that never grew would cap one stream at `window / round trip` whatever the path can carry, so
   when credit goes out the receiver asks how long since it last sent some: inside two round
   trips means the application drained it faster than the peer could learn of the room, and the
   window doubles, to a cap. The instant and the round trip are parameters, because colibri reads
   no clock and RFC 9002 computes the round trip in step 10; a caller with no estimate passes 0,
   which grows nothing, so this works today and sharpens when step 10 lands. The cap is what
-  keeps [decision 35](decisions.md#memory)'s comptime worst case true. A stream count never
+  keeps [decision 35](decisions.md#decision-35)'s comptime worst case true. A stream count never
   tunes: §4.6's limit counts streams rather than bytes, and the table bounds it instead.
 
   `src/quic/stream/stream_table.zig` holds the streams of a connection against their
-  identifiers, over the pool of [decision 14](decisions.md). Its per-class watermark is what
+  identifiers, over the pool of [decision 14](decisions.md#decision-14). Its per-class watermark is what
   makes §3.2's rule cheap — before a stream is created every lower-numbered stream of its type
   must be, so a frame naming the eleventh stream of a type creates the ten below it, and the
   watermark says where to start. That rule is also why the advertised limit is capped at the
@@ -2791,11 +2792,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       a BLOCKED frame with nothing; `reset_leak`, the path the fix closes.
   - The fix's mutations, against `zig build test-quic` alone: 3 **CAUGHT**.
 
-- **Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
+- <a id="step-9d"></a>**Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
   RETIRE_CONNECTION_ID (RFC 9000 §5.1), PATH_CHALLENGE and PATH_RESPONSE (§8.2), the
   anti-amplification limit of §8, and the Stateless Reset of §10.3 — its §10.3.1 half here, with
   §10.3's writer landing later, `9d902e1`.
-  `disable_active_migration` per [decision 21](decisions.md), which saves less than it sounds
+  `disable_active_migration` per [decision 21](decisions.md#decision-21), which saves less than it sounds
   like. **Check:** [invariants 18 to 20](invariants.md#quic) asserted in the step 8 simulator
   after every step. *Medium.*
 
@@ -2812,7 +2813,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `src/quic/path.zig` holds §8's anti-amplification limit and §8.2's validation, which are one
   mechanism from two sides: an unvalidated path may take three times what it gave
-  ([invariant 18](invariants.md#inv-18--the-anti-amplification-limit-holds)), and validating it
+  ([invariant 18](invariants.md#inv-18)), and validating it
   is what lifts that. Whether a path is validated and whether a probe is outstanding are
   separate fields, and the reported state is derived from both.
 
@@ -2876,7 +2877,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `aebc502` then removed the field, its doc comment and its remaining two writes.
     `tools/quic_udp.sh` and `tools/quic_aioquic.sh` pass against the fix.
 
-- **Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
+- <a id="step-9e"></a>**Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
   reassembly by offset, the handshake driven through `tls.Provider`'s QUIC mode, and the
   transport parameters of §7.4. **This is the only part of step 9 that waits on chapulin**: its
   `ch_quic_*` calls were stubs until 2026-09-20, when chapulin implemented all fifteen; the
@@ -2893,7 +2894,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The test-only endpoint and `tools/interop.sh` are the only part that waits on chapulin.
 
   `src/tls/tls.zig` said QUIC mode "lands with design §8 step 7". It did not: step 7 shipped the
-  packet formats and, after [decision 48](decisions.md#what-the-caller-supplies), a
+  packet formats and, after [decision 48](decisions.md#decision-48), a
   `crypto.Suite` that protects packets and drives no handshake. The comment is corrected.
 
   **The transport parameters are done, 2026-09-20.** `src/quic/transport_parameters.zig` holds
@@ -2908,7 +2909,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   everything exchange no bytes at all, which one test pins.
 
   Two things are read past rather than kept. `preferred_address` is skipped by the length every
-  parameter carries, because [decision 21](decisions.md) refuses migration in both directions and
+  parameter carries, because [decision 21](decisions.md#decision-21) refuses migration in both directions and
   §9.6 makes using one a MAY. And a repeat of an identifier colibri does not know goes
   undetected, although §7.4 forbids a repeat of any parameter: detecting it means holding every
   identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
@@ -3454,7 +3455,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test`: 1247 passed, 18 skipped.
 
   **Every acknowledged record reaches the caller, 2026-09-22**, `272b179`. This is the first
-  piece of [decision 57](decisions.md#the-h2-connection). It counts the bytes the peer has
+  piece of [decision 57](decisions.md#decision-57). It counts the bytes the peer has
   acknowledged on each stream, and only a packet's record says which bytes it carried.
   `recovery_sent.Removed` kept the largest record alone, because RFC 9002 needs no more: the
   round trip sample and the congestion event both come from the largest. So `remove_range_into`
@@ -3496,7 +3497,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   stream has sent RESET_STREAM (§13.3).
 
   The count is exact because each framed byte is in one place: one packet in flight, the lost
-  table, or acknowledged. [Invariant 29](invariants.md) states that, and
+  table, or acknowledged. [Invariant 29](invariants.md#inv-29) states that, and
   `Outgoing.on_acknowledged` asserts that the count never passes the framed offset.
 
   The lost table holds `stream_lost_ranges_max` ranges, which is `sent_packets_max`: a lost range
@@ -4092,11 +4093,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   give the client a new port, or a new address and port, one second into the run and every five
   seconds after. The server's first packet on each new path must carry a PATH_CHALLENGE, and the
   client must answer every such challenge.
-  - [Decision 72](decisions.md) and its amendments: `0800bd4`, `ddf82ce`, `80240da`, `c679b56`
+  - [Decision 72](decisions.md#decision-72) and its amendments: `0800bd4`, `ddf82ce`, `80240da`, `c679b56`
     and `1786088`. The last lets a moved path's challenge go out past the congestion window and
     the pacer, because RFC 9000 §9.4 keeps the old path's packets out of the new path's
     congestion control.
-  - [Decision 73](decisions.md): `80240da`, with its TLA+ model in `9e6e0a0`.
+  - [Decision 73](decisions.md#decision-73): `80240da`, with its TLA+ model in `9e6e0a0`.
   - `f155153`: the simulator rebinds the client as a NAT does. Over 256 seeds the server moves
     once for each rebind: 276 times in the port check and 275 in the address check.
   - `2a23bc7`: the UDP endpoint names each datagram's address, draws the challenge data, and
@@ -4175,7 +4176,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   In each, the capture holds 51 distinct Source Connection IDs in the server's Initial packets, and
   the client's key log holds 50 `CLIENT_TRAFFIC_SECRET_0` lines.
 
-  [Decision 99](decisions.md), the same day: colibri's runs count the client's connection attempts,
+  [Decision 99](decisions.md#decision-99), the same day: colibri's runs count the client's connection attempts,
   the distinct Destination Connection IDs of the client's Initial packets numbered 0.
   `tools/interop.sh` applies the change to the pinned runner, and it went upstream as
   [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509).
@@ -4210,7 +4211,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The runner's check, `TestCasePortRebinding.check` in its `testcases_quic.py`, takes only the
     PATH_CHALLENGE in the server's first packet on each new path.
 
-  [Decision 106](decisions.md), the same day: colibri's runs pass a new path once the client
+  [Decision 106](decisions.md#decision-106), the same day: colibri's runs pass a new path once the client
   answers any PATH_CHALLENGE sent on it. `tools/interop.sh` applies the change to the pinned
   runner, and it went upstream as
   [quic-interop-runner#511](https://github.com/quic-interop/quic-interop-runner/pull/511).
@@ -4223,7 +4224,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/qlog_check.py`.
 
   **Probes that repeat the latest ACK, 2026-09-28**
-  ([#76](https://github.com/c4milo/colibri/issues/76)). [Decision 107](decisions.md): a PTO probe
+  ([#76](https://github.com/c4milo/colibri/issues/76)). [Decision 107](decisions.md#decision-107): a PTO probe
   at the Handshake or application level carries its space's latest ACK frame, though nothing new
   asks for one (RFC 9000 §13.2). An Initial probe does not.
   - `repeats_ack` in `packet_build_frames.zig` decides it, beside decision 72's packets to a path
@@ -4372,7 +4373,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `Endpoint` is a client-or-server enum today, and a classifier for §9.1's probing frames.
 
   **`tls.Provider`'s QUIC mode is declared, 2026-09-20.** `src/tls/quic_provider.zig` is the
-  eight members [decision 8](decisions.md#what-the-caller-supplies) names for this mode, with no
+  eight members [decision 8](decisions.md#decision-8) names for this mode, with no
   implementation in the tree as non-negotiable 2 requires. A test holds the list to decision 8's
   and to invariant 23's rule that no member moves a key, a secret or an IV — decision 48 removed
   `on_secret` and `hkdf_expand_label`, so the secrets of RFC 9001 §4.1.4 go from the provider to
@@ -4491,7 +4492,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     times running, and quic-go ended the handshake at its 10-second limit, silently again.
 
 
-- **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
+- <a id="step-10"></a>**Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
   `now()` sites are caller-supplied parameters on the five entry points of §4.2. **Check:** the
   simulator's loss, reorder and blackhole scenarios with a census per seed; the interop runner's
@@ -4515,7 +4516,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Appendix B.5's expression grows the window by nothing once it passes the maximum datagram size
   squared, under two megabytes on an ordinary path, and B.5 points at the alternative in the same
   paragraph. And the §5.3-versus-Appendix-A.7 disagreement is settled in
-  [decision 50](decisions.md) and §12 question 4, with a test computing both orderings and
+  [decision 50](decisions.md#decision-50) and §12 question 4, with a test computing both orderings and
   pinning the factor between them.
 
   **Check:** `src/sim/recovery_check.zig` runs 256 seeds over four paths — quiet, one datagram in
@@ -4539,17 +4540,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   not what is already outstanding, and §7.5 exempts a probe from the window outright, so the
   check now tests the send and not the state. The second was a digest taken over a struct's
   bytes, padding included: padding is uninitialized memory, the two build modes disagreed about
-  it, and [invariant 5](invariants.md#quic) forbids reading it. Each field is now fed in on its
+  it, and [invariant 5](invariants.md#inv-5) forbids reading it. Each field is now fed in on its
   own, in network byte order.
 
   **Pacing, ECN and three runner cases, 2026-09-24.**
   - `ae82252`: `send` asks the pacer of RFC 9002 §7.7 before each datagram, and
     `connection_timer` names the instant the pacer has earned the next one as `Kind.pacing`. A
     sender the pacer holds counts as using its window (§7.8). 6 mutations, 6 CAUGHT.
-  - [Decision 68](decisions.md) gives the caller two flags. With `ecn_reads`, an ACK frame carries
+  - [Decision 68](decisions.md#decision-68) gives the caller two flags. With `ecn_reads`, an ACK frame carries
     RFC 9000 §13.4.1's counts. With `ecn_marks`, `Sent.ecn` names the codepoint the caller sets.
     11 mutations, 11 CAUGHT.
-  - [Decision 69](decisions.md) tests the path as RFC 9000 Appendix A.4 describes. The first ten
+  - [Decision 69](decisions.md#decision-69) tests the path as RFC 9000 Appendix A.4 describes. The first ten
     marked packets, or three PTOs, are the test. After it the endpoint sends Not-ECT until an
     ACK frame that passes validation shows a marked packet arrived, and then marks again. A path
     that drops marked packets therefore costs at most the test. 11 mutations, 11 CAUGHT.
@@ -4587,10 +4588,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `65a0857`: the simulator can run the runner's drop-rate network, 30% of datagrams lost each
     way and at most three in a row, and times each handshake. Over 2,000 seeds one handshake took
     43 seconds, and 11 took 16 seconds or more.
-  - [Decision 70](decisions.md): a PTO also probes every other space with ack-eliciting packets
+  - [Decision 70](decisions.md#decision-70): a PTO also probes every other space with ack-eliciting packets
     in flight (RFC 9002 §6.2.4), so a lost ServerHello goes out again with the Handshake probes.
     Over the same 2,000 seeds the slowest handshake took 34 seconds, and 3 took 16 or more.
-  - [Decision 71](decisions.md): the second early resend waits one PTO after the first. The
+  - [Decision 71](decisions.md#decision-71): the second early resend waits one PTO after the first. The
     simulator cannot show this, because it delivers every datagram due at one instant before
     either endpoint sends.
 
@@ -4637,11 +4638,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     failed as [#72](https://github.com/c4milo/colibri/issues/72) records. The server-side capture
     holds 51 Source Connection IDs in quic-go's Initial packets and 50 in the client's.
 
-- **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
+- <a id="step-11"></a>**Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
   decoder streams, Known Received Count, Required Insert Count, Base, relative and post-base
   indexing, and blocked streams. **Check:** `qpackers/qifs` vectors at the three settings its
-  filenames encode, with the draft-05 caveat of [decision 25](decisions.md#correctness) applied —
+  filenames encode, with the draft-05 caveat of [decision 25](decisions.md#decision-25) applied —
   a mismatch is checked against RFC 9204 before it is treated as colibri's bug; RFC 9204 Appendix
   B's reference encodings; fuzzing; mutations. *Large.*
 
@@ -4670,7 +4671,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the encoder and decoder streams, and the `qpackers/qifs` vectors, which need it.
 
   **The decoder uses the dynamic table, and the vectors run, 2026-09-24.**
-  - `5aa9ca5` and `8e2b8d8`: [decision 74](decisions.md). The decoder applies the encoder stream,
+  - `5aa9ca5` and `8e2b8d8`: [decision 74](decisions.md#decision-74). The decoder applies the encoder stream,
     resolves relative and post-Base references, blocks a stream until its Required Insert Count
     arrives, and writes Section Acknowledgments, Stream Cancellations and Insert Count
     Increments. RFC 9204 Appendix B.2 to B.5 pass in order through one decoder. The change also
@@ -4681,7 +4682,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/static_table.zig` read only the first row of each. Entry 52 was `text/html;`, and
     entries 57 and 58 were one value. The check in `zig build test` compared the table with the
     same parse, so nothing caught it until the vectors ran. 5 mutations, 5 CAUGHT.
-  - `40723c8`: [decision 75](decisions.md). `zig build qpack-vectors` decodes the corpus, and
+  - `40723c8`: [decision 75](decisions.md#decision-75). `zig build qpack-vectors` decodes the corpus, and
     `zig build test` runs it. 5 mutations, 5 CAUGHT.
 
   Before `9f94cbb`, 353 of the corpus's 529 files failed: 352 at a wrapped entry, and the
@@ -4700,7 +4701,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     unacknowledged sections. That bounds a section's largest reference, not its smallest, so an
     eviction checked against it could remove an entry a section still needed (§2.1.1). Each
     outstanding section now records its smallest reference. 1 mutation, 1 CAUGHT.
-  - `6860016`: [decision 76](decisions.md). The encoder inserts lines over the encoder stream,
+  - `6860016`: [decision 76](decisions.md#decision-76). The encoder inserts lines over the encoder stream,
     references them within the peer's blocked-stream limit, inserts speculatively when a stream
     may not block, evicts only evictable entries, and reads the decoder stream. 22 mutations, 22
     CAUGHT. Three first survived: one found a check no input could reach, now removed, and two
@@ -4727,7 +4728,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   decoders to read; fuzzing; and the TLA+ model of the two tables' state (issue #46).
 
   **Lean proofs and a seeded check, 2026-09-24.**
-  - `1434db1`: [decision 77](decisions.md). `spec/lean/` proves that §4.5.1.1's Required Insert
+  - `1434db1`: [decision 77](decisions.md#decision-77). `spec/lean/` proves that §4.5.1.1's Required Insert
     Count comes back exactly whenever the decoder is at most `MaxEntries` behind it and less than
     `MaxEntries` ahead. §2.1.1's rule that no entry is evicted before it is acknowledged is what
     keeps a decoder that close. It also proves the §3.2.5, §3.2.6 and §4.5.1.2 index arithmetic.
@@ -4765,7 +4766,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     counted as blocked.
   - `d83f157`: the last mutant was colibri's decoder. A stream whose entries had arrived, but
     whose section was not yet read again, still counted against the blocked-stream limit, while
-    the encoder had stopped counting it (§2.2.1). [Decision 74](decisions.md) is amended. 2
+    the encoder had stopped counting it (§2.2.1). [Decision 74](decisions.md#decision-74) is amended. 2
     mutations, 2 CAUGHT.
   - `1f6e297`: fuzz property functions for the three inputs a peer controls: a field section, the
     encoder stream and the decoder stream. As in step 1, `zig build test` runs each over its
@@ -4785,7 +4786,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `seeds=256 inputs=8192 taken=3933 blocked=128 refused=4131 crc32=0x7971245b`, in Debug and in
   ReleaseSafe. 200,000 seeds, 6.4 million inputs, ran in ReleaseSafe with none halted.
 
-- **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
+- <a id="step-12"></a>**Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
   suite's semantics tests re-run against h3, which proves the `http` module is
@@ -4795,7 +4796,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and `http/message_request.zig` hold every rule RFC 9113 §8 and RFC 9114 §4 both state, and
   return a reason rather than a verdict; h2's two files in `src/h2/message/` are now the mappers
   that name h2's errors for those reasons. h3's side of step 12 writes the second mapper and the
-  five rules [decision 51](decisions.md) keeps per protocol, and writes no rule twice. The move
+  five rules [decision 51](decisions.md#decision-51) keeps per protocol, and writes no rule twice. The move
   changed nothing that runs: h2's tests moved with their files and pass unaltered, `h2spec` still
   prints 144 passed, and `connection-check` still prints `crc32=0xe8f7c0b4`. Five mutations over
   the shared rules, each broken in `src/http/`: all **CAUGHT** by h2's own tests, which is what
@@ -4832,7 +4833,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Two shapes are worth naming. The frame header and its payload are read apart, because a DATA
   frame's payload is as long as the content and arrives over many packets: a reader wanting the
   whole frame in one buffer would put the body's size in colibri's memory bound, which
-  [decision 35](decisions.md#memory) forbids. And a short read is not a protocol error —
+  [decision 35](decisions.md#decision-35) forbids. And a short read is not a protocol error —
   `Truncated` means the bytes have not all arrived, while every other error names the §8.1 code
   the connection closes with. Telling those two apart is why the header is read on its own.
 
@@ -4936,13 +4937,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     stream's buffer room, not its flow-control credit. Sections referencing an insert that had no
     credit then blocked at the peer, and they held its whole connection window. h3 now cuts the
     encoder's writer to quic's new `connection_stream_credit.send_credit`
-    ([decision 81](decisions.md)). 8 mutations, 8 CAUGHT.
+    ([decision 81](decisions.md#decision-81)). 8 mutations, 8 CAUGHT.
   - The encoder-stream order is the rule `8accf3c` added after `h2load --h3` lost requests. The
     model shows that without it, blocked sections can hold the connection window.
 
   **The close after a failed handshake, 2026-09-24.** colibri's UDP server now sends the
   CONNECTION_CLOSE RFC 9001 §4.8 owes when its TLS stack refuses a handshake, and serves the next
-  connection ([#59](https://github.com/c4milo/colibri/issues/59), [decision 84](decisions.md)).
+  connection ([#59](https://github.com/c4milo/colibri/issues/59), [decision 84](decisions.md#decision-84)).
   - After the provider fails, colibri asks the suite which levels can still seal. chapulin
     (`0e6fd15`, `6a4c5eb`) seals one close per level through `ch_quic_seal_close`.
   - Against chapulin `6a4c5eb`, an aioquic client offering an ALPN colibri does not serve read
@@ -4958,7 +4959,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   S, U, A, 6, E, LR, B, BP, BA, R and 3.
 
   **h3spec, 2026-09-25.** chapulin `1558099` adds the AES-GCM suites to its QUIC mode, so h3spec's
-  handshakes now complete ([decision 85](decisions.md)).
+  handshakes now complete ([decision 85](decisions.md#decision-85)).
   - The QUIC object is built `SUITE=aesgcm AES=hw`. Every chapulin endpoint checks it against the
     headers with `ch_build_matches` before it starts.
   - h3spec 0.1.13 found two colibri defects, both fixed:
@@ -4989,7 +4990,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     refuses; the resumption PSK's length ignored; and `no-ecn` ignored.
 
   **Trace validation, 2026-09-25**
-  ([#58](https://github.com/c4milo/colibri/issues/58), [decision 87](decisions.md)).
+  ([#58](https://github.com/c4milo/colibri/issues/58), [decision 87](decisions.md#decision-87)).
   - `src/sim/h3_trace_check.zig`: a colibri client and server act out a seed's plan over step
     8's network. The plan draws requests of whole frames, cancels, GOAWAYs and QPACK inserts.
     After each step, `h3_trace_state.zig` computes the 28 variables of
@@ -5031,7 +5032,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Every check step 12 names has passed, and the step owes nothing more.
 
-- **Step 13 — `bench/`.** The judge, the competitor matrix and the memory measurement, under
+- <a id="step-13"></a>**Step 13 — `bench/`.** The judge, the competitor matrix and the memory measurement, under
   §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Eight parts;
   the owner ruled on 2026-09-30 that 13a and 13b come first:
   - **13a**, the judge. `bench/run.sh` builds colibri's test-only servers in ReleaseSafe, pins each
@@ -5737,7 +5738,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           about 240 instructions to save, and the Host check runs again on each request, about
           190. Each is below the judge's noise on h11, so this step changes neither.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
-    [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
+    [decision 136](decisions.md#decision-136). The loads of 13i keep each connection's window at its first
     12,000 bytes, so they cannot tell two congestion controllers apart. This input fills the
     path, so the controller sets the rate.
     - `bench/run.sh --latency --bulk`, which the workflow's `bulk` input runs, holds the path
@@ -6379,8 +6380,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The loop that the program hosts (step 44), the long streams (step 46) and the h3 path show
     no change.
 
-- **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
-  codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
+- <a id="step-14"></a>**Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
+  codings is stdx's ([decision 90](decisions.md#decision-90)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
   **Check:** colibri pins a stdx commit whose gzip and deflate decoders have passed that check,
   and CLAUDE.md lists stdx among the ruled dependencies. *Small.*
@@ -6392,12 +6393,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   a project that depends on colibri fetches it too. stdx's build declares `-Drelease` rather than
   `-Doptimize`, as colibri's does, so colibri passes it `release`. `zig build` and `zig build test`
   pass with it.
-- **Step 15 — h11.** RFC 9112 as [decisions 88 and 91](decisions.md) rule it. The owner cut it
+- <a id="step-15"></a>**Step 15 — h11.** RFC 9112 as [decisions 88 and 91](decisions.md#decision-88) rule it. The owner cut it
   into four parts on 2026-09-25, in the order h2's steps 1 to 4 took: the parsers first, then the
   connection over step 2's byte pipe, which already exists. Each part names its own check, and
   every request-parsing check has a mutation (decision 88). *Large.*
 
-- **Step 15a — the message parsers and writers.** What RFC 9112 §2 to §7 put on the wire:
+- <a id="step-15a"></a>**Step 15a — the message parsers and writers.** What RFC 9112 §2 to §7 put on the wire:
   - the request line (§3) and the status line (§4), with each element separated by one SP, and
     HTTP-version case-sensitive (§2.3);
   - the request-target in its four forms (§3.2), and the Host rules a server holds a request to
@@ -6470,7 +6471,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     weak prefix compared in any case, and an IPvFuture that starts with "V" refused. A test for
     each now catches it.
 
-- **Step 15b — the connection.** Persistence (§9.3), the client's pipelining with responses
+- <a id="step-15b"></a>**Step 15b — the connection.** Persistence (§9.3), the client's pipelining with responses
   matched to requests in order (§9.3.2), a server that reads one request at a time, and closing
   (§9.6). **Check:** a simulator check over step 2's byte pipe. A colibri client and server
   exchange seeded requests, pipelined, with chunked and length-delimited bodies and early closes,
@@ -6504,12 +6505,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **A body the caller sends itself, 2026-09-26.** `Connection.count_body` counts bytes the
   caller sends from its own buffer against the body its head declared, and writes nothing
-  ([decision 95](decisions.md)). A chunked body refuses it. 6 mutations, 6 **CAUGHT** by the
+  ([decision 95](decisions.md#decision-95)). A chunked body refuses it. 6 mutations, 6 **CAUGHT** by the
   connection's unit tests.
 
   **RFC 9931, 2026-09-29.** RFC 9931 updates RFC 9112 with rules for the bytes a client sends
   before a CONNECT or an Upgrade is answered, and `docs/rfcs/` now holds it. The owner ruled on
-  what h11 does with those bytes ([decision 109](decisions.md)). What was checked, and what
+  what h11 does with those bytes ([decision 109](decisions.md#decision-109)). What was checked, and what
   changed:
   - §8, the server: a proxy server MUST close the connection when it refuses a CONNECT. h11 read the
     next request after any final response to CONNECT other than 2xx, so it served the POST of
@@ -6559,14 +6560,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   check dropped, only DEL refused, an empty method let through, the method never ending at its
   SP, status lines checked too, and the check running past the start line.
 
-- **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
+- <a id="step-15c"></a>**Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
   under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's
   simulator check with coded bodies, the corrupt and refused verdicts each with a case, and
   mutations.
 
   **The codings, 2026-09-26.** `src/h11/coding.zig` holds the pool and one message's decoding, and
   the connection decodes a body carrying `gzip` or `deflate` into the buffer the caller passes to
-  `receive` ([decision 98](decisions.md)).
+  `receive` ([decision 98](decisions.md#decision-98)).
   - A server with no pool answers a coded request 501 (RFC 9112 §6.1). With one, it answers 503
     when every decoder is taken (RFC 9110 §15.6.4), 400 when the body is corrupt or when bytes
     follow a zlib stream inside the body, and 501 for a feature stdx refuses, such as a zlib preset
@@ -6627,7 +6628,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   500 lines, and the check's limits are in `src/sim/constants_h11.zig`, which `constants.zig`
   exports as `h11_coding`.
 
-- **Step 15d — the endpoints and conformance.**
+- <a id="step-15d"></a>**Step 15d — the endpoints and conformance.**
   - The test-only h11 server and client on Rotor.
   - TLS over chapulin, with ALPN `http/1.1`, and the server choosing `h2` or `http/1.1`.
   - Interop in both directions, in cleartext and over TLS, with the versions recorded. The client
@@ -6635,7 +6636,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The HTTP Garden (https://github.com/narfindustries/http-garden), a differential fuzzer for
     HTTP/1.1 request streams, with colibri's server as one of its origins. Each discrepancy is
     judged against RFC 9112 before it counts as colibri's defect. The owner ruled it in on
-    2026-09-25 ([decision 88](decisions.md)). It is GPL-3.0 and needs Docker, so it runs from
+    2026-09-25 ([decision 88](decisions.md#decision-88)). It is GPL-3.0 and needs Docker, so it runs from
     `tools/` alone, cloned at a pinned commit.
 
   **The interop, 2026-09-26.** `tools/h11_interop.sh --tls <checkout> go h2o` and
@@ -6680,7 +6681,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     §6.3 first, and `39c0c14` answers 400. A coding it does not decode ahead of a final chunked
     still gets 501.
 
-- **Step 16 — chapulin in the library.** [Decision 94](decisions.md) has colibri link chapulin as
+- <a id="step-16"></a>**Step 16 — chapulin in the library.** [Decision 94](decisions.md#decision-94) has colibri link chapulin as
   its TLS stack and its packet protection. Five parts, in order:
   - **16a**, the package. chapulin is pinned by commit and hash in `build.zig.zon` once it offers
     a Zig build that compiles each configuration colibri uses with `RAND=extern`, and colibri's
@@ -6698,7 +6699,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     library's adapter, and the `-Dchapulin-*` options leave CLAUDE.md's commands.
   - **16e**, the caller's CPU answer. On x86-64 and arm64 both objects are built `AES=runtime`,
     and `values.Client` and `values.Server` require the caller's `aes_instructions`
-    ([decision 97](decisions.md) as amended on 2026-09-29). The multiply's answer follows once
+    ([decision 97](decisions.md#decision-97) as amended on 2026-09-29). The multiply's answer follows once
     chapulin offers it ([chapulin#186](https://github.com/c4milo/chapulin/issues/186)), which
     [#84](https://github.com/c4milo/colibri/issues/84) tracks, and colibri's programs take both
     from stdx's `platform` module once it exists
@@ -7358,7 +7359,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **16f, 2026-10-09.** The pin moves from chapulin `c798fb8` to `v0.2.0` (`26fa782`). The proposal
   carried one shape for the timing claims in code, and showed two more, and the owner ruled for the
   one built, and for test programs that state the mode on x86-64, where no program can read DOITM
-  ([decision 97](decisions.md) as amended on 2026-10-09).
+  ([decision 97](decisions.md#decision-97) as amended on 2026-10-09).
   - `tls.Cpu` holds the probe and a `tls.Timing`, `not_stated` or `data_independent`. colibri
     claims constant-time AES under `data_independent` where the probe's `aes_clmul` is `yes`, and
     the constant-time multiply under `data_independent` alone. Without the AES claim a session
@@ -7382,7 +7383,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   epoll and with io_uring. The runner's VM most likely hides FEAT_DIT, so the server stated no mode
   and held ChaCha20 alone, which h2load's AES-256-GCM offer cannot meet. At the owner's ruling the
   test programs state the mode on every arm64 core, and the server names the CPU it described when
-  it starts in TLS mode ([decision 97](decisions.md) as amended again on 2026-10-09).
+  it starts in TLS mode ([decision 97](decisions.md#decision-97) as amended again on 2026-10-09).
   - A test hands the mode's choice a probe with no FEAT_DIT, which an M1 never gives.
   - 2 mutations, each **CAUGHT** by `src/testing/cpu.zig`'s tests: an arm64 core that states the
     mode without setting PSTATE.DIT, and one without FEAT_DIT that states no mode.
@@ -7400,7 +7401,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **16f with stdx `f4c20dd`, 2026-10-25.** The stdx pin moves from `5da4397` to `f4c20dd`, whose
   probe answers `sha256`, `sha512` and `sha3` ([stdx#19](https://github.com/c4milo/stdx/issues/19)).
   On arm64 colibri makes chapulin's three SHA claims where the probe answers `yes` under
-  `data_independent`, and on x86-64 it makes none ([decision 97](decisions.md) as amended on
+  `data_independent`, and on x86-64 it makes none ([decision 97](decisions.md#decision-97) as amended on
   2026-10-24).
   - On macOS arm64 the `tls` tests passed 60 of 60, and on `-Dcpu=generic` too. Built for x86-64
     Linux and run in Docker, they passed 60 of 60.
@@ -7538,7 +7539,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     build test-tls`: remove the line that writes the options' `context`, and its assertion:
     CAUGHT, 2 tests crash.
 
-- **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
+- <a id="step-17"></a>**Step 17 — the version-choosing client and server.** [Decision 100](decisions.md#decision-100) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27
   that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
@@ -7567,9 +7568,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     **Check:** the simulator runs the choice over seeds that lose, delay and refuse QUIC, and
     every seed ends with one completed request per request made. TLC finds each seed's log a
     behavior of `spec/tla/client_exchanges`, and each configuration that turns off one of the
-    model's rules finds a violation ([decision 105](decisions.md)). The client fetches over h3
+    model's rules finds a violation ([decision 105](decisions.md#decision-105)). The client fetches over h3
     from quic-go and aioquic, and falls back to h2 against a server with no UDP.
-  - **17e**, content codings ([decision 101](decisions.md)). The server codes a response in
+  - **17e**, content codings ([decision 101](decisions.md#decision-101)). The server codes a response in
     `gzip` or `deflate` when the request accepts it and the caller marks the response, and the
     client offers both and decodes them. `zstd` decoding follows a stdx bump. colibri's package
     exports stdx's `codec`, `gzip`, `zlib`, `zstd` and `brotli`.
@@ -7593,7 +7594,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     either finds a violation. The client trace run's plans leave QUIC idle past the margin and
     answer past the idle timeout, and every seed ends with each exchange finished. TLC finds each
     seed's log a behavior of the model.
-  - **17h**, the client decodes `zstd` and `br` ([decision 101](decisions.md) as amended on
+  - **17h**, the client decodes `zstd` and `br` ([decision 101](decisions.md#decision-101) as amended on
     2026-09-30, [#80](https://github.com/c4milo/colibri/issues/80)). The caller places a pool for
     each coding. The client offers a coding only when its pool has a free decoder, takes one from
     each pool it offers as it writes the request, and gives back the others at the response's
@@ -7603,7 +7604,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     as they arrive; a stream whose window passes the limit fails its response; a pool with no
     free decoder drops its coding from the offer; the client decodes `br` from h2o and `zstd`
     from Caddy, in cleartext and over TLS; and mutations.
-  - **17i**, the server over QUIC owes the 100 (Continue) ([decision 116](decisions.md)). A
+  - **17i**, the server over QUIC owes the 100 (Continue) ([decision 116](decisions.md#decision-116)). A
     request over h3 that expects one gets it at the connection's next `receive` or `send`,
     unless the caller answered it first, as a request over TCP does (RFC 9110 §10.1.1). A
     request whose stream ended gets none.
@@ -8043,11 +8044,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `examples/h3_exchange.zig` runs `server.Endpoint` and `client.Channel` over
     `examples/link_datagram.zig`, which moves datagrams between the two Rotor loops of
     `examples/link.zig`. `examples/tls_program.zig` holds what a program that links `tls` defines
-    once. Both examples present the test identity ([decision 96](decisions.md) as amended).
+    once. Both examples present the test identity ([decision 96](decisions.md#decision-96) as amended).
   - docs/usage.md and README.md lead with the two modules. The guide's sections on the server,
     the client, the endpoint and the channel are excerpts of the two examples, and
     `tools/consumer/` builds `server`, `client` and `tls` as a dependent and runs an h2 exchange.
-  - [Decision 115](decisions.md): a type's public functions are the calls a program makes. The
+  - [Decision 115](decisions.md#decision-115): a type's public functions are the calls a program makes. The
     calls a type's other files make moved to free functions in files the roots do not export,
     and each root exports `constants` and an alias for each type a program names. A program now
     writes `client.ChannelValues`, `client.ChannelInput`, `client.ChannelEvent`, `client.Address`
@@ -8065,7 +8066,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     of `connection.zig`, which rewrote 144 call sites inside the module. The corpus and h3's
     test call two of them, through `quic.connection`.
   - The twelve other roots followed too, when the owner asked for one convention in every module
-    and for no name that repeats its file's ([decision 115](decisions.md) as amended a third
+    and for no name that repeats its file's ([decision 115](decisions.md#decision-115) as amended a third
     time). A script lists the names code outside a module uses, and each root is that list, so
     72 whole files are no longer exported. A type named after its file is exported under its own
     name: `http.Field`, `h2.Connection` and `quic.PeerAddress` replace `http.field.Field` and its
@@ -8074,7 +8075,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     h3's 15 of 16; a build with each candidate made private showed that the server calls `fail`
     on all three.
   - `server.Endpoint.init` returns `error.DeadlineInvalid` for limits a connection would refuse,
-    as the owner ruled on 2026-10-04 ([decision 110](decisions.md) as amended), so its callers
+    as the owner ruled on 2026-10-04 ([decision 110](decisions.md#decision-110) as amended), so its callers
     gained `try`. Before, each connection's start failed and the endpoint answered no client.
   - Writing the examples found four things a program must know, and the guide or the example it
     quotes now says each. A connection's deadlines count from the instant `init` is given. A
@@ -8127,7 +8128,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `respond` refuses a 100 for a request the caller answered with a final response or cancelled,
     and `settle` then clears the record's `continue_owed`. A 100 the caller writes itself clears
     it too.
-  - [Decision 116](decisions.md): the server owes the 100 on the head alone, and a request whose
+  - [Decision 116](decisions.md#decision-116): the server owes the 100 on the head alone, and a request whose
     stream h3 has read to its end gets none, whether the stream ended with the head or after it.
     Content that arrived with the head leaves the 100 owed, as over h2.
   - A 100 that finds no free run among its response's runs stays owed until the peer acknowledges
@@ -8732,7 +8733,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   On the total, h11-many wins in the first job at 0.9591, and h11-tls-many in the second at 0.9725.
   No input's total instructions lose past the noise in either job.
 
-- **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
+- <a id="step-18"></a>**Step 18 — qlog.** [Decision 102](decisions.md#decision-102) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
     main schema §5, and the event envelope of §7, with each time in milliseconds after the
@@ -8951,7 +8952,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     2.612 s with `write_items`. c134f2c's own speed work was for text outside ASCII, which qlog
     does not write.
 
-- **Step 19 — QUIC version 2.** [Decision 108](decisions.md) adds RFC 9369's version 2 beside
+- <a id="step-19"></a>**Step 19 — QUIC version 2.** [Decision 108](decisions.md#decision-108) adds RFC 9369's version 2 beside
   version 1, with RFC 9368's compatible version negotiation, for
   [#54](https://github.com/c4milo/colibri/issues/54). chapulin derives both versions' keys (its
   decision 79), and colibri reads and writes the wire. Five parts, in order:
@@ -9241,7 +9242,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 1 mutation, **CAUGHT** by `zig build test-tls`: the default naming version 2. 5 tests failed,
     and 3 more ended on the suite's assertion.
 
-- **Step 20 — denial of service at the server.** [Decision 110](decisions.md) rules the defences
+- <a id="step-20"></a>**Step 20 — denial of service at the server.** [Decision 110](decisions.md#decision-110) rules the defences
   that [#82](https://github.com/c4milo/colibri/issues/82) planned, in three parts.
   - **20a**, Rapid Reset (CVE-2023-44487). h2 counts the streams the peer opens and then resets,
     and ends the connection past `peer_reset_rate_max` in one `peer_reset_rate_period_ns`.
@@ -10726,7 +10727,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - [Run 40782029564](https://github.com/c4milo/colibri/actions/runs/40782029564): h11-one wins
     at 0.9931 and 0.9921, about 140 and 160 user instructions a connection. No input loses.
 
-- **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
+- <a id="step-21"></a>**Step 21 — one HTTP API.** [Decision 117](decisions.md#decision-117) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
   tests that list its public names, beside each type it changes and beside each root (CLAUDE.md,
@@ -12324,7 +12325,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Owed before the push.** `tools/ci.sh` on the exact tree. Its interop checks show whether Go,
     curl, nghttp, h2o or Caddy send a TLS KeyUpdate, and whether a peer waits for the answer.
 
-- **Step 22 — the client's connection pool.** [Decision 125](decisions.md) replaces
+- <a id="step-22"></a>**Step 22 — the client's connection pool.** [Decision 125](decisions.md#decision-125) replaces
   `client.Channel` with `client.Pool`, which holds up to `tcp_connections` TCP connections and one
   QUIC connection to one origin ([#108](https://github.com/c4milo/colibri/issues/108)). The
   program sets the count at run time, in memory that it supplies (decision 35 as amended). A
@@ -12434,7 +12435,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 1 mutation **CAUGHT**: `same_host` without the scope id. A test of the pool's `Open.to` checks
     that the id and the pool's port both arrive.
 
-- **Step 23 — colibri's own names for HTTP.** [Decision 126](decisions.md) has `server` and
+- <a id="step-23"></a>**Step 23 — colibri's own names for HTTP.** [Decision 126](decisions.md#decision-126) has `server` and
   `client` name each concept once, the same for h11, h2 and h3, with the word programmers know.
   The protocol modules keep each RFC's words. Every rename breaks a dependent's build in 0.9.0.
   - **Names of `server`.** New: `Protocols`, `Timeouts`, `Timeout`, `StreamBytes`, `Header`,
@@ -12475,7 +12476,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     renames and the merge change no event and no byte on the wire. The memory table keeps its
     sizes under the new names. Mutations of 23.7: 2 of 2 **CAUGHT**.
   - **Owed before the push.** `tools/ci.sh` on the exact tree.
-- **Step 24 — a request's query.** [Decision 127](decisions.md) ruling 1: the server reads a
+- <a id="step-24"></a>**Step 24 — a request's query.** [Decision 127](decisions.md#decision-127) ruling 1: the server reads a
   query, after the WHATWG URL Standard pinned in `docs/rfcs/whatwg/`. The owner approved the names
   on 2026-10-25.
   - **Names.** `server.Request` gains `query`, the raw query after the `?`, or null, and its
@@ -12500,7 +12501,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 24.4: the router's decoding.
     - 24.5: docs/usage.md and the server example.
     - 24.6: the refusal of an encoded "/", "\\" or NUL, and the fuzz tests of the query reader.
-- **Step 25 — a route table that calls the program's functions.** [Decision 127](decisions.md)
+- <a id="step-25"></a>**Step 25 — a route table that calls the program's functions.** [Decision 127](decisions.md#decision-127)
   rulings 2 to 5. The owner approved the names on 2026-10-25.
   - **The table.** `server.router(Context, table)` replaces `server.router(Value, table)`. `table`
     is a struct with `error_handler`, `routes` and, optionally, `middleware`. Each route is a
@@ -12608,7 +12609,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       adapters to stdx#21, once stdx builds those encoders
       (https://github.com/c4milo/stdx/issues/8, https://github.com/c4milo/stdx/issues/7).
 
-- **Step 26 — several STREAM frames in a packet.** [Decision 131](decisions.md) amends decision
+- <a id="step-26"></a>**Step 26 — several STREAM frames in a packet.** [Decision 131](decisions.md#decision-131) amends decision
   56: an application-level packet carries up to 16 STREAM frames, and a ring holds each record's
   ranges after its first (INV-33). It adds no public name.
   - **Check.** In the Linux container of step 13i's lossy run, colibri sends fewer packets for
@@ -12644,7 +12645,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `mobile`: 0.75 and 0.80 at 2,000 req/s, where they were 5.02 and 4.46. At 4,000 no server
       reaches the rate: colibri reaches 3,082 req/s, chi 3,273 and axum 3,014.
 
-- **Step 27 — CUBIC.** [Decision 133](decisions.md) replaces RFC 9002 §7's NewReno with CUBIC (RFC
+- <a id="step-27"></a>**Step 27 — CUBIC.** [Decision 133](decisions.md#decision-133) replaces RFC 9002 §7's NewReno with CUBIC (RFC
   9438) in `recovery_congestion.zig`, with RFC 9438's arithmetic in integers in
   `recovery_cubic.zig`. `Congestion.on_ack` takes the instant and the smoothed round trip.
   `quic.constants.congestion_loss_reduction_divisor` goes, and `quic.constants.cubic` holds the
@@ -12672,9 +12673,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       3,284 and 3,274, and axum 3,102. colibri's p99 is 1,973 and 2,054 ms, and chi's 1,856 and
       1,885 ms.
   - **Next.** HyStart++ (RFC 9406), which RFC 9438 §4.10 says CUBIC SHOULD use, and BBRv3
-    beside CUBIC ([decision 134](decisions.md)).
+    beside CUBIC ([decision 134](decisions.md#decision-134)).
 
-- **Step 28 — HyStart++.** [Decision 135](decisions.md) runs RFC 9406's HyStart++ in CUBIC's first
+- <a id="step-28"></a>**Step 28 — HyStart++.** [Decision 135](decisions.md#decision-135) runs RFC 9406's HyStart++ in CUBIC's first
   slow start, in `recovery_hystart.zig`, as RFC 9438 §4.10 asks. It adds one public name,
   `quic.constants.hystart`, which holds RFC 9406 §4.3's constants.
   - **Check.** Tests drive each move of RFC 9406 §4.2: the exit to CSS when a round's minimum
@@ -12710,8 +12711,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     The loads above are application-limited, so the window rarely grows and HyStart++ has little
     to act on. It costs nothing measurable there.
 
-- **Step 29 — BBRv3.** [Decision 134](decisions.md) builds BBRv3 from draft-ietf-ccwg-bbr-06
-  beside CUBIC, and [decision 136](decisions.md) rules its random draws, its configuration and its
+- <a id="step-29"></a>**Step 29 — BBRv3.** [Decision 134](decisions.md#decision-134) builds BBRv3 from draft-ietf-ccwg-bbr-06
+  beside CUBIC, and [decision 136](decisions.md#decision-136) rules its random draws, its configuration and its
   measurement. It adds one public name, `quic.CongestionController`. Each part brings its Lean
   proofs and its TLA+ model, and the owner rules each part before it starts.
   - **29a, delivery rate samples.** §4.1: each sent packet records the bytes delivered and the
@@ -12983,7 +12984,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         1s reads as `.bbr`. It now reads the connection after its exchange.
     - **29c.2, the judge and the default, 2026-11-01.** The judge ran `bulk` (run 41267075258)
       and `network` (run 41267079569) on ef04f32b, two jobs of 2 rounds each, and every answer
-      was a 200. [Decision 143](decisions.md) then made BBRv3 the default of `quic.Connection`,
+      was a 200. [Decision 143](decisions.md#decision-143) then made BBRv3 the default of `quic.Connection`,
       `server.Config` and `client.Config`.
       - `bulk`, over h3 at 20 Mbit/s and 25 ms with a queue of 1,000 packets, the two jobs'
         values:
@@ -13624,7 +13625,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The owner dropped the step on 2026-11-08: the gain is too small to measure, so decision
         61 stays as it is. Do not try the last block again without a new measure.
 
-- **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
+- <a id="step-30"></a>**Step 30 — constants by who sets them.** [Decision 137](decisions.md#decision-137) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
   parameters, and keeps units in `constants.zig`. It comes before step 29b.
   - Each module's `constants.zig` exports its files as namespaces, and every name that moves
@@ -13652,7 +13653,7 @@ where it does on purpose: the cheap regression check is in place before the larg
 Step 16 moves chapulin, which the checks from step 5 on linked in `src/testing/`, into the
 library.
 
-- **Step 31 — DNSSEC's signature checks, the `dnssec` module.** [Decision 142](decisions.md)
+- <a id="step-31"></a>**Step 31 — DNSSEC's signature checks, the `dnssec` module.** [Decision 142](decisions.md#decision-142)
   puts chapulin's DNSSEC checks in a library module of their own, for cocuyo's DNSSEC Stage B
   ([#122](https://github.com/c4milo/colibri/issues/122), cocuyo#56). The owner reviewed the sketch
   of its public API on 2026-10-31 ("That looks clean"), and it was built on 2026-11-01.
@@ -13699,7 +13700,7 @@ library.
   - 8 mutations **CAUGHT**: `algorithm` and `digest_type` naming every number, each mapping onto
     chapulin's type fixed, `update` dropping its bytes, `final` cutting the digest, `verify`
     passing every signature, and `init` hiding a refusal.
-- **Step 32 — the h11 client's bounded drop.** [Decision 146](decisions.md) bounds the drop of
+- <a id="step-32"></a>**Step 32 — the h11 client's bounded drop.** [Decision 146](decisions.md#decision-146) bounds the drop of
   an h11 response the caller no longer reads
   ([#125](https://github.com/c4milo/colibri/issues/125)), for a `client.ConnectionPool` that
   speaks h11.
@@ -13724,7 +13725,7 @@ library.
     judged at the head, the time fired late, a cancel or a read starting no time, the time started
     again at each read, the pool naming no drop deadline or firing none, and `Config.timeouts`
     not carried to the connection.
-- **Step 33 — CNSA 2.0 on the server.** The owner ruled on 2026-11-01 that colibri's server
+- <a id="step-33"></a>**Step 33 — CNSA 2.0 on the server.** The owner ruled on 2026-11-01 that colibri's server
   always holds CNSA 2.0's algorithms, and selects them first when a client offers them
   ([#115](https://github.com/c4milo/colibri/issues/115)). chapulin's `ROLE=both TRUST=webpki`
   object does the selection, so the step adds no build option. It lands in four parts, as
@@ -13745,7 +13746,7 @@ library.
     instructions and states their timing (decision 97 as amended). `tools/tls_openssl.sh` requires
     0x1302 for a client that lists TLS_AES_128_GCM_SHA256 first, and 0x1301 for one that lists it
     alone.
-  - **33c, one identity shape, and ML-DSA-87.** [Decision 147](decisions.md). chapulin
+  - **33c, one identity shape, and ML-DSA-87.** [Decision 147](decisions.md#decision-147). chapulin
     `2b0c5c9e` (its decision 180) adds the `mldsa87` slot to every host server object.
     - **The public names of `tls`,** each listed in a test beside the root before the code
       (decision 115). A server that holds an ML-DSA-87 identity needs each one, as a server with
@@ -13783,7 +13784,7 @@ library.
       repeated ML-DSA-87 identity allowed (NOT CAUGHT first; its test was then added), an unfilled
       key taken as P-256, `pem.key` reading no ML-DSA-87 key, naming an ML-DSA-87 key P-256, or
       leaving a P-256 key's scheme unset, and `Key.wipe` leaving the secret.
-  - **33d, RSA-PSS from PEM.** [Decision 147](decisions.md) as amended on 2026-11-03. chapulin
+  - **33d, RSA-PSS from PEM.** [Decision 147](decisions.md#decision-147) as amended on 2026-11-03. chapulin
     `965668d2` (its decision 184) adds `ch_rsa_key_from_pem`.
     - **The public names.** `SignatureScheme` gains `rsa_pss_rsae_sha256`, 0x0804 (RFC 9846
       §4.3.3). A server that presents an RSA certificate needs it. No other name changes.
@@ -13841,7 +13842,7 @@ library.
       test-sim-run-quic` caught none of the first seven, because the null provider's flights fit
       the window.
 
-- **Step 34 — NewReno beside CUBIC and BBRv3.** [Decision 133](decisions.md) as amended on
+- <a id="step-34"></a>**Step 34 — NewReno beside CUBIC and BBRv3.** [Decision 133](decisions.md#decision-133) as amended on
   2026-11-04 adds RFC 9002's own NewReno (§7.3 and Appendix B) as a third controller, never the
   default. The owner asked for it after step 29c.3, to measure RFC 9002's controller beside the
   other two.
@@ -13904,7 +13905,7 @@ library.
     - The model puts colibri at about 2.25 Mbit/s and quic-go at about 3.75 Mbit/s, against
       downloads of about 8.5 s and 4.4 s on the judge. colibri keeps RFC 9002's cut. DPLPMTUD is
       the gain the RFCs allow, for every controller.
-- **Step 35 — Careful Resume (RFC 9959), proposed 2026-11-04.** [Decision 149](decisions.md).
+- <a id="step-35"></a>**Step 35 — Careful Resume (RFC 9959), proposed 2026-11-04.** [Decision 149](decisions.md#decision-149).
   - **The public names,** each listed in a test beside its root before the code (decision 115):
     - `quic.ResumeState`: `version`, `size`, `window_len` (§3.1's saved_cwnd), `rtt_ns`
       (saved_rtt) and `saved_at_ns`. A program stores it as it stores a ticket.
@@ -14115,7 +14116,7 @@ library.
       that names it; a moved host that saves its set; a connection on the same host that saves
       none; a start that keeps no address; and in the example, a second open connection that
       gets the set, and a `put` that leaves its connection open.
-- **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md). It depends
+- <a id="step-36"></a>**Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md#decision-151). It depends
   on a layer stdx's `json` does not have yet, which maps a Zig value to JSON and back:
   [stdx#22](https://github.com/c4milo/stdx/issues/22). colibri builds no such layer of its own.
   - **The public names,** each listed beside its root before the code (decision 115):
@@ -14123,7 +14124,7 @@ library.
     and the decoder's limits in `server.constants.limits`.
   - **The checks.** Each value type the encoder takes round-trips through stdx's decoder. A body
     that is not JSON, is not `T`, or passes a limit answers 400. An example route shows both.
-- **Step 37 — the `colibri` module, proposed 2026-11-04.** [Decision 150](decisions.md). It runs on
+- <a id="step-37"></a>**Step 37 — the `colibri` module, proposed 2026-11-04.** [Decision 150](decisions.md#decision-150). It runs on
   Rotor's own API for good (rulings 6 and 10). One loop runs on the thread that calls `run`
   (ruling 7).
   - **The public names.** The root exports `Server`, `ServerOf`, `ServerConfig`, `Identity`,
@@ -14203,8 +14204,8 @@ library.
       peer two codepoints expects two batches, and the mutant opens one.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
-- **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
-  [Decision 152](decisions.md). A dependent that implements Connect and gRPC needs
+- <a id="step-38"></a>**Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
+  [Decision 152](decisions.md#decision-152). A dependent that implements Connect and gRPC needs
   `grpc-status` and `grpc-message`.
   - **The public names:** `client.Headers` and `client.Trailers`, each with `get` and
     `iterator`, the fields `Response.headers`, `Response.trailers` and `Request.trailers`, and
@@ -14281,7 +14282,7 @@ library.
     - Over h3 the header section and the trailer section share one `prefix` of 16,436 bytes for
       each stream. A request whose two sections do not fit in it together ends `invalid` at
       `open`. The owner accepted this, and docs/usage.md states it.
-- **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
+- <a id="step-39"></a>**Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md#decision-153)
   as amended. It depends on no other step, and ships in v0.15.0 with steps 38b, 42 and 43.
   Step 44 moves to v0.16.0 (the owner's ruling of 2026-11-08).
   - **The public names:** `client.Streamed`, `client.WriteBodyError`, `Request.streamed`,
@@ -14490,7 +14491,7 @@ library.
         client tests catch each of these but two. They do not read the named limit. The
         condition of one consumed byte is **NOT CAUGHT** there: a MAX_DATA that repeats its
         limit costs only a frame. The `quic` test catches it.
-- **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
+- <a id="step-40"></a>**Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md#decision-155), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps
   39 and 42 ship as v0.15.0. On 2026-11-06 the owner added steps 38b, 43 and 44 to v0.15.0.
@@ -14510,7 +14511,7 @@ library.
     drops in the middle of a connection, each with every seed finishing. A TLA+ model of the
     search's states, with mutants. Mutations of each rule. A judge bulk run, beside step 34's
     numbers.
-- **Step 41 — body readers and writers, proposed 2026-11-05.** [Decision 153](decisions.md)
+- <a id="step-41"></a>**Step 41 — body readers and writers, proposed 2026-11-05.** [Decision 153](decisions.md#decision-153)
   ruling 6. It depends on step 39.
   - **The rules.** A request body's `std.Io.Writer` and a response body's `std.Io.Reader` over
     the pool. Each fails with `WriteFailed` or `ReadFailed` to mean "not yet" and keeps its state,
@@ -14518,11 +14519,11 @@ library.
   - **The checks.** stdx's gzip writer and JSON value encoder stream a request body through the
     writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
     Each retry goes on from the byte it stopped at.
-- **Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md) ruling 8. It
+- <a id="step-42"></a>**Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md#decision-153) ruling 8. It
   runs on Rotor's own API. The owner ruled on 2026-11-06 that it lands before step 39, so that a
   program fetches over h11, h2 and h3 before streamed bodies exist. Streamed bodies come to
   `colibri.Client` with step 39, in the pool underneath. Step 44 amends the loop rules below
-  ([decision 156](decisions.md)): the client runs on a loop the program may share, and owns the
+  ([decision 156](decisions.md#decision-156)): the client runs on a loop the program may share, and owns the
   loop when its type names `.private`.
   - **The public names:** `colibri.Client`, `colibri.ClientOf`, `colibri.ClientCapacity` and
     `colibri.ClientConfig`, with `init`, `deinit`, `request`, `shutdown` and `run`, beside
@@ -14673,7 +14674,7 @@ library.
       arm64 under io_uring as above: the accept's descriptor not closed; the accept's event not
       read; the same with the test of `socket.zig` removed, so the server's test alone reads it; a
       connect that succeeded read as a close that ran.
-- **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
+- <a id="step-43"></a>**Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   v0.15.0 ships without step 44, which moves to v0.16.0 (the owner's ruling of 2026-11-08).
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
@@ -14760,8 +14761,8 @@ library.
       `quic_carries` always true; always false; the rule reading the opposite fact; the rule before
       this attempt's own QUIC; the rule for every QUIC phase that is not idle. Each was **CAUGHT**.
       `quic_carries` always false was caught by three pool tests of a GOAWAY that existed before.
-- **Step 44 — colibri on a loop that the program hosts, proposed 2026-11-06, planned again
-  2026-11-08.** [Decision 159](decisions.md), which amends decisions 150, 156 and 158.
+- <a id="step-44"></a>**Step 44 — colibri on a loop that the program hosts, proposed 2026-11-06, planned again
+  2026-11-08.** [Decision 159](decisions.md#decision-159), which amends decisions 150, 156 and 158.
   `colibri.Client` and `colibri.Server` take a host interface in colibri's own terms. Each object
   is a driver and a host. The driver does no I/O, reads no clock and imports no Rotor. The host
   does each operation on its own loop. `.private` is the driver plus colibri's own Rotor adapter.
@@ -15414,7 +15415,7 @@ library.
       `zig build lint-commits` returned 0 after each commit.
     - Not run: the bench on the judge, which still owes `h2-many` and `h3-many` for 44c to 44h;
       the checks of `tools/ci.sh` that need Linux or the judge; and the TLA+ models.
-- **Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
+- <a id="step-45"></a>**Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
   158](decisions.md). TigerStyle rules first, and Zig 0.16's std rules where TigerStyle says
   nothing. The step changes names and signatures, and no behaviour on the wire. It ships in
   v0.15.0, and lands before step 44's commits 44b to 44l, which then use its names. The owner
@@ -15799,8 +15800,8 @@ library.
       5. 45r `refactor(quic)!`: `role` is `.server` in `quic.Connection.Options`. The call sites
          keep their `role`, as the h11, h2 and h3 sites do.
          - Mutation: `role` `.client` by default, CAUGHT. The test of the default fails.
-- **Step 46 — long server streams through the router, proposed 2026-11-09.** [Decision
-  103](decisions.md) and [decision 127](decisions.md) as amended on 2026-11-09. connect-zig
+- <a id="step-46"></a>**Step 46 — long server streams through the router, proposed 2026-11-09.** [Decision
+  103](decisions.md) and [decision 127](decisions.md#decision-127) as amended on 2026-11-09. connect-zig
   reported two limits of a long server stream on `server.Engine` and `server.Router`. The step
   ships in v0.15.2, and it is built apart from step 44. It adds no public name and removes none,
   and the names tests of each type and root stay as they are.
@@ -16048,8 +16049,8 @@ library.
          status 0: `zig fmt --check`, `zig build lint`, `zig build test`, `zig build examples`,
          `tools/doc_snippets.sh`, `tools/consumer_check.sh` and `zig build bench-memory`. No
          size of the memory table changed.
-- **Step 47 — the h11 server reads the rest of a body, or closes in stages, ruled
-  2026-11-09.** [Decision 160](decisions.md), for v0.16.0. RFC 9112 §9.3 and §9.6.
+- <a id="step-47"></a>**Step 47 — the h11 server reads the rest of a body, or closes in stages, ruled
+  2026-11-09.** [Decision 160](decisions.md#decision-160), for v0.16.0. RFC 9112 §9.3 and §9.6.
   - **The public names,** each listed in decision 115's form:
     - `h11.Connection.Options.discard_len_max`, a field with the default 0. A program that drives
       h11 itself keeps its behaviour, and the server passes its limit.
@@ -16201,8 +16202,8 @@ library.
       - connect-zig's conformance server, built on v0.19.0 with this change through `zig build
         --fork`, ran the suite's h11 cases in zstd and br 30 times, and none failed. On v0.19.0
         alone, 4 of the first 11 runs failed. The whole server half then passed 5 runs of 5.
-- **Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
-  2026-11-11.** [Decision 161](decisions.md), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
+- <a id="step-48"></a>**Step 48 — session tickets in colibri's servers and client, ruled 2026-11-10 and
+  2026-11-11.** [Decision 161](decisions.md#decision-161), for v0.16.0. RFC 9846 §2.2, §4.7.1 and Appendix
   C.4.
   - **Why.** Step 13j's profiles found that wrk resumes almost every session with hyper. A
     resumed handshake skips the certificate and its signature. colibri's TCP servers issue no
@@ -16318,8 +16319,8 @@ library.
     connection takes 2.5% more instructions and 1.5 more system calls. On h11-tls-one, where wrk
     resumes, it takes 16% fewer. The owner ruled to accept the cost.
 
-- **Step 49 — chapulin v0.6.0, and a server that changes its ticket key, ruled 2026-11-11.**
-  [Decision 161](decisions.md) as amended on 2026-11-11 and [decision 162](decisions.md).
+- <a id="step-49"></a>**Step 49 — chapulin v0.6.0, and a server that changes its ticket key, ruled 2026-11-11.**
+  [Decision 161](decisions.md#decision-161) as amended on 2026-11-11 and [decision 162](decisions.md#decision-162).
   [chapulin#220](https://github.com/c4milo/chapulin/issues/220). RFC 9846 §4.7.1.
   - **Why.** A server that runs for weeks must change its ticket key: chapulin's `srv_ticket.h`
     asks for a change before one key seals 2^32 tickets. Before chapulin v0.6.0, a change ended
@@ -16363,8 +16364,8 @@ library.
       changes nothing; `deinit` keeps the previous key; a key change drops the current key
       instead of keeping it; `load` gives the TLS values no previous key.
 
-- **Step 50 — the router's handlers: a request's context, whole requests and streams, ruled
-  2026-11-11 and 2026-11-12.** [Decision 163](decisions.md), for v0.17.0, as connect-zig's
+- <a id="step-50"></a>**Step 50 — the router's handlers: a request's context, whole requests and streams, ruled
+  2026-11-11 and 2026-11-12.** [Decision 163](decisions.md#decision-163), for v0.17.0, as connect-zig's
   decisions 35 and 36.
   - **Why.** A middleware had no place for what it learns about one request. The option
     `whole_body` changed how the router calls `on_body`, and `on_body` waited with
@@ -16759,8 +16760,8 @@ library.
     `values`, `path` and `query` with a wrong type. connect-zig moves `connect_colibri` to the
     commit of 50h before the tag, and reports what the API leaves out.
 
-- **Step 51 — the constructors take std's name `init`, ruled 2026-11-13.**
-  [Decision 158](decisions.md) as amended on 2026-11-13.
+- <a id="step-51"></a>**Step 51 — the constructors take std's name `init`, ruled 2026-11-13.**
+  [Decision 158](decisions.md#decision-158) as amended on 2026-11-13.
   - **Why.** colibri named a value's constructor `of`, and std names it `init`. The owner asked
     whether `of` is how Zig names it, and ruled that v0.17.0, which breaks names already,
     renames each one.
@@ -16794,7 +16795,7 @@ library.
     - **Mutations, 8 of 8 CAUGHT:** each old name added back beside its new one, and the old tag
       added to each enum.
 
-- **Step 52 — line coverage, ruled 2026-11-15.** [Decision 164](decisions.md).
+- <a id="step-52"></a>**Step 52 — line coverage, ruled 2026-11-15.** [Decision 164](decisions.md#decision-164).
   - `zig build line-coverage` (`build/line_coverage.zig`, `tools/line_coverage.zig`) runs the
     tests of the 17 library modules and of `tls-keylog` under kcov 43, through pepegrillo's
     `coverage` tool. `tools/line_coverage_check.sh` runs it on Linux, and `tools/ci.sh` holds it.
@@ -16810,7 +16811,7 @@ library.
     69,583 lines. Each module was between 97.3% (`core`) and 100% (`tls_provider`, `crypto` and
     `qlog`). The x86-64 build compiles a few more lines than the arm64 one, which counted 98.2%.
     The README's badge shows 98.7% and links to the run.
-- **Step 53 — an answer with no entry waits for room, 2026-11-16.** A fault that connect-zig
+- <a id="step-53"></a>**Step 53 — an answer with no entry waits for room, 2026-11-16.** A fault that connect-zig
   found with connectrpc's conformance suite v1.0.7, for v0.17.3.
   - **The fault.** `server.Router` answers 404, 405, 501 and 503 with no entry of its pool. When
     the engine had no room for that head, the router cancelled the request. Over h2 the client
@@ -16864,7 +16865,7 @@ library.
     within the noise, h2-routes-many at 1.0004 and 1.0005, and every other check of step 47's
     record passed.
 
-- **Step 54 — the router's branch quota on a table of many routes, 2026-11-17.** A fault that
+- <a id="step-54"></a>**Step 54 — the router's branch quota on a table of many routes, 2026-11-17.** A fault that
   connect-zig found with its benchmark of a routed call, for the release after v0.17.3.
   - **The fault.** Five functions of `server/router/router_pool.zig` switch over every route with
     `inline else`, which makes one prong for each route. `start`, `on_finished` and `finish` raise
@@ -16890,7 +16891,7 @@ library.
     - The server tests, 755 of 755, passed on x86-64 Debug in an amd64 container, the new test
       among them.
 
-- **Step 55 — no byte-loop copy in the library, 2026-11-17.** A cost that connect-zig found with
+- <a id="step-55"></a>**Step 55 — no byte-loop copy in the library, 2026-11-17.** A cost that connect-zig found with
   its benchmark of a full stack, for v0.18.1. The owner ruled the scope: every copy of the library.
   - **The cost.** connect-zig's sink reads a gRPC export of 192,397 bytes through a stream route
     that keeps every byte unread until the body's last piece. After each piece, `keep_unread` in
@@ -16973,7 +16974,7 @@ library.
       rule's scope, the rule not registered, and colibri's old limit of 100 words or of 3
       paragraphs put back.
 
-- **Step 56 — the engine's empty polls on h11, 2026-11-17.**
+- <a id="step-56"></a>**Step 56 — the engine's empty polls on h11, 2026-11-17.**
   [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled the internal work first:
   no public name changes.
   - **The cost.** Native counters on h11-many, the same on io_uring and on epoll, gave per
@@ -17038,7 +17039,7 @@ library.
     - `tools/ci.sh` passed 31 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS.
     - The server tests, 755 of 755, passed on x86-64 Debug in an amd64 container.
 
-- **Step 57 — no poll after a read that changed nothing, refused, 2026-11-17.**
+- <a id="step-57"></a>**Step 57 — no poll after a read that changed nothing, refused, 2026-11-17.**
   [#133](https://github.com/c4milo/colibri/issues/133), a second change of the internal work the
   owner ruled. The judge refused it, and two of its tests landed.
   - **The cost.** Scratch counters on h11-many after step 56, native, gave 4 polls a request on
@@ -17063,7 +17064,7 @@ library.
     mutant that ignored the linger or the staged close was NOT CAUGHT. Main passes both, and a
     later change of the ready ring must too.
 
-- **Step 58 — no copies of the server's events, planned 2026-11-17.** [Decision 165](decisions.md),
+- <a id="step-58"></a>**Step 58 — no copies of the server's events, planned 2026-11-17.** [Decision 165](decisions.md#decision-165),
   for [#133](https://github.com/c4milo/colibri/issues/133).
   - **The cost.** `server.Event` holds 160 bytes, and `server.ReceiveResult` 192. A request on
     h11-many takes 8 calls of the engine's `receive`, and 6 of them report nothing. Each layer of
@@ -17164,7 +17165,7 @@ library.
       and `tools/consumer_check.sh`, with stdx from Zig's cache.
   - **What stays.** The client keeps its own form, because #133 measured the server.
 
-- **Step 59 — fewer deadline checks on a TCP connection, planned 2026-11-18.**
+- <a id="step-59"></a>**Step 59 — fewer deadline checks on a TCP connection, planned 2026-11-18.**
   [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled on 2026-11-18 to plan
   it. No public name changes, and the deadlines pass at the same instants (decision 110).
   - **The cost.** The judge's profile of main at `3d29359a`
@@ -17220,7 +17221,7 @@ library.
     - **What it shows.** On the judge, a check skipped at a new instant saves about what the
       bookkeeping for the skip costs in `observe`, which runs at every `receive` and `send`. 59b
       would need the same bookkeeping for each change of `soonest`, so it is not planned.
-- **Step 60 — one input and one output buffer in each TCP socket, 2026-11-18.**
+- <a id="step-60"></a>**Step 60 — one input and one output buffer in each TCP socket, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137). connect-zig measured its OTLP sink, a
   `colibri.Server` of 528 TCP connections: about 531 KB a connection, of which the `.private`
   adapter's socket took 197,184 bytes. The owner ruled on 2026-11-18 for a single receive buffer
@@ -17260,7 +17261,7 @@ library.
     0.038 to 0.067 and 0.064 within spreads of 60% to 405%. Its CPU time a request fell, from
     7,350 to 6,812 ns and from 7,384 to 6,955 ns. The judge has always measured one engine output
     in the test-only server, so the output's change in `colibri.Server` follows a design it ran.
-- **Step 61 — h2's field blocks where they lie, 2026-11-18.**
+- <a id="step-61"></a>**Step 61 — h2's field blocks where they lie, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137). After step 60, h2's field blocks held
   98,352 bytes of each connection: 65,584 to receive a block and 32,768 to send one. The owner
   ruled on 2026-11-18 for two steps, each judged alone. No public name changes.
@@ -17318,9 +17319,9 @@ library.
     [Run 44427805722](https://github.com/c4milo/colibri/actions/runs/44427805722) measured 61a
     and 61b: h2-many is 0.9981 and 0.9986, from 10,462 to 10,439.
 
-- **Step 62 — colibri sizes a TCP connection to what it uses, 2026-11-18.**
+- <a id="step-62"></a>**Step 62 — colibri sizes a TCP connection to what it uses, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137), its last item, and
-  [decision 166](decisions.md) as amended.
+  [decision 166](decisions.md#decision-166) as amended.
   - **The ruling, and its amendment the same day.** The owner first ruled six sizes a program
     sets through `server.Capacity`, at compile time. Its names, sub-step 62a, were proposed. Then
     the owner asked whether callers must size internal parts, and ruled that they need not:
@@ -17373,7 +17374,7 @@ library.
     - The response header block of two h2 frames, which sizes `output`, waits for the owner.
       One frame saves 16,384 bytes a connection, but colibri would then send no CONTINUATION,
       and each `send` would hold a third fewer bytes of a large body.
-- **Step 63 — a TLS server session holds no trust anchors, 2026-11-18.**
+- <a id="step-63"></a>**Step 63 — a TLS server session holds no trust anchors, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137). After step 62, `tls.record.Server` held
   50,000 bytes, and every TCP slot of an engine holds one, in cleartext too. The owner ruled on
   2026-11-18 for a server limit of no anchors. No public name changes.
@@ -17405,7 +17406,7 @@ library.
     measured the change against `89045d95` at 10 rounds. Every h2 input stays within the noise in
     both jobs, from 0.9984 to 1.0029 of the base, as a change of memory alone should.
 
-- **Step 64 — a TCP connection holds a TLS session only over TLS, 2026-11-19.**
+- <a id="step-64"></a>**Step 64 — a TCP connection holds a TLS session only over TLS, 2026-11-19.**
   [#137](https://github.com/c4milo/colibri/issues/137), decision 167. After step 63 a TCP slot
   held 234,256 bytes, and 83,029 of them were the TLS session and `plain_in`, which a cleartext
   connection never uses. The change breaks names, so it goes into v0.19.0.
@@ -17451,7 +17452,7 @@ library.
     h11-tls-many wins in both, at 0.9942 and 0.9879 of the base, and h2-tls-many wins in one, at
     0.9923. Every other input stays within the noise, from 0.9792 to 1.0046.
 
-- **Step 65 — an output of one HEADERS and one DATA frame, refused, 2026-11-19.**
+- <a id="step-65"></a>**Step 65 — an output of one HEADERS and one DATA frame, refused, 2026-11-19.**
   [#137](https://github.com/c4milo/colibri/issues/137), decision 166 as amended. The owner asked
   to try a server output sized for one frame of header block, which saves 16,375 bytes of each
   TCP slot, and the judge refused it.
@@ -17476,7 +17477,7 @@ library.
   - **What stays.** The output stays 49,161 bytes, and no floor on the room lands. The branch
     `one-frame-65b` keeps the trial.
 
-- **Step 66 — MAX_STREAMS rides in a packet that goes anyway, 2026-11-19.**
+- <a id="step-66"></a>**Step 66 — MAX_STREAMS rides in a packet that goes anyway, 2026-11-19.**
   [#139](https://github.com/c4milo/colibri/issues/139). The owner ruled decision 130's amendment.
   - **The cost.** Under the latency run's 32 requests in flight, colibri's h3 server took 15.5 µs
     a request at 40,000 a second, against 4.0 µs with 160 in flight (step 13s). An h3 request
@@ -17516,7 +17517,7 @@ library.
       40,000, where it was 0.67 and 0.61. The p99 stayed within the rounds' spread.
     - `tools/ci.sh` passed 33 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. The quic
       tests passed on x86-64 Debug in an amd64 container.
-- **Step 67 — an encoder starts in place, with no fill, 2026-11-19.** The owner asked for it on
+- <a id="step-67"></a>**Step 67 — an encoder starts in place, with no fill, 2026-11-19.** The owner asked for it on
   2026-11-19, after a scan of the x86-64 Debug test frames found a frame of 600 KB in `take`.
   - **The cost.** `take` made the slot's union hold the coding's encoder with
     `slot.encoder = .{ .gzip = undefined }`. Zig writes the whole union to change its field, and
@@ -17552,7 +17553,7 @@ library.
     - `tools/ci.sh` passed 33 sections, with Zig 0.16.0 on an Apple M1 Pro with macOS. The server
       tests passed on x86-64 Debug in an amd64 container.
 
-- **Step 68 — stdx v0.2.0, 2026-11-19.** The owner asked stdx for the core and SVE2 that
+- <a id="step-68"></a>**Step 68 — stdx v0.2.0, 2026-11-19.** The owner asked stdx for the core and SVE2 that
   chapulin v0.9.1 and v0.10.0 read, and stdx v0.2.0 (`12b8c8d7`) answers them: `platform.Cpu`
   gains `sve2` and `midr`.
   - **The change.** colibri pins stdx v0.2.0. Each `platform.Cpu` literal of colibri's tests and
@@ -17574,7 +17575,7 @@ library.
     ([run 44668386611](https://github.com/c4milo/colibri/actions/runs/44668386611)).
     h2-tls-large-many was at 1.0017 and 1.0000. `tools/ci.sh` passed 33 sections, with Zig 0.16.0
     on an Apple M1 Pro with macOS.
-- **Step 69 — an h11 decoder starts in place, with no fill, 2026-11-19.** The owner asked for it
+- <a id="step-69"></a>**Step 69 — an h11 decoder starts in place, with no fill, 2026-11-19.** The owner asked for it
   on 2026-11-19, the last of the four findings that step 67's frame scan left.
   - **The cost.** `begin_stream` made the slot's union hold the coding's decoder with
     `slot.decoder = .{ .gzip = undefined }`, as step 67's encoder did. In a ReleaseSafe
@@ -17602,7 +17603,7 @@ library.
     container. A block took 0.9545 s of user time before the step and 0.929 s with it, medians:
     about 16 µs for each answer. The test-only client exports no `memset` of its own, so
     compiler_rt's serves the fill, one byte at a time.
-- **Step 70 — a router starts in place, 2026-11-23.** connect-zig asked for it on 2026-11-23, for
+- <a id="step-70"></a>**Step 70 — a router starts in place, 2026-11-23.** connect-zig asked for it on 2026-11-23, for
   its OTLP sink ([#148](https://github.com/c4milo/colibri/issues/148)).
   - **The cost.** A program started its router with `.{}`, as README.md showed. The field
     `entries` defaults to `@splat(.{})`, so `.{}` copied the router's whole default value from a
@@ -17610,10 +17611,10 @@ library.
     connect-zig's sink holds 64 entries of 257 KiB bodies and 1 MiB of route state. Its image held a
     `.data.rel.ro` of 155 MB, and it took about 426 MiB when it started.
   - **The change.** `Router.init(router: *Router)` writes each field of the router and of each
-    entry to its default, one field at a time, by [decision 158](decisions.md) ruling 1. It goes
+    entry to its default, one field at a time, by [decision 158](decisions.md#decision-158) ruling 1. It goes
     one field down into the body, the copy of the header, the held writers, the path parameters
     and the query. Outside Debug a field whose default is `undefined` takes no store, so no
-    buffer is written ([decision 163](decisions.md) as amended on 2026-11-15). A field that
+    buffer is written ([decision 163](decisions.md#decision-163) as amended on 2026-11-15). A field that
     `router_pool_init.zig` holds no rule for fails the compile.
   - `.{}` still compiles, so no dependent breaks. README.md, docs/usage.md, the examples, both
     consumers and the test servers start their routers with `init`.
@@ -17635,13 +17636,13 @@ library.
       largest resident set of 12,976 KiB.
     - The same program with no start of the router: 12,924 KiB.
 
-- **Step 71 — a server keeps 1-RTT packets that arrive early, 2026-11-23.** The QUIC Interop
+- <a id="step-71"></a>**Step 71 — a server keeps 1-RTT packets that arrive early, 2026-11-23.** The QUIC Interop
   Runner's weekly job found it ([#153](https://github.com/c4milo/colibri/issues/153)).
   - **The cost.** In `handshakeloss` with quinn's client, a client's Finished was lost and its
     request reached colibri's server first. The server dropped it with `key_unavailable`, because
     RFC 9001 §5.7 forbids it to process a 1-RTT packet before its handshake completes. quinn never
     sent the request again, and the case failed.
-  - **The change.** [Decision 168](decisions.md): a server keeps such packets, at most 12 and
+  - **The change.** [Decision 168](decisions.md#decision-168): a server keeps such packets, at most 12 and
     14,720 bytes, and opens them once its handshake completes. `connection_early.zig` holds the
     store, and `connection_datagram.zig` keeps and opens the packets. `frames.process` takes the
     offset in `scratch.completed` where a packet's completed streams start, so several 1-RTT
@@ -17676,13 +17677,13 @@ library.
     catches the first two.
   - **Not run yet:** `tools/interop.sh quinn handshakeloss`, which needs Docker. The weekly job
     runs it.
-- **Step 72 — a configuration states the CPU features, and a pool none, 2026-11-24.** The owner
+- <a id="step-72"></a>**Step 72 — a configuration states the CPU features, and a pool none, 2026-11-24.** The owner
   ruled it for [#156](https://github.com/c4milo/colibri/issues/156).
   - **The cost.** A program stated its CPU features to each codec pool it placed: three decoder
     pools in a client, an encoder pool and a decoder pool in a server. Each `init(features)` was a
     place to leave `CpuFeatures.target()` by mistake, and no test sees that, since stdx writes the
     same bytes on every path.
-  - **The change.** [Decision 169](decisions.md): `client.Config`, `server.Config` and h11's
+  - **The change.** [Decision 169](decisions.md#decision-169): `client.Config`, `server.Config` and h11's
     `Options` hold `cpu_features`, with no default, and a pool's `init` takes no argument. A
     connection gives its configuration's features to a codec as the codec starts:
     `h11.coding.Decoding.start`, `begin` and `decode`, the client's `response_write.record_head`
@@ -17751,8 +17752,8 @@ library.
     chapulin taken from Zig's cache.
   - **Not run yet:** `bench/run.sh`, whose input `h2-coded-many` takes an encoder for each
     response. The `Bench` workflow runs it when a person starts it.
-- **Step 73 — the package exports `colibri` alone, 2026-11-25.** The owner asked that a program
-  import one module ([decision 170](decisions.md)).
+- <a id="step-73"></a>**Step 73 — the package exports `colibri` alone, 2026-11-25.** The owner asked that a program
+  import one module ([decision 170](decisions.md#decision-170)).
   - **Public names.** The root of `colibri` gains fourteen: `core`, `wire`, `http`,
     `tls_provider`, `tls`, `dnssec`, `crypto`, `qlog`, `hpack`, `qpack`, `quic`, `h2`, `h3` and
     `h11`, beside `server` and `client` of step 44i. Each is the module itself. A program that
@@ -17791,223 +17792,7 @@ library.
     socket, as in step 72. The first build of `bench/router/` passed. Its timed rounds need
     `/usr/bin/time`, which the container lacks.
   - **Not run:** the checks of `tools/ci.sh` that need Docker or a network peer, which CI runs.
-
-## 9. Test-only entry points
-
-Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
-packaged library, does its I/O without blocking ([decisions 46 and 58](decisions.md)), and is the
-only place in the tree permitted to touch a socket
-([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
-
-1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
-   of the bytes `--body` names when it is given (design §8 step 13n),
-   and CONNECT with 501, since it opens no tunnel (decision 109), in both cleartext and TLS
-   modes, and **a client**, `http-client`, that runs a plan of
-   exchanges against another implementation's server and reports how each ended. For h2spec,
-   h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
-   (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
-   them h11 as well. Each connection of a client's run is a `client.Channel` with TCP alone, which
-   asks for its socket and for another when an exchange moves (step 21c). In cleartext the client
-   speaks h2 with prior knowledge, or h11 with `--h11`. The server in cleartext names no version
-   and speaks h2 when a connection's first bytes are h2's preface and h11 otherwise (decision
-   117, step 21a), or one alone with `--h11` or `--h2`. Over TLS, both offer `h2` and then
-   `http/1.1` through ALPN, or one alone with `--h11` and, for the server, `--h2`, and each
-   connection speaks what the handshake selected: h2 for `h2`, and h11 for `http/1.1` or for no
-   selection (decision 88). With `--channel` and `--tls` the client hands its plan to one channel
-   that adds QUIC instead, which tries h3 over QUIC first and falls back to TCP (step 17d), and
-   `tools/channel_interop.sh` runs it.
-2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
-   `h2load --h3`. Lands with step 12. From step 17b it runs on `server`: the UDP endpoint's `h3`
-   mode serves h3 alone through `server.Endpoint`, and h3spec, `h2load --h3` and the interop
-   endpoint's `http3` server run it. It writes no qlog, because `server` takes no log yet.
-3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a
-   client that parses `REQUESTS` and writes to `/downloads`, reading `ROLE` and `TESTCASE`,
-   emitting a keylog and qlog, and **exiting 127 for any case it does not support**. It must speak
-   HTTP/0.9 over ALPN `hq-interop` as well as h3, because most of the matrix's transfers use it.
-   Lands with step 9.
-4. **A `perf` ALPN endpoint** for `secnetperf`, which measures the transport and not HTTP. Lands
-   with step 13.
-5. **Two QPACK command-line tools**, `.qif` to encoded and back, to take part in the QIF interop.
-   Lands with step 11.
-
-The HPACK and frame vectors need none of these; they are in-process unit tests.
-
-Each server among them takes the port its caller names. With port 0 it takes the one the kernel
-chooses, and it prints `listening on port <port>` once its socket is bound. The check scripts
-start every peer that way and read the port from that line, so no check binds a fixed port, and
-two runs on one machine do not collide ([decision 114](decisions.md),
-[#94](https://github.com/c4milo/colibri/issues/94)).
-
-**Checked on macOS 26.6.2 arm64 on 2026-10-03:**
-- The fourteen network checks ran at once in two worktrees: the port helper's check, h2spec, the
-  four interop scripts, the deadline check, the two TLS checks, the QUIC loopback, h3spec, the
-  two UDP scripts and the channel check. Every check passed in both worktrees, in each of two
-  rounds.
-- The first run of that kind failed one check in one worktree: the port helper read a log its
-  peer's shell had not created yet, and exited with no message. It now waits for the log, and
-  `tools/listening_port_check.sh` checks it.
-- Docker Desktop's host port refused the first connection in 17 of 30 container starts, for up
-  to 0.15 s. So a container's script waits for the host port after the peer's own socket.
-- Mutations: 12, each CAUGHT:
-  - every worker of the test server binding port 0, with its assertion and without;
-  - a peer printing a port it did not bind: the test server, `tls-accept`, the three Go peers
-    and the two Python peers;
-  - the helper reading no port, and reading a log that does not exist yet;
-  - no wait for the host port, in 3 runs of 3.
-- `zig build test` passed: 2539 of 2539 tests.
-
-## 10. Determinism and the simulator
-
-The simulator replaces the caller — the bytes, the instants, the TLS provider and the crypto suite
-— with deterministic implementations driven by one seed. A run is a schedule of chunk boundaries,
-delays, drops, reorderings and, for QUIC, duplications and ECN markings. The same seed replays
-exactly, so a failure found on seed `0xC0FFEE` is a failure that can be debugged.
-
-Assertions run inside the simulated connection continuously, not at the end. A violated assertion
-halts the run with the seed and the byte offset that produced it.
-
-Two things make this possible, and both are decisions rather than conveniences. colibri owns no
-I/O and no clock, so there is nothing to stub — the simulator is the caller, using the same API a
-real caller uses, with nothing conditionally compiled. And crypto is a vtable, so the QUIC
-simulator can exist before the QUIC handshake does.
-
-Be exact about what the null crypto suite buys, because the obvious claim is wrong. It is **not**
-what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key, nonce and
-plaintext, so a real suite replays just as deterministically. What it buys is a harness with no
-crypto dependency and no cipher time. It must therefore be **size-faithful rather than an identity
-function** — appending a 16-byte tag, and masking byte 0 and the packet number from a 16-byte
-sample, exactly as a real suite would — because RFC 9001 §5.3's expansion feeds §5.4.2's sample
-offset, the packet's Length varint, RFC
-9000 §14.1's 1200-byte minimum and the anti-amplification count of
-[invariant 18](invariants.md#inv-18--the-anti-amplification-limit-holds). A suite that shortened
-packets would simulate a protocol QUIC does not have.
-
-The simulator is written before the protocol it drives. For QUIC that ordering is the whole
-difficulty, and steps 2 and 8 are where it is paid for.
-
-## 11. Performance
-
-### 11.1 The workload
-
-Many short connections, small requests, high connection churn — one connection per agent process,
-a little work, then gone. Handshake cost and per-connection memory dominate; single-stream bulk
-throughput does not. [Decision 31](decisions.md#performance) states where colibri expects to win,
-where it expects only to match, and where it expects to lose, and all three get reported.
-
-### 11.2 Metrics
-
-Requests per second at fixed concurrency; p50, p99 and p99.9 latency; handshakes per second;
-single-stream and many-stream throughput; instructions and cycles per request and per connection
-from `perf stat`, with instructions per connection as the **primary** metric because it is the
-most reproducible counter across machines and frequencies; syscalls per request; bytes on the wire,
-which is the field-compression ratio; and static memory per connection, which is a comptime number
-measured the way chapulin's `bench/sram.sh` measures its SRAM rows and never estimated.
-
-### 11.3 Competitors, on the same machine in the same run
-
-h2load from nghttp2 for h2, and for h3 when built against ngtcp2 and nghttp3 — which stock
-packages are not, so the build is part of the bench. `secnetperf` from msquic for QUIC throughput.
-quiche and quic-go for h3. h2o and nginx as the h2 server bar, and for h11 too. hyper, the Rust
-server most Rust programs build on, for h11 and h2, and http.zig, a Zig server, for h11 in
-cleartext (step 13g). wrk sends the h11 inputs, since h2load counts no answer whose reason phrase
-is empty, as http.zig's is. aioquic is a correctness reference and not a performance target.
-
-### 11.4 Method
-
-[Decision 33](decisions.md#performance) fixes it before the first measurement so the numbers
-cannot be shaped afterwards: Linux for every real number, warmup discarded, at least five runs
-reported as median with spread and never a best-of, the A/B in the same session on the same
-kernel, and the machine written down beside the numbers. As amended on 2026-09-30, the judge is
-GitHub's `ubuntu-24.04-arm` runner, a Neoverse N2, under pepegrillo's method: instructions per
-unit from `perf stat` are the primary metric, the base and the change are measured in turns in one
-job with cores pinned, and a change stays only when it wins past the noise in at least two such
-jobs. The runner fixes no governor, so a time is never compared across jobs. Anything under about
-5% is noise until the judge's own floor, measured and recorded in `docs/performance.md`, says
-otherwise.
-
-### 11.5 What must hold
-
-Two layers. The cheap layer is step 6's counted costs in the simulator — exact numbers a diff must
-change on purpose — and it runs in `zig build test`. The expensive layer is `bench/run.sh`, which
-`.github/workflows/bench.yml` runs on the judge when a person asks, with a base to compare against:
-the job fails when an input loses past the floor, and a person runs it before a step is called done.
-[Decision 47](decisions.md) runs the cheap layer on each push to main and prints an h2load figure
-beside it, which is indicative and carries no threshold: the push job's x86-64 runner counts no
-instructions and draws a different CPU from run to run.
-
-## 12. Open questions for the owner
-
-1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)).
-   Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
-2. **The packet-protection vtable** ([decision 9](decisions.md#what-the-caller-supplies)). Ruled
-   2026-09-16: two vtables, `tls.Provider` and `crypto.Suite`. Ruled again 2026-09-19
-   ([decision 48](decisions.md#what-the-caller-supplies)): the two vtables stay, the suite holds
-   every key, and its members seal and open whole packets. Step 7 builds against that.
-3. **The ask to chapulin** ([decision 10](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16:
-   chapulin provides all of colibri's crypto by filling both vtables, and `src/testing/` links it.
-   The request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
-4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
-   test. Its §5.3 updates `smoothed_rtt` first and then computes `rttvar` against the new value,
-   while its Appendix A.7 computes `rttvar` first against the old value. These produce different
-   numbers on every sample. It is not a bug in the RFC; it is a place where an implementation must
-   choose, and interop will show which choice the field made.
-
-   **Ruled 2026-09-20: Appendix A.7** ([decision 50](decisions.md#the-h2-connection)). §5.3's new
-   term is always exactly seven eighths of Appendix A.7's, so §5.3's variation settles an eighth
-   lower and its Probe Timeout with it. The appendix is the executable text and the more
-   conservative of the two; `src/quic/rtt.zig` implements it and its tests compute both orderings
-   and pin the factor.
-
-   The PTO composition looked like a second disagreement and is not one, which is worth recording
-   so nobody re-opens it: §6.2.1 sets `max_ack_delay` to 0 for the Initial and Handshake spaces,
-   and Appendix A.8 adds `max_ack_delay * (2 ^ pto_count)` only in the Application Data arm. The
-   two texts agree.
-5. **Whether step 9 stays one step.** It is estimated very large and almost certainly wants
-   splitting once its shape is real. Splitting it before writing any of it would be guessing.
-
-   **Ruled 2026-09-19: cut into five.** The frame layer landed at about 1,070 lines with its
-   tests and needed no key, no handshake and no connection state, which showed where the
-   dependencies already cut. §8 now carries **9a** the frame layer, **9b** the packet number
-   spaces with acknowledgments and the states a connection ends in, **9c** streams and flow
-   control, **9d** connection IDs, path validation and anti-amplification, and **9e** the
-   handshake over CRYPTO frames with the interop runner. Only 9e waits on chapulin, so four
-   fifths of the largest step can be built without it.
-
-6. **Whether h2 and h3 share their message validation, and how.** Step 12's check says the h2
-   suite's semantics tests are re-run against h3, "which proves the `http` module is shared
-   rather than duplicated". Writing h3's framing made the shape of that question concrete and it
-   needs the owner before any h3 message code is written.
-
-   **Ruled 2026-09-20: share through `http`** ([decision 51](decisions.md)). The shared checks
-   move into `http` and return a reason; each protocol maps it to its own error. A shared check
-   cites both RFCs, because both state the rule. Four rules stay per protocol, because they
-   differ in what they accept: `:authority` against `Host`, a repeated pseudo-header name, an
-   informational response with END_STREAM, and `:protocol` from RFC 8441.
-
-   RFC 9114 §4.1 to §4.3 restates most of RFC 9113 §8: the pseudo-header rules, the field name
-   and value rules, the connection-specific field ban, the CONNECT rules. What differs is which
-   RFC section states each rule and which error code a violation carries — PROTOCOL_ERROR for h2
-   (§8.1.1), H3_MESSAGE_ERROR for h3 (§4.1.2). h2's implementation is 1,224 lines across
-   `src/h2/message/`, heavily tested and fuzzed.
-
-   Three ways to go, and the third is the recommendation:
-
-   - **Duplicate it in `src/h3/message/`.** Fastest, and exactly the duplication step 12's check
-     exists to refuse. The two copies would drift the first time an erratum moved one.
-   - **Have h3 call h2's.** Cheapest in lines and wrong in the graph: it would add an `h3` to
-     `h2` edge, which design §3 does not have and which would make h3 depend on h2's error names.
-   - **Lift the shared rules into `http`, leaving each protocol to name its own errors.** That is
-     what [decision 15](decisions.md) already says the split is — "`http` returns reasons and
-     this file names h2's errors" — so this is finishing that split rather than changing it. The
-     cost is a refactor of working, fuzzed h2 code, and the risk is that a rule that looked
-     shared turns out to differ in a way the reasons cannot carry.
-
-   It is the owner's because it moves tested h2 code for h3's benefit, which is the one direction
-   CLAUDE.md's rule about taking a decision for another module's sake is meant to catch.
-
-## 13. Risks
-
-- **Step 74 — colibri takes stdx's one module, 2026-11-25** ([decision 171](decisions.md)). No
+- <a id="step-74"></a>**Step 74 — colibri takes stdx's one module, 2026-11-25** ([decision 171](decisions.md#decision-171)). No
   public name changes. stdx is pinned at `b643d58`, whose package exports `stdx` alone.
   - `build/modules.zig` and the test roots give each module that read stdx the one import
     `stdx`. Each source writes `@import("stdx").compress.gzip`, `.compress.zlib`,
@@ -18019,7 +17804,7 @@ instructions and draws a different CPU from run to run.
   - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with stdx from Zig's cache.
-- **Step 75 — colibri asks chapulin once, 2026-11-25** ([decision 172](decisions.md)). No
+- <a id="step-75"></a>**Step 75 — colibri asks chapulin once, 2026-11-25** ([decision 172](decisions.md#decision-172)). No
   public name changes. chapulin is pinned at `bda41cf6`, whose build takes `TRANSPORT=nonblocking`.
   - `build/modules_chapulin.zig` asks the package once for each key log setting, and `tls`,
     `dnssec` and the test-only modules import its module `chapulin`. Each source writes
@@ -18040,7 +17825,7 @@ instructions and draws a different CPU from run to run.
   - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache.
-- **Step 76 — a server's UDP socket shares its port, 2026-11-25** ([decision 173](decisions.md),
+- <a id="step-76"></a>**Step 76 — a server's UDP socket shares its port, 2026-11-25** ([decision 173](decisions.md#decision-173),
   [#155](https://github.com/c4milo/colibri/issues/155)). No public name changes. Rotor is pinned at
   `af06860`, whose `DatagramOptions` takes `reuse_port`.
   - `rotor_host_udp.zig` gives a server's UDP socket `server_socket_options`, which asks for
@@ -18054,7 +17839,7 @@ instructions and draws a different CPU from run to run.
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache. Rotor's half ran
     `zig build test` there too, where each failure was an IPv6 test.
-- **Step 77 — colibri takes chapulin through stdx, 2026-11-25** ([decision 174](decisions.md)).
+- <a id="step-77"></a>**Step 77 — colibri takes chapulin through stdx, 2026-11-25** ([decision 174](decisions.md#decision-174)).
   No public name changes. stdx is pinned at `5de7d89f`, whose `stdx.crypto` is chapulin's one
   module at `f29c066a`, and colibri's `build.zig.zon` names no chapulin.
   - `build/modules_stdx.zig` asks stdx for `.crypto = true`, and `tls` and `dnssec` read
@@ -18072,8 +17857,8 @@ instructions and draws a different CPU from run to run.
   - Run on x86-64 Linux: `zig build test`, 4,278 of 4,280, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
     `tools/consumer_check.sh`, with the packages from Zig's cache.
-- **Step 78 — colibri takes the program's `stdx.crypto.Context` once, 2026-11-26**
-  ([decision 175](decisions.md)). stdx is pinned at `9dd95be8`, whose `stdx.crypto` wraps
+- <a id="step-78"></a>**Step 78 — colibri takes the program's `stdx.crypto.Context` once, 2026-11-26**
+  ([decision 175](decisions.md#decision-175)). stdx is pinned at `9dd95be8`, whose `stdx.crypto` wraps
   chapulin's sessions and options, and whose `platform` holds `CpuFeatures` alone. chapulin stays
   at `f29c066a`.
   - **Public names.** The root of `tls` loses `Random`, `Cpu` and `Timing`, and its list test
@@ -18155,8 +17940,8 @@ instructions and draws a different CPU from run to run.
     chapulin from Zig's cache.
   - **Not run:** the checks of `tools/ci.sh` that need Docker or a network peer, and every arm64
     host, where PSTATE.DIT decides the suite. CI runs them.
-- **Step 79 — a TCP socket sends from its connection's output, 2026-11-26**
-  ([decision 176](decisions.md), [#137](https://github.com/c4milo/colibri/issues/137)). The owner
+- <a id="step-79"></a>**Step 79 — a TCP socket sends from its connection's output, 2026-11-26**
+  ([decision 176](decisions.md#decision-176), [#137](https://github.com/c4milo/colibri/issues/137)). The owner
   ruled "Build it now" on the draft of this entry.
   - **Where the bytes were.** A TCP connection of `colibri.Server`, from `zig build
     bench-memory` at v0.22.0:
@@ -18259,7 +18044,222 @@ instructions and draws a different CPU from run to run.
   - **Not run:** `tools/consumer_check.sh`, whose fetch this container's network refuses, the
     checks of `tools/ci.sh` that need Docker or a network peer, and every arm64 host. CI runs
     them.
-- **Step 9.** QUIC transport is the largest single body of work and every later
+
+## 9. Test-only entry points
+
+Four, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
+packaged library, does its I/O without blocking ([decisions 46 and 58](decisions.md#decision-46)), and is the
+only place in the tree permitted to touch a socket
+([invariant 2](invariants.md#inv-2) is scoped to `src/` outside it).
+
+1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
+   of the bytes `--body` names when it is given (design §8 step 13n),
+   and CONNECT with 501, since it opens no tunnel (decision 109), in both cleartext and TLS
+   modes, and **a client**, `http-client`, that runs a plan of
+   exchanges against another implementation's server and reports how each ended. For h2spec,
+   h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
+   (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
+   them h11 as well. Each connection of a client's run is a TCP connection of a `client.ConnectionPool`,
+   which asks for its socket and for another when an exchange moves (steps 21c and 22). In cleartext the client
+   speaks h2 with prior knowledge, or h11 with `--h11`. The server in cleartext names no version
+   and speaks h2 when a connection's first bytes are h2's preface and h11 otherwise (decision
+   117, step 21a), or one alone with `--h11` or `--h2`. Over TLS, both offer `h2` and then
+   `http/1.1` through ALPN, or one alone with `--h11` and, for the server, `--h2`, and each
+   connection speaks what the handshake selected: h2 for `h2`, and h11 for `http/1.1` or for no
+   selection (decision 88). With `--pool` and `--tls` the client hands its plan to one
+   `client.ConnectionPool` that adds QUIC, which tries h3 over QUIC first and falls back to TCP
+   (steps 17d and 22), and `tools/pool_interop.sh` runs it.
+2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
+   `h2load --h3`. Lands with step 12. From step 17b it runs on `server`: the UDP endpoint's `h3`
+   mode serves h3 alone through `server.Engine`, and h3spec, `h2load --h3` and the interop
+   endpoint's `http3` server run it. With `qlogdir` it writes each connection's qlog through the
+   engine's log provider.
+3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a
+   client that parses `REQUESTS` and writes to `/downloads`, reading `ROLE` and `TESTCASE`,
+   emitting a keylog and qlog, and **exiting 127 for any case it does not support**. It must speak
+   HTTP/0.9 over ALPN `hq-interop` as well as h3, because most of the matrix's transfers use it.
+   Lands with step 9.
+4. **Two QPACK command-line tools**, `.qif` to encoded and back, to take part in the QIF interop.
+   Lands with step 11.
+
+The HPACK and frame vectors need none of these; they are in-process unit tests.
+
+Each server among them takes the port its caller names. With port 0 it takes the one the kernel
+chooses, and it prints `listening on port <port>` once its socket is bound. The check scripts
+start every peer that way and read the port from that line, so no check binds a fixed port, and
+two runs on one machine do not collide ([decision 114](decisions.md#decision-114),
+[#94](https://github.com/c4milo/colibri/issues/94)).
+
+**Checked on macOS 26.6.2 arm64 on 2026-10-03:**
+- The fourteen network checks ran at once in two worktrees: the port helper's check, h2spec, the
+  four interop scripts, the deadline check, the two TLS checks, the QUIC loopback, h3spec, the
+  two UDP scripts and the channel check. Every check passed in both worktrees, in each of two
+  rounds.
+- The first run of that kind failed one check in one worktree: the port helper read a log its
+  peer's shell had not created yet, and exited with no message. It now waits for the log, and
+  `tools/listening_port_check.sh` checks it.
+- Docker Desktop's host port refused the first connection in 17 of 30 container starts, for up
+  to 0.15 s. So a container's script waits for the host port after the peer's own socket.
+- Mutations: 12, each CAUGHT:
+  - every worker of the test server binding port 0, with its assertion and without;
+  - a peer printing a port it did not bind: the test server, `tls-accept`, the three Go peers
+    and the two Python peers;
+  - the helper reading no port, and reading a log that does not exist yet;
+  - no wait for the host port, in 3 runs of 3.
+- `zig build test` passed: 2539 of 2539 tests.
+
+## 10. Determinism and the simulator
+
+The simulator replaces the caller — the bytes, the instants, the TLS provider and the crypto suite
+— with deterministic implementations driven by one seed. A run is a schedule of chunk boundaries,
+delays, drops, reorderings and, for QUIC, duplications and ECN markings. The same seed replays
+exactly, so a failure found on seed `0xC0FFEE` is a failure that can be debugged.
+
+Assertions run inside the simulated connection continuously, not at the end. A violated assertion
+halts the run with the seed and the byte offset that produced it.
+
+Two things make this possible, and both are decisions rather than conveniences. colibri owns no
+I/O and no clock, so there is nothing to stub — the simulator is the caller, using the same API a
+real caller uses, with nothing conditionally compiled. And crypto is a vtable, so the QUIC
+simulator can exist before the QUIC handshake does.
+
+Be exact about what the null crypto suite buys, because the obvious claim is wrong. It is **not**
+what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key, nonce and
+plaintext, so a real suite replays just as deterministically. What it buys is a harness with no
+crypto dependency and no cipher time. It must therefore be **size-faithful rather than an identity
+function** — appending a 16-byte tag, and masking byte 0 and the packet number from a 16-byte
+sample, exactly as a real suite would — because RFC 9001 §5.3's expansion feeds §5.4.2's sample
+offset, the packet's Length varint, RFC
+9000 §14.1's 1200-byte minimum and the anti-amplification count of
+[invariant 18](invariants.md#inv-18). A suite that shortened
+packets would simulate a protocol QUIC does not have.
+
+The simulator is written before the protocol it drives. For QUIC that ordering is the whole
+difficulty, and steps 2 and 8 are where it is paid for.
+
+## 11. Performance
+
+### 11.1 The workload
+
+Many short connections, small requests, high connection churn — one connection per agent process,
+a little work, then gone. Handshake cost and per-connection memory dominate; single-stream bulk
+throughput does not. [Decision 31](decisions.md#decision-31) states where colibri expects to win,
+where it expects only to match, and where it expects to lose, and all three get reported.
+
+### 11.2 Metrics
+
+Requests per second at fixed concurrency; p50, p99 and p99.9 latency; handshakes per second;
+single-stream and many-stream throughput; instructions and cycles per request and per connection
+from `perf stat`, with instructions per connection as the **primary** metric because it is the
+most reproducible counter across machines and frequencies; syscalls per request; bytes on the wire,
+which is the field-compression ratio; and static memory per connection, which is a comptime number
+measured the way chapulin's `bench/sram.sh` measures its SRAM rows and never estimated.
+
+### 11.3 Competitors, on the same machine in the same run
+
+h2load from nghttp2 for h2, and for h3 when built against ngtcp2 and nghttp3 — which stock
+packages are not, so the build is part of the bench. `secnetperf` from msquic for QUIC throughput.
+quiche and quic-go for h3. h2o and nginx as the h2 server bar, and for h11 too. hyper, the Rust
+server most Rust programs build on, for h11 and h2, and http.zig, a Zig server, for h11 in
+cleartext (step 13g). wrk sends the h11 inputs, since h2load counts no answer whose reason phrase
+is empty, as http.zig's is. aioquic is a correctness reference and not a performance target.
+
+### 11.4 Method
+
+[Decision 33](decisions.md#decision-33) fixes it before the first measurement so the numbers
+cannot be shaped afterwards: Linux for every real number, warmup discarded, at least five runs
+reported as median with spread and never a best-of, the A/B in the same session on the same
+kernel, and the machine written down beside the numbers. As amended on 2026-09-30, the judge is
+GitHub's `ubuntu-24.04-arm` runner, a Neoverse N2, under pepegrillo's method: instructions per
+unit from `perf stat` are the primary metric, the base and the change are measured in turns in one
+job with cores pinned, and a change stays only when it wins past the noise in at least two such
+jobs. The runner fixes no governor, so a time is never compared across jobs. Anything under about
+5% is noise until the judge's own floor, measured and recorded in `docs/performance.md`, says
+otherwise.
+
+### 11.5 What must hold
+
+Two layers. The cheap layer is step 6's counted costs in the simulator — exact numbers a diff must
+change on purpose — and it runs in `zig build test`. The expensive layer is `bench/run.sh`, which
+`.github/workflows/bench.yml` runs on the judge when a person asks, with a base to compare against:
+the job fails when an input loses past the floor, and a person runs it before a step is called done.
+[Decision 47](decisions.md#decision-47) runs the cheap layer on each push to main and prints an h2load figure
+beside it, which is indicative and carries no threshold: the push job's x86-64 runner counts no
+instructions and draws a different CPU from run to run.
+
+## 12. Open questions for the owner
+
+1. **QUIC as a module or its own repository** ([decision 3](decisions.md#decision-3)).
+   Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
+2. **The packet-protection vtable** ([decision 9](decisions.md#decision-9)). Ruled
+   2026-09-16: two vtables, `tls.Provider` and `crypto.Suite`. Ruled again 2026-09-19
+   ([decision 48](decisions.md#decision-48)): the two vtables stay, the suite holds
+   every key, and its members seal and open whole packets. Step 7 builds against that.
+3. **The ask to chapulin** ([decision 10](decisions.md#decision-10)). Ruled 2026-09-16:
+   chapulin provides all of colibri's crypto by filling both vtables, and `src/testing/` links it.
+   The request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
+4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
+   test. Its §5.3 updates `smoothed_rtt` first and then computes `rttvar` against the new value,
+   while its Appendix A.7 computes `rttvar` first against the old value. These produce different
+   numbers on every sample. It is not a bug in the RFC; it is a place where an implementation must
+   choose, and interop will show which choice the field made.
+
+   **Ruled 2026-09-20: Appendix A.7** ([decision 50](decisions.md#decision-50)). §5.3's new
+   term is always exactly seven eighths of Appendix A.7's, so §5.3's variation settles an eighth
+   lower and its Probe Timeout with it. The appendix is the executable text and the more
+   conservative of the two; `src/quic/rtt.zig` implements it and its tests compute both orderings
+   and pin the factor.
+
+   The PTO composition looked like a second disagreement and is not one, which is worth recording
+   so nobody re-opens it: §6.2.1 sets `max_ack_delay` to 0 for the Initial and Handshake spaces,
+   and Appendix A.8 adds `max_ack_delay * (2 ^ pto_count)` only in the Application Data arm. The
+   two texts agree.
+5. **Whether step 9 stays one step.** It is estimated very large and almost certainly wants
+   splitting once its shape is real. Splitting it before writing any of it would be guessing.
+
+   **Ruled 2026-09-19: cut into five.** The frame layer landed at about 1,070 lines with its
+   tests and needed no key, no handshake and no connection state, which showed where the
+   dependencies already cut. §8 now carries **9a** the frame layer, **9b** the packet number
+   spaces with acknowledgments and the states a connection ends in, **9c** streams and flow
+   control, **9d** connection IDs, path validation and anti-amplification, and **9e** the
+   handshake over CRYPTO frames with the interop runner. Only 9e waits on chapulin, so four
+   fifths of the largest step can be built without it.
+
+6. **Whether h2 and h3 share their message validation, and how.** Step 12's check says the h2
+   suite's semantics tests are re-run against h3, "which proves the `http` module is shared
+   rather than duplicated". Writing h3's framing made the shape of that question concrete and it
+   needs the owner before any h3 message code is written.
+
+   **Ruled 2026-09-20: share through `http`** ([decision 51](decisions.md#decision-51)). The shared checks
+   move into `http` and return a reason; each protocol maps it to its own error. A shared check
+   cites both RFCs, because both state the rule. Four rules stay per protocol, because they
+   differ in what they accept: `:authority` against `Host`, a repeated pseudo-header name, an
+   informational response with END_STREAM, and `:protocol` from RFC 8441.
+
+   RFC 9114 §4.1 to §4.3 restates most of RFC 9113 §8: the pseudo-header rules, the field name
+   and value rules, the connection-specific field ban, the CONNECT rules. What differs is which
+   RFC section states each rule and which error code a violation carries — PROTOCOL_ERROR for h2
+   (§8.1.1), H3_MESSAGE_ERROR for h3 (§4.1.2). h2's implementation is 1,224 lines across
+   `src/h2/message/`, heavily tested and fuzzed.
+
+   Three ways to go, and the third is the recommendation:
+
+   - **Duplicate it in `src/h3/message/`.** Fastest, and exactly the duplication step 12's check
+     exists to refuse. The two copies would drift the first time an erratum moved one.
+   - **Have h3 call h2's.** Cheapest in lines and wrong in the graph: it would add an `h3` to
+     `h2` edge, which design §3 does not have and which would make h3 depend on h2's error names.
+   - **Lift the shared rules into `http`, leaving each protocol to name its own errors.** That is
+     what [decision 15](decisions.md#decision-15) already says the split is — "`http` returns reasons and
+     this file names h2's errors" — so this is finishing that split rather than changing it. The
+     cost is a refactor of working, fuzzed h2 code, and the risk is that a rule that looked
+     shared turns out to differ in a way the reasons cannot carry.
+
+   It is the owner's because it moves tested h2 code for h3's benefit, which is the one direction
+   CLAUDE.md's rule about taking a decision for another module's sake is meant to catch.
+
+## 13. Risks
+
+- **Risk: the size of step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on
   2026-09-19 (§12 question 5), which makes the overrun visible part by part rather than at the
@@ -18269,13 +18269,13 @@ instructions and draws a different CPU from run to run.
   treated as colibri's bug, and the version is pinned so the answer does not move.
 - **The QPACK vectors are stale.** `qpackers/qifs` targets draft-05 and has not moved since 2021.
   RFC 9204 Appendix B is the authority where they disagree.
-- **CI runs what a hosted runner can.** [Decision 47](decisions.md) runs the checks on each push
+- **CI runs what a hosted runner can.** [Decision 47](decisions.md#decision-47) runs the checks on each push
   to main and leaves a report, runs the module tests on Linux and macOS arm64 too, and runs the
   HTTP Garden and the QUIC Interop Runner every Monday.
   What needs a machine it does not have — the published numbers of §11 — is still run by a
   person, and the step's entry in §8 records what was run, on what, and what it printed.
 - **Every check that needs crypto waits on chapulin.**
-  [Decision 10](decisions.md#what-the-caller-supplies) has chapulin fill both vtables, and what
+  [Decision 10](decisions.md#decision-10) has chapulin fill both vtables, and what
   chapulin must add first reverses five of its recorded decisions: a server role with constant-time
   signing, a non-blocking handshake with no global state, a QUIC mode and host-side AES
   ([docs/chapulin.md](chapulin.md)). That work runs on chapulin's schedule, not colibri's. Step 5's

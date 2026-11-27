@@ -1,8 +1,14 @@
 # Invariants
 
 [docs/decisions.md](decisions.md) answers "why is it built this way". This document answers "what
-must a change never break". Every entry here becomes at least one runtime assertion, and a
-violated invariant halts with the seed and the byte offset that produced it.
+must a change never break". CLAUDE.md's non-negotiable 8 asks for at least one runtime assertion
+for each entry. A violated assertion halts. In the simulator, it halts with the seed and the byte
+offset that produced it.
+
+Sixteen entries have no runtime assertion yet: their Check is a lint rule, the type system, a
+test, the corpus or a convention. They are INV-1, 2, 4, 5, 6, 7, 9, 12, 20, 22, 23, 24, 25, 26, 27
+and 28. Some of them, such as INV-1 and INV-2, state a property of the source that no runtime
+check can observe.
 
 Each entry has four fields. **Claim** is the invariant. **Mechanism** is what makes it true.
 **Check** is what would catch a violation, graded on this scale, strongest first:
@@ -22,16 +28,15 @@ Each entry has four fields. **Claim** is the invariant. **Mechanism** is what ma
    not, that the rule can express.
 8. *convention* — code review is the only check.
 
-**Violation** is what a breaking change looks like, so review can recognise one. An entry whose
+**Violation** is what a breaking change looks like, so review can recognize one. An entry whose
 Check is grade 7 or 8 is a weaker entry, and the scale says so.
 
 The invariants whose build-plan step has landed are implemented; the rest are not. Each entry names
-the build-plan step (design §8) that lands its check. Each entry names the build-plan step (design
-§8) that lands its check.
+the build-plan step (design §8) that lands its check.
 
 ## Allocation and ownership
 
-### INV-1 — colibri never allocates
+### <a id="inv-1"></a>INV-1 — colibri never allocates
 
 - **Claim.** colibri never allocates. Every buffer a connection uses is inside a struct the caller
   owns, sized at comptime from `constants.zig`; or inside memory the caller owns, sized by
@@ -43,15 +48,15 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   total memory use.
 - **Check.** Lint rule (`tools/lint/heap.zig`: no parameter whose type names `Allocator` on any
   function in `src/`, `init` included, and no reference to `std.heap` or to the allocators of
-  `std.testing`) at step 0, with the `init` exception removed when decision 35 was ruled; plus a
-  comptime assert pinning each connection struct's size, which lands with the struct it pins (steps
-  4 and 9; h2's is not written yet) and is cross-checked against what `bench/run.sh` publishes when
-  `bench/` lands at step 13.
+  `std.testing`) at step 0, with the `init` exception removed when decision 35 was ruled; plus
+  `zig build bench-memory`, whose test in `zig build test` fails when a struct's size differs from
+  the table in [`docs/performance.md`](performance.md#memory-per-connection) (design §8 step
+  13b).
 - **Violation.** A "temporary" growable buffer for an oversized field section, so the static
   memory table silently stops being true. Or an `init` that takes an allocator "only once".
-- See [decisions 31, 34](decisions.md#performance) and [35](decisions.md#memory).
+- See [decisions 31, 34](decisions.md#decision-31) and [35](decisions.md#memory).
 
-### INV-2 — colibri performs no I/O
+### <a id="inv-2"></a>INV-2 — colibri performs no I/O
 
 - **Claim.** No colibri source opens, reads, writes, polls or closes anything. It has no file
   descriptors, no sockets, no threads and no timers.
@@ -64,9 +69,9 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   `src/colibri/` is the driver, which does no I/O (decision 159 as amended on 2026-11-10). Step 0.
 - **Violation.** A convenience helper that takes a socket "just for the test server" and is written
   in a library module instead of in `src/testing/`.
-- See [decisions 6](decisions.md#what-the-caller-supplies).
+- See [decision 6](decisions.md#decision-6).
 
-### INV-3 — every write is inside the caller's buffer
+### <a id="inv-3"></a>INV-3 — every write is inside the caller's buffer
 
 - **Claim.** colibri never writes outside the bounds of the slice it was given, and it never
   reads past the end of the bytes it was told are present.
@@ -84,7 +89,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## Determinism
 
-### INV-4 — no source reads a clock
+### <a id="inv-4"></a>INV-4 — no source reads a clock
 
 - **Claim.** Every instant colibri uses arrived as a parameter from the caller. No source file
   reads the wall clock or a monotonic clock.
@@ -95,9 +100,9 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   fails if two runs of one seed differ by a byte. Steps 0 and 10.
 - **Violation.** An idle-timeout helper that reads the monotonic clock "because the caller would
   only pass the same value anyway".
-- See [decisions 7](decisions.md#what-the-caller-supplies).
+- See [decision 7](decisions.md#decision-7).
 
-### INV-5 — colibri draws only from the source its caller passes, and reads no uninitialised memory
+### <a id="inv-5"></a>INV-5 — colibri draws only from the source its caller passes, and reads no uninitialised memory
 
 - **Claim.** colibri holds no generator and reads no uninitialised memory. Each unpredictable
   value comes from the random source of the `stdx.crypto.Context` its caller put in the TLS
@@ -108,15 +113,15 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   20e its skip intervals. A connection in cleartext draws nothing.
 - **Mechanism.** No source file outside `src/testing/` names `std.Random`, `std.crypto.random`
   or a clock. A file that needs the source's type names it as `stdx.crypto.Context`'s field. A
-  function that draws reads the source of the context in its configuration's TLS values. `undefined`
-  appears only in a declaration immediately followed by a full initialisation in the same
-  function.
-- **Check.** Lint rule (`std.Random` denylist; `undefined` audited per site with a comment naming
-  the initialiser), plus the simulator's replay check. Step 0.
+  function that draws reads the source of the context in its configuration's TLS values. No value
+  that is `undefined` is read before it is written.
+- **Check.** Lint rule (`tools/lint/determinism.zig`, a denylist of `std.Random` and the clocks),
+  plus the simulator's replay check. Step 0. No rule audits `undefined`, so its half of the claim
+  is a convention (grade 8).
 - **Violation.** A connection-ID generator inside `src/quic/`, which would make every QUIC seed
   irreproducible and would also be the wrong place to make a security decision.
 
-### INV-6 — a connection is a pure function
+### <a id="inv-6"></a>INV-6 — a connection is a pure function
 
 - **Claim.** A connection's output bytes and state transitions are a pure function of its
   configuration, the bytes it has been fed, and the instants it has been given, in order.
@@ -130,11 +135,11 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   and in both optimization modes. Steps 2 and 8.
 - **Violation.** Iterating a hash map whose order depends on a pointer, then writing frames in
   that order.
-- See [decisions 30](decisions.md#correctness).
+- See [decision 30](decisions.md#decision-30).
 
 ## Parsing
 
-### INV-7 — validation precedes interpretation
+### <a id="inv-7"></a>INV-7 — validation precedes interpretation
 
 - **Claim.** A frame, packet or representation is validated in a fixed order, and the first
   failure returns the error named for that step. No field is interpreted before the checks that
@@ -148,7 +153,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Reading a `SETTINGS` payload to see whether it is worth range-checking the frame
   length first.
 
-### INV-8 — every loop over peer-supplied counts is bounded by a named limit
+### <a id="inv-8"></a>INV-8 — every loop over peer-supplied counts is bounded by a named limit
 
 - **Claim.** No loop's trip count is controlled by a peer without a named constant capping it.
 - **Mechanism.** Every such loop reads its bound from a `constants.zig` value, never from a
@@ -161,7 +166,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   the trip count stayed at or below its named limit, plus fuzzing. Steps 1, 4, 9.
 - **Violation.** `while (reader.remaining() > 0)` over a peer-controlled buffer with no counter.
 
-### INV-9 — a declared length is checked against the bytes present
+### <a id="inv-9"></a>INV-9 — a declared length is checked against the bytes present
 
 - **Claim.** Every length or count read off the wire is compared against both its protocol
   maximum and the bytes actually available, before any use.
@@ -174,7 +179,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## Field compression
 
-### INV-10 — every byte of a field block is decoded, even when the result is discarded
+### <a id="inv-10"></a>INV-10 — every byte of a field block is decoded, even when the result is discarded
 
 - **Claim.** When colibri refuses a field section for exceeding its own limit, it still runs every
   byte through the decoder so the dynamic table stays synchronised with the peer's.
@@ -190,7 +195,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   desynchronises the table and turns the next request into a `COMPRESSION_ERROR` that looks like
   the peer's fault.
 
-### INV-11 — the dynamic table's accounted size equals the sum of its entries
+### <a id="inv-11"></a>INV-11 — the dynamic table's accounted size equals the sum of its entries
 
 - **Claim.** The table's tracked size is always exactly the sum over its entries of
   `name_len + value_len + 32`, measured on the unencoded strings, and never exceeds the capacity
@@ -204,7 +209,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Accounting the Huffman-encoded length instead of the unencoded one, which passes
   every round-trip test against itself and fails against every other implementation.
 
-### INV-12 — the three Huffman decode errors are rejected
+### <a id="inv-12"></a>INV-12 — the three Huffman decode errors are rejected
 
 - **Claim.** A Huffman-coded string is rejected, per RFC 7541 §5.2, when its padding is strictly
   longer than 7 bits, when the padding is not the most significant bits of EOS, or when a complete
@@ -222,7 +227,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## HTTP/2
 
-### INV-13 — stream identifiers are monotonic per parity and never reused
+### <a id="inv-13"></a>INV-13 — stream identifiers are monotonic per parity and never reused
 
 - **Claim.** A stream identifier, once used, is never used again on that connection; identifiers a
   peer opens are strictly increasing; and every identifier below the watermark for its parity is
@@ -240,7 +245,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   Step 4.
 - **Violation.** A hash map keyed by stream identifier, which one frame can grow by 2^31 entries.
 
-### INV-14 — exactly one field-block reassembly is in progress
+### <a id="inv-14"></a>INV-14 — exactly one field-block reassembly is in progress
 
 - **Claim.** At most one field block is being reassembled on a connection at a time, and no frame
   of any type, from any stream, may be processed while one is.
@@ -256,7 +261,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A per-stream reassembly buffer, which is both unnecessary and a memory
   amplification path.
 
-### INV-15 — flow-control windows stay in range, and a send window may be negative
+### <a id="inv-15"></a>INV-15 — flow-control windows stay in range, and a send window may be negative
 
 - **Claim.** Both windows are *signed* quantities in `[-(2^31 - 1), 2^31 - 1]`. A send window goes
   below zero when a reduction in `SETTINGS_INITIAL_WINDOW_SIZE` exceeds the data already
@@ -272,7 +277,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A `u32` send window, which turns a legal settings reduction into a wrap and then
   into sending far more data than the peer allowed.
 
-### INV-16 — GOAWAY's last-stream-id never increases
+### <a id="inv-16"></a>INV-16 — GOAWAY's last-stream-id never increases
 
 - **Claim.** Successive GOAWAY frames colibri sends carry non-increasing last-stream-id values,
   and colibri never processes a stream above a last-stream-id a peer sent it.
@@ -286,7 +291,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## QUIC
 
-### INV-17 — a packet number is never reused in its space
+### <a id="inv-17"></a>INV-17 — a packet number is never reused in its space
 
 - **Claim.** Within one packet number space, colibri never sends two packets with the same packet
   number, and the number never decreases. The three spaces are independent.
@@ -298,7 +303,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Re-sending a buffered packet verbatim after a loss, which reuses its number and
   breaks the AEAD nonce construction.
 
-### INV-18 — the anti-amplification limit holds, and it is the server's
+### <a id="inv-18"></a>INV-18 — the anti-amplification limit holds, and it is the server's
 
 - **Claim.** As a server, before it has validated the client's address, colibri never sends more
   than three times the number of bytes it has received from that address. As a client establishing
@@ -318,7 +323,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   first Initial at all: a fresh client has received nothing, so three times nothing is nothing, and
   the assertion in `Path.on_datagram_sent` halts on the first datagram.
 
-### INV-19 — flow-control limits are non-decreasing offsets, never credits
+### <a id="inv-19"></a>INV-19 — flow-control limits are non-decreasing offsets, never credits
 
 - **Claim.** `MAX_DATA` and `MAX_STREAM_DATA` values colibri sends never decrease, and a received
   value that decreases is ignored rather than applied. A stream's final size, once known, never
@@ -331,7 +336,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Treating `MAX_DATA` as an increment, which is the h2 habit and silently doubles
   every limit.
 
-### INV-20 — colibri holds one path, and refusing a migration emits nothing
+### <a id="inv-20"></a>INV-20 — colibri holds one path, and refusing a migration emits nothing
 
 - **Claim.** A connection holds exactly one path for its life, so colibri never initiates a
   migration and never sends anything on a path it did not already have. When a peer migrates,
@@ -361,21 +366,21 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   one, and dropping it, is the caller's. This entry used to claim colibri did that, and to name a
   path handle the type system would check — a mechanism for choosing between several paths, which
   decision 21 leaves colibri without.
-- See [decisions 21](decisions.md#what-colibri-does-not-build).
+- See [decision 21](decisions.md#decision-21).
 
-### INV-21 — a level is protected only while its keys are available
+### <a id="inv-21"></a>INV-21 — a level is protected only while its keys are available
 
 - **Claim.** colibri calls `seal` and `open` at an encryption level only after the suite said that
   level's keys are available in that direction, and never after colibri discarded them. Once a
   level is discarded nothing is sent at it and nothing received at it is opened. After the TLS
   provider fails, the suite may drop a level's keys itself, and colibri asks it before every
-  `send` and `receive` ([decision 84](decisions.md)): a level it no longer holds is lost, and
+  `send` and `receive` ([decision 84](decisions.md#decision-84)): a level it no longer holds is lost, and
   nothing is sent or opened there either.
 - **Mechanism.** The connection holds one state per level and direction: none, available,
   discarded, lost. Both call sites assert it. RFC 9001 §4.9 says when the state moves to discarded: the
   Initial keys when a client first sends a Handshake packet and when a server first processes
   one (§4.9.1), the Handshake keys when the handshake is confirmed (§4.9.2).
-  [Decision 48](decisions.md#what-the-caller-supplies) leaves every key with the suite, so this
+  [Decision 48](decisions.md#decision-48) leaves every key with the suite, so this
   state is all colibri knows about one. The rule this entry used to hold, that the
   header-protection key is installed once and survives a key update (RFC 9001 §5.4, §6.1), is
   now the suite's to keep, and the null suite models it: a key update changes what its tag is
@@ -387,7 +392,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Acknowledging an Initial packet in the Initial space after the first Handshake
   packet went out, which a peer that has discarded its Initial keys can never read.
 
-### INV-22 — a version-independent parse reads only RFC 8999 fields
+### <a id="inv-22"></a>INV-22 — a version-independent parse reads only RFC 8999 fields
 
 - **Claim.** Before the QUIC version is known, colibri reads only: bit 0x80 of the first byte; for
   a long header, the 32-bit version at offset 1, the DCID length byte, up to 255 DCID bytes, the
@@ -407,7 +412,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Applying RFC 9000's 20-byte connection-ID maximum in the invariant reader, which
   RFC 9000 §17.2.1 forbids from influencing whether a Version Negotiation packet is sent.
 
-### INV-29 — a framed stream byte is in one place
+### <a id="inv-29"></a>INV-29 — a framed stream byte is in one place
 
 - **Claim.** Every stream byte colibri has framed is in exactly one of three places: one packet
   in flight, the lost-range table, or acknowledged. The FIN is the same. So a stream's count of
@@ -421,7 +426,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   CRYPTO bytes are not stream bytes and keep no acknowledged count: at the Initial and
   Handshake levels the second probe repeats the first one's (decision 64 as amended). INV-34
   covers them.
-  [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
+  [Decision 57](decisions.md#decision-57) is why colibri resends exact ranges rather than
   rewinding a stream, which would put a byte in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
   never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
@@ -432,7 +437,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A probe that resends bytes still in flight, or a rewind to the lowest lost
   offset: either puts one byte in two packets, and acknowledging both counts it twice.
 
-### INV-33 — the sent table says which stream ranges in the ring are live
+### <a id="inv-33"></a>INV-33 — the sent table says which stream ranges in the ring are live
 
 - **Claim.** Every extra stream range of a live application-level record lies in the ring between
   its tail and its head, and the tail is the start position of the oldest record the sent table
@@ -440,7 +445,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   reused only once every older record has left.
 - **Mechanism.** A packet writes its extra ranges at the head, in the order packets are sent, and
   its record holds the head's position before them and their count, which may be none
-  ([decision 131](decisions.md)). A record
+  ([decision 131](decisions.md#decision-131)). A record
   leaves its slot only when the oldest end of the sent table reaches it, so the tail moves in the
   same order. A packet whose ranges would pass the tail carries one STREAM frame.
 - **Check.** Runtime assertion: the ring asserts, when it takes ranges, that the new head does
@@ -450,7 +455,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A tail that moves past a record still held. A later packet then writes over that
   record's ranges, and its loss resends another stream's bytes.
 
-### INV-34 — a CRYPTO byte in flight stays in its level's send window
+### <a id="inv-34"></a>INV-34 — a CRYPTO byte in flight stays in its level's send window
 
 - **Claim.** Every CRYPTO byte that a packet in flight carries is in its level's send window,
   at or above `send_base`. So `on_lost` can always frame a lost CRYPTO byte again, as RFC 9000
@@ -472,14 +477,14 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## What the caller supplies
 
-### INV-23 — colibri holds no secret
+### <a id="inv-23"></a>INV-23 — colibri holds no secret
 
 - **Claim.** colibri never holds a private key, a traffic secret, a packet protection key or an
   IV, in either mode, so it has nothing to wipe and nothing to leak.
 - **Mechanism.** Neither vtable has a member that takes or returns one. In record mode the
   provider keeps the whole key schedule (decision 8). In QUIC mode the secrets of RFC 9001 §4.1.4
   go from the provider to the suite inside the caller's code, and the suite seals and opens whole
-  packets ([decision 48](decisions.md#what-the-caller-supplies)). What colibri keeps from a
+  packets ([decision 48](decisions.md#decision-48)). What colibri keeps from a
   handshake is public on the wire or meant for the application: the ALPN name, the transport
   parameters, the connection IDs.
 - **Check.** A test in `src/crypto/suite.zig` compares the vtable's member names with the
@@ -494,7 +499,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   secret across connections "to make reconnects cheap" is the same violation, and is also 0-RTT,
   which decision 20 rules out.
 
-### INV-24 — no assertion is reachable from peer input
+### <a id="inv-24"></a>INV-24 — no assertion is reachable from peer input
 
 - **Claim.** Bad peer input produces an error value and a closed connection, never an abort.
   Assertions guard programmer error only: contract points, state-enum validity, and arithmetic
@@ -506,7 +511,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** `assert(frame_len <= max_frame_size)` on a value read from the wire, which turns
   a conformance test into a crash.
 
-### INV-25 — a suite that cannot protect Initial packets is a configuration error
+### <a id="inv-25"></a>INV-25 — a suite that cannot protect Initial packets is a configuration error
 
 - **Claim.** A suite that refuses `install_initial_keys` ends the connection with a configuration
   error the caller sees, distinct from every protocol error, and nothing is sent to the peer. A
@@ -516,7 +521,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Mechanism.** RFC 9001 fixes Initial packets (§5, §5.2), the header protection used before a
   suite is selected (§5.4.1, §5.4.3) and the Retry tag (§5.8) to AES whatever TLS negotiates, so a
   suite without AES cannot start a connection at all.
-  [Decision 48](decisions.md#what-the-caller-supplies) leaves colibri unable to see what a suite
+  [Decision 48](decisions.md#decision-48) leaves colibri unable to see what a suite
   carries, so the one call that shows it is the check. A suite that lacks the AEAD or
   header-protection algorithm TLS goes on to negotiate (§5.3, §5.4.1) fails the same way at the
   first Handshake packet, with the same error class.
@@ -524,9 +529,9 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   (step 9). The error set of `install_initial_keys` carries the refusal from step 7.
 - **Violation.** Reporting the refusal as a handshake failure, which sends the peer a
   CONNECTION_CLOSE for the caller's own misconfiguration and looks like an attack in the log.
-- See [decisions 9 and 48](decisions.md#what-the-caller-supplies).
+- See [decisions 9 and 48](decisions.md#decision-9).
 
-### INV-26 — `quic` imports no HTTP module
+### <a id="inv-26"></a>INV-26 — `quic` imports no HTTP module
 
 - **Claim.** `src/quic/` never imports `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`, and contains
   no identifier naming an HTTP concept.
@@ -538,11 +543,11 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   identifier half. Steps 0 and 8.
 - **Violation.** A stream-type constant for h3's control stream inside `src/quic/`, which is how a
   transport quietly becomes an HTTP transport.
-- See [decisions 3, 5](decisions.md#scope-and-shape).
+- See [decisions 3, 5](decisions.md#decision-3).
 
 ## Errors
 
-### INV-27 — a connection error and a stream error are distinct types
+### <a id="inv-27"></a>INV-27 — a connection error and a stream error are distinct types
 
 - **Claim.** The two error classes never coerce into one another. A function that can only produce
   a stream error cannot return a connection error, and the compiler says so.
@@ -558,15 +563,18 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** One `ProtocolError` set for both, so an unexpected `:protocol` closes the
   connection instead of the stream, and every extended-CONNECT client sees colibri as broken.
 
-### INV-28 — an error's wire code is chosen in one place per protocol
+### <a id="inv-28"></a>INV-28 — an error's wire code is chosen in one place per protocol
 
 - **Claim.** Each protocol has exactly one function mapping an internal error to a wire error
   code, and no other site writes a numeric error code.
-- **Mechanism.** One `wire_code` function per protocol, with the RFC's code table beside it: RFC
-  9113 §7 for h2, RFC 9114 §8.1 for h3, RFC 9000 §20.1 for QUIC transport, RFC 9204 §6 for QPACK,
-  and RFC 9001 §4.8's rule that a TLS alert becomes `0x0100 + AlertDescription`.
-- **Check.** Lint rule (no integer literal in an error position outside the mapping file), plus
-  golden corpus cases naming the expected code per error. Steps 4, 9, 12.
+- **Mechanism.** Each protocol names its codes once, as constants beside the RFC's code table:
+  RFC 9113 §7 for h2, RFC 9114 §8.1 for h3, RFC 9000 §20.1 for QUIC transport
+  (`src/quic/error_code.zig`), RFC 9204 §6 for QPACK, and RFC 9001 §4.8's rule that a TLS alert
+  becomes `0x0100 + AlertDescription`.
+- **Check.** The magic-numbers lint rule (`tools/lint/magic_numbers.zig`) reports an integer
+  literal greater than 1 written inline, so a code above 1 must be a named constant. It cannot see
+  an inline `0x00` or `0x01`. Plus golden corpus cases naming the expected code per error. Steps 4,
+  9, 12.
 - **Violation.** A hand-written `0x02` at a call site. It is `INTERNAL_ERROR` in h2 and
   `CONNECTION_REFUSED` as a QUIC transport code, and it is not an h3 error code at all — h3's
   space starts at 0x0100, and RFC 9114 §8.1 makes an unrecognised code equivalent to `H3_NO_ERROR`,
@@ -574,7 +582,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## The engine
 
-### INV-30 — every request ends once, before its connection
+### <a id="inv-30"></a>INV-30 — every request ends once, before its connection
 
 - **Claim.** Each request the engine reports with `request` ends with exactly one `finished`,
   whose result is `sent` or `cancelled` (decision 126), and no event of the request follows it. A connection's `ended` comes after
@@ -586,7 +594,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of owed
   endings, so a response the peer acknowledged before the stop still ends `sent`.
   `ended` comes once the table is empty, and the slot's generation then advances, so every id of
-  the connection names nothing ([decision 119](decisions.md)).
+  the connection names nothing ([decision 119](decisions.md#decision-119)).
 - **Check.** Runtime assertion: `end` in `src/server/engine/engine_state_quic.zig` and in
   `engine_state_tcp.zig` asserts that the connection stopped and its table is empty when it
   reports `ended`. Simulator invariant: the h3
@@ -599,7 +607,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   of a request after its `finished`, which a program that freed the request's state reads after
   it freed it.
 
-### INV-31 — the engine's deadline is the soonest of its connections'
+### <a id="inv-31"></a>INV-31 — the engine's deadline is the soonest of its connections'
 
 - **Claim.** `deadline_ns` returns the soonest instant any connection the engine holds wants
   `on_instant` at, and `on_instant` fires each connection whose instant has come, and no other.
@@ -623,7 +631,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## The router
 
-### INV-32 — a match reads each node of its table at most once
+### <a id="inv-32"></a>INV-32 — a match reads each node of its table at most once
 
 - **Claim.** `match` reads each node of its table's trie at most once. It reads each byte of the
   path once, before the walk, and it reads no byte of a path longer than `path_len_max`. So the
@@ -633,7 +641,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   and each frame records the child kind it tried last: the literal, the parameter or the
   wildcard. A segment matches one literal edge at most. So the walk pushes each node once at
   most, and backs up past each node once at most. The check of the path is one loop over its
-  bytes, which `path_len_max` bounds (INV-8, [decision 122](decisions.md)).
+  bytes, which `path_len_max` bounds (INV-8, [decision 122](decisions.md#decision-122)).
 - **Check.** Runtime assertion: the walk's loop runs at most `walk_steps_max`, a bound that the
   build computes from the node count. The code after the loop asserts that it is unreachable.
   Tests in `src/server/router/router_test.zig` run every order of a table and a deep table whose

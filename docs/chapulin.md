@@ -13,14 +13,14 @@ The transport names below are the ones chapulin used before `ca80351`, which ren
 `quic-nonblocking`. chapulin 0.3.0 renamed the `ch_record_*` calls below to `ch_tcp_*`, and the
 `ch_srv_record_*` calls to `ch_srv_tcp_*` (chapulin's decision 185).
 
-[Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's
+[Decision 10](decisions.md#decision-10) rules that chapulin provides all of colibri's
 crypto. This document is the request that ruling needs: what colibri asks chapulin to add, why each
 item is needed, and which of chapulin's recorded decisions each item reverses.
 
 ## How colibri would use chapulin
 
 colibri defines two caller-supplied vtables and implements neither in its library
-([decisions 8, 9 and 48](decisions.md#what-the-caller-supplies)):
+([decisions 8, 9 and 48](decisions.md#decision-8)):
 
 - `tls.Provider` runs the TLS 1.3 handshake. Its record mode serves h2, and its QUIC mode serves
   h3.
@@ -119,7 +119,7 @@ Design §8 step 5 waits for these five.
    same way.
 3. **A record mode that takes bytes in and returns bytes, in both roles, for the handshake and
    for the records after it.** colibri owns no I/O, so it cannot call through a callback that
-   blocks, and [decision 46](decisions.md) holds its test endpoints to the same rule. This is the
+   blocks, and [decision 46](decisions.md#decision-46) holds its test endpoints to the same rule. This is the
    shape `ch_quic_crypto_in` and `ch_quic_crypto_out` already give the QUIC mode. It is also why
    colibri's h2 client runs its interop in cleartext today: the client role works, and it cannot
    sit under a `poll` loop. The server role is stubs, so the cheapest time to give it this shape
@@ -149,7 +149,7 @@ will check chapulin's answer against.
 2. **Per-level keys that never leave** (RFC 9001 §4.1.4). When an encryption level becomes
    available, chapulin keeps that level's secrets and says the level is ready; colibri asks it to
    seal and open packets at the level. The first form of this request asked for the secrets
-   themselves, and [decision 48](decisions.md#what-the-caller-supplies) withdrew that.
+   themselves, and [decision 48](decisions.md#decision-48) withdrew that.
 3. **The `quic_transport_parameters` extension, codepoint 0x39** (RFC 9001 §8.2). colibri
    supplies the extension's bytes and reads the peer's; the provider carries them in the handshake.
 4. **ALPN** (RFC 9001 §8.1), which QUIC requires of clients as well as servers.
@@ -165,7 +165,7 @@ All four have landed.
 Design §8 step 7's vectors wait for these, and every QUIC connection needs them. The first form
 of this request asked for five primitives: AES-128-GCM, one AES-128-ECB block, raw ChaCha20,
 ChaCha20-Poly1305 and HKDF-SHA256. chapulin has since built them and ruled that none is exported,
-and [decision 48](decisions.md#what-the-caller-supplies) follows it. What colibri asks for now is
+and [decision 48](decisions.md#decision-48) follows it. What colibri asks for now is
 the API over them, which `quic.h` already declares.
 
 1. **The fifteen `ch_quic_*` calls, working.** **Landed**: the `CH_QUIC_STUB` marker is retired
@@ -195,7 +195,7 @@ the API over them, which `quic.h` already declares.
 
 RFC 9001 fixes Initial packets (§5), the header protection used before a suite is selected
 (§5.4.1) and the Retry tag (§5.8) to AES whatever suite TLS negotiates, so no QUIC endpoint works
-without AES ([decision 9](decisions.md#what-the-caller-supplies)). chapulin's `AES` build axis
+without AES ([decision 9](decisions.md#decision-9)). chapulin's `AES` build axis
 answers that.
 
 ## What is left
@@ -300,7 +300,7 @@ value when it builds.
 ## What colibri keeps, whatever chapulin answers
 
 - colibri's library never imports chapulin, and this tree carries no production implementation of
-  either vtable ([decisions 8 and 9](decisions.md#what-the-caller-supplies)).
+  either vtable ([decisions 8 and 9](decisions.md#decision-8)).
 - If chapulin declines an item, colibri's source does not change. The checks that need the item
   wait, and naming a different provider for `src/testing/` is a new "Ask before" under CLAUDE.md.
 - Design §8 steps 0 to 4, 6, 8 and 11 need none of this, and step 4 ships cleartext h2.
