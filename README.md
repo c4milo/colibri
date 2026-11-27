@@ -49,7 +49,7 @@ zig fetch --save=stdx git+https://github.com/c4milo/stdx#v0.4.0
 stdx is colibri's one library dependency. Its `stdx.crypto` holds the TLS stack, and its
 `platform` detects your CPU's features. Each colibri release names its stdx commit in its
 `build.zig.zon`. Then add both modules to your program in `build.zig`
-([decision 170](docs/decisions.md#decision-170)):
+([decision 170](docs/decisions/0170-the-package-exports-one-module-colibri.md)):
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
@@ -66,7 +66,7 @@ exe.root_module.addImport("stdx", stdx.module("stdx"));
 - `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop that
   `colibri.Server` and `colibri.Client` run on. A program that runs them on its own loop, or that
   drives one protocol by itself, leaves the option out
-  ([decision 159](docs/decisions.md#decision-159)).
+  ([decision 159](docs/decisions/0159-colibriclient-and-colibriserver-take-a-host.md)).
 - stdx takes colibri's options, `.crypto = true` among them, so your program links one stdx.
 
 The root of `colibri` names each library module:
@@ -225,7 +225,7 @@ if (!std.mem.eql(u8, greeting, body[0..got.body_len])) return error.ResponseWron
 | Protocol | Built | Checked against |
 | --- | --- | --- |
 | h11 | Client and server, pipelining, `chunked`, and `gzip` and `deflate` bodies decoded | Go's `net/http`, h2o, Caddy and curl, in cleartext and over TLS; the [HTTP Garden](https://github.com/narfindustries/http-garden) against its other origins |
-| h2 | Client and server, HPACK with the dynamic table | [h2spec](https://github.com/summerwind/h2spec) 2.6.0: 144 of 146 in cleartext with h2 alone and over TLS, the other 2 test a rule RFC 9113 no longer has ([decision 41](docs/decisions.md#decision-41)); curl, nghttp, Go, nghttpd and h2o |
+| h2 | Client and server, HPACK with the dynamic table | [h2spec](https://github.com/summerwind/h2spec) 2.6.0: 144 of 146 in cleartext with h2 alone and over TLS, the other 2 test a rule RFC 9113 no longer has ([decision 41](docs/decisions/0041-h2specs-two-self-dependency-cases-are.md)); curl, nghttp, Go, nghttpd and h2o |
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
 [`docs/design.md`](docs/design.md) §8 records each check: what ran, on what machine, and what it
@@ -239,13 +239,13 @@ printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
   datagrams. Checks drive every protocol through it, and each seed replays byte for byte in Debug
   and in ReleaseSafe.
 - **Models.** Twenty-one [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specifications
-  in [`spec/tla/`](spec/tla/) cover the connections, flow control, QPACK's tables, loss recovery,
+  in [`spec/tla/`](spec/tla) cover the connections, flow control, QPACK's tables, loss recovery,
   the congestion controllers and the deadlines. Each has configurations that remove one rule,
   which TLC must find violated, and TLC checks the traces of seven simulator runs against them.
-- **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of the
+- **Proofs.** [`spec/lean/`](spec/lean) holds [Lean 4](https://lean-lang.org/) proofs of the
   integer and Huffman codecs and of the congestion controllers' arithmetic. The Zig tests read
   vectors that the proved definitions produce.
-- **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes, each case with its expected
+- **Golden corpus.** [`src/golden/`](src/golden) holds exact bytes, each case with its expected
   verdict, the request smuggling shapes of RFC 9112 included.
 - **Mutation testing.** Every check is broken on purpose, and a test must fail. Each result is
   recorded as `CAUGHT` or `NOT CAUGHT` in the commit or in [`docs/design.md`](docs/design.md).
@@ -322,13 +322,13 @@ colibri's:
 | Document | What it covers |
 | --- | --- |
 | [`docs/usage.md`](docs/usage.md) | Adding colibri, driving each protocol, TLS, and the buffers you own |
-| [`examples/`](examples/) | Whole programs for `colibri.Server` and `colibri.Client` in both kinds, the `server` and `client` modules, h11 and h2 by themselves, and DNSSEC, which CI runs |
+| [`examples/`](examples) | Whole programs for `colibri.Server` and `colibri.Client` in both kinds, the `server` and `client` modules, h11 and h2 by themselves, and DNSSEC, which CI runs |
 | [`docs/design.md`](docs/design.md) | The module graph, the wire formats, and the numbered build plan with each step's record |
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |
 | [`docs/performance.md`](docs/performance.md) | How colibri measures a change, its baselines, and the memory each object takes |
 | [`docs/chapulin.md`](docs/chapulin.md) | The 2026-09 request to chapulin, the TLS stack under `stdx.crypto`, kept as history |
-| [`docs/rfcs/`](docs/rfcs/) | The RFCs colibri is written from, unmodified, with their checksums |
+| [`docs/rfcs/`](docs/rfcs) | The RFCs colibri is written from, unmodified, with their checksums |
 
 ## Limits
 

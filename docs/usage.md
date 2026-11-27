@@ -2,7 +2,7 @@
 
 This guide shows the calls a program makes to serve and fetch over h11, h2 and h3. It starts with
 `colibri.Server` and `colibri.Client`, which do the I/O for you, and then covers the `server` and
-`client` modules and each protocol module. [`examples/`](../examples/) holds a whole program for
+`client` modules and each protocol module. [`examples/`](../examples) holds a whole program for
 each part, and each module's entry file documents its calls in full.
 
 ## Quick start: serve a route and fetch it
@@ -132,10 +132,10 @@ the protocol modules or the `.hosted` kind alone, and fetches no Rotor:
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 ```
 
-- `colibri` is the one module the package exports ([decision 170](decisions.md#decision-170)).
+- `colibri` is the one module the package exports ([decision 170](decisions/0170-the-package-exports-one-module-colibri.md)).
 - `.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of `.private`. Without
   it, a `.private` object does not compile, and the compiler names the line to add
-  ([decision 159](decisions.md#decision-159)).
+  ([decision 159](decisions/0159-colibriclient-and-colibriserver-take-a-host.md)).
 - `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
   assertions stay on in production.
 - Give stdx the options colibri gives it, `.crypto = true` among them. A second stdx module fails
@@ -166,11 +166,11 @@ const platform = stdx.platform;
 | `http` | What h11, h2 and h3 share: fields, methods, status codes, URIs (RFC 9110) |
 | `tls` | TLS 1.3 values and sessions over `stdx.crypto` |
 | `tls_provider`, `crypto` | The vtables a TLS stack fills, and the one that protects QUIC packets |
-| `qlog` | A qlog log in your buffer, which `quic` and `h3` fill ([decision 102](decisions.md#decision-102)) |
-| `dnssec` | Checks of a DNSSEC signature and a DS digest ([decision 142](decisions.md#decision-142)) |
+| `qlog` | A qlog log in your buffer, which `quic` and `h3` fill ([decision 102](decisions/0102-colibri-writes-qlog-when-its-caller.md)) |
+| `dnssec` | Checks of a DNSSEC signature and a DS digest ([decision 142](decisions/0142-dnssecs-signature-checks-are-a-module.md)) |
 | `core`, `wire` | The bounds-checked reader and writer, and the integer, string and Huffman codecs |
 
-The package exports nothing of stdx ([decision 170](decisions.md#decision-170)). A program that
+The package exports nothing of stdx ([decision 170](decisions/0170-the-package-exports-one-module-colibri.md)). A program that
 codes content itself takes `stdx.compress.gzip`, `zlib`, `zstd` or `brotli` from the same stdx.
 
 ## The TLS stack and the CPU
@@ -198,8 +198,8 @@ const crypto = stdx.crypto.init(cpu_features, secure.random());
 ```
 
 From [`examples/colibri_server.zig`](../examples/colibri_server.zig): the program detects its CPU
-once and makes one `stdx.crypto.Context` ([decision 175](decisions.md#decision-175)). colibri
-reads its TLS stack as `stdx.crypto` ([decision 174](decisions.md#decision-174)).
+once and makes one `stdx.crypto.Context` ([decision 175](decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)). colibri
+reads its TLS stack as `stdx.crypto` ([decision 174](decisions/0174-colibri-takes-chapulin-through-stdx-as.md)).
 
 - Every `cpu_features` field of a configuration takes `crypto.features`, or the same
   `cpu_features` value.
@@ -219,7 +219,7 @@ var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
 ```
 
 From [`tools/consumer/main.zig`](../tools/consumer/main.zig): `colibri.Server(capacity, kind)`
-binds one port and runs `server.Engine` ([decision 150](decisions.md#decision-150)). `kind` is
+binds one port and runs `server.Engine` ([decision 150](decisions/0150-colibri-binds-reads-its-files-and.md)). `kind` is
 `.private`, on colibri's own Rotor loop, or `.hosted`, on
 [your loop](#host-colibri-on-your-own-loop). The
 [quick start](#quick-start-serve-a-route-and-fetch-it) shows `init` and `run`.
@@ -236,7 +236,7 @@ binds one port and runs `server.Engine` ([decision 150](decisions.md#decision-15
   it after `init` returns, and after `run` returns when your program calls `run`.
 - `server.Config.tls_buffer_len(n)` gives the bytes of `n` TLS sessions at any alignment. With an
   identity and TCP connections, `engine.tls_buffer` holds one session at least
-  ([decision 167](decisions.md#decision-167)).
+  ([decision 167](decisions/0167-a-tcp-connection-over-tls-takes.md)).
 
 `colibri.ServerConfig` holds these fields:
 
@@ -245,11 +245,11 @@ binds one port and runs `server.Engine` ([decision 150](decisions.md#decision-15
 | `host` | `"127.0.0.1"` | An IPv4 or IPv6 literal. |
 | `port` | 0 | The TCP and UDP port. With 0 the system chooses, and `init` tries up to `colibri.constants.limits.bind_tries_max` (16) ports for a free UDP one. |
 | `identity` | null | `.chain` and `.key` as PEM text. `init` keeps no copy, so you may wipe the text after it. Null serves h11 and h2 in cleartext and opens no UDP socket. |
-| `unix_seconds` | none | The seconds since 1970 when `run` starts. Session tickets carry it ([decision 161](decisions.md#decision-161)). |
+| `unix_seconds` | none | The seconds since 1970 when `run` starts. Session tickets carry it ([decision 161](decisions/0161-colibris-servers-issue-session-tickets-and.md)). |
 | `crypto` | null | Your `stdx.crypto.Context`. Null makes one of `engine.cpu_features` and the system's entropy. |
 | `ticket_key` | null | The key that seals session tickets, which the server copies. Null draws one. Give each server of one port the same key. |
 | `ticket_key_previous` | null | An older key that still opens tickets. It differs from `ticket_key`, or `run` returns `error.IdentityRefused`. |
-| `engine` | none | The `server.Config` the engine starts from, with `tls_buffer` and `cpu_features`. colibri fills its `tls` and `ecn` ([decision 68](decisions.md#decision-68)). |
+| `engine` | none | The `server.Config` the engine starts from, with `tls_buffer` and `cpu_features`. colibri fills its `tls` and `ecn` ([decision 68](decisions/0068-a-caller-says-with-two-flags.md)). |
 
 With an identity, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 
@@ -266,7 +266,7 @@ std.crypto.secureZero(u8, &next_ticket_key);
 - Call `set_ticket_key` on the server's thread: between two calls on `.hosted`, or from a route or
   a middleware on `.private`.
 - For more cores, start more servers on one port. Each binds with SO_REUSEPORT
-  ([decision 173](decisions.md#decision-173)).
+  ([decision 173](decisions/0173-a-servers-udp-socket-shares-its.md)).
 - An h3 client whose address changes can then reach another server, and opens a new connection.
 
 ## colibri.Client
@@ -277,7 +277,7 @@ var http_client: Client align(@alignOf(Client)) = undefined;
 ```
 
 From [`examples/colibri_server.zig`](../examples/colibri_server.zig): `colibri.Client` owns the
-sockets, the loop and a `client.ConnectionPool` ([decision 153](decisions.md#decision-153) ruling
+sockets, the loop and a `client.ConnectionPool` ([decision 153](decisions/0153-a-client-that-runs-on-a.md) ruling
 8). The default capacity holds one TCP connection, one QUIC connection and 16 requests.
 
 From [`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no QUIC:
@@ -334,13 +334,13 @@ try http_client.run();
 - `init` opens the UDP socket when the pool offers QUIC: h3 allowed and a TLS value. A client in
   cleartext needs no `crypto`.
 - `set_destination` gives the pool new addresses on the loop's thread. New connections go there,
-  and open connections keep their exchanges ([decision 125](decisions.md#decision-125)).
+  and open connections keep their exchanges ([decision 125](decisions/0125-clientpool-holds-several-tcp-connections-to.md)).
 - An open of QUIC to an address family with no UDP socket ends, and the pool opens TCP
-  ([decision 156](decisions.md#decision-156) ruling 13).
+  ([decision 156](decisions/0156-colibriclient-and-colibriserver-run-on-a.md) ruling 13).
 - With every version allowed, the client opens TCP first. h3 first needs `.prefer = .quic`.
 
 `fetch` runs one exchange on the thread that calls it
-([decision 156](decisions.md#decision-156) ruling 12). The
+([decision 156](decisions/0156-colibriclient-and-colibriserver-run-on-a.md) ruling 12). The
 [quick start](#quick-start-serve-a-route-and-fetch-it) shows a call. With no method, a request
 body makes the method POST, and no body makes it GET.
 
@@ -349,7 +349,7 @@ body makes the method POST, and no body makes it GET.
 - Call `fetch`, `run` and `deinit` on one thread. `init` may run on another.
 - A handler never calls `fetch`. Such a call halts with colibri's message.
 - `deinit` stops the loop that the first `fetch` made. Only the pool's `timeouts` bound that wait
-  ([decision 159](decisions.md#decision-159) as amended).
+  ([decision 159](decisions/0159-colibriclient-and-colibriserver-take-a-host.md) as amended).
 - When `fetch` returns an error of the loop, its exchange ended with no result. Call `deinit`.
 
 `cancel` ends an exchange with no `finished`, and the memory of its request and response is yours
@@ -361,7 +361,7 @@ http_client.cancel(id);
 ```
 
 - An h11 connection then reads and drops the rest of the response for `timeouts.drop_ns`
-  ([decision 146](decisions.md#decision-146) ruling 3).
+  ([decision 146](decisions/0146-an-h11-client-bounds-the-drop.md) ruling 3).
 - On `.private`, `cancel(id)` takes the instant of the last turn of colibri's loop. A hosted
   client's call is `cancel(id, now_ns)`, with your loop's instant.
 
@@ -389,7 +389,7 @@ These fields of `client.Config` are the ones a program sets most:
 | `timeouts.connect_ns` | 10 s | The bound on each TCP connect. Null turns it off. |
 | `timeouts.drop_ns` | 50 ms | How long an h11 connection drops a cancelled response. |
 
-The client resumes TLS sessions ([decision 161](decisions.md#decision-161)):
+The client resumes TLS sessions ([decision 161](decisions/0161-colibris-servers-issue-session-tickets-and.md)):
 
 - It offers the newest ticket of each transport once, never past its lifetime or seven days.
 - `deinit` wipes the tickets, and `pool.tls.takes_tickets = false` keeps none.
@@ -419,7 +419,7 @@ A peer that breaks a protocol rule never crashes colibri:
 ## The words of the API
 
 The `server` and `client` modules name each concept once, the same for h11, h2 and h3
-([decision 126](decisions.md#decision-126)). The protocol modules keep the RFCs' words:
+([decision 126](decisions/0126-the-server-and-client-apis-name.md)). The protocol modules keep the RFCs' words:
 
 | The API says | RFC 9110 | h11 (RFC 9112) | h2 (RFC 9113) | h3 (RFC 9114) |
 | --- | --- | --- | --- | --- |
@@ -448,12 +448,12 @@ waits[@intFromEnum(Side.server)] = turned.wait;
 
 From [`examples/colibri_hosted.zig`](../examples/colibri_hosted.zig): a `.hosted` object writes the
 operations it needs, and your loop gives back one completion for each
-([decision 159](decisions.md#decision-159)). It does no I/O, reads no clock and needs no Rotor.
+([decision 159](decisions/0159-colibriclient-and-colibriserver-take-a-host.md)). It does no I/O, reads no clock and needs no Rotor.
 
 - It has the calls of `.private` except `run`, `fetch`, `port` and the bind.
 - [`examples/colibri_shared_rotor.zig`](../examples/colibri_shared_rotor.zig) hosts a server and a
   client on one Rotor loop beside a timer.
-- Only `.private` has published numbers ([decision 32](decisions.md#decision-32)).
+- Only `.private` has published numbers ([decision 32](decisions/0032-real-numbers-come-from-linux-and.md)).
 
 ### What the host does
 
@@ -483,7 +483,7 @@ The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `
 - A `connect` opens a TCP socket of the address's family, sets TCP_NODELAY and connects it.
 - A `shutdown_send` closes the write side, as shutdown(2) with `SHUT_WR` does, and completes with
   `.shut_down`. The receive goes on, and a `close` follows
-  ([decision 160](decisions.md#decision-160)).
+  ([decision 160](decisions/0160-the-h11-server-reads-the-rest.md)).
 - A `cancel` gets no completion of its own. Its target gets its final completion, with
   `.canceled`.
 - Map your loop's errors onto `colibri.Failure`.
@@ -544,7 +544,7 @@ const Engine = server.Engine(.{ .tcp_connections = 2, .quic_connections = 1, .re
 ```
 
 An engine is the server side of every connection one thread serves, over TCP and over QUIC
-([decision 119](decisions.md#decision-119)). `server.Engine(.{})` holds 16 TCP and 16 QUIC
+([decision 119](decisions/0119-how-one-endpoint-serves-tcp-and.md)). `server.Engine(.{})` holds 16 TCP and 16 QUIC
 connections. A program places one engine for each thread that serves, and keeps it where `init`
 found it.
 
@@ -594,7 +594,7 @@ accepted = engine.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 
 `init` takes a `server.Timestamp`: Unix seconds, at which the engine issues tickets, and the
 monotonic instant that every later call passes. The engine copies the `Config` at `init`, so the
-program may change or free it after `init` returns ([decision 158](decisions.md#decision-158)).
+program may change or free it after `init` returns ([decision 158](decisions/0158-colibris-public-api-follows-tigerstyle-first.md)).
 
 - `init` returns `error.NoVersion` when no slot can speak a version that `protocols` allows.
 - `accept` returns null when no slot is free, after `shutdown`, when `protocols` allows neither
@@ -602,8 +602,8 @@ program may change or free it after `init` returns ([decision 158](decisions.md#
 - After a null `accept`, the program closes the socket.
 - `accept(.{})` runs TLS, and `accept(.{ .tls = false })` runs cleartext.
 - A cleartext connection speaks h2 when its first bytes are h2's preface, and h11 otherwise (RFC
-  9113 §3.3, [decision 117](decisions.md#decision-117)).
-- A client's first datagram starts a QUIC connection ([decision 103](decisions.md#decision-103)).
+  9113 §3.3, [decision 117](decisions/0117-a-program-names-no-http-version.md)).
+- A client's first datagram starts a QUIC connection ([decision 103](decisions/0103-the-server-over-quic-one-endpoint.md)).
 - The program sets `TCP_NODELAY` on each TCP socket it accepts, because each send carries a
   whole response.
 
@@ -611,22 +611,22 @@ program may change or free it after `init` returns ([decision 158](decisions.md#
 
 | Field | Default | What it sets |
 | --- | --- | --- |
-| `cpu_features` | none: the program names it | The features of `CpuFeatures.detect()`, which the codecs run on ([decision 169](decisions.md#decision-169)) |
+| `cpu_features` | none: the program names it | The features of `CpuFeatures.detect()`, which the codecs run on ([decision 169](decisions/0169-a-configuration-holds-the-programs-cpu.md)) |
 | `tls` | null | The identity, once for both transports; it names no ALPN protocol |
-| `tls_buffer` | empty: TCP serves cleartext alone | Room for TLS sessions: `server.Config.tls_buffer_len(n)` bytes hold `n` ([decision 167](decisions.md#decision-167)) |
-| `protocols` | h11, h2 and h3 | The versions the engine serves and offers in ALPN ([decision 117](decisions.md#decision-117)) |
+| `tls_buffer` | empty: TCP serves cleartext alone | Room for TLS sessions: `server.Config.tls_buffer_len(n)` bytes hold `n` ([decision 167](decisions/0167-a-tcp-connection-over-tls-takes.md)) |
+| `protocols` | h11, h2 and h3 | The versions the engine serves and offers in ALPN ([decision 117](decisions/0117-a-program-names-no-http-version.md)) |
 | `limits` | see the next table | Per-connection bounds |
-| `timeouts` | see [Deadlines](#deadlines) | How long a peer may hold a connection ([decision 110](decisions.md#decision-110)) |
-| `codings`, `encoders` | none | Content codings for a response marked `codable`: gzip or deflate, from an `EncoderPool` ([decision 101](decisions.md#decision-101)) |
+| `timeouts` | see [Deadlines](#deadlines) | How long a peer may hold a connection ([decision 110](decisions/0110-the-servers-defences-against-denial-of.md)) |
+| `codings`, `encoders` | none | Content codings for a response marked `codable`: gzip or deflate, from an `EncoderPool` ([decision 101](decisions/0101-the-client-and-server-code-content.md)) |
 | `decoders`, `decoded` | none | TCP alone: h11's gzip and deflate transfer-coding decoders |
 | `h3_alternative` | null | TCP over TLS alone: the h3 endpoint each connection advertises (RFC 7838) |
 | `ecn` | false | QUIC alone: the program reads and sets each datagram's ECN codepoint |
-| `congestion_controller` | `.bbr` | QUIC alone: `.bbr`, `.cubic` or `.newreno` ([decision 143](decisions.md#decision-143)) |
+| `congestion_controller` | `.bbr` | QUIC alone: `.bbr`, `.cubic` or `.newreno` ([decision 143](decisions/0143-bbrv3-is-the-default-congestion-controller.md)) |
 | `idle_timeout_ms` | 30,000 | QUIC alone: the idle timeout the server advertises (RFC 9000 §10.1) |
 | `switch_to` | `.v2` | QUIC alone: the version a client that lists it moves to (RFC 9368) |
 | `retry` | null: no client proves its address | QUIC alone: the key of Retry tokens (RFC 9000 §8.1.2) |
 | `retry_from_percent` | 0: every client with no token | QUIC alone, with `retry`: the share of busy QUIC slots from which a Retry goes out |
-| `logs` | null | QUIC alone: each connection's qlog ([decision 102](decisions.md#decision-102)) |
+| `logs` | null | QUIC alone: each connection's qlog ([decision 102](decisions/0102-colibri-writes-qlog-when-its-caller.md)) |
 | `resumes` | null | QUIC alone: RFC 9959's saved sets ([Over QUIC](#over-quic)) |
 | `resume_bounds` | 4 MiB, 1 hour | QUIC alone: RFC 9959's max_jump and Lifetime |
 
@@ -713,7 +713,7 @@ fn serve_all(input: server.Input, now_ns: u64) !void {
 The rules of `receive`:
 
 - `receive` writes at most one event a call into the `server.ReceiveResult` the program owns
-  ([decision 165](decisions.md#decision-165)).
+  ([decision 165](decisions/0165-the-servers-receive-writes-its-result.md)).
 - The program loops over `receive` until a call consumes nothing and writes no event.
 - The program loops again after each call that changes a connection: an answer, `cancel`,
   `output_stream`, `sent_stream`, `send_stream`, `transport_closed`, `shutdown` and `on_instant`.
@@ -772,7 +772,7 @@ rest.
 | `writable` | A response whose last write found no room can take more | Write again |
 | `finished` | The request is over, once; `result` is `sent` or `cancelled` with a reason | Free the request's state |
 | `send` | A TCP connection owes its socket bytes | Call `output_stream` or `send_stream` |
-| `half_close` | h11 closes in stages (RFC 9112 §9.6, [decision 160](decisions.md#decision-160)) | Close the socket's write side; pass on what it reads |
+| `half_close` | h11 closes in stages (RFC 9112 §9.6, [decision 160](decisions/0160-the-h11-server-reads-the-rest.md)) | Close the socket's write side; pass on what it reads |
 | `close` | colibri is done with a TCP connection | Close the socket after the send ends; call nothing |
 | `ended` | The connection is over, after its requests' `finished` | Drop the handle; the slot takes a later connection |
 | `closed` | After `shutdown`, every connection ended | Stop |
@@ -812,7 +812,7 @@ fn greet(_: *App, _: *server.RequestContext, _: *const server.Request, response:
 }
 ```
 
-A route answers through a `server.Response` ([decision 127](decisions.md#decision-127)). `status`
+A route answers through a `server.Response` ([decision 127](decisions/0127-the-server-reads-a-requests-query.md)). `status`
 is `.ok` by default, and takes a code from 100 to 599. `end` sends a head with the Content-Length
 of the whole body.
 
@@ -827,7 +827,7 @@ of the whole body.
 
 The response writes into the request's `response_bytes`. The engine frees them at once over h11
 and h2, and over h3 once the client acknowledges them (RFC 9000 §3.1). So `response_bytes` bounds
-the bytes in flight, not the body ([decision 103](decisions.md#decision-103) as amended).
+the bytes in flight, not the body ([decision 103](decisions/0103-the-server-over-quic-one-endpoint.md) as amended).
 
 | Call | Errors | What the route does |
 | --- | --- | --- |
@@ -843,9 +843,9 @@ the bytes in flight, not the body ([decision 103](decisions.md#decision-103) as 
 - A trailer section longer than the memory after the headers never fits, and the route is
   cancelled.
 - Over h3, a response sends about `response_bytes` a round trip, so a long stream needs a larger
-  `response_bytes` ([decision 110](decisions.md#decision-110)'s `send_rate_min`).
+  `response_bytes` ([decision 110](decisions/0110-the-servers-defences-against-denial-of.md)'s `send_rate_min`).
 
-[Design §8 step 46](design.md#step-46) holds the run and slot rules in full.
+[Design §8 step 46](design/steps/step-46.md) holds the run and slot rules in full.
 
 A program that answers requests itself calls the engine by the request's id:
 
@@ -873,7 +873,7 @@ engine.sent_stream(connection, owed.len, now_ns);
 ```
 
 `output_stream` returns the bytes a TCP connection owes, sealed over TLS, where the engine holds
-them ([decision 176](decisions.md#decision-176)). The socket sends from there with no copy.
+them ([decision 176](decisions/0176-a-tcp-socket-sends-from-its.md)). The socket sends from there with no copy.
 
 - The program calls `sent_stream` once each send ends, with the bytes it took: 0 for a send that
   failed.
@@ -995,7 +995,7 @@ router.init();
 ```
 
 The compiler builds the route table from the program's context type and this struct ([decisions
-122, 127 and 163](decisions.md#decision-122)). The struct names `error_handler` and `routes`, and
+122, 127 and 163](decisions/0122-serverroutes-matches-a-method-and-a.md)). The struct names `error_handler` and `routes`, and
 may name `middleware` and `Values`. The program calls `router.init()` once, before the first event.
 
 | `server.RouterOptions` field | Default | What it sizes |
@@ -1005,7 +1005,7 @@ may name `middleware` and `Values`. The program calls `router.init()` once, befo
 | `body_bytes` | none | A function route's whole body, or what a stream route's `on_data` left unread; past it, 413 |
 | `header_bytes` | none | Each request's header copy for a function route with a body; past it, 431; 0 copies none |
 
-A program names the last three, 0 included ([decision 163](decisions.md#decision-163) ruling 9).
+A program names the last three, 0 included ([decision 163](decisions/0163-the-routers-handlers-take-the-programs.md) ruling 9).
 
 | Route entry part | Rule |
 | --- | --- |
@@ -1044,7 +1044,7 @@ fn echo(_: *App, _: *server.RequestContext, request: *const server.Request, resp
 ```
 
 A function takes the program's context, the [request context](#request-context), the request and
-the response. It gets the whole request in one call ([decision 163](decisions.md#decision-163)
+the response. It gets the whole request in one call ([decision 163](decisions/0163-the-routers-handlers-take-the-programs.md)
 ruling 4).
 
 - A request with no body gets its call at the head.
@@ -1064,7 +1064,7 @@ fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: any
 ```
 
 `error_handler` chooses the status after a route returns an error ([decision
-127](decisions.md#decision-127) ruling 4). After the head went out, the router cancels the request
+127](decisions/0127-the-server-reads-a-requests-query.md) ruling 4). After the head went out, the router cancels the request
 instead.
 
 #### Stream routes
@@ -1113,7 +1113,7 @@ const Greeter = struct {
 };
 ```
 
-A struct route is a stream ([decision 163](decisions.md#decision-163) ruling 6). Each callback
+A struct route is a stream ([decision 163](decisions/0163-the-routers-handlers-take-the-programs.md) ruling 6). Each callback
 takes the program's context, the request context and a `*State`, or a `*void` with no `State`.
 The request's pool entry holds the `State`.
 
@@ -1149,7 +1149,7 @@ The rules:
 - Decision 110's body deadlines apply, so a route that waits on a quiet client sets its own with
   `set_timeouts`.
 
-Over h11 the next request follows the body ([decision 160](decisions.md#decision-160)):
+Over h11 the next request follows the body ([decision 160](decisions/0160-the-h11-server-reads-the-rest.md)):
 
 - A route that ended its response at its head reads no more body. The server drops a rest of at
   most 256 KiB, and closes for a longer or chunked one.
@@ -1184,8 +1184,8 @@ rules.
 | The method comes first; the query changes nothing | `PURGE /a` with no PURGE route | `not_implemented`: 501 |
 | A literal, then a parameter, then `*`, with back-up; table order does not count | `/users/me` beside `/users/:id` | `/users/me` |
 | A parameter takes one segment; `*` takes one or more | `/files` against `/files/*` | No match |
-| Each route names its own parameters ([decision 129](decisions.md#decision-129)) | `GET /users/:id` and `PUT /users/:user` | Each reads its own name |
-| The first whole match that names the method decides ([decision 128](decisions.md#decision-128)) | `POST /v1/charges/search` | `POST /v1/charges/:charge` |
+| Each route names its own parameters ([decision 129](decisions/0129-a-route-names-its-parameters-and.md)) | `GET /users/:id` and `PUT /users/:user` | Each reads its own name |
+| The first whole match that names the method decides ([decision 128](decisions/0128-a-route-tables-walk-backs-up.md)) | `POST /v1/charges/search` | `POST /v1/charges/:charge` |
 | A path that matches with no route of its method | `DELETE /greeting` | `method_not_allowed`: 405 |
 | HEAD finds GET; the engine sends no content (RFC 9110 §9.3.2) | `HEAD /greeting` | The GET route |
 | `OPTIONS *` | A table with no OPTIONS route | `not_implemented`; else `not_found` |
@@ -1239,7 +1239,7 @@ const Numbered = struct {
 ```
 
 A `server.RequestContext` is the request's own object ([decision
-163](decisions.md#decision-163)). Each route, struct callback, middleware hook and `error_handler`
+163](decisions/0163-the-routers-handlers-take-the-programs.md)). Each route, struct callback, middleware hook and `error_handler`
 of one request gets the same one, after the program's context. The route table names the values'
 type as `.Values = Values`.
 
@@ -1315,7 +1315,7 @@ const Counted = struct {
 ```
 
 A middleware is a struct the router calls before a route ([decision
-127](decisions.md#decision-127) ruling 5). The table's chain runs first, then the route's, as
+127](decisions/0127-the-server-reads-a-requests-query.md) ruling 5). The table's chain runs first, then the route's, as
 `.{ .get, "/admin", admin, .{ .middleware = .{Auth} } }`. A chain is a tuple, so `++` joins two.
 
 | Hook | Takes, after the program's context and the request context | Runs |
@@ -1347,7 +1347,7 @@ const Mark = struct { mark: []const u8 = "" };
 ```
 
 `request.path` holds the path, and `request.query` the bytes after the first "?", or null
-([decision 127](decisions.md#decision-127)). The router fills a route's `.query` struct by field
+([decision 127](decisions/0127-the-server-reads-a-requests-query.md)). The router fills a route's `.query` struct by field
 name before the call, and `ctx.query(Mark)` reads it, as `greet_named` shows.
 
 | `.query` field type | A query with no such pair |
@@ -1387,16 +1387,16 @@ each connection.
 | --- | --- |
 | Body bytes | The connection reads the program's bytes in place until `finished`; `sent` comes once the peer acknowledged every byte |
 | Time | `deadline_ns` includes loss recovery and acknowledgments; `idle_timeout_ms` ends a peer that sends nothing |
-| Congestion | `congestion_controller`: `.bbr`, `.cubic` or `.newreno` ([decisions 133, 136 and 143](decisions.md#decision-133)); BBRv3 draws from the context in `tls` ([decision 175](decisions.md#decision-175)) |
+| Congestion | `congestion_controller`: `.bbr`, `.cubic` or `.newreno` ([decisions 133, 136 and 143](decisions/0133-the-congestion-controller-is-cubic-in.md)); BBRv3 draws from the context in `tls` ([decision 175](decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)) |
 | Sockets | No `send` and no `close`: a QUIC connection has no socket of its own |
-| Address proof | With `retry`, a client proves its address (RFC 9000 §8.1.2) once `retry_from_percent` of the slots are busy ([decision 110](decisions.md#decision-110)) |
-| Logs | `logs` gives each connection a qlog log ([decision 102](decisions.md#decision-102)) |
+| Address proof | With `retry`, a client proves its address (RFC 9000 §8.1.2) once `retry_from_percent` of the slots are busy ([decision 110](decisions/0110-the-servers-defences-against-denial-of.md)) |
+| Logs | `logs` gives each connection a qlog log ([decision 102](decisions/0102-colibri-writes-qlog-when-its-caller.md)) |
 
 `ended` means what it means over TCP. Its `reason` names the deadline or the limit, and `failed`
 says the client broke a protocol rule.
 
 `Config.resumes` lets a client's later connection start near an earlier one's rate, by RFC 9959's
-Careful Resume ([decision 149](decisions.md#decision-149)). The program keeps a
+Careful Resume ([decision 149](decisions/0149-colibris-quic-connections-may-resume-congestion.md)). The program keeps a
 `server.ResumeState` for each client address, and gives the engine a `server.ResumeProvider` over
 them.
 
@@ -1438,17 +1438,17 @@ var post_response: client.Response align(@alignOf(client.Response)) = .{ .body =
 
 An exchange is one request with its response, from `request` to its one `finished` event. The
 pool carries the exchanges to one origin over QUIC (h3) or TCP (h2 or h11), and tells the program
-which transport to open ([decision 120](decisions.md#decision-120)).
+which transport to open ([decision 120](decisions/0120-a-clients-channel-builds-its-tls.md)).
 
 - Keep the request, the response and each slice they name in place until `finished`, or until
-  `cancel` returns ([decision 124](decisions.md#decision-124)).
+  `cancel` returns ([decision 124](decisions/0124-what-client-gives-a-program-that.md)).
 - The client only reads the request, so it may be a `const`.
 - Each header in `headers.buffer` takes its name, its value and four bytes.
 - Read a header with `headers.get(name)`, the first value or null, and each line with
   `headers.iterator()`.
 - `trailers` holds the response's trailers the same way, such as `trailers.get("grpc-status")`.
 - An empty buffer drops its section; a section that does not fit ends the exchange `too_large`.
-- Send request trailers in `Request.trailers` ([decision 152](decisions.md#decision-152)); they
+- Send request trailers in `Request.trailers` ([decision 152](decisions/0152-clientresponse-holds-its-headers-and-trailers.md)); they
   go after the whole body.
 - With a buffer in `Response.trailers`, the client sends `te: trailers`, unless the request names
   TE.
@@ -1465,7 +1465,7 @@ var pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.C
 ```
 
 `ConnectionPool.memory_bytes(counts)` is pure, so it sizes a static array or a run-time mapping
-([decision 125](decisions.md#decision-125)). A program that never speaks h3 holds a pool with no
+([decision 125](decisions/0125-clientpool-holds-several-tcp-connections-to.md)). A program that never speaks h3 holds a pool with no
 QUIC state. From [`tools/consumer/main.zig`](../tools/consumer/main.zig):
 
 ```zig
@@ -1513,20 +1513,20 @@ fields:
 
 | Field | Default | What it sets |
 | --- | --- | --- |
-| `cpu_features` | none | What `CpuFeatures.detect()` found once; colibri never asks the CPU ([decision 169](decisions.md#decision-169)). |
+| `cpu_features` | none | What `CpuFeatures.detect()` found once; colibri never asks the CPU ([decision 169](decisions/0169-a-configuration-holds-the-programs-cpu.md)). |
 | `authority` | none | `:authority` in h2 and h3, Host in h11. |
 | `tls` | `null` | One `tls.Client` for TCP and QUIC, with an empty `alpn`; `null` runs cleartext over TCP alone. |
-| `protocols` | h11, h2, h3 on | The versions offered through ALPN; TCP opens only while h11 or h2 is on ([decision 117](decisions.md#decision-117)). |
+| `protocols` | h11, h2, h3 on | The versions offered through ALPN; TCP opens only while h11 or h2 is on ([decision 117](decisions/0117-a-program-names-no-http-version.md)). |
 | `protocols.prefer` | `.tcp` | The transport that opens first; `.quic` opens QUIC first. |
 | `fallback_delay_ns` | 250 ms | Under `.prefer = .quic`, how long QUIC's handshake runs before TCP opens beside it. |
 | `quic_unadvertised` | `true` | Whether QUIC may open with no HTTPS record or Alt-Svc that names h3. |
 | `tcp_connections` | 1 | TCP connections held, at most 64. |
 | `requests` | 16 | Exchanges held at once, at most 1,024. |
-| `codings` and the decoder pools | none | Content codings offered and their decoders ([decision 101](decisions.md#decision-101)). |
+| `codings` and the decoder pools | none | Content codings offered and their decoders ([decision 101](decisions/0101-the-client-and-server-code-content.md)). |
 | `timeouts.connect_ns` | 10 s | How long a TCP connect may take; your loop applies it, as `colibri.Client` does. |
-| `timeouts.drop_ns` | 50 ms | How long an h11 connection drops a cancelled response ([decision 146](decisions.md#decision-146)). |
+| `timeouts.drop_ns` | 50 ms | How long an h11 connection drops a cancelled response ([decision 146](decisions/0146-an-h11-client-bounds-the-drop.md)). |
 | `idle_timeout_ms` | 30 s | QUIC's idle timeout. |
-| `congestion_controller` | `.bbr` | QUIC's controller: `.bbr`, `.cubic` or `.newreno` ([decision 133](decisions.md#decision-133)). |
+| `congestion_controller` | `.bbr` | QUIC's controller: `.bbr`, `.cubic` or `.newreno` ([decision 133](decisions/0133-the-congestion-controller-is-cubic-in.md)). |
 | `ecn` | `false` | Whether the program reads and sets each datagram's ECN codepoint. |
 
 - QUIC is offered only with a receive pool, a `tls` value and `protocols.h3`.
@@ -1671,7 +1671,7 @@ fn report(event: client.Event, now_ns: u64) !void {
 - The first connection whose handshake completes takes the exchanges.
 
 Start each transport an `open` names. Its TLS session draws from the source of the context in
-`tls` ([decision 175](decisions.md#decision-175)):
+`tls` ([decision 175](decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)):
 
 ```zig
 fn open_transport(open: client.Open, now_ns: u64) !void {
@@ -1738,7 +1738,7 @@ The response's `result`, a `client.Result`, says how the exchange ended:
 | `too_large` | The body, the headers or the trailers did not fit their buffer. |
 
 - Read `status`, a `client.Status`, only when `result` is `response` or `too_large`
-  ([decision 158](decisions.md#decision-158) ruling 5).
+  ([decision 158](decisions/0158-colibris-public-api-follows-tigerstyle-first.md) ruling 5).
 - A code outside 100-599 reads as `.server_error` from `status.class()`; `@intFromEnum(status)`
   gives the raw code.
 - A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection
@@ -1771,7 +1771,7 @@ fn connect_refused() !void {
 
 With no transport left, the exchange ends `refused`. The pool moves a refused exchange to another
 connection, and sends an idempotent request once more when its connection closed before any
-response arrived ([decision 124](decisions.md#decision-124)). A request goes out twice at most
+response arrived ([decision 124](decisions/0124-what-client-gives-a-program-that.md)). A request goes out twice at most
 (`client.constants.limits.moves_max`), and any other method ends `closed` for you to decide.
 
 - When a moved exchange asks for a second socket you do not open, call `transport_closed` with
@@ -1798,7 +1798,7 @@ fn sleep_ns() u64 {
 exchange, so set your own limit on each one and call `cancel` when it passes.
 
 - `cancel(id, now_ns)` ends an exchange with no `finished` event; h2 and h3 reset its stream.
-- h11 reads and drops the rest of a cancelled response ([decision 146](decisions.md#decision-146)).
+- h11 reads and drops the rest of a cancelled response ([decision 146](decisions/0146-an-h11-client-bounds-the-drop.md)).
 - The h11 connection fails instead on a close-delimited response, past
   `client.constants.limits.drop_len_max` (256 KiB), or when `drop_ns` runs out.
 
@@ -1887,7 +1887,7 @@ var response: client.Response align(@alignOf(client.Response)) = .{
 };
 ```
 
-The pool copies no piece of either body ([decision 153](decisions.md#decision-153)). A streamed
+The pool copies no piece of either body ([decision 153](decisions/0153-a-client-that-runs-on-a.md)). A streamed
 request has an empty `body`, and the response's `body` holds one piece at a time. `client.Streamed`
 has three fields:
 
@@ -1951,7 +1951,7 @@ Three events carry a streamed response:
 - `finished`: comes after you release the last piece, with the trailers in `Response.trailers`.
 
 Release each piece soon; a piece you hold stops its stream
-([decision 49](decisions.md#decision-49)). Over h11 and h2 a held piece stops the whole connection.
+([decision 49](decisions/0049-colibri-auto-tunes-its-flow-control.md)). Over h11 and h2 a held piece stops the whole connection.
 
 ```zig
 fn on_finished(ended: client.Finished) !void {
@@ -1965,7 +1965,7 @@ fn on_finished(ended: client.Finished) !void {
 
 - You may call `release_body` while you read the pool's events.
 - Over h2 and h3 the request body may go on after the response's head; over h11 a response that
-  ends first ends the connection ([decision 124](decisions.md#decision-124) ruling 2).
+  ends first ends the connection ([decision 124](decisions/0124-what-client-gives-a-program-that.md) ruling 2).
 - The pool moves a streamed exchange only before its first `body_taken` and its `headers`; after
   that a refused exchange ends `closed`.
 - `cancel` gives back the request piece and the response piece at once.
@@ -2034,11 +2034,11 @@ try link.send(.server, output[0..written]);
 - Call `receive(input, decoded)` until it consumes nothing and returns no event; pass
   `decoded` empty when the connection has no decoders.
 - `count_body` sends the body from your buffer, and `write_body` copies it into the output
-  ([decision 95](decisions.md#decision-95)).
+  ([decision 95](decisions/0095-h11-counts-body-bytes-the-caller.md)).
 - A client pipelines, and stops after a request that is not idempotent until its final response
-  arrives ([decision 88](decisions.md#decision-88)).
+  arrives ([decision 88](decisions/0088-colibri-builds-http11-as-h11-client.md)).
 - A server reads the next request only after it writes the final response to the current one
-  ([decision 92](decisions.md#decision-92)).
+  ([decision 92](decisions/0092-how-an-h11-connection-runs.md)).
 - When `receive` fails and `has_pending` is true, call `write_pending`, send its bytes, then
   close.
 - Close the transport when `should_close` says so, and call `transport_closed` when it closes.
@@ -2049,8 +2049,8 @@ try link.send(.server, output[0..written]);
 
 No example places a decoder pool yet. Place one `h11.coding.Pool(.{})`, call `init()` once, and
 give its `storage()` to each connection in `Options.decoders`
-([decision 91](decisions.md#decision-91)). `receive` then decodes into `decoded`, and each `data`
-event is a slice of it, valid until the next call ([decision 98](decisions.md#decision-98)).
+([decision 91](decisions/0091-how-h11-uses-stdxs-gzip-and.md)). `receive` then decodes into `decoded`, and each `data`
+event is a slice of it, valid until the next call ([decision 98](decisions/0098-h11-decodes-a-coded-body-into.md)).
 
 | Case | A server answers | A client |
 | --- | --- | --- |
@@ -2114,9 +2114,9 @@ return head_len + data.written + data.consumed;
 | `write_response` | a response head | a server answers a stream |
 | `write_data` | DATA, as much as the flow-control windows allow | content in colibri's output |
 | `sendable_len` | the bytes `write_data` would send now | before a write; at 0, wait for WINDOW_UPDATE |
-| `write_data_header` | the 9-byte header of the frame `write_data` would write | content in your own buffer ([decision 138](decisions.md#decision-138)) |
+| `write_data_header` | the 9-byte header of the frame `write_data` would write | content in your own buffer ([decision 138](decisions/0138-h2-writes-a-data-frames-header.md)) |
 | `write_trailers` | a trailer section that ends the message | after the final header section (RFC 9113 §8.1) |
-| `reset_stream` | nothing; the next `write_pending` writes RST_STREAM | to end one stream ([decision 113](decisions.md#decision-113)) |
+| `reset_stream` | nothing; the next `write_pending` writes RST_STREAM | to end one stream ([decision 113](decisions/0113-a-rststream-the-caller-asks-for.md)) |
 | `shutdown` | nothing; begins a graceful close | to close the connection |
 
 - `connection.field_section()` holds the field section of a head or trailers event.
@@ -2124,12 +2124,12 @@ return head_len + data.written + data.consumed;
 - Send a frame's `consumed` bytes right after the header from `write_data_header`, before any
   other byte.
 - Over TLS, the header and the content may go in one record through `encrypt_parts`
-  ([decision 139](decisions.md#decision-139)).
+  ([decision 139](decisions/0139-a-provider-seals-a-frames-header.md)).
 
 ## TLS
 
 The `tls` module runs the TLS 1.3 sessions of `stdx.crypto` behind the vtables h11, h2 and QUIC
-take ([decision 174](decisions.md#decision-174)). From
+take ([decision 174](decisions/0174-colibri-takes-chapulin-through-stdx-as.md)). From
 [`tools/consumer/main.zig`](../tools/consumer/main.zig), a program makes one `stdx.crypto.Context`
 when it starts:
 
@@ -2176,7 +2176,7 @@ try tls_client.start(&tls_config, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);
 ```
 
-- Each TLS value holds the one context ([decision 175](decisions.md#decision-175)).
+- Each TLS value holds the one context ([decision 175](decisions/0175-colibri-takes-the-programs-stdxcryptocontext-once.md)).
 - The random source feeds every session secret, QUIC connection ID, token and grease value.
 - Call `set_data_independent_timing` on each thread that runs TLS.
 - Without the AES and DIT statement, a session offers TLS_CHACHA20_POLY1305_SHA256 alone.
@@ -2205,7 +2205,7 @@ if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else 
 - A refused `fail` returns a `tls.record.FailError` and leaves the session as it was.
 
 What the handshake selected is a `tls_provider.Negotiated`, null until the handshake completes
-([decision 140](decisions.md#decision-140)):
+([decision 140](decisions/0140-a-handshakes-key-exchange-group-is.md)):
 
 ```zig
 const provider = tls_client.provider();
@@ -2250,7 +2250,7 @@ const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_ro
 | ML-DSA-87 under `PRIVATE KEY` (RFC 9881 §6) | `mldsa87` |
 
 - Each call reads from memory the program filled, and does no I/O
-  ([decision 141](decisions.md#decision-141)).
+  ([decision 141](decisions/0141-tlspem-reads-the-pem-files-an.md)).
 - Keep the DER room and the slice room in place while a session uses them.
 - A DER room of three quarters of the file's length holds its DER.
 - Each call skips text lines around its blocks (RFC 7468 §2 and §5.2).
@@ -2264,7 +2264,7 @@ const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_ro
 ### Server identities
 
 - `tls.Server.identities` holds at most one identity per scheme
-  ([decision 147](decisions.md#decision-147)).
+  ([decision 147](decisions/0147-a-servers-identities-are-one-shape.md)).
 - The server signs with ML-DSA-87 when the client offers it, then ECDSA P-256, then RSA-PSS.
 - A `tls.Key` holds 7,488 bytes of key room, the size of an ML-DSA-87 key pair.
 - `init` returns `error.IdentityRepeated` for two identities of one scheme.
@@ -2278,7 +2278,7 @@ const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_ro
 - A server that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
 
 The crypto module defines `ch_assert_fail`, which panics by default
-([decision 172](decisions.md#decision-172)). A program that reports the failure its own way
+([decision 172](decisions/0172-colibri-asks-chapulin-once-and-chapulins.md)). A program that reports the failure its own way
 declares `chapulinAssertFail` in its root file:
 
 ```zig
@@ -2311,7 +2311,7 @@ fn check(algorithm: dnssec.Algorithm, key: []const u8, signature: []const u8, da
 ```
 
 `dnssec` checks algorithms 8, 10, 13, 14 and 15, and digest types 1, 2 and 4, through
-`stdx.crypto` ([decision 142](decisions.md#decision-142)).
+`stdx.crypto` ([decision 142](decisions/0142-dnssecs-signature-checks-are-a-module.md)).
 
 - Both lookups return null for any other number, and for every number off arm64 and x86-64.
 - Build the signed data yourself (RFC 4034 §3.1.8.1); colibri copies, allocates and reads none.
@@ -2327,7 +2327,7 @@ fn check(algorithm: dnssec.Algorithm, key: []const u8, signature: []const u8, da
 
 No example drives `quic.Connection` or `h3.Connection` directly yet.
 [`src/testing/quic/udp/udp_peer.zig`](../src/testing/quic/udp/udp_peer.zig) is a whole endpoint
-over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds an h3 server and client.
+over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3) holds an h3 server and client.
 
 | `quic.Connection` call | What it does | Scratch |
 | --- | --- | --- |
@@ -2339,7 +2339,7 @@ over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds an h3 serv
 - Pass a `StreamProvider` to `send`; it gives colibri each stream's bytes as the windows allow.
 - `SendScratch(.{})` holds the smallest maximum datagram size of RFC 9000 §14.1.
 - Pass `packet_number_skips`, one `u64` drawn from your random source at start
-  ([decision 123](decisions.md#decision-123)).
+  ([decision 123](decisions/0123-quic-skips-packet-numbers-in-its.md)).
 - After each datagram, call `h3.Connection.receive` until it returns null.
 - Use the h3 connection's `provider` around your stream provider; h3 serves its control and QPACK
   streams.
@@ -2347,7 +2347,7 @@ over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds an h3 serv
   you send the content after them.
 - Each h3 call that writes or reads a frame takes the instant.
 
-To log a connection as qlog ([decision 102](decisions.md#decision-102)):
+To log a connection as qlog ([decision 102](decisions/0102-colibri-writes-qlog-when-its-caller.md)):
 
 - Place a `qlog.Log` with `Log.init(buffer, cpu_features)`, and write its header with
   `Log.start`.
@@ -2365,5 +2365,5 @@ connection and TLS session, and `zig build test` fails when it differs from the 
 - Your read and write buffers, and QUIC's scratch, come on top of those sizes.
 - A client that decodes `zstd` or `br` places a `client.ZstdDecoderPool(count)` or
   `client.BrotliDecoderPool(count)` and calls its `init()` once
-  ([decision 101](decisions.md#decision-101)).
+  ([decision 101](decisions/0101-the-client-and-server-code-content.md)).
 - Each module's `constants.zig` names the limits that set the sizes.

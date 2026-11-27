@@ -52,7 +52,7 @@ Some checks need more:
   loop is bounded.
 - **Every RFC rule is cited.** A check that exists because an RFC requires it carries the RFC and
   the section in a comment on the line that makes it. Cite the RFC that states the rule. Read the
-  copies in [`docs/rfcs/`](docs/rfcs/), never a summary or another implementation's source.
+  copies in [`docs/rfcs/`](docs/rfcs), never a summary or another implementation's source.
 - **Peer input fails closed.** A malformed byte, a short buffer or a limit reached returns an
   error value. Assertions are for programmer error, at contract points.
 - **Parsing goes through the bounds-checked reader**, and output through the writer. No raw
@@ -68,7 +68,7 @@ A test must fail when the code it covers is broken. When you add or change a che
 
 1. Break it on purpose, and confirm a test fails.
 2. Report each mutation as `CAUGHT` or `NOT CAUGHT`, in the commit body or in the step's entry
-   in `docs/design.md` §8.
+   in `docs/design/steps/`.
 3. A `NOT CAUGHT` means a test is missing. Write it.
 
 A new reader of a peer's bytes also gets a fuzz property and, where inputs longer than two

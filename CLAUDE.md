@@ -269,6 +269,10 @@ is added to the root and to the list in its test, which prints the name that dif
   `tools/` holds colibri's configuration of each rule and the rules only colibri has.
 - `docs/` is the design set. `bench/` holds benchmarks with their scripts and their committed
   baselines.
+- Each decision is a file of its own, `docs/decisions/NNNN-slug.md`, and `docs/decisions.md` is
+  their index. Each step of design §8 is a file of its own, `docs/design/steps/step-<id>.md`, and
+  §8 in `docs/design.md` is their index. A new decision or step gets its file and a row in its
+  index, in the commit that adds it, so GitHub renders every page.
 - `spec/` holds the formal specifications: one directory per TLA+ model in `spec/tla/`, and Lean
   proofs, when there are any, in one Lean project in `spec/lean/` (decision 67). Every project
   that uses pepegrillo keeps them this way.

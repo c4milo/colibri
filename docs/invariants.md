@@ -93,7 +93,7 @@ the build-plan step (design §8) that lands its check.
   13b).
 - **Violation.** A "temporary" growable buffer for an oversized field section, so the static
   memory table silently stops being true. Or an `init` that takes an allocator "only once".
-- See [decisions 31, 34](decisions.md#decision-31) and [35](decisions.md#memory).
+- See [decisions 31, 34](decisions/0031-the-workload-colibri-intends-to-win.md) and [35](decisions.md#memory).
 
 ### <a id="inv-2"></a>INV-2 — colibri performs no I/O
 
@@ -108,7 +108,7 @@ the build-plan step (design §8) that lands its check.
   `src/colibri/` is the driver, which does no I/O (decision 159 as amended on 2026-11-10). Step 0.
 - **Violation.** A convenience helper that takes a socket "just for the test server" and is written
   in a library module instead of in `src/testing/`.
-- See [decision 6](decisions.md#decision-6).
+- See [decision 6](decisions/0006-colibri-owns-no-io.md).
 
 ### <a id="inv-3"></a>INV-3 — every write is inside the caller's buffer
 
@@ -139,7 +139,7 @@ the build-plan step (design §8) that lands its check.
   fails if two runs of one seed differ by a byte. Steps 0 and 10.
 - **Violation.** An idle-timeout helper that reads the monotonic clock "because the caller would
   only pass the same value anyway".
-- See [decision 7](decisions.md#decision-7).
+- See [decision 7](decisions/0007-time-is-a-value-the-caller.md).
 
 ### <a id="inv-5"></a>INV-5 — colibri draws only from the source its caller passes, and reads no uninitialised memory
 
@@ -174,7 +174,7 @@ the build-plan step (design §8) that lands its check.
   and in both optimization modes. Steps 2 and 8.
 - **Violation.** Iterating a hash map whose order depends on a pointer, then writing frames in
   that order.
-- See [decision 30](decisions.md#decision-30).
+- See [decision 30](decisions/0030-the-deterministic-simulator-is-the-check.md).
 
 ## Parsing
 
@@ -405,7 +405,7 @@ the build-plan step (design §8) that lands its check.
   one, and dropping it, is the caller's. This entry used to claim colibri did that, and to name a
   path handle the type system would check — a mechanism for choosing between several paths, which
   decision 21 leaves colibri without.
-- See [decision 21](decisions.md#decision-21).
+- See [decision 21](decisions/0021-connection-migration-no-to-initiating-it.md).
 
 ### <a id="inv-21"></a>INV-21 — a level is protected only while its keys are available
 
@@ -413,13 +413,13 @@ the build-plan step (design §8) that lands its check.
   level's keys are available in that direction, and never after colibri discarded them. Once a
   level is discarded nothing is sent at it and nothing received at it is opened. After the TLS
   provider fails, the suite may drop a level's keys itself, and colibri asks it before every
-  `send` and `receive` ([decision 84](decisions.md#decision-84)): a level it no longer holds is lost, and
+  `send` and `receive` ([decision 84](decisions/0084-after-the-tls-provider-fails-the.md)): a level it no longer holds is lost, and
   nothing is sent or opened there either.
 - **Mechanism.** The connection holds one state per level and direction: none, available,
   discarded, lost. Both call sites assert it. RFC 9001 §4.9 says when the state moves to discarded: the
   Initial keys when a client first sends a Handshake packet and when a server first processes
   one (§4.9.1), the Handshake keys when the handshake is confirmed (§4.9.2).
-  [Decision 48](decisions.md#decision-48) leaves every key with the suite, so this
+  [Decision 48](decisions/0048-the-suite-holds-every-key-and.md) leaves every key with the suite, so this
   state is all colibri knows about one. The rule this entry used to hold, that the
   header-protection key is installed once and survives a key update (RFC 9001 §5.4, §6.1), is
   now the suite's to keep, and the null suite models it: a key update changes what its tag is
@@ -465,7 +465,7 @@ the build-plan step (design §8) that lands its check.
   CRYPTO bytes are not stream bytes and keep no acknowledged count: at the Initial and
   Handshake levels the second probe repeats the first one's (decision 64 as amended). INV-34
   covers them.
-  [Decision 57](decisions.md#decision-57) is why colibri resends exact ranges rather than
+  [Decision 57](decisions/0057-the-caller-keeps-a-streams-unacknowledged.md) is why colibri resends exact ranges rather than
   rewinding a stream, which would put a byte in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
   never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
@@ -484,7 +484,7 @@ the build-plan step (design §8) that lands its check.
   reused only once every older record has left.
 - **Mechanism.** A packet writes its extra ranges at the head, in the order packets are sent, and
   its record holds the head's position before them and their count, which may be none
-  ([decision 131](decisions.md#decision-131)). A record
+  ([decision 131](decisions/0131-a-packet-carries-up-to-16.md)). A record
   leaves its slot only when the oldest end of the sent table reaches it, so the tail moves in the
   same order. A packet whose ranges would pass the tail carries one STREAM frame.
 - **Check.** Runtime assertion: the ring asserts, when it takes ranges, that the new head does
@@ -523,7 +523,7 @@ the build-plan step (design §8) that lands its check.
 - **Mechanism.** Neither vtable has a member that takes or returns one. In record mode the
   provider keeps the whole key schedule (decision 8). In QUIC mode the secrets of RFC 9001 §4.1.4
   go from the provider to the suite inside the caller's code, and the suite seals and opens whole
-  packets ([decision 48](decisions.md#decision-48)). What colibri keeps from a
+  packets ([decision 48](decisions/0048-the-suite-holds-every-key-and.md)). What colibri keeps from a
   handshake is public on the wire or meant for the application: the ALPN name, the transport
   parameters, the connection IDs.
 - **Check.** A test in `src/crypto/suite.zig` compares the vtable's member names with the
@@ -560,7 +560,7 @@ the build-plan step (design §8) that lands its check.
 - **Mechanism.** RFC 9001 fixes Initial packets (§5, §5.2), the header protection used before a
   suite is selected (§5.4.1, §5.4.3) and the Retry tag (§5.8) to AES whatever TLS negotiates, so a
   suite without AES cannot start a connection at all.
-  [Decision 48](decisions.md#decision-48) leaves colibri unable to see what a suite
+  [Decision 48](decisions/0048-the-suite-holds-every-key-and.md) leaves colibri unable to see what a suite
   carries, so the one call that shows it is the check. A suite that lacks the AEAD or
   header-protection algorithm TLS goes on to negotiate (§5.3, §5.4.1) fails the same way at the
   first Handshake packet, with the same error class.
@@ -568,7 +568,7 @@ the build-plan step (design §8) that lands its check.
   (step 9). The error set of `install_initial_keys` carries the refusal from step 7.
 - **Violation.** Reporting the refusal as a handshake failure, which sends the peer a
   CONNECTION_CLOSE for the caller's own misconfiguration and looks like an attack in the log.
-- See [decisions 9 and 48](decisions.md#decision-9).
+- See [decisions 9 and 48](decisions/0009-packet-protection-is-a-second-caller.md).
 
 ### <a id="inv-26"></a>INV-26 — `quic` imports no HTTP module
 
@@ -582,7 +582,7 @@ the build-plan step (design §8) that lands its check.
   identifier half. Steps 0 and 8.
 - **Violation.** A stream-type constant for h3's control stream inside `src/quic/`, which is how a
   transport quietly becomes an HTTP transport.
-- See [decisions 3, 5](decisions.md#decision-3).
+- See [decisions 3, 5](decisions/0003-quic-is-a-module-inside-colibri.md).
 
 ## Errors
 
@@ -633,7 +633,7 @@ the build-plan step (design §8) that lands its check.
   `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of owed
   endings, so a response the peer acknowledged before the stop still ends `sent`.
   `ended` comes once the table is empty, and the slot's generation then advances, so every id of
-  the connection names nothing ([decision 119](decisions.md#decision-119)).
+  the connection names nothing ([decision 119](decisions/0119-how-one-endpoint-serves-tcp-and.md)).
 - **Check.** Runtime assertion: `end` in `src/server/engine/engine_state_quic.zig` and in
   `engine_state_tcp.zig` asserts that the connection stopped and its table is empty when it
   reports `ended`. Simulator invariant: the h3
@@ -680,7 +680,7 @@ the build-plan step (design §8) that lands its check.
   and each frame records the child kind it tried last: the literal, the parameter or the
   wildcard. A segment matches one literal edge at most. So the walk pushes each node once at
   most, and backs up past each node once at most. The check of the path is one loop over its
-  bytes, which `path_len_max` bounds (INV-8, [decision 122](decisions.md#decision-122)).
+  bytes, which `path_len_max` bounds (INV-8, [decision 122](decisions/0122-serverroutes-matches-a-method-and-a.md)).
 - **Check.** Runtime assertion: the walk's loop runs at most `walk_steps_max`, a bound that the
   build computes from the node count. The code after the loop asserts that it is unreachable.
   Tests in `src/server/router/router_test.zig` run every order of a table and a deep table whose

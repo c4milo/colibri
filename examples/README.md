@@ -38,7 +38,7 @@ These files are parts of the examples, not examples by themselves:
 | File | What it is |
 | --- | --- |
 | [`server_peers.zig`](server_peers.zig) | The two clients `server_exchange.zig` answers: one pool over TCP alone, and one over QUIC alone. |
-| [`server_resume.zig`](server_resume.zig) | The `server.ResumeProvider` `server_exchange.zig` gives its engine, which keeps RFC 9959's saved sets for each client host ([decision 149](../docs/decisions.md#decision-149)). |
+| [`server_resume.zig`](server_resume.zig) | The `server.ResumeProvider` `server_exchange.zig` gives its engine, which keeps RFC 9959's saved sets for each client host ([decision 149](../docs/decisions/0149-colibris-quic-connections-may-resume-congestion.md)). |
 | [`server_stream_peer.zig`](server_stream_peer.zig) | The client `server_stream.zig` answers. |
 | [`client_peer.zig`](client_peer.zig) | The server `client_exchange.zig` sends to. |
 | [`client_pool_peer.zig`](client_pool_peer.zig) | The server `client_pool.zig` sends to. |
@@ -49,7 +49,7 @@ These files are parts of the examples, not examples by themselves:
 
 colibri does no I/O, so a program brings its own sockets and its own event loop. Every example
 except `colibri_server.zig` and `colibri_shared_rotor.zig` opens no socket. Those two bind
-loopback ([decision 96](../docs/decisions.md#decision-96) as amended). The others run over the
+loopback ([decision 96](../docs/decisions/0096-examples-holds-programs-a-dependent-writes.md) as amended). The others run over the
 links:
 
 - the client and the server each run on a Rotor loop of their own, in one process;
@@ -64,10 +64,10 @@ sockets. The colibri calls stay the same.
 ## The identity
 
 The examples over TLS present colibri's test identity, a CA and a leaf for `localhost` in
-[`src/testing/testdata/`](../src/testing/testdata/), and judge it at an instant it is valid at. A
+[`src/testing/testdata/`](../src/testing/testdata), and judge it at an instant it is valid at. A
 real program loads its own certificate and key, and passes the Unix time its clock reads.
 
-The test-only endpoints in [`src/testing/`](../src/testing/) run every protocol over real sockets.
+The test-only endpoints in [`src/testing/`](../src/testing) run every protocol over real sockets.
 
 ## How the examples are checked
 
