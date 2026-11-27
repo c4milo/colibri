@@ -22,7 +22,7 @@ const Number = event.Number;
 /// order `send` writes it.
 pub fn should_send(connection: *Connection) bool {
     // Decision 176: records a lent output sealed, and a send left, go out first.
-    if (connection_output.sealed_owed(connection)) return true;
+    if (connection_output.sealed_unlent(connection)) return true;
     // The TLS flight's records go out first, whatever else holds.
     if (connection.records_len > 0) return true;
     // Before a protocol serves the connection, and after it closed, `send` writes the flight alone.
@@ -31,7 +31,8 @@ pub fn should_send(connection: *Connection) bool {
     if (record_failed(connection)) return handshake_owed(connection);
     // RFC 9110 §10.1.1: the 100 a request expects is in the output already, because the engine
     // asks after a `receive`, which writes it.
-    if (connection.output_len > 0) return true;
+    // Decision 176: octets a lend gave the socket are no debt of a new `send`.
+    if (connection_output.unlent_len(connection) > 0) return true;
     if (protocol_pending(connection)) return true;
     if (connection_coding.ring_owed(connection)) return true;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side".

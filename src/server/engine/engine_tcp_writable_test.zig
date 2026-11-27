@@ -80,10 +80,10 @@ const seconds_max: u64 = 40;
 /// A program writes each octet a peer's window opens, an octet a second, and the stream is cut at
 /// the send rate (decision 110 as amended). The engine asks for each octet's `send` before it
 /// reads the connection again, so the stream's send meter never waits on the output: whether the
-/// program writes before it passes the peer's WINDOW_UPDATE, or after. With `lending`, the program
-/// lends each `send`'s octets, and their send completes after the engine's later calls of that
-/// instant, as a socket's completion comes in the next turn (decision 176).
-fn expect_cut_at_send_rate(writes_first: bool, lending: bool) !void {
+/// program writes before it passes the peer's WINDOW_UPDATE, or after. `lending` says how the
+/// program takes the octets (`support.Lending`): a lent send completes after the engine's later
+/// calls of that instant, as a socket's completion comes in the next turn (decision 176).
+fn expect_cut_at_send_rate(writes_first: bool, lending: support.Lending) !void {
     try support.start(null, .{});
     support.lending = lending;
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
@@ -114,8 +114,10 @@ fn expect_cut_at_send_rate(writes_first: bool, lending: bool) !void {
 
 test "decision 110 as amended: a stream whose window opens an octet a second is cut at the send rate" {
     // Decision 176: the same holds for a program that lends, whose send is in flight across the
-    // engine's next calls.
-    for ([_]bool{ false, true }) |lending| {
+    // engine's next calls, at each `send` or once at the end of its calls of an instant. The late
+    // lend follows reads that paused the meter, and its instant takes the window back (decision
+    // 110 as amended on 2026-11-27).
+    for ([_]support.Lending{ .copy, .at_send, .late }) |lending| {
         try expect_cut_at_send_rate(false, lending);
         try expect_cut_at_send_rate(true, lending);
     }

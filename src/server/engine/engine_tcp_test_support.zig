@@ -97,7 +97,7 @@ pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessi
     client_read = @splat(0);
     closed = @splat(false);
     flushing = true;
-    lending = false;
+    lending = .copy;
     lent = @splat(&.{});
     client_saw_alert = false;
     program = null;
@@ -187,10 +187,13 @@ fn note(reported: Event) void {
     }
 }
 
-/// Whether `flush` lends the octets with `output_stream`, as a socket that sends from the
-/// connection's output does (decision 176), in place of `send_stream`'s copy. A lend stays in
-/// flight until `complete_lent`, as a send's completion comes in a later turn.
-pub var lending: bool = false;
+/// How `flush` hands the octets to the socket: `send_stream`'s copy, or a lend of
+/// `output_stream`, as a socket that sends from the connection's output takes them (decision
+/// 176). A lend stays in flight until `complete_lent`, as a send's completion comes in a later
+/// turn. With `.late`, `flush` lends nothing, and `complete_all` lends once at its instant, as a
+/// pump that lends once a turn does.
+pub const Lending = enum { copy, at_send, late };
+pub var lending: Lending align(@alignOf(Lending)) = .copy;
 /// The octets each slot's last lend gave, which `complete_lent` sends.
 var lent: [tcp_slots][]const u8 = @splat(&.{});
 
@@ -209,6 +212,7 @@ pub fn complete_lent(handle: ConnectionHandle) void {
 /// Completes the lends of the connection `handle` names, and keeps the events that follow, until
 /// it lends nothing more at this instant.
 pub fn complete_all(handle: ConnectionHandle) void {
+    if (lending == .late and lent[handle.slot].len == 0) lent[handle.slot] = engine.output_stream(handle, instant_ns);
     // Bounded: each pass sends what one lend gave.
     for (0..rounds_max) |_| {
         if (lent[handle.slot].len == 0) return;
@@ -221,10 +225,14 @@ pub fn complete_all(handle: ConnectionHandle) void {
 /// the socket, until a call leaves room. With `lending`, it completes the slot's last lend and
 /// lends what the connection owes now.
 pub fn flush(handle: ConnectionHandle) void {
-    if (lending) {
-        complete_lent(handle);
-        lent[handle.slot] = engine.output_stream(handle, instant_ns);
-        return;
+    switch (lending) {
+        .copy => {},
+        .at_send => {
+            complete_lent(handle);
+            lent[handle.slot] = engine.output_stream(handle, instant_ns);
+            return;
+        },
+        .late => return,
     }
     const slot = handle.slot;
     // Bounded: each pass fills the room it had, or ends the loop.

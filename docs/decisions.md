@@ -8629,8 +8629,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        It then calls `sent_stream(connection, sent, now_ns)` with the octets the send took, 0 for
        a send that failed or never went.
      - The engine keeps those octets in place until `sent_stream`, and the connection writes only
-       after them. The engine holds one `output_stream` at a time: a second call before its
-       `sent_stream` is a programmer error, and an assertion refuses it.
+       after them. A program calls `output_stream` once a turn, for a socket with no send in
+       flight, so the turn's one send carries every octet its writes made (decision 119 as
+       amended). A call before the send starts returns the same octets from the same front, and
+       those written since.
+     - An h2 stream's send meter waits only on octets no `output_stream` returned. A read that
+       finds octets not lent yet pauses the meter, and the lend at the same instant takes its
+       window back (decision 110 as amended a ninth time, on 2026-11-27).
      - The engine reports a connection's `ended` only after the `sent_stream` of each
        `output_stream` that returned octets, whatever ended the connection. So no later
        connection of the slot writes into octets that a send still reads.

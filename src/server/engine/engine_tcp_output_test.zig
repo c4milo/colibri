@@ -247,3 +247,44 @@ test "decision 176: over TLS a staged close's half_close waits for the sealed re
     _ = try support.open_sent(handle.slot);
     try testing.expect(support.client_saw_alert);
 }
+
+test "decision 176: a lend before the send starts holds the earlier lend and what was written since" {
+    const handle = try start_h2();
+    const id = support.id_of(handle, 1);
+    try engine.respond(id, .{ .status = ok, .end = false });
+    support.collect();
+    const before = sends();
+    const first = engine.output_stream(handle, support.now_ns);
+    @memcpy(saved[0..first.len], first);
+    // A write after the lend brings a new `send`, for the octets no lend gave.
+    _ = try engine.write_body(id, .{ .bytes = "more", .end = true });
+    support.collect();
+    try testing.expectEqual(before + 1, sends());
+    const second = engine.output_stream(handle, support.now_ns);
+    try testing.expectEqual(@intFromPtr(first.ptr), @intFromPtr(second.ptr));
+    try testing.expectEqualSlices(u8, saved[0..first.len], second[0..first.len]);
+    try testing.expect(std.mem.endsWith(u8, second, "more"));
+    // Every octet owed is lent, so no `send` comes.
+    support.collect();
+    try testing.expectEqual(before + 1, sends());
+    engine.sent_stream(handle, second.len, support.now_ns);
+}
+
+test "decision 176: over TLS a second lend seals what was written since after the first's records" {
+    const handle = try start_tls(get_kept);
+    const id = support.id_of(handle, support.nth(.request, 0).?.number);
+    try engine.respond(id, .{ .status = ok, .end = false });
+    const first_len = engine.output_stream(handle, support.now_ns).len;
+    _ = try engine.write_body(id, .{ .bytes = "body", .end = true });
+    // Every record owed is lent, so no `send` comes before the socket's send.
+    support.collect();
+    const before = sends();
+    _ = engine.output_stream(handle, support.now_ns);
+    support.collect();
+    try testing.expectEqual(before, sends());
+    const lent = send_lent(handle, carried_max);
+    try testing.expect(lent.len > first_len);
+    const opened = try support.open_sent(handle.slot);
+    try testing.expect(std.mem.startsWith(u8, opened, "HTTP/1.1 200"));
+    try testing.expect(std.mem.indexOf(u8, opened, "\r\nbody\r\n") != null);
+}

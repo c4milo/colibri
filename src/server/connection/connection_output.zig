@@ -19,15 +19,18 @@ const TlsSession = tls_session.TlsSession;
 
 /// Lends the socket what the connection owes it at `now_ns`. What the protocol owes is written
 /// first, as `send` writes it. Over TLS it is sealed after the records that an earlier send left.
-/// The octets stay where they are until `took`, and the connection writes only after them.
+/// The octets stay where they are until `took`, and the connection writes only after them. A
+/// second lend before `took` returns the same octets from the same front, and those written
+/// since, for a socket that has not started its send.
 pub fn lend(connection: *Connection, now_ns: u64) []const u8 {
-    // Decision 176: the socket holds one lent output at a time.
-    assert(connection.lent_len == 0);
+    const lent_before = connection.lent_len;
     _ = connection_deadline.fire(connection, now_ns);
     _ = connection_continue.write(connection);
     _ = internal.write_owed(connection, now_ns);
     connection_coding.drain(connection);
     const owed = owed_octets(connection, now_ns);
+    // Decision 176: a lend never moves or drops octets an earlier one gave.
+    assert(owed.len >= lent_before);
     connection.lent_len = owed.len;
     connection_deadline.observe(connection, now_ns);
     return owed;
@@ -69,17 +72,24 @@ pub fn copy_sealed(connection: *Connection, output: []u8, now_ns: u64) usize {
 }
 
 /// The octets of `output` that no lend gave the socket: in cleartext those after the lent ones,
-/// and over TLS all of them, since a lend seals them into the session's `sealed`.
+/// and over TLS all of them, since a lend seals them into the session's `sealed`. Once the
+/// transport closed, the output holds none, and a send may still hold what it was lent.
 pub fn unlent_len(connection: *const Connection) usize {
     if (connection.config.tls != null) return connection.output_len;
-    assert(connection.lent_len <= connection.output_len);
-    return connection.output_len - connection.lent_len;
+    assert(connection.phase == .closed or connection.lent_len <= connection.output_len);
+    return connection.output_len -| connection.lent_len;
 }
 
 /// Whether records that a `lend` sealed wait for the socket.
 pub fn sealed_owed(connection: *const Connection) bool {
     const session = connection.tls_session orelse return false;
     return session.sealed_len > 0;
+}
+
+/// Whether sealed records wait that no lend gave the socket: those a send left.
+pub fn sealed_unlent(connection: *const Connection) bool {
+    const session = connection.tls_session orelse return false;
+    return session.sealed_len > connection.lent_len;
 }
 
 /// Drops the first `sent` sealed octets, which a send took, and moves the rest to the front.

@@ -169,7 +169,8 @@ fn connection_event(state: *State, slot: u32, connection: *Connection, table: *T
 /// grace period, and a peer that opens its window an octet at a time would never be cut.
 fn send_first(state: *State, slot: u32) bool {
     if (state.transports[slot] != .open or state.send_outstanding[slot]) return false;
-    if (state.tcp[slot].output_len == 0) return false;
+    // Decision 176: octets a lend gave the socket are no debt of a new `send`.
+    if (connection_output.unlent_len(&state.tcp[slot]) == 0) return false;
     state.send_outstanding[slot] = true;
     state.event = .{ .send = state.slots.handle_of(slot) };
     return true;
@@ -244,7 +245,8 @@ pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns
 
 /// Lends the program what the connection `handle` names owes its socket, where the connection
 /// holds it (decision 176): empty for a handle that names none, or a socket that closed. The
-/// octets stay in place until `sent_stream`.
+/// octets stay in place until `sent_stream`. Every octet owed is lent now, so the next poll
+/// reports a `send` for the octets written after this call, as for a `send_stream` that left room.
 pub fn output_stream(state: *State, handle: ConnectionHandle, now_ns: u64) []const u8 {
     assert(handle.slot < state.slots.tcp_count);
     const slot = state.slots.resolve(handle) orelse return &.{};
@@ -252,6 +254,7 @@ pub fn output_stream(state: *State, handle: ConnectionHandle, now_ns: u64) []con
     const owed = connection_output.lend(&state.tcp[slot], now_ns);
     // A lend writes a coded ring's octets out, which frees room for more of the response.
     state.room[slot] +%= 1;
+    state.send_outstanding[slot] = false;
     engine_state.touch(state, slot);
     return owed;
 }

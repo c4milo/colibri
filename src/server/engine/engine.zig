@@ -255,10 +255,11 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// Returns what the TCP connection `connection` owes its socket, sealed over TLS, where the
         /// engine holds it (decision 176). The program sends from there, and then calls
         /// `sent_stream` with what the send took, so its send copies no octet. Until that call the
-        /// engine keeps the octets in place, takes no other `output_stream` or `send_stream` of
-        /// the connection, and reports no `ended` of it, whatever ended the connection. Empty for
-        /// a handle that names no connection, and for a connection whose socket closed. The
-        /// engine reports a `send` when the connection owes octets, as for `send_stream`.
+        /// engine keeps the octets in place, takes no `send_stream` of the connection, and reports
+        /// no `ended` of it, whatever ended the connection. A program calls this again before the
+        /// send starts, at each `send`: it returns the same octets from the same front, and those
+        /// written since. Empty for a handle that names no connection, and for a connection whose
+        /// socket closed. The engine reports a `send` for octets no call returned yet.
         pub fn output_stream(engine: *Self, connection: ConnectionHandle, now_ns: u64) []const u8 {
             return engine.state.output_stream(connection, now_ns);
         }
