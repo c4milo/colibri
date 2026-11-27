@@ -34,6 +34,45 @@ Check is grade 7 or 8 is a weaker entry, and the scale says so.
 The invariants whose build-plan step has landed are implemented; the rest are not. Each entry names
 the build-plan step (design §8) that lands its check.
 
+## Index
+
+| Invariant | Claim | Runtime assertion |
+| --- | --- | --- |
+| [INV-1](#inv-1) | colibri never allocates | no |
+| [INV-2](#inv-2) | colibri performs no I/O | no |
+| [INV-3](#inv-3) | every write is inside the caller's buffer | yes |
+| [INV-4](#inv-4) | no source reads a clock | no |
+| [INV-5](#inv-5) | colibri draws only from the source its caller passes, and reads no uninitialised memory | no |
+| [INV-6](#inv-6) | a connection is a pure function | no |
+| [INV-7](#inv-7) | validation precedes interpretation | no |
+| [INV-8](#inv-8) | every loop over peer-supplied counts is bounded by a named limit | yes |
+| [INV-9](#inv-9) | a declared length is checked against the bytes present | no |
+| [INV-10](#inv-10) | every byte of a field block is decoded, even when the result is discarded | yes |
+| [INV-11](#inv-11) | the dynamic table's accounted size equals the sum of its entries | yes |
+| [INV-12](#inv-12) | the three Huffman decode errors are rejected | no |
+| [INV-13](#inv-13) | stream identifiers are monotonic per parity and never reused | yes |
+| [INV-14](#inv-14) | exactly one field-block reassembly is in progress | yes |
+| [INV-15](#inv-15) | flow-control windows stay in range, and a send window may be negative | yes |
+| [INV-16](#inv-16) | GOAWAY's last-stream-id never increases | yes |
+| [INV-17](#inv-17) | a packet number is never reused in its space | yes |
+| [INV-18](#inv-18) | the anti-amplification limit holds, and it is the server's | yes |
+| [INV-19](#inv-19) | flow-control limits are non-decreasing offsets, never credits | yes |
+| [INV-20](#inv-20) | colibri holds one path, and refusing a migration emits nothing | no |
+| [INV-21](#inv-21) | a level is protected only while its keys are available | yes |
+| [INV-22](#inv-22) | a version-independent parse reads only RFC 8999 fields | no |
+| [INV-23](#inv-23) | colibri holds no secret | no |
+| [INV-24](#inv-24) | no assertion is reachable from peer input | no |
+| [INV-25](#inv-25) | a suite that cannot protect Initial packets is a configuration error | no |
+| [INV-26](#inv-26) | `quic` imports no HTTP module | no |
+| [INV-27](#inv-27) | a connection error and a stream error are distinct types | no |
+| [INV-28](#inv-28) | an error's wire code is chosen in one place per protocol | no |
+| [INV-29](#inv-29) | a framed stream byte is in one place | yes |
+| [INV-30](#inv-30) | every request ends once, before its connection | yes |
+| [INV-31](#inv-31) | the engine's deadline is the soonest of its connections' | yes |
+| [INV-32](#inv-32) | a match reads each node of its table at most once | yes |
+| [INV-33](#inv-33) | the sent table says which stream ranges in the ring are live | yes |
+| [INV-34](#inv-34) | a CRYPTO byte in flight stays in its level's send window | yes |
+
 ## Allocation and ownership
 
 ### <a id="inv-1"></a>INV-1 — colibri never allocates

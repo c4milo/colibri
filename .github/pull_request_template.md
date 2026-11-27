@@ -9,5 +9,8 @@
       commit body or in the step's entry in `docs/design.md` §8.
 - [ ] Each check that an RFC requires cites the RFC and the section on its line.
 - [ ] Each commit is a Conventional Commit, and `zig build lint-commits` passes.
+- [ ] Each public name I added is on its root's list, with an example in `examples/` and an
+      entry in `docs/usage.md`.
 - [ ] I changed no named limit, no dependency and no edge of the module graph, or an issue
-      approved the change first.
+      approved the change first. No HTTP module gains an edge into `quic`.
+- [ ] No commit message and no part of this description names an AI tool.

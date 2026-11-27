@@ -1,5 +1,12 @@
 # The request to chapulin
 
+> [!NOTE]
+> This page is history. Since v0.22.0 colibri pins no chapulin of its own: it reads chapulin as
+> `stdx.crypto`, from the stdx commit `build.zig.zon` pins
+> ([decisions 174](decisions.md#decision-174) and [175](decisions.md#decision-175)). The section
+> "chapulin, through stdx" of [`docs/usage.md`](usage.md) holds the current contract. The page
+> below records what colibri asked chapulin for in September 2026, and some of it no longer holds.
+
 Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-22, at its commit
 `2ef6d52`. Every item below has since landed in chapulin, and each one says how; "What is left"
 names the one contract note that remains. The h2 blocking-handshake item landed during the first

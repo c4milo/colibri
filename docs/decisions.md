@@ -5,7 +5,16 @@ re-arguing the trade, not just editing the code. The README states what colibri 
 states why colibri does nothing more.
 
 Entries marked **owner** are waiting on a ruling and are not settled. Everything else is settled
-and is re-argued, not edited.
+and is re-argued, not edited. A later ruling changes a decision in one of three ways, and the
+words below name which:
+
+- **Amended**: a dated paragraph inside the decision, or a later decision that says it amends
+  this one, changes part of the ruling. The rest stands.
+- **Reversed**: a later decision rules the opposite, and the title says so.
+- **Adopted**: the decision was taken during a build step, before the owner ruled on it. It
+  stands until the owner overrules it.
+
+Each decision has an anchor, such as `decisions.md#decision-94`.
 
 ## Scope and shape
 
@@ -22,7 +31,8 @@ and is re-argued, not edited.
    restating them. Two libraries would copy both, and two copies of a 257-symbol code table diverge
    over time.
 
-2. <a id="decision-2"></a>**No HTTP/1.1.** Cost: colibri cannot serve or speak to an h1 peer, and a consumer that needs
+2. <a id="decision-2"></a>**No HTTP/1.1. Reversed by [decision 88](#decision-88) on 2026-09-24:
+   colibri builds h11.** Cost: colibri cannot serve or speak to an h1 peer, and a consumer that needs
    one keeps whatever it already has. Gain: the whole of RFC 9112 stays out — the eight-step
    message-body-length precedence of §6.3, the chunked decoder of §7.1, `obs-fold` unfolding
    (§5.2), the whitespace-before-colon rejection of §5.1, the connection-persistence state
@@ -524,7 +534,7 @@ middleware, was reversed by decision 127 and stays here as a record.
     transport-parameter identifiers of the form 31*N+27 (§18.1), which exist to exercise
     that ignore path — and colibri tests it rather than assuming it.
 
-118. <a id="decision-118"></a>**Middleware: no.** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
+118. <a id="decision-118"></a>**Middleware: no. Reversed by [decision 127](#decision-127).** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
      compile-time chain of middleware, global and for each route. colibri's two middleware for
      content codings, `server.middleware.decode_request` and `encode_response`, are design §8 step
      25.7, which waits for https://github.com/c4milo/stdx/issues/21. The ruling below is the record
@@ -2245,7 +2255,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       reference to the dynamic table's own bytes would need a copy before the insert evicts them.
 
 77. <a id="decision-77"></a>**Lean 4 proves the pure arithmetic under colibri's codecs, and vector files tie each proved
-    definition to the Zig function it mirrors.** Ruled by the owner on 2026-09-24, on issue #52:
+    definition to the Zig function it mirrors.** Ruled by the owner on 2026-09-24, on issue [#52](https://github.com/c4milo/colibri/issues/52):
     the Lean toolchain is a dependency, pinned in `spec/lean/lean-toolchain`, built with lake
     through pepegrillo's `lean` tool, with no Mathlib. Entry 67 placed the project in `spec/lean/`.
 
@@ -3585,7 +3595,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        Once it is merged, the pin moves to the merge and the patch goes.
 
      The alternatives refused:
-     - Leave the check as it is, and keep #78 open as a known flake. The rebinding cases then fail
+     - Leave the check as it is, and keep [#78](https://github.com/c4milo/colibri/issues/78) open as a known flake. The rebinding cases then fail
        now and then on paths the client did validate: 1 of the 18 colibri ran in on 2026-09-28,
        and 3 of 12 on 2026-09-27.
      - Send the change upstream without the patch. colibri's runs keep failing until it is merged.
@@ -5941,7 +5951,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 141. <a id="decision-141"></a>**`tls.pem` reads the PEM files an operator holds.** Ruled by the owner on 2026-10-31, for
      https://github.com/c4milo/colibri/issues/97. chapulin decodes the files (its decision 131)
-     and takes Zig slices since chapulin#213, so `tls` shapes nothing but colibri's anchor type.
+     and takes Zig slices since [chapulin#213](https://github.com/c4milo/chapulin/issues/213), so `tls` shapes nothing but colibri's anchor type.
      - `tls.pem.chain(file, der, room)`, `tls.pem.p256_key(cpu, file, leaf, &key)` and
        `tls.pem.anchors(file, der, room)`, and the type `tls.P256Key`. None reads a file, each
        fills rooms the program places, and each returns `error.Invalid` for a refused file.
@@ -6042,6 +6052,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: the build depends on one line of Zig's runner, so another 0.16 release can stop
      `-Dfuzz`. The build then says so, and `zig build test` is not affected.
+
+145. <a id="decision-145"></a>**No ruling.** This number went to a draft that the owner never
+     ruled on. Design §8 step 29d.15 cites the draft.
 
 146. <a id="decision-146"></a>**An h11 client bounds the drop of a response the caller no longer reads.** Ruled by the
      owner on 2026-11-02 ([#125](https://github.com/c4milo/colibri/issues/125)). Decision 124

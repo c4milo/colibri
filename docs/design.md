@@ -1,8 +1,8 @@
-# colibri — HTTP/2 and HTTP/3 Design Document
+# colibri — h11, h2 and h3 Design Document
 
-Status: v1 (design, pre-implementation). Owner: Camilo. Scope: the library, both protocols, both
-roles. Sibling to [decisions.md](decisions.md) and [invariants.md](invariants.md); decisions there
-are taken as given and cited, not relitigated.
+Owner: Camilo. Scope: the library, its three HTTP versions and QUIC, both roles. §8 records each
+step of the build and what its check printed. Sibling to [decisions.md](decisions.md) and
+[invariants.md](invariants.md); decisions there are taken as given and cited, not relitigated.
 
 Every section is cited by number in commits and comments ("§8 step 4").
 
@@ -11,12 +11,15 @@ Every section is cited by number in commits and comments ("§8 step 4").
 ## 1. Thesis and scope
 
 colibri is an HTTP/1.1, HTTP/2 and HTTP/3 library, client and server, written from the RFCs. It owns
-no I/O, no crypto and no clock: bytes, keys and time all arrive from the caller. What it owns is the
+no I/O and no clock: bytes and time arrive from the caller. Its crypto is `stdx.crypto`, which
+holds every key ([decisions 94 and 174](decisions.md#decision-94)). The `.private` kind of
+`colibri.Server` and `colibri.Client` is the one part that does I/O
+([decision 150](decisions.md#decision-150)). What it owns is the
 part that is hard to get right and easy to get wrong — framing, field compression, stream state,
 flow control, loss recovery — and it owns it with no heap, bounded loops and assertions that stay on
 in production.
 
-The narrowness is the point. A library that owns no sockets can be driven by a deterministic
+A library that owns no sockets can be driven by a deterministic
 simulator, replayed from a seed, and embedded in a runtime whose I/O model it never heard of.
 stompy is the first consumer and will vendor colibri the way it vendors chapulin; colibri never
 depends on stompy and never names it in source.
@@ -231,7 +234,7 @@ stream's bytes again until the peer acknowledges them, and it holds no copy. The
 the bytes and supplies a vtable with one member, `read(stream_id, offset, output)`, which writes
 the stream's bytes from `offset` into `output` and returns how many it wrote. colibri calls it
 inside `send` alone, for new bytes and for lost ones, and the caller may drop a stream's bytes
-once colibri reports the stream in Data Recvd (§3.1) or reset. The provider answers the same
+once colibri reports the stream in Data Recvd (RFC 9000 §3.1) or reset. The provider answers the same
 bytes for an offset every time, which RFC 9000 §2.2 requires and colibri cannot check.
 [Decision 57](decisions.md#decision-57) is the ruling and the alternatives it beat.
 
@@ -538,7 +541,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The positive control is what stops the whole thing being vacuous: a sixth fixture imports
   `core`, which `quic` does have, and must compile. A run where the control fails is reported as a
   broken check rather than a pass — and it did fail on the first run, on a real defect (`--dep=x`
-  instead of `--dep x`), which is the control earning its place.
+  instead of `--dep x`). The control caught that defect, which is why it exists.
 
   **Tooling moved to pepegrillo, 2026-09-16.** The lint driver and its generic rules, the
   complexity scorer and the commit linter now come from pepegrillo (decision 36). `tools/` keeps
@@ -1412,7 +1415,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   client could parse a response and had no way to ask for one. `connection/connection_request.zig`
   adds `write_request`: it refuses a request §8.3.1 or §8.5 would make malformed before anything
   changes, then opens the stream, encodes the section with the pseudo-header fields before the
-  regular field lines (§8.3), and cuts it into HEADERS and CONTINUATION. The order is the point:
+  regular field lines (§8.3), and cuts it into HEADERS and CONTINUATION. This order matters:
   §5.1.1 forbids reusing an identifier, so a request refused for its own contents costs no stream.
 
   Two receive-side rules came with it, both on the client path that nothing could reach before. A
@@ -1671,7 +1674,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     24 bytes. The fourth was **NOT CAUGHT** while the model dropped a frame read before the
     preface. It now reads it as colibri would without the check.
   - A trace through `server.Connection` and `client.Connection`, where e3126a9's defect was, is
-    the rest of #79.
+    the rest of [#79](https://github.com/c4milo/colibri/issues/79).
 
   **The TCP trace, 2026-09-30** ([#79](https://github.com/c4milo/colibri/issues/79)). The h2
   trace drives `h2.Connection` directly and writes each preface first, as h2's contract asks, so
@@ -1707,7 +1710,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `record_head`; and h2 refusing every response head that ends its stream, `Malformed` on seed
     0.
   - TLS, where cocuyo found the defect with the request in the flight of the client's Finished, is
-    the rest of #79.
+    the rest of [#79](https://github.com/c4milo/colibri/issues/79).
 
   **The TCP trace over TLS, 2026-09-30** ([#79](https://github.com/c4milo/colibri/issues/79)).
   cocuyo found e3126a9's defect over TLS, where the client's first flight goes out with its
@@ -3710,7 +3713,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `connection_id_frames.issue` takes a connection ID's bytes and its Stateless Reset Token from
   the caller. colibri draws no random number for the bytes (invariant 5), and RFC 9000 §10.3.2
-  derives the token from a key colibri does not hold (non-negotiable 2), the division #31 settled
+  derives the token from a key colibri does not hold (non-negotiable 2), the division [#31](https://github.com/c4milo/colibri/issues/31) settled
   for the Stateless Reset itself. It refuses:
   - an endpoint whose peer sends it zero-length IDs (§19.15);
   - bytes of a length other than this endpoint's first, because a short header does not encode
@@ -4238,7 +4241,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     passed.
   - `tools/interop.sh quinn handshakeloss`, five times on an Apple M1 Pro: colibri's client passed
     all 10 of its runs, against colibri's server and against quinn's. quinn's client against
-    colibri's server passed 4 of 5, where #76 counted 3 of 5 against the same quinn image before
+    colibri's server passed 4 of 5, where [#76](https://github.com/c4milo/colibri/issues/76) counted 3 of 5 against the same quinn image before
     the change. The runs kept no logs, because `INTEROP_LOGS` was not set, so the failed case's
     cause is not known yet.
 
@@ -4528,7 +4531,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   exactly once — 11743 and 4677 sum to 16420 — no packet is both acknowledged and declared lost,
   the run drains, and the window never falls under §7.2's minimum.
 
-  Those numbers moved on 2026-09-21, `53205ae`, and the move is the point. The receiver had been
+  Those numbers moved on 2026-09-21, `53205ae`, and the cause of the move is this. The receiver had been
   waiting for RFC 9000 §13.2.2's two ack-eliciting packets with no deadline under it, so a lone
   packet went unacknowledged and the sender probed for it; with §13.2.1's max_ack_delay applied,
   probes fall from 1354 to 746 over the same 256 seeds. The earlier figures were
@@ -4725,7 +4728,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   machine; timing waits for `bench/` (decision 32).
 
   **Still owed:** the two `.qif` tools of §9, which write colibri's encoded files for other
-  decoders to read; fuzzing; and the TLA+ model of the two tables' state (issue #46).
+  decoders to read; fuzzing; and the TLA+ model of the two tables' state (issue [#46](https://github.com/c4milo/colibri/issues/46)).
 
   **Lean proofs and a seeded check, 2026-09-24.**
   - `1434db1`: [decision 77](decisions.md#decision-77). `spec/lean/` proves that §4.5.1.1's Required Insert
@@ -7428,7 +7431,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **A fatal alert the program names, 2026-10-28.** cocuyo's DNS over TLS client must send
   record_overflow before it closes on a record longer than RFC 9846 §5.2 allows
   ([#114](https://github.com/c4milo/colibri/issues/114)). colibri had no call that writes an alert
-  other than close_notify. chapulin a51898de adds `fail` (chapulin#208), and colibri pins it. The
+  other than close_notify. chapulin a51898de adds `fail` ([chapulin#208](https://github.com/c4milo/chapulin/issues/208)), and colibri pins it. The
   owner ruled where the call goes on 2026-10-28: on the session types, not in
   `tls_provider.VTable`, which no provider then changes for.
   - Public names: `tls.record.Client.fail`, `tls.record.Server.fail` and `tls.record.FailError`.
@@ -9760,7 +9763,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     The stall of [#85](https://github.com/c4milo/colibri/issues/85) is violated with no timeout
     (`queue_stall`) and holds with the server's (`queue_stall_timeout`, 137,068 states): the
     server's send deadline ends it. The client has no deadline, so the stall stays open on its side,
-    which #85 rules on.
+    which [#85](https://github.com/c4milo/colibri/issues/85) rules on.
   - 144 small configurations of one stream under colibri's floor found no stall: the peer's
     window from 2 to 4 units, the floor 2 or 3, its threshold 1 to 3, offers of 1 to 4 units and
     bodies of 4 or 6.
@@ -10697,7 +10700,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   six sites change what the count reads.
 
   **chapulin bbfd316, 2026-10-27.** chapulin keeps each AES traffic key's schedule in its host
-  objects (chapulin#205), so a record does not expand its key again. Its daf336e stores a schedule
+  objects ([chapulin#205](https://github.com/c4milo/chapulin/issues/205)), so a record does not expand its key again. Its daf336e stores a schedule
   only under the session's AES bit, which keeps INV-26. The bump was judged against `eaa59ea`
   with `--h3`.
   - [Run 40561211242](https://github.com/c4milo/colibri/actions/runs/40561211242): h3-many at
@@ -10743,7 +10746,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `h2_streams_max`, and `data_frame_len_min`, which leaves the configuration's top level.
       `server.Config.limits` holds them. From 21b, `requests_max` bounds an h3 connection's
       requests too, up to the `quic_requests_max` its table holds.
-    - #96 put one TLS value in this part. It comes with 21b, because the endpoint builds both TLS
+    - [#96](https://github.com/c4milo/colibri/issues/96) put one TLS value in this part. It comes with 21b, because the endpoint builds both TLS
       configurations and holds a TCP connection only from 21b on. Until then the program's ALPN
       lists choose over TLS, and `versions` governs cleartext alone.
     - Public names: the server's root adds `Versions` and `Limits`, and the client's root adds
@@ -12606,7 +12609,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `encode_response` is one middleware, configured with the codings it may use in order of
       preference, such as `.codings = &.{ .br, .gzip }`: it reads Accept-Encoding and picks the
       first coding the client accepts. The same day, the owner added the brotli and zstd encoders'
-      adapters to stdx#21, once stdx builds those encoders
+      adapters to [stdx#21](https://github.com/c4milo/stdx/issues/21), once stdx builds those encoders
       (https://github.com/c4milo/stdx/issues/8, https://github.com/c4milo/stdx/issues/7).
 
 - <a id="step-26"></a>**Step 26 — several STREAM frames in a packet.** [Decision 131](decisions.md#decision-131) amends decision
@@ -13655,7 +13658,7 @@ library.
 
 - <a id="step-31"></a>**Step 31 — DNSSEC's signature checks, the `dnssec` module.** [Decision 142](decisions.md#decision-142)
   puts chapulin's DNSSEC checks in a library module of their own, for cocuyo's DNSSEC Stage B
-  ([#122](https://github.com/c4milo/colibri/issues/122), cocuyo#56). The owner reviewed the sketch
+  ([#122](https://github.com/c4milo/colibri/issues/122), [cocuyo#56](https://github.com/c4milo/cocuyo/issues/56)). The owner reviewed the sketch
   of its public API on 2026-10-31 ("That looks clean"), and it was built on 2026-11-01.
   - **The build.** colibri pins chapulin f59c7e3f, past 54bad29b, whose CI passed, and builds the
     TCP object with DNSSEC=on. On a target that is not arm64 or x86-64, chapulin refuses
@@ -17163,7 +17166,7 @@ library.
     - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
       failed; `zig build examples`, 10 of 11, the IPv6 example failed; `tools/doc_snippets.sh`;
       and `tools/consumer_check.sh`, with stdx from Zig's cache.
-  - **What stays.** The client keeps its own form, because #133 measured the server.
+  - **What stays.** The client keeps its own form, because [#133](https://github.com/c4milo/colibri/issues/133) measured the server.
 
 - <a id="step-59"></a>**Step 59 — fewer deadline checks on a TCP connection, planned 2026-11-18.**
   [#133](https://github.com/c4milo/colibri/issues/133). The owner ruled on 2026-11-18 to plan
@@ -18187,7 +18190,10 @@ the job fails when an input loses past the floor, and a person runs it before a 
 beside it, which is indicative and carries no threshold: the push job's x86-64 runner counts no
 instructions and draws a different CPU from run to run.
 
-## 12. Open questions for the owner
+## 12. Ruled questions
+
+The owner ruled each question below in September 2026, and each ruling is a decision. Open
+questions are [GitHub issues](https://github.com/c4milo/colibri/issues).
 
 1. **QUIC as a module or its own repository** ([decision 3](decisions.md#decision-3)).
    Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
@@ -18263,7 +18269,7 @@ instructions and draws a different CPU from run to run.
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on
   2026-09-19 (§12 question 5), which makes the overrun visible part by part rather than at the
-  end, and leaves only 9e waiting on chapulin.
+  end. Step 9 is built.
 - **The conformance suites are older than the RFCs they test.** h2spec is written against RFC 7540
   and 7541 and last released in 2020. A disagreement is checked against RFC 9113 before it is
   treated as colibri's bug, and the version is pinned so the answer does not move.
@@ -18274,15 +18280,10 @@ instructions and draws a different CPU from run to run.
   HTTP Garden and the QUIC Interop Runner every Monday.
   What needs a machine it does not have — the published numbers of §11 — is still run by a
   person, and the step's entry in §8 records what was run, on what, and what it printed.
-- **Every check that needs crypto waits on chapulin.**
-  [Decision 10](decisions.md#decision-10) has chapulin fill both vtables, and what
-  chapulin must add first reverses five of its recorded decisions: a server role with constant-time
-  signing, a non-blocking handshake with no global state, a QUIC mode and host-side AES
-  ([docs/chapulin.md](chapulin.md)). That work runs on chapulin's schedule, not colibri's. Step 5's
-  h2spec TLS mode and interop, step 7's RFC 9001 Appendix A vectors, and the interop endpoint,
-  h3spec and `secnetperf` of steps 9, 10, 12 and 13 all wait for it. The mitigation is the order of
-  the plan: steps 0 to 4, 6, 8 and 11 need no crypto, and step 4's cleartext h2 is a working library
-  with no TLS. colibri still cannot ship a working client on its own, and a consumer with no TLS
-  stack still has no h2-over-TLS.
+- **colibri's crypto moves with stdx.** colibri reads chapulin as `stdx.crypto`
+  ([decision 174](decisions.md#decision-174)), so a fix in chapulin reaches colibri only through a
+  stdx commit that pins it, and a colibri commit that pins that stdx. The mitigation is that stdx's
+  CI runs before colibri takes a bump, and colibri's TLS checks run against Go, OpenSSL, curl and
+  aioquic on every push.
 - **The development machine is not the measurement machine.** Every real number needs Linux.
   A macOS-only development loop can hide a regression that only a kernel mechanism would show.
