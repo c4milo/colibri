@@ -12,6 +12,7 @@ const connection_module = @import("../connection/connection.zig");
 const connection_internal = @import("../connection/connection_internal.zig");
 const connection_owed = @import("../connection/connection_owed.zig");
 const connection_close = @import("../connection/connection_close.zig");
+const connection_output = @import("../connection/connection_output.zig");
 const engine_requests = @import("engine_requests.zig");
 const engine_state = @import("engine_state.zig");
 const engine_state_events = @import("engine_state_events.zig");
@@ -180,6 +181,8 @@ fn send_first(state: *State, slot: u32) bool {
 fn transport_event(state: *State, slot: u32, connection: *Connection, now_ns: u64) bool {
     const handle = state.slots.handle_of(slot);
     if (state.transports[slot] != .open) {
+        // Decision 176: a send still reads what the connection lent, so the slot holds it.
+        if (connection.lent_len > 0) return false;
         state.event = end(state, slot, connection);
         return true;
     }
@@ -237,6 +240,39 @@ pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns
     if (written < output.len) state.send_outstanding[slot] = false;
     engine_state.touch(state, slot);
     return written;
+}
+
+/// Lends the program what the connection `handle` names owes its socket, where the connection
+/// holds it (decision 176): empty for a handle that names none, or a socket that closed. The
+/// octets stay in place until `sent_stream`.
+pub fn output_stream(state: *State, handle: ConnectionHandle, now_ns: u64) []const u8 {
+    assert(handle.slot < state.slots.tcp_count);
+    const slot = state.slots.resolve(handle) orelse return &.{};
+    if (state.transports[slot] != .open) return &.{};
+    const owed = connection_output.lend(&state.tcp[slot], now_ns);
+    // A lend writes a coded ring's octets out, which frees room for more of the response.
+    state.room[slot] +%= 1;
+    engine_state.touch(state, slot);
+    return owed;
+}
+
+/// The send of what `output_stream` lent took its first `sent` octets. The rest stays owed, and
+/// the next poll reports a `send` while the connection owes octets. After the socket closed, the
+/// slot frees once this call came (decision 176).
+pub fn sent_stream(state: *State, handle: ConnectionHandle, sent: usize, now_ns: u64) void {
+    assert(handle.slot < state.slots.tcp_count);
+    // The slot of a connection that lent octets frees only after this call, so only a call for
+    // an empty lend can name a connection that has ended.
+    const slot = state.slots.resolve(handle) orelse return assert(sent == 0);
+    const connection = &state.tcp[slot];
+    assert(sent <= connection.lent_len);
+    if (state.transports[slot] == .open) {
+        connection_output.took(connection, sent, now_ns);
+        // What the send took frees room in the output for a response that waits.
+        state.room[slot] +%= 1;
+    } else connection.lent_len = 0;
+    state.send_outstanding[slot] = false;
+    engine_state.touch(state, slot);
 }
 
 /// The program closed the socket of the connection `handle` names, or it failed: nothing more is

@@ -40,6 +40,7 @@ const event = @import("../event.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
+const connection_output = @import("connection_output.zig");
 const connection_errors = @import("connection_errors.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_config = @import("connection_config.zig");
@@ -121,6 +122,10 @@ pub const Connection = struct {
     output: [constants.limits.output_len]u8,
     output_len: usize,
     records_len: usize,
+    /// The octets the last `output_stream` lent the socket, which stay in place until its
+    /// `sent_stream` (decision 176): the first ones of `output` in cleartext, and of the TLS
+    /// session's `sealed` over TLS. 0 while the socket holds none.
+    lent_len: usize,
     /// h2: the octets at the front of `output` that go out before the last WINDOW_UPDATE written
     /// into it has gone. While any remain, a body's rate deadline waits (decision 110 as amended).
     update_held_len: usize,
@@ -190,6 +195,8 @@ pub const Connection = struct {
         connection.unread_len = 0;
         connection.output_len = 0;
         connection.records_len = 0;
+        connection.lent_len = 0;
+        if (session) |held| held.sealed_len = 0;
         connection.update_held_len = 0;
         connection.peer_closed = false;
         connection.close_sent = false;
@@ -341,7 +348,9 @@ pub const Connection = struct {
         _ = connection_continue.write(connection);
         _ = internal.write_owed(connection, now_ns);
         connection_coding.drain(connection);
-        if (connection.config.tls != null) return connection_tls.send(connection, output, now_ns);
+        // Decision 176: a socket sends from a lent output or from a copy, never from both at once.
+        assert(connection.lent_len == 0);
+        if (connection.config.tls != null) return connection_output.copy_sealed(connection, output, now_ns);
         const written = @min(output.len, connection.output_len);
         @memcpy(output[0..written], connection.output[0..written]);
         internal.take_output(connection, written);
@@ -446,5 +455,6 @@ test {
     _ = @import("connection_deadline_test.zig");
     _ = @import("connection_bodies_test.zig");
     _ = @import("connection_sends_test.zig");
+    _ = @import("connection_output_test.zig");
     _ = @import("connection_discard_test.zig");
 }

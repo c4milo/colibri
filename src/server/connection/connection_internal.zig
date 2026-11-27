@@ -31,7 +31,9 @@ pub fn close_transport(connection: *Connection) void {
     connection.records_len = 0;
     connection.update_held_len = 0;
     connection_coding.forget_all(connection);
-    // chapulin's close wipes every secret, and is safe on a session that closed or failed.
+    // chapulin's close wipes every secret, and is safe on a session that closed or failed. A send
+    // may still read the sealed records it was lent: nothing writes them again, and the engine
+    // frees the session only after that send's `sent_stream` (decision 176).
     if (connection.tls_session) |session| session.server.close();
 }
 

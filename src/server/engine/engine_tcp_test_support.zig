@@ -97,6 +97,8 @@ pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessi
     client_read = @splat(0);
     closed = @splat(false);
     flushing = true;
+    lending = false;
+    lent = @splat(&.{});
     client_saw_alert = false;
     program = null;
     instant_ns = now_ns;
@@ -185,9 +187,45 @@ fn note(reported: Event) void {
     }
 }
 
+/// Whether `flush` lends the octets with `output_stream`, as a socket that sends from the
+/// connection's output does (decision 176), in place of `send_stream`'s copy. A lend stays in
+/// flight until `complete_lent`, as a send's completion comes in a later turn.
+pub var lending: bool = false;
+/// The octets each slot's last lend gave, which `complete_lent` sends.
+var lent: [tcp_slots][]const u8 = @splat(&.{});
+
+/// Sends the octets the last lend of the connection `handle` names gave, as the completion of
+/// that send, and hands back their count. A slot with nothing lent changes nothing.
+pub fn complete_lent(handle: ConnectionHandle) void {
+    const slot = handle.slot;
+    const octets = lent[slot];
+    if (octets.len == 0) return;
+    @memcpy(sent[slot][sent_len[slot]..][0..octets.len], octets);
+    sent_len[slot] += octets.len;
+    lent[slot] = &.{};
+    engine.sent_stream(handle, octets.len, instant_ns);
+}
+
+/// Completes the lends of the connection `handle` names, and keeps the events that follow, until
+/// it lends nothing more at this instant.
+pub fn complete_all(handle: ConnectionHandle) void {
+    // Bounded: each pass sends what one lend gave.
+    for (0..rounds_max) |_| {
+        if (lent[handle.slot].len == 0) return;
+        complete_lent(handle);
+        collect();
+    }
+}
+
 /// Writes what the connection `handle` names owes into its slot's buffer, as a program writes to
-/// the socket, until a call leaves room.
+/// the socket, until a call leaves room. With `lending`, it completes the slot's last lend and
+/// lends what the connection owes now.
 pub fn flush(handle: ConnectionHandle) void {
+    if (lending) {
+        complete_lent(handle);
+        lent[handle.slot] = engine.output_stream(handle, instant_ns);
+        return;
+    }
     const slot = handle.slot;
     // Bounded: each pass fills the room it had, or ends the loop.
     for (0..rounds_max) |_| {

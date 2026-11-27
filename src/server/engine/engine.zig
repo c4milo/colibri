@@ -252,6 +252,25 @@ pub fn Engine(comptime capacity: Capacity) type {
             return engine.state.send_stream(connection, output, now_ns);
         }
 
+        /// Returns what the TCP connection `connection` owes its socket, sealed over TLS, where the
+        /// engine holds it (decision 176). The program sends from there, and then calls
+        /// `sent_stream` with what the send took, so its send copies no octet. Until that call the
+        /// engine keeps the octets in place, takes no other `output_stream` or `send_stream` of
+        /// the connection, and reports no `ended` of it, whatever ended the connection. Empty for
+        /// a handle that names no connection, and for a connection whose socket closed. The
+        /// engine reports a `send` when the connection owes octets, as for `send_stream`.
+        pub fn output_stream(engine: *Self, connection: ConnectionHandle, now_ns: u64) []const u8 {
+            return engine.state.output_stream(connection, now_ns);
+        }
+
+        /// The send of what `output_stream` returned for `connection` took its first `sent`
+        /// octets: 0 for a send that failed or never went. The rest stays owed, and the engine
+        /// reports another `send`. The program makes this call for each `output_stream` that
+        /// returned octets, also after the socket closed.
+        pub fn sent_stream(engine: *Self, connection: ConnectionHandle, sent: usize, now_ns: u64) void {
+            engine.state.sent_stream(connection, sent, now_ns);
+        }
+
         /// The socket of the TCP connection `connection` closed before the engine reported its
         /// `close`: the peer closed it, or it failed. The `done` of each response written whole,
         /// the `cancelled` of each other request, and the connection's `ended` follow. After a
@@ -295,9 +314,11 @@ test "design §8 step 17f: the engine's public functions are the calls a program
     // Design §8 step 21b.3 (decision 119): the engine answers requests by id.
     // Design §8 step 21b.4 adds `accept`, `send_stream` and `transport_closed` (decision 119).
     // Decision 158 ruling 6 adds `Accepted`, the type `accept` takes.
+    // Design §8 step 79 adds `output_stream` and `sent_stream` (decision 176).
     try public_names.expect(Engine(.{}), &.{
-        "Accepted",      "init",           "accept",     "receive",      "set_user_data", "respond",
-        "write_body",    "write_trailers", "cancel",     "shutdown",     "send_stream",   "transport_closed",
-        "send_datagram", "deadline_ns",    "on_instant", "set_timeouts", "server_name",
+        "Accepted",    "init",          "accept",         "receive",          "set_user_data",
+        "respond",     "write_body",    "write_trailers", "cancel",           "shutdown",
+        "send_stream", "output_stream", "sent_stream",    "transport_closed", "send_datagram",
+        "deadline_ns", "on_instant",    "set_timeouts",   "server_name",
     });
 }

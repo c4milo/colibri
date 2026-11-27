@@ -1,7 +1,8 @@
-//! The TLS state of one TCP connection over TLS (decision 167): chapulin's session, and the
-//! octets it opened that the protocol has not read. A connection over TLS holds a pointer to
-//! one, which the engine takes from the buffer the program passes in `Config.tls_buffer`. A
-//! cleartext connection holds none, so its slot holds no TLS state.
+//! The TLS state of one TCP connection over TLS (decision 167): chapulin's session, the octets
+//! it opened that the protocol has not read, and the records it sealed that the socket has not
+//! sent (decision 176). A connection over TLS holds a pointer to one, which the engine takes from
+//! the buffer the program passes in `Config.tls_buffer`. A cleartext connection holds none, so
+//! its slot holds no TLS state.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -13,6 +14,11 @@ pub const TlsSession = struct {
     /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
     /// octets are what the last event pointed into, dropped at the next call.
     plain_in: [constants.limits.plaintext_in_len]u8,
+    /// The records an `output_stream` sealed, which its socket sends from here (decision 176).
+    /// The first `sealed_len` octets wait for the socket, and a `sent_stream` drops what its send
+    /// took from the front.
+    sealed: [constants.limits.output_len]u8,
+    sealed_len: usize,
 };
 
 /// The octets a buffer takes to hold `connections` sessions at any address: each session's,

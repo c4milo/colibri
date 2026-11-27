@@ -20,6 +20,7 @@ const rate = @import("../rate.zig");
 const connection_module = @import("connection.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_coding = @import("connection_coding.zig");
+const connection_output = @import("connection_output.zig");
 
 const Connection = connection_module.Connection;
 const Number = event.Number;
@@ -120,16 +121,20 @@ pub fn remove(connection: *Connection, id: Number) void {
     sends.used -= 1;
 }
 
-/// Starts or stops each meter as the connection's output holds octets or not, at `now_ns`.
+/// Starts or stops each meter as the connection's output holds octets or not, at `now_ns`. The
+/// connection's meter runs while the output holds any octet the peer has not taken, a lent one
+/// too. A stream's meter waits only on octets no lend gave the socket: octets a send carries now
+/// are on their way, as a copy's were (decision 176).
 pub fn observe(connection: *Connection, now_ns: u64) void {
     const sends = &connection.sends;
     const limits = &connection.deadlines;
     const holding = connection.output_len > 0;
     start_or_stop(&sends.meter, holding, now_ns, limits);
     if (sends.used == 0) return;
+    const waiting = connection_output.unlent_len(connection) > 0;
     for (sends.written_entries()) |*blocked| {
         if (blocked.id == 0) continue;
-        start_or_stop(&blocked.meter, !holding, now_ns, limits);
+        start_or_stop(&blocked.meter, !waiting, now_ns, limits);
     }
 }
 

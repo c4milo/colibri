@@ -12,6 +12,7 @@ const connection_module = @import("connection.zig");
 const connection_close = @import("connection_close.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_h2 = @import("connection_h2.zig");
+const connection_output = @import("connection_output.zig");
 const internal = @import("connection_internal.zig");
 
 const Connection = connection_module.Connection;
@@ -20,6 +21,8 @@ const Number = event.Number;
 /// Whether `send` would write an octet now: what `send` writes, asked without writing it, in the
 /// order `send` writes it.
 pub fn should_send(connection: *Connection) bool {
+    // Decision 176: records a lent output sealed, and a send left, go out first.
+    if (connection_output.sealed_owed(connection)) return true;
     // The TLS flight's records go out first, whatever else holds.
     if (connection.records_len > 0) return true;
     // Before a protocol serves the connection, and after it closed, `send` writes the flight alone.

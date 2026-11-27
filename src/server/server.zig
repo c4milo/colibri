@@ -257,6 +257,7 @@ test {
     _ = @import("engine/engine_tls_buffer_test.zig");
     _ = @import("engine/engine_staged_close_test.zig");
     _ = @import("engine/engine_tcp_send_test.zig");
+    _ = @import("engine/engine_tcp_output_test.zig");
     _ = @import("engine/engine_tcp_writable_test.zig");
     _ = @import("quic/quic_connection_h3_room.zig");
     _ = @import("coding/coding_ring.zig");

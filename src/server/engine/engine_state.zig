@@ -197,6 +197,16 @@ pub const State = struct {
         return engine_state_tcp.send_stream(state, connection, output, now_ns);
     }
 
+    /// Lends the program what a TCP connection owes its socket (decision 176).
+    pub fn output_stream(state: *State, connection: ConnectionHandle, now_ns: u64) []const u8 {
+        return engine_state_tcp.output_stream(state, connection, now_ns);
+    }
+
+    /// The send of what `output_stream` lent took `sent` octets.
+    pub fn sent_stream(state: *State, connection: ConnectionHandle, sent: usize, now_ns: u64) void {
+        engine_state_tcp.sent_stream(state, connection, sent, now_ns);
+    }
+
     /// A TCP connection's socket closed.
     pub fn transport_closed(state: *State, connection: ConnectionHandle) void {
         engine_state_tcp.transport_closed(state, connection);

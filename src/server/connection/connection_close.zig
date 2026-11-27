@@ -7,6 +7,7 @@ const close_reason_module = @import("../close_reason.zig");
 const connection_module = @import("connection.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
+const connection_output = @import("connection_output.zig");
 
 const Connection = connection_module.Connection;
 const CloseReason = close_reason_module.CloseReason;
@@ -17,7 +18,8 @@ const Limit = close_reason_module.Limit;
 pub fn should_close(connection: *const Connection) bool {
     // Decision 110: once its linger has passed, a connection closes with octets still owed.
     if (connection.clock.lingered) return true;
-    if (connection.output_len > 0) return false;
+    // Decision 176: the records a lent output sealed are the connection's until a send takes them.
+    if (connection.output_len > 0 or connection_output.sealed_owed(connection)) return false;
     return switch (connection.phase) {
         // Nothing is said before a protocol serves the connection, and a deadline closes it.
         .handshake, .choosing => false,
@@ -47,6 +49,7 @@ pub fn staged(connection: *const Connection) bool {
 /// is out, over TLS with the `close_notify` (RFC 9846 §6.1).
 pub fn should_half_close(connection: *const Connection) bool {
     if (connection.clock.half_close_since_ns != null or connection.output_len > 0) return false;
+    if (connection_output.sealed_owed(connection)) return false;
     if (!staged(connection) or !finished(connection)) return false;
     return connection.config.tls == null or connection.close_sent;
 }
