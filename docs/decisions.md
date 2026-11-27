@@ -4008,7 +4008,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Amended a ninth time by the owner on 2026-11-27, as "Resume the meter", while design §8 step
      79 was built (decision 176):
      - **A pause that lasts no time keeps its window.** An h2 stream's send meter that stops and
-       starts again at one instant takes back the window it stopped in, with its octets, and gets
+       starts again at one instant takes back the window it stopped in, with its bytes, and gets
        no new grace period. A start at a later instant starts a window again with a grace period,
        as before.
      - **The other meters stop as before.** A request body's meter starts again with a grace
@@ -4017,9 +4017,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        connection's send meter and QUIC's meters keep their rule too.
      - **Why.** An h2 stream's meter runs only while the connection's output holds nothing that no
        socket took. The pumps of `colibri.Server` and of the test-only server read again after a
-       response's write and before they take its octets, and that read stopped the meter. Taking
-       the octets at the same instant started it again with a new grace period. So a peer that
-       opens its window an octet a second was never cut. The engine's own test took the octets at
+       response's write and before they take its bytes, and that read stopped the meter. Taking
+       the bytes at the same instant started it again with a new grace period. So a peer that
+       opens its window a byte a second was never cut. The engine's own test took the bytes at
        each `send`, and so never showed it. A pump now takes them once a turn, which keeps one
        send and one TLS record a turn.
      - **The gap design §8 step 21b.5 left to the owner closes too.** Its endpoint check read
@@ -4027,11 +4027,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        a stream's window closed and pings every few seconds was never cut, and the check let that
        peer alone outlast its horizon. The stream's meter now cuts it, and the check lets no
        connection outlast the horizon.
-     - **Cost.** No octet: the meter keeps the instant it stopped at in the field that said whether
-       it runs, so `rate.Meter` stays 24 octets.
+     - **Cost.** No byte: the meter keeps the instant it stopped at in the field that said whether
+       it runs, so `rate.Meter` stays 24 bytes.
      - The alternatives refused:
-       - Taking the octets at each `send`, with no change to the meter. Over TLS each take seals a
-         record of its own, so h2 pays an AEAD call and 22 octets for each response of a turn.
+       - Taking the bytes at each `send`, with no change to the meter. Over TLS each take seals a
+         record of its own, so h2 pays an AEAD call and 22 bytes for each response of a turn.
        - Keeping the gap, and filing an issue.
        - Every meter keeping its window across a pause that lasts no time. A body's meter would
          then judge a peer for the round trip in which it waits for its WINDOW_UPDATE, which the
@@ -8621,26 +8621,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 176. **A TCP socket sends from its connection's output, through `output_stream` and
      `sent_stream`.** Ruled by the owner on 2026-11-26, for
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 79).
-     - A socket of `colibri.Server` held an output of `output_len` octets, 49,161, beside the
+     - A socket of `colibri.Server` held an output of `output_len` bytes, 49,161, beside the
        engine slot's `output` of the same size. In cleartext, `send_stream` copied the slot's
-       octets into it unchanged.
-     - `server.Engine.output_stream(connection, now_ns)` returns the octets a TCP connection owes
+       bytes into it unchanged.
+     - `server.Engine.output_stream(connection, now_ns)` returns the bytes a TCP connection owes
        its socket, sealed over TLS, where the engine holds them. The program sends them from there.
-       It then calls `sent_stream(connection, sent, now_ns)` with the octets the send took, 0 for
+       It then calls `sent_stream(connection, sent, now_ns)` with the bytes the send took, 0 for
        a send that failed or never went.
-     - The engine keeps those octets in place until `sent_stream`, and the connection writes only
+     - The engine keeps those bytes in place until `sent_stream`, and the connection writes only
        after them. A program calls `output_stream` once a turn, for a socket with no send in
-       flight, so the turn's one send carries every octet its writes made (decision 119 as
-       amended). A call before the send starts returns the same octets from the same front, and
+       flight, so the turn's one send carries every byte its writes made (decision 119 as
+       amended). A call before the send starts returns the same bytes from the same front, and
        those written since.
-     - An h2 stream's send meter waits only on octets no `output_stream` returned. A read that
-       finds octets not lent yet pauses the meter, and the lend at the same instant takes its
+     - An h2 stream's send meter waits only on bytes no `output_stream` returned. A read that
+       finds bytes not lent yet pauses the meter, and the lend at the same instant takes its
        window back (decision 110 as amended a ninth time, on 2026-11-27).
      - The engine reports a connection's `ended` only after the `sent_stream` of each
-       `output_stream` that returned octets, whatever ended the connection. So no later
-       connection of the slot writes into octets that a send still reads.
+       `output_stream` that returned bytes, whatever ended the connection. So no later
+       connection of the slot writes into bytes that a send still reads.
      - Over TLS the records need a buffer of their own. Each TLS session holds one of `output_len`
-       octets in `Config.tls_buffer` (decision 167), and the socket holds none.
+       bytes in `Config.tls_buffer` (decision 167), and the socket holds none.
      - `send_stream` stays, for a program that sends from a buffer of its own. A connection may
        use either call between two sends.
      - `colibri.Server`, in both kinds, and the test-only server send through the new calls, so

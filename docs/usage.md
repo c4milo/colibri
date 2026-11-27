@@ -123,10 +123,10 @@ Four things follow for every other module:
   alignment its type already has, as in `var router: Router align(@alignOf(Router)) = undefined;`.
   Zig 0.16's x86_64 backend can place a large global at a smaller alignment, so every global in
   colibri's examples states it, and `zig build lint` refuses one that does not.
-- **Your program does the I/O.** Read octets from the socket, hand them to `receive`, and send
-  the octets colibri gives you: what a protocol module's `write_*` calls put in your buffer, what
+- **Your program does the I/O.** Read bytes from the socket, hand them to `receive`, and send
+  the bytes colibri gives you: what a protocol module's `write_*` calls put in your buffer, what
   a server engine's `output_stream` lends from the engine's own memory, and what its
-  `send_datagram` writes. colibri never waits: when it needs more octets, `receive` consumes none
+  `send_datagram` writes. colibri never waits: when it needs more bytes, `receive` consumes none
   and returns no event.
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
@@ -962,10 +962,10 @@ request before its response is whole, and its `finished` follows, cancelled with
 `shutdown` ends every connection once the requests it holds are answered, and the `closed` event
 follows once every connection has ended.
 
-The engine reports `send` when a TCP connection owes its socket octets. The program calls
-`output_stream` for that connection, which returns the octets where the engine holds them,
+The engine reports `send` when a TCP connection owes its socket bytes. The program calls
+`output_stream` for that connection, which returns the bytes where the engine holds them,
 sealed over TLS. The socket sends from there, so the send copies none into a buffer of the
-program's. The program then calls `sent_stream` with how many octets the send took
+program's. The program then calls `sent_stream` with how many bytes the send took
 ([decision 176](decisions.md)):
 
 ```zig
@@ -977,15 +977,15 @@ link.send(.server, owed) catch |failure| {
 engine.sent_stream(connection, owed.len, now_ns);
 ```
 
-Until that call the engine keeps the octets where they are, and writes new ones after them. The
-example's link takes octets at once, so it lends and sends at each `send`. A program whose socket
+Until that call the engine keeps the bytes where they are, and writes new ones after them. The
+example's link takes bytes at once, so it lends and sends at each `send`. A program whose socket
 sends later calls `output_stream` once a turn for each socket with no send in flight, so one send
 carries every response the turn wrote, as `colibri.Server` does. A call before the send starts
-returns the same octets from the same front, and those written since. The program calls `sent_stream` once each send
-ends: 0 for a send that failed. A send that took part of the octets leaves the rest owed, and the
-engine reports another `send`. The engine reports a connection's `ended` only after that call,
-however the connection ended. So its slot takes no later connection while a send still reads the
-octets.
+returns the same bytes from the same front, and those written since. The program calls
+`sent_stream` once each send ends: 0 for a send that failed. A send that took part of the bytes
+leaves the rest owed, and the engine reports another `send`. The engine reports a connection's
+`ended` only after that call, however the connection ended. So its slot takes no later connection
+while a send still reads the bytes.
 
 A program that sends from a buffer of its own calls `send_stream` instead, until a call leaves
 room in the buffer, and writes what each call returns to the connection's socket. Over TLS the
@@ -1046,9 +1046,9 @@ server sends GOAWAY before the close, so a client knows which requests the serve
 ([decision 110](decisions.md)).
 
 A TCP connection's socket closes in one of two ways. The engine reports `close` once the
-connection has finished and its socket took every octet it owed, the TLS close_notify too, or
-once the `linger_ns` deadline passes with octets still owed. The program closes the socket once
-it has sent the octets it took, and owes the engine no call. After a linger there are none to
+connection has finished and its socket took every byte it owed, the TLS close_notify too, or
+once the `linger_ns` deadline passes with bytes still owed. The program closes the socket once
+it has sent the bytes it took, and owes the engine no call. After a linger there are none to
 wait for: colibri dropped what it still owed. Or the peer closes the
 socket first, or the socket fails, and the program tells the engine with `transport_closed`. The
 example accepts a second socket to show that call, a socket its peer closes before it sends an

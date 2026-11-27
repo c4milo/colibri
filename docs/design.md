@@ -18158,20 +18158,20 @@ instructions and draws a different CPU from run to run.
 - **Step 79 — a TCP socket sends from its connection's output, 2026-11-26**
   ([decision 176](decisions.md), [#137](https://github.com/c4milo/colibri/issues/137)). The owner
   ruled "Build it now" on the draft of this entry.
-  - **Where the octets were.** A TCP connection of `colibri.Server`, from `zig build
+  - **Where the bytes were.** A TCP connection of `colibri.Server`, from `zig build
     bench-memory` at v0.22.0:
 
     | Part | Bytes | Holds |
     | --- | ---: | --- |
     | engine slot | 151,232 | the connection, with its `output` of 49,161 |
-    | socket input | 41,221 | received octets, which the protocol reads in place in cleartext |
-    | socket output | 49,161 | octets to send |
+    | socket input | 41,221 | received bytes, which the protocol reads in place in cleartext |
+    | socket output | 49,161 | bytes to send |
     | TLS session, over TLS alone | 83,039 | chapulin's session, 41,808, and `plain_in`, 41,221 |
 
     In cleartext, `send_stream` copied the slot's `output` into the socket's output, so the two
-    held the same octets. Over TLS the socket held the records that `send_stream` sealed.
+    held the same bytes. Over TLS the socket held the records that `send_stream` sealed.
   - **The names.** `server.Engine` gains two calls, beside `send_stream`:
-    - `output_stream(connection, now_ns) []const u8`: the octets the TCP connection owes its
+    - `output_stream(connection, now_ns) []const u8`: the bytes the TCP connection owes its
       socket, sealed over TLS, where the engine holds them. Empty for a handle that names no
       connection, and for a connection whose socket closed.
     - `sent_stream(connection, sent, now_ns) void`: the send took the first `sent` of them.
@@ -18179,29 +18179,29 @@ instructions and draws a different CPU from run to run.
     `examples/server_exchange.zig` shows them. `examples/server_stream.zig` keeps `send_stream`,
     for a program that sends from a buffer of its own.
   - **The contract.**
-    - The engine keeps the octets an `output_stream` returned in place until its `sent_stream`.
+    - The engine keeps the bytes an `output_stream` returned in place until its `sent_stream`.
       The connection writes after them, and moves what is left to the front only at
       `sent_stream`.
     - A program calls `output_stream` once a turn, for a socket with no send in flight, so the
-      turn's one send carries every octet its writes made (decision 119 as amended). A call
-      before the send starts returns the same octets from the same front, and those written
-      since. The engine reports a `send` for octets no call returned yet, as it did after a
+      turn's one send carries every byte its writes made (decision 119 as amended). A call
+      before the send starts returns the same bytes from the same front, and those written
+      since. The engine reports a `send` for bytes no call returned yet, as it did after a
       `send_stream` that left room. A `sent_stream` past what the calls returned halts.
     - The engine reports `ended` only after the `sent_stream` of each `output_stream` that
-      returned octets, whatever ended the connection: its `close`, `transport_closed` or
+      returned bytes, whatever ended the connection: its `close`, `transport_closed` or
       `shutdown`.
     - `send_stream` copies, as before. Over TLS it first copies records that an `output_stream`
       sealed and no send took.
-  - **Over TLS.** Each TLS session holds the sealed records, `output_len` octets, so
+  - **Over TLS.** Each TLS session holds the sealed records, `output_len` bytes, so
     `Config.tls_buffer_len(1)` grows by that much and the socket holds none. A connection over
-    TLS holds as many octets as before.
+    TLS holds as many bytes as before.
   - **Memory.** A cleartext connection of `colibri.Server` goes from about 241.6 KB to about
-    192.4 KB, and its sends copy no octet.
+    192.4 KB, and its sends copy no byte.
   - **The send meter.** An h2 stream's meter ran only while the output held nothing, and lent
-    octets stay in the output until their send ends. So each lend paused the meter,
+    bytes stay in the output until their send ends. So each lend paused the meter,
     `sent_stream` started it again with a new grace period, and a peer that opens its window an
-    octet a second was never cut. Two changes keep decision 110's rule:
-    - A stream's meter waits only on octets that no lend gave the socket. The connection's
+    byte a second was never cut. Two changes keep decision 110's rule:
+    - A stream's meter waits only on bytes that no lend gave the socket. The connection's
       meter still counts the lent ones, so a peer that reads slowly is still judged.
     - A stream's meter stopped and started at one instant keeps its window (decision 110 as
       amended a ninth time). A body's meter still starts again with a grace period once its
@@ -18224,7 +18224,7 @@ instructions and draws a different CPU from run to run.
       a staged close that wait for the sealed records, a re-lend in cleartext and over TLS, and a
       session that ended with sealed records left. `connection_output_test.zig`: a lent send feeds
       the send meter. `rate.zig`: a pause that lasts no time keeps its window.
-    - The attack of decision 110 as amended, a window that opens an octet a second, is cut under
+    - The attack of decision 110 as amended, a window that opens a byte a second, is cut under
       the engine with a copy, a lend at each `send` and a late lend
       (`engine_tcp_writable_test.zig`), under the test-only session
       (`server_session_meter_test.zig`) and under a hosted server (`fake_host_meter_test.zig`).
