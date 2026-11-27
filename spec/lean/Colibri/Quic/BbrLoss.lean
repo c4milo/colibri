@@ -22,7 +22,7 @@ packet's size, floored as the Zig's `@divFloor` floors, and held at 0. -/
 def atLoss (tx lost size : Int) : Int :=
   max (tx - size + (2 * (tx - size) - 100 * (lost - size)) / 98) 0
 
-/-- `IsInflightTooHigh`: the octets lost are above 2% of the octets in flight. -/
+/-- `IsInflightTooHigh`: the bytes lost are above 2% of the bytes in flight. -/
 def tooHigh (tx lost : Int) : Prop := 2 * tx < 100 * lost
 
 theorem atLoss_lt (tx lost size : Int) (hsize : 0 < size)

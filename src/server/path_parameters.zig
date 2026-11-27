@@ -24,7 +24,7 @@ pub const PathParameters = struct {
     storage: [constants.limits.path_len_max]u8 = undefined,
 
     /// The value of the parameter `name`, or null when the route that matched has no parameter of
-    /// that name. The names compare octet for octet.
+    /// that name. The names compare byte for byte.
     pub fn get(parameters: *const PathParameters, name: []const u8) ?[]const u8 {
         assert(parameters.count <= constants.limits.path_parameters_max);
         const count = parameters.count;

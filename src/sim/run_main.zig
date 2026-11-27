@@ -127,7 +127,7 @@ fn connection_seed(seed: u64) !void {
     std.debug.print(format, .{ result.trace, seed, result.outcome });
 }
 
-/// The octets of `text` up to and including its last newline: the whole lines a trace holds.
+/// The bytes of `text` up to and including its last newline: the whole lines a trace holds.
 fn whole_lines_len(text: []const u8) usize {
     const last = std.mem.lastIndexOfScalar(u8, text, '\n') orelse return 0;
     return last + 1;

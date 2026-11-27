@@ -1,18 +1,18 @@
 /-!
 # The prefixed integer (RFC 7541 §5.1)
 
-HPACK and QPACK write an integer in the low `n` bits of an octet whose high bits belong to the
+HPACK and QPACK write an integer in the low `n` bits of a byte whose high bits belong to the
 field before it (RFC 9204 §4.1.1 uses it unmodified). A value below `2 ^ n - 1` fits in the prefix.
-A larger one fills the prefix with ones and carries the rest in continuation octets, seven bits
-each, least significant group first, with the high bit set on every octet but the last. These
-definitions follow `src/wire/prefixed_integer.zig` over natural numbers, with an octet a `Nat`
+A larger one fills the prefix with ones and carries the rest in continuation bytes, seven bits
+each, least significant group first, with the high bit set on every byte but the last. These
+definitions follow `src/wire/prefixed_integer.zig` over natural numbers, with a byte a `Nat`
 below 256; the theorems are about them (https://github.com/c4milo/colibri/issues/52).
 
 What is proved:
 - `decode_encode`: an encoding decodes to its value and its length, whatever high bits the
-  caller put in the first octet and whatever octets follow.
-- `encode_octets`: every octet of an encoding is below 256, for every prefix size 1 to 8.
-- `encode_length`: every value up to 2^62 - 1 takes at most `lenMax` octets at every prefix size,
+  caller put in the first byte and whatever bytes follow.
+- `encode_octets`: every byte of an encoding is below 256, for every prefix size 1 to 8.
+- `encode_length`: every value up to 2^62 - 1 takes at most `lenMax` bytes at every prefix size,
   which is why `integer_len_max` never refuses an integer colibri must read (RFC 9204 §4.1.1).
 - `decodeLimited_encode`: with colibri's two limits, the decoder `prefixed_integer.zig` follows
   still reads every encoding of a value up to 2^62 - 1 back, so the limits refuse nothing valid.
@@ -26,30 +26,30 @@ def prefixMax (n : Nat) : Nat := 2 ^ n - 1
 /-- RFC 9204 §4.1.1: the 62 bits a decoder must read. `integer_value_max` in `constants.zig`. -/
 def valueMax : Nat := 2 ^ 62 - 1
 
-/-- The most octets one integer takes. `integer_len_max` in `constants.zig`. -/
+/-- The most bytes one integer takes. `integer_len_max` in `constants.zig`. -/
 def lenMax : Nat := 10
 
-/-- §5.1: the continuation octets of `r`, seven bits each, least significant group first, the high
+/-- §5.1: the continuation bytes of `r`, seven bits each, least significant group first, the high
 bit set on all but the last. -/
 def continuation (r : Nat) : List Nat :=
   if r < 128 then [r] else (r % 128 + 128) :: continuation (r / 128)
 termination_by r
 decreasing_by omega
 
-/-- §5.1: `v` with its prefix in the low `n` bits of the first octet, whose high bits are
+/-- §5.1: `v` with its prefix in the low `n` bits of the first byte, whose high bits are
 `high`. `encode` in `prefixed_integer.zig`. -/
 def encode (n high v : Nat) : List Nat :=
   if v < prefixMax n then [high + v] else (high + prefixMax n) :: continuation (v - prefixMax n)
 
-/-- The value of continuation octets whose groups start at bit `shift`, and how many octets they
-took, or `none` when the octets end before one with its high bit clear. -/
+/-- The value of continuation bytes whose groups start at bit `shift`, and how many bytes they
+took, or `none` when the bytes end before one with its high bit clear. -/
 def readContinuation : List Nat → Nat → Option (Nat × Nat)
   | [], _ => none
   | o :: rest, shift =>
     if o < 128 then some (o * 2 ^ shift, 1)
     else (readContinuation rest (shift + 7)).map fun (v, c) => ((o % 128) * 2 ^ shift + v, c + 1)
 
-/-- §5.1 with no limit: the value and the octets it took, or `none` when they end too soon. -/
+/-- §5.1 with no limit: the value and the bytes it took, or `none` when they end too soon. -/
 def decode (n : Nat) : List Nat → Option (Nat × Nat)
   | [] => none
   | first :: rest =>
@@ -64,7 +64,7 @@ inductive Outcome where
   | tooLarge
   deriving DecidableEq, Repr
 
-/-- The continuation octets as `decode` in `prefixed_integer.zig` reads them: at most
+/-- The continuation bytes as `decode` in `prefixed_integer.zig` reads them: at most
 `lenMax - 1` of them, onto `acc`, group `group` next. -/
 def readLimited (octets : List Nat) (group acc : Nat) : Outcome :=
   if lenMax - 1 ≤ group then .tooLong
@@ -97,7 +97,7 @@ theorem continuation_lt (r : Nat) : ∀ d ∈ continuation r, d < 256 := by
       · have := Nat.mod_lt r (show 128 > 0 by decide); omega
       · exact ih (r / 128) (by omega) d hd
 
-/-- Continuation octets read back give their value, whatever octets follow. -/
+/-- Continuation bytes read back give their value, whatever bytes follow. -/
 theorem readContinuation_continuation (r shift : Nat) (rest : List Nat) :
     readContinuation (continuation r ++ rest) shift = some (r * 2 ^ shift, (continuation r).length) := by
   induction r using Nat.strongRecOn generalizing shift with
@@ -117,13 +117,13 @@ theorem readContinuation_continuation (r shift : Nat) (rest : List Nat) :
       rw [Nat.add_mul, Nat.mul_comm p 128, ← Nat.mul_assoc, Nat.mul_comm (r / 128) 128]
       omega
 
-/-- The prefix of the first octet, whatever high bits a multiple of `2 ^ n` puts above it. -/
+/-- The prefix of the first byte, whatever high bits a multiple of `2 ^ n` puts above it. -/
 theorem first_prefix (n high x : Nat) (hhigh : high % 2 ^ n = 0) (hx : x < 2 ^ n) :
     (high + x) % 2 ^ n = x := by
   rw [Nat.add_mod, hhigh, Nat.zero_add, Nat.mod_mod, Nat.mod_eq_of_lt hx]
 
 /-- §5.1: an encoding decodes to its value and its length, whatever high bits the caller put in
-the first octet and whatever octets follow. -/
+the first byte and whatever bytes follow. -/
 theorem decode_encode (n high v : Nat) (rest : List Nat) (hhigh : high % 2 ^ n = 0) :
     decode n (encode n high v ++ rest) = some (v, (encode n high v).length) := by
   have hpos : 0 < 2 ^ n := Nat.two_pow_pos n
@@ -140,7 +140,7 @@ theorem decode_encode (n high v : Nat) (rest : List Nat) (hhigh : high % 2 ^ n =
     congr 2
     omega
 
-/-- §5.1: every octet of an encoding is below 256, for every prefix size 1 to 8, when the high
+/-- §5.1: every byte of an encoding is below 256, for every prefix size 1 to 8, when the high
 bits sit above the prefix. -/
 theorem encode_octets (n high v : Nat) (hn : 1 ≤ n ∧ n ≤ 8) (hhigh : high < 256)
     (hmul : high % 2 ^ n = 0) : ∀ d ∈ encode n high v, d < 256 := by
@@ -157,7 +157,7 @@ theorem encode_octets (n high v : Nat) (hn : 1 ≤ n ∧ n ≤ 8) (hhigh : high 
     · exact hroom
     · exact continuation_lt _ d hd
 
-/-- A value below `128 ^ k` takes at most `k` continuation octets. -/
+/-- A value below `128 ^ k` takes at most `k` continuation bytes. -/
 theorem continuation_length (r k : Nat) (hk : 1 ≤ k) (hr : r < 128 ^ k) :
     (continuation r).length ≤ k := by
   induction r using Nat.strongRecOn generalizing k with
@@ -178,7 +178,7 @@ theorem continuation_length (r k : Nat) (hk : 1 ≤ k) (hr : r < 128 ^ k) :
       have := ih (r / 128) (by omega) j hj hdiv
       omega
 
-/-- RFC 9204 §4.1.1: every value up to 2^62 - 1 takes at most `lenMax` octets, at every prefix
+/-- RFC 9204 §4.1.1: every value up to 2^62 - 1 takes at most `lenMax` bytes, at every prefix
 size, so the limit never refuses an integer a decoder must read. -/
 theorem encode_length (n high v : Nat) (hv : v ≤ valueMax) :
     (encode n high v).length ≤ lenMax := by
@@ -194,8 +194,8 @@ theorem encode_length (n high v : Nat) (hv : v ≤ valueMax) :
     have := continuation_length (v - prefixMax n) 9 (by decide) this
     omega
 
-/-- Continuation octets read with colibri's limits give their value on top of `acc`, while they
-fit the octet limit and the value fits `valueMax`. -/
+/-- Continuation bytes read with colibri's limits give their value on top of `acc`, while they
+fit the byte limit and the value fits `valueMax`. -/
 theorem readLimited_continuation (r group acc : Nat) (rest : List Nat)
     (hlen : group + (continuation r).length ≤ lenMax - 1)
     (hv : acc + r * 2 ^ (7 * group) ≤ valueMax) :
@@ -235,7 +235,7 @@ theorem readLimited_continuation (r group acc : Nat) (rest : List Nat)
       omega
 
 /-- With colibri's two limits, every encoding of a value up to 2^62 - 1 reads back, whatever high
-bits the caller put in the first octet and whatever octets follow. -/
+bits the caller put in the first byte and whatever bytes follow. -/
 theorem decodeLimited_encode (n high v : Nat) (rest : List Nat) (hhigh : high % 2 ^ n = 0)
     (hv : v ≤ valueMax) :
     decodeLimited n (encode n high v ++ rest) = .value v (encode n high v).length := by

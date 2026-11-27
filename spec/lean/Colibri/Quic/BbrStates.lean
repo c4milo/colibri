@@ -3,7 +3,7 @@
 
 `src/quic/recovery/recovery_bbr/recovery_bbr_wait.zig` draws each bandwidth probe wait, and
 `src/quic/recovery/recovery_bbr/recovery_bbr_inflight.zig` computes the volumes BBR's states
-compare with the octets in flight. The definitions follow the Zig; the theorems are about them:
+compare with the bytes in flight. The definitions follow the Zig; the theorems are about them:
 
 - `draw_wait_ge` and `draw_wait_lt`: each wall clock wait is at least 2 s and below 3 s.
 - `draw_start_le` and `reno_bound`: each round trip start is 0 or 1, so once the Reno bound is
@@ -98,7 +98,7 @@ theorem budget_ge_pipe (cap offload pipe datagram : Nat) (up : Bool) :
 def bdpMultiple (bw minRtt gain : Nat) : Nat :=
   scale (scale bw minRtt nanosecondsPerSecond) gain gainDenominator
 
-/-- `is_inflight_too_high`: the octets lost are above 2% of the octets in flight. -/
+/-- `is_inflight_too_high`: the bytes lost are above 2% of the bytes in flight. -/
 def tooHigh (lost inFlight : Nat) : Bool := decide (lost * gainDenominator > inFlight * 2)
 
 end Colibri.Quic.BbrStates

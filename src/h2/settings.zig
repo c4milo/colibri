@@ -1,7 +1,7 @@
 //! The six settings of RFC 9113 §6.5.2 as (identifier, value) pairs: their initial values, what
 //! colibri advertises, the checks on a value the peer sends, and the acknowledgment discipline of
 //! §6.5.3. The SETTINGS frame that carries the pairs belongs to the frame codec; this file reads
-//! and writes no octet.
+//! and writes no byte.
 //!
 //! `apply` checks one of the peer's values in this order (invariant 7):
 //!   1. the identifier. An unknown or unsupported one is ignored and nothing changes (§6.5.2).

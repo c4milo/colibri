@@ -12,7 +12,7 @@ const stdx = @import("stdx");
 /// The type of a context's random source, `stdx.crypto.Context.random`.
 const RandomSource = @FieldType(stdx.crypto.Context, "random");
 
-/// The most octets one `getentropy` call fills (POSIX), and the size of each `getrandom` call.
+/// The most bytes one `getentropy` call fills (POSIX), and the size of each `getrandom` call.
 const call_len_max = 256;
 
 /// macOS declares `getentropy` in `unistd.h`, and Zig's `std.c` does not expose it.
@@ -27,7 +27,7 @@ comptime {
 /// handshake.
 fn fill(octets: []u8) void {
     var filled: usize = 0;
-    // Each turn fills `call_len_max` octets, or the rest.
+    // Each turn fills `call_len_max` bytes, or the rest.
     for (0..octets.len / call_len_max + 1) |_| {
         if (filled == octets.len) return;
         const len = @min(octets.len - filled, call_len_max);
@@ -41,7 +41,7 @@ fn fill_part(part: []u8) void {
     assert(part.len <= call_len_max);
     if (builtin.os.tag == .linux) {
         const result = std.os.linux.getrandom(part.ptr, part.len, 0);
-        // A call of at most 256 octets returns them all, or fails (getrandom(2)).
+        // A call of at most 256 bytes returns them all, or fails (getrandom(2)).
         if (std.os.linux.errno(result) != .SUCCESS or result != part.len) @panic("getrandom failed");
         return;
     }

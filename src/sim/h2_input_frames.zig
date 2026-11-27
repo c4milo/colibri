@@ -7,7 +7,7 @@
 //!   only on a stream other than 0 (§5.4.2);
 //! - an accepted frame keeps every rule its writer asserts, so writing it again cannot halt;
 //! - an accepted frame is written again with its type, its stream and its defined flags but
-//!   PADDED, and a second write of what that reads back is the same octets.
+//!   PADDED, and a second write of what that reads back is the same bytes.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -31,7 +31,7 @@ pub const Violation = error{
     FrameChanged,
 };
 
-/// What reading a stream came to: every octet read as frames, a last frame cut short, or a
+/// What reading a stream came to: every byte read as frames, a last frame cut short, or a
 /// frame refused.
 pub const Outcome = enum(u8) { taken, incomplete, refused };
 
@@ -72,7 +72,7 @@ const Kind = enum {
     unknown,
 };
 
-/// The first Type octet RFC 9113 §6 does not define.
+/// The first Type byte RFC 9113 §6 does not define.
 const type_unknown_first: u8 = limits.protocol.frame_type_continuation + 1;
 
 /// Writes a stream of drawn frames and returns it.
@@ -146,7 +146,7 @@ fn write_unknown(writer: *Writer, random: *Random, payload: []const u8) !void {
 /// Reads `stream` frame by frame and checks each frame. `frames_read` counts the frames accepted.
 pub fn read_stream(storage: *Storage, stream: []const u8, frames_read: *u64) Violation!Outcome {
     var reader = Reader.init(stream);
-    // Bounded: every frame read consumes its nine-octet header.
+    // Bounded: every frame read consumes its nine-byte header.
     for (0..stream.len + 1) |_| {
         if (reader.remaining_len() == 0) return .taken;
         const header = frame.read_header(&reader) catch return .incomplete;
@@ -196,7 +196,7 @@ fn check_writable(header: frame.Header, parsed: frame.Payload) Violation!void {
     if (!writable) return error.FrameNotWritable;
 }
 
-/// Whether the fields, the Pad Length octet and the padding of a frame make up its payload
+/// Whether the fields, the Pad Length byte and the padding of a frame make up its payload
 /// (RFC 9113 §6.1, §6.2).
 fn padded_fits(header: frame.Header, fields_len: usize, padding_len: u8) bool {
     if (!frame.has_flag(header, limits.protocol.flag_padded)) return padding_len == 0 and fields_len == header.length;

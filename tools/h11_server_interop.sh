@@ -2,7 +2,7 @@
 # The server half of the h11 interop check of docs/design.md §8 step 15d: run other
 # implementations' HTTP/1.1 clients against colibri's test-only server (§9) and require every
 # request to end with 200 and the body the server always sends, over HTTP/1.1. In cleartext the
-# server names no version and reads h11 from each client's first octets (decision 117), and with
+# server names no version and reads h11 from each client's first bytes (decision 117), and with
 # --tls also over TLS 1.3 through chapulin's record-mode server, where the server offers "h2" and
 # "http/1.1" and the client's offer decides.
 #
@@ -41,7 +41,7 @@ readonly h3_port=8443
 # Requests each client sends, curl on one keep-alive connection one after another and Go all at
 # once over as many connections as it opens.
 readonly requests=64
-# Octets of request content. curl asks for a 100 (Continue) before sending it (RFC 9110 §10.1.1).
+# Bytes of request content. curl asks for a 100 (Continue) before sending it (RFC 9110 §10.1.1).
 readonly content_len=300000
 # What the server answers every request with (src/testing/constants.zig), without its final
 # newline.
@@ -211,7 +211,7 @@ early_run() {
 # it writes. A server that closed at once would reset the connection, and the reset can erase the
 # 405 that the client has not read. The client requires these, in order:
 #  1. It reads the whole 405 and then the end of the server's data, with no reset.
-#  2. Its writer sends the 1 MiB, and a further octet sent on the same socket is acknowledged. A
+#  2. Its writer sends the 1 MiB, and a further byte sent on the same socket is acknowledged. A
 #     socket that the server closed fully answers with a reset, so a full close fails here.
 #  3. A later write fails: the server closed fully at the client's close or at its bound of 1 s.
 # A pass is decided by these events alone, never by a clock. One case needs a clock: when step 2
@@ -238,7 +238,7 @@ wait_s = 30
 half_close_s = 1.0
 too_late_s = 0.8 * half_close_s
 attempts_max = 3
-# The octets of the send buffer that the peer has not acknowledged: SIOCOUTQ on Linux, which
+# The bytes of the send buffer that the peer has not acknowledged: SIOCOUTQ on Linux, which
 # termios names TIOCOUTQ, and SO_NWRITE (0x1024 in <sys/socket.h>) on macOS.
 if sys.platform == "darwin":
     def unacknowledged(connection):

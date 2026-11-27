@@ -3,7 +3,7 @@
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
 //! What it is for is the shape, not the secrecy. It frames records exactly as RFC 9846 §5.1 sizes
-//! them — a five-octet header, the body, and a tag of the length an AEAD would add — so record
+//! them — a five-byte header, the body, and a tag of the length an AEAD would add — so record
 //! boundaries fall in different places from h2 frame boundaries and a check sees colibri reassemble
 //! across them. The body is copied, not protected.
 //!
@@ -110,7 +110,7 @@ pub const NullProvider = struct {
 
     fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls_provider.provider.SealError!tls_provider.provider.Sealed {
         _ = context;
-        // RFC 9846 §5.1: one record carries at most 2^14 octets of plaintext.
+        // RFC 9846 §5.1: one record carries at most 2^14 bytes of plaintext.
         const body_len = @min(plaintext.len, tls_provider.constants.protocol.record_plaintext_len_max);
         const written = write_record(output, .application_data, plaintext[0..body_len]) catch
             return error.NoSpaceLeft;
@@ -130,7 +130,7 @@ pub const NullProvider = struct {
         if (total > plaintext_fitting(output.len)) return error.NoSpaceLeft;
         var taken: usize = 0;
         var written: usize = 0;
-        // Bounded: each pass writes one record of at least one octet.
+        // Bounded: each pass writes one record of at least one byte.
         for (0..total + 1) |_| {
             if (taken == total) return written;
             const body_len = @min(total - taken, tls_provider.constants.protocol.record_plaintext_len_max);
@@ -200,7 +200,7 @@ pub const NullProvider = struct {
         assert(self.key_updates_sent <= tls_provider.constants.protocol.key_updates_max);
         // RFC 9846 §4.7.3: a sender MUST NOT let its count of key updates exceed 2^48-1.
         if (self.key_updates_sent == tls_provider.constants.protocol.key_updates_max) return error.EpochExhausted;
-        // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one octet.
+        // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one byte.
         const body = [_]u8{ @intFromEnum(HandshakeType.key_update), @intFromEnum(request) };
         const written = write_record(output, .handshake, &body) catch return error.NoSpaceLeft;
         self.key_updates_sent += 1;
@@ -233,7 +233,7 @@ const Record = struct {
     total_len: usize,
 };
 
-/// The ContentType an octet names, or null when RFC 9846 §5.1 gives it none.
+/// The ContentType a byte names, or null when RFC 9846 §5.1 gives it none.
 fn content_type_of(octet: u8) ?ContentType {
     return switch (octet) {
         @intFromEnum(ContentType.alert) => .alert,
@@ -247,7 +247,7 @@ fn content_type_of(octet: u8) ?ContentType {
 fn read_record(input: []const u8) ?Record {
     if (input.len < header_len) return null;
     const content = content_type_of(input[constants.record_content_type_offset]) orelse return null;
-    // RFC 9846 §5.1: the length is the two octets after the version, in network byte order.
+    // RFC 9846 §5.1: the length is the two bytes after the version, in network byte order.
     const high: usize = input[constants.record_length_offset];
     const low: usize = input[constants.record_length_offset + 1];
     const declared: usize = (high << @bitSizeOf(u8)) | low;
@@ -274,7 +274,7 @@ fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSp
 }
 
 /// The plaintext that records of the most plaintext, and one shorter record after them, carry in
-/// `output_len` octets.
+/// `output_len` bytes.
 fn plaintext_fitting(output_len: usize) usize {
     const overhead = header_len + constants.record_tag_len;
     const full_len = tls_provider.constants.protocol.record_plaintext_len_max + overhead;
@@ -328,7 +328,7 @@ test "a record carries the sizes RFC 9846 §5.1 gives it, and round-trips its bo
     var output: [64]u8 = undefined;
     const sealed = try NullProvider.encrypt_record(@ptrCast(&endpoint), "hello", &output);
     try testing.expectEqual(5, sealed.consumed);
-    // Five octets of header, five of body, sixteen of tag.
+    // Five bytes of header, five of body, sixteen of tag.
     try testing.expectEqual(header_len + 5 + constants.record_tag_len, sealed.written);
     var plaintext: [64]u8 = undefined;
     const opened = try NullProvider.decrypt_record(@ptrCast(&endpoint), output[0..sealed.written], &plaintext);
@@ -466,14 +466,14 @@ test "decision 139: two parts go out in the records encrypt_record writes for th
     const data: [tls_provider.constants.protocol.record_plaintext_len_max]u8 = @splat('x');
     var output: [2 * (tls_provider.constants.protocol.record_plaintext_len_max + header_len + constants.record_tag_len)]u8 = undefined;
     const written = try provider.encrypt_parts(head, &data, &output);
-    // The first record is full, so the head's octets push the data's last four into a second.
+    // The first record is full, so the head's bytes push the data's last four into a second.
     const first = read_record(output[0..written]).?;
     try testing.expectEqual(tls_provider.constants.protocol.record_plaintext_len_max, first.body_len);
     try testing.expectEqualStrings(head, output[header_len..][0..head.len]);
     const second = read_record(output[first.total_len..written]).?;
     try testing.expectEqual(head.len, second.body_len);
     try testing.expectEqual(written, first.total_len + second.total_len);
-    // An output one octet short of the two seals nothing.
+    // An output one byte short of the two seals nothing.
     const fits = provider.writable_len(written);
     try testing.expectEqual(head.len + data.len, fits);
     try testing.expectError(error.NoSpaceLeft, provider.encrypt_parts(head, &data, output[0 .. written - 1]));

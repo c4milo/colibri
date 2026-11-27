@@ -1,11 +1,11 @@
-//! The 9-octet frame header of RFC 9113 §4.1: a 24-bit Length, an 8-bit Type, an 8-bit Flags
+//! The 9-byte frame header of RFC 9113 §4.1: a 24-bit Length, an 8-bit Type, an 8-bit Flags
 //! field, one reserved bit and a 31-bit Stream Identifier, all in network byte order (§2.2).
 //!
-//! `read` takes the nine octets through the bounded reader (invariant 3) and masks the reserved
+//! `read` takes the nine bytes through the bounded reader (invariant 3) and masks the reserved
 //! bit off the stream identifier, which §4.1 says a receiver ignores. It applies no other rule:
 //! whether the Length fits SETTINGS_MAX_FRAME_SIZE is the connection's check (§4.2), and every
 //! rule of a frame type is that type's parser's. `write` asserts its contract, writes the reserved
-//! bit as zero (§4.1) and writes all nine octets or none.
+//! bit as zero (§4.1) and writes all nine bytes or none.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -14,8 +14,8 @@ const constants = @import("../constants.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 
-/// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type octet is an unknown
-/// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its octets.
+/// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type byte is an unknown
+/// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its bytes.
 pub const Type = enum(u8) {
     data = constants.protocol.frame_type_data,
     headers = constants.protocol.frame_type_headers,
@@ -32,16 +32,16 @@ pub const Type = enum(u8) {
 
 /// The four fields of a frame header (RFC 9113 §4.1), the reserved bit already dropped.
 pub const Header = struct {
-    /// Octets of payload after the header, as the Length field states (RFC 9113 §4.1).
+    /// Bytes of payload after the header, as the Length field states (RFC 9113 §4.1).
     length: u32,
-    /// The Type octet. `_` holds each type that RFC 9113 §6 does not define (§4.1, §5.5).
+    /// The Type byte. `_` holds each type that RFC 9113 §6 does not define (§4.1, §5.5).
     type: Type,
     flags: u8,
     /// The 31-bit Stream Identifier with the reserved bit already masked off.
     stream_id: u32,
 };
 
-/// Reads one header. The reader moves past all nine octets or, on `error.Truncated`, none.
+/// Reads one header. The reader moves past all nine bytes or, on `error.Truncated`, none.
 pub fn read(reader: *Reader) core.Reader.Error!Header {
     var cursor = reader.*;
     var length: u32 = 0;
@@ -58,12 +58,12 @@ pub fn read(reader: *Reader) core.Reader.Error!Header {
     return .{ .length = length, .type = @enumFromInt(frame_type), .flags = flags, .stream_id = stream_id };
 }
 
-/// Writes one header, all nine octets or none, with the reserved bit unset (RFC 9113 §4.1).
+/// Writes one header, all nine bytes or none, with the reserved bit unset (RFC 9113 §4.1).
 pub fn write(writer: *Writer, header: Header) core.Writer.Error!void {
     assert(header.length <= constants.protocol.frame_length_max);
     assert(header.stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
-    // RFC 9113 §4.1: the 24-bit length, then the type, as the four octets of one integer.
+    // RFC 9113 §4.1: the 24-bit length, then the type, as the four bytes of one integer.
     try cursor.write_int_big(u32, header.length << @bitSizeOf(u8) | @intFromEnum(header.type));
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
@@ -148,10 +148,10 @@ test "has_flag reads one bit of the flags octet" {
     try testing.expect(!has_flag(header, constants.protocol.flag_padded));
 }
 
-// The test below holds `write` to the one it replaced, which wrote the length's three octets
+// The test below holds `write` to the one it replaced, which wrote the length's three bytes
 // through `write_bytes` and the type on its own. It stays here as the reference. The two agree on
-// what each returns and on the octets a write leaves the writer holding; past those, a write that
-// fails leaves different octets, which no caller reads.
+// what each returns and on the bytes a write leaves the writer holding; past those, a write that
+// fails leaves different bytes, which no caller reads.
 
 /// The reference: `write` as it was.
 fn write_by_parts(writer: *Writer, header: Header) core.Writer.Error!void {
@@ -173,7 +173,7 @@ fn write_by_parts(writer: *Writer, header: Header) core.Writer.Error!void {
 /// What a buffer holds before a write. Test-only.
 const untouched: u8 = 0xee;
 
-/// Fails, printing both, when `write` and the reference differ for `header` in `room` octets.
+/// Fails, printing both, when `write` and the reference differ for `header` in `room` bytes.
 fn expect_same_header(header: Header, room: usize) !void {
     var changed_buffer: [constants.protocol.frame_header_len + 1]u8 = @splat(untouched);
     var reference_buffer: [constants.protocol.frame_header_len + 1]u8 = @splat(untouched);

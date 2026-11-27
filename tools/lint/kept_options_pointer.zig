@@ -19,7 +19,7 @@
 //!
 //! `src/server/event.zig` is excluded too, at the owner's ruling of 2026-11-13.
 //! `server.Headers.init` keeps a pointer to the lines of a header, which its connection or the
-//! router's copy holds: a view, not options. A copy would make `server.Headers` 40 octets, and the
+//! router's copy holds: a view, not options. A copy would make `server.Headers` 40 bytes, and the
 //! engine's layers copy each event by value (design §8 step 50e).
 
 const std = @import("std");

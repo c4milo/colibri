@@ -7,7 +7,7 @@
 //! refuse. `write` encodes the plan into a stream, and `Subject` decodes the stream in plan order,
 //! the way a protocol parser knows which field comes next.
 //!
-//! A decoder that finds too few octets returns `error.Truncated` and consumes nothing, which the
+//! A decoder that finds too few bytes returns `error.Truncated` and consumes nothing, which the
 //! subject reports as `need_more`. Every other error is a refusal.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -25,7 +25,7 @@ pub const Format = enum { varint, prefixed_integer, string_literal };
 
 /// The encodings a seed can append after its values, each refused by a step 1 decoder.
 pub const Refusal = enum {
-    /// A prefixed integer whose continuation octets run past `integer_len_max`.
+    /// A prefixed integer whose continuation bytes run past `integer_len_max`.
     integer_too_long,
     /// A Huffman string literal whose data holds EOS.
     huffman_eos_in_data,
@@ -103,7 +103,7 @@ fn draw_prefix_size(random: *Random, min: u4) u4 {
     return @intCast(random.between(min, wire_constants.protocol.integer_prefix_bits_max));
 }
 
-/// Octet bits above the prefix, drawn: the bits a representation's type flags would occupy.
+/// Byte bits above the prefix, drawn: the bits a representation's type flags would occupy.
 fn draw_high_bits(random: *Random, prefix_size: u4) u8 {
     const prefix_mask: u8 = @intCast((@as(u16, 1) << prefix_size) - 1);
     const drawn: u8 = @truncate(random.next());
@@ -118,7 +118,7 @@ fn draw_integer(random: *Random) u64 {
     return random.next() >> @intCast(@bitSizeOf(u64) - width);
 }
 
-/// The largest value `encoded_len` octets of a QUIC variable-length integer carry (RFC 9000 §16).
+/// The largest value `encoded_len` bytes of a QUIC variable-length integer carry (RFC 9000 §16).
 fn varint_value_max(encoded_len: u8) u64 {
     const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - wire_constants.protocol.varint_length_bits;
     return (@as(u64, 1) << @intCast(value_bits)) - 1;
@@ -151,18 +151,18 @@ fn write_value(value: *const Value, output: *Writer) core.Writer.Error!void {
     }
 }
 
-/// The continuation flag of a prefixed integer's octet, and the H flag of a string literal at
+/// The continuation flag of a prefixed integer's byte, and the H flag of a string literal at
 /// prefix size 8 (RFC 7541 §5.1, §5.2).
 const continuation_flag = 0x80;
 const huffman_flag = 0x80;
 
-/// Octets of all-ones Huffman data: 32 bits, which hold the 30-bit EOS code (RFC 7541 Appendix B).
+/// Bytes of all-ones Huffman data: 32 bits, which hold the 30-bit EOS code (RFC 7541 Appendix B).
 const eos_data_len = 4;
 
-/// The octets of each refusal, all at prefix size 8. The integer's first octet has every prefix
-/// bit set, and every continuation octet `integer_len_max` allows keeps the continuation flag, so
-/// no octet ends it. The Huffman literals set H and give their data length: data holding EOS, and
-/// one zero octet, whose five-bit `0` code leaves three zero bits of padding.
+/// The bytes of each refusal, all at prefix size 8. The integer's first byte has every prefix
+/// bit set, and every continuation byte `integer_len_max` allows keeps the continuation flag, so
+/// no byte ends it. The Huffman literals set H and give their data length: data holding EOS, and
+/// one zero byte, whose five-bit `0` code leaves three zero bits of padding.
 const integer_too_long = [_]u8{std.math.maxInt(u8)} ++
     [_]u8{continuation_flag} ** (wire_constants.protocol.integer_len_max - 1);
 const huffman_eos_in_data = [_]u8{huffman_flag | eos_data_len} ++
@@ -248,7 +248,7 @@ fn decode_integer(prefix_size: u4, reader: *Reader) anyerror!u64 {
     };
 }
 
-/// A refusal is either a prefixed integer or a string literal, told apart by its first octet: the
+/// A refusal is either a prefixed integer or a string literal, told apart by its first byte: the
 /// integer's low bits are all set, which no refusal literal's length is.
 fn decode_refusal(reader: *Reader) anyerror!void {
     const first = try reader.peek_byte();
@@ -263,7 +263,7 @@ fn decode_refusal(reader: *Reader) anyerror!void {
 
 comptime {
     // The longest value: a Huffman literal of the longest text at 30 bits a symbol, after a
-    // length prefix of at most two octets at the smallest prefix.
+    // length prefix of at most two bytes at the smallest prefix.
     const huffman_len_max = std.math.divCeil(
         u32,
         constants.chunk_check_text_len_max * wire_constants.protocol.huffman_code_bits_max,
@@ -281,7 +281,7 @@ fn expect_refused(refusal: Refusal, expected: anyerror) !void {
     try write_refusal(refusal, &output);
     var reader = Reader.init(output.written());
     try testing.expectError(expected, decode_refusal(&reader));
-    // One octet short, the same encoding is only truncated.
+    // One byte short, the same encoding is only truncated.
     var short = Reader.init(output.written()[0 .. output.offset - 1]);
     try testing.expectError(error.Truncated, decode_refusal(&short));
 }

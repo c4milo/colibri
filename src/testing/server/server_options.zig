@@ -3,14 +3,14 @@
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
 //!         [--tls <identity-prefix> [--seconds <unix-seconds>]] [--h3-port <port>]
-//!         [--routes github | kubernetes] [--body <octets>]
+//!         [--routes github | kubernetes] [--body <bytes>]
 //!
 //! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
 //! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--h2`, `--echo` and `--coded` take no
 //! value. `--coded` codes each response in gzip or deflate when its request accepts one (decision
 //! 101). `--h11` makes the server speak h11 alone and `--h2` h2 alone: a cleartext connection speaks
 //! it from the start, and a TLS server offers it alone. With neither, a cleartext connection speaks
-//! h2 when its first octets are h2's connection preface and h11 otherwise (decision 117), and a TLS
+//! h2 when its first bytes are h2's connection preface and h11 otherwise (decision 117), and a TLS
 //! server offers both. `--echo` answers every h11 request with what h11 read of it
 //! (`../h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
@@ -19,7 +19,7 @@
 //! (RFC 9846 §4.7.1, decision 161). Without it the server issues none. `--routes` names the route
 //! table that `server.Router` answers every request through: the GitHub API's 203 routes (design §8
 //! step 13f), or 463 of the Kubernetes API's (design §8 step 13l). `--body` makes every answer
-//! carry that many octets, from 1 to `constants.answer_body_len_max`, in place of its fixed body,
+//! carry that many bytes, from 1 to `constants.answer_body_len_max`, in place of its fixed body,
 //! so the judge measures responses longer than the output (design §8 step 13n).
 const std = @import("std");
 const constants = @import("../constants.zig");
@@ -27,7 +27,7 @@ const alpn = @import("../alpn.zig");
 
 const Protocol = alpn.Protocol;
 
-/// How many octets an IPv4 address has (RFC 791 §3.1).
+/// How many bytes an IPv4 address has (RFC 791 §3.1).
 pub const ipv4_octets: usize = 4;
 
 /// The address the server listens on unless `--address` names another: the loopback, because it
@@ -73,7 +73,7 @@ pub const Options = struct {
     /// The Unix seconds the server starts at, which its session tickets carry, or null to issue
     /// none (decision 161).
     unix_seconds: ?u64 = null,
-    /// The octets of content every answer carries (`--body`), or null for `response_body`.
+    /// The bytes of content every answer carries (`--body`), or null for `response_body`.
     body_len: ?u32 = null,
 };
 
@@ -167,7 +167,7 @@ fn parse_seconds(value: []const u8) ?u64 {
     return if (seconds == 0) null else seconds;
 }
 
-/// The octets of `--body`, or null for a value that is not a count from 1 to
+/// The bytes of `--body`, or null for a value that is not a count from 1 to
 /// `constants.answer_body_len_max`.
 fn parse_body_len(value: []const u8) ?u32 {
     const len = std.fmt.parseUnsigned(u32, value, decimal) catch return null;

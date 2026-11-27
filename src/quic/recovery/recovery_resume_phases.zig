@@ -39,12 +39,12 @@ pub fn on_packet_sent(recovery: *Recovery, number: u64) void {
     if (held.first_unvalidated == null) held.first_unvalidated = number;
     held.last_unvalidated = number;
     // §3.3: "The sender enters the Validating Phase when the flight_size equals the CWND", which
-    // in octets is "when the remaining unused CWND is less than one maximum-sized packet".
+    // in bytes is "when the remaining unused CWND is less than one maximum-sized packet".
     const in_flight_len = recovery.in_flight_len();
     if (in_flight_len +| recovery.congestion.max_datagram_len > recovery.congestion.window) leave_unvalidated(recovery);
 }
 
-/// After an ACK frame took `acknowledged_len` application octets out of flight, before loss
+/// After an ACK frame took `acknowledged_len` application bytes out of flight, before loss
 /// detection, so a Safe Retreat the same frame starts halves a PipeSize that holds them.
 pub fn on_acknowledged(recovery: *Recovery, acknowledged_len: u64) void {
     const held = &recovery.careful_resume;

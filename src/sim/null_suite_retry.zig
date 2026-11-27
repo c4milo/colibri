@@ -37,9 +37,9 @@ fn retry_name(version: Version) u32 {
 
 /// RFC 9000 §8.1.4: the token is "covered by integrity protection against modification or
 /// falsification by clients" and bound to the client's address. This one is neither protected nor
-/// secret. It holds a type octet, a checksum of the address, the instant it expires at, and the two
+/// secret. It holds a type byte, a checksum of the address, the instant it expires at, and the two
 /// connection IDs decision 55 has a Retry token carry, every integer in network byte order so one
-/// host's octets are every host's (invariant 5). It proves the shape and nothing else, like every
+/// host's bytes are every host's (invariant 5). It proves the shape and nothing else, like every
 /// other answer this suite gives.
 pub fn token_write(
     context: *anyopaque,
@@ -86,7 +86,7 @@ fn address_name(version: Version, address: []const u8) u32 {
     return crc.final();
 }
 
-/// The rest of a Retry token, once its type octet has said it is one. Anything that does not read
+/// The rest of a Retry token, once its type byte has said it is one. Anything that does not read
 /// back whole is a token the client changed, which §8.1.2 answers with INVALID_TOKEN.
 fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8, now_ns: u64) !crypto.suite.TokenCheck {
     const name = try reader.take_int_big(u32);
@@ -104,7 +104,7 @@ fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8,
 
 fn read_connection_id(reader: *core.Reader) ![]const u8 {
     const len = try reader.take_byte();
-    // RFC 9000 §17.2: a connection ID is at most 20 octets.
+    // RFC 9000 §17.2: a connection ID is at most 20 bytes.
     if (len > crypto.constants.protocol.connection_id_len_max) return error.ConnectionIdTooLong;
     return reader.take(len);
 }
@@ -115,7 +115,7 @@ const NullSuite = null_suite.NullSuite;
 const sample_dcid = "\x83\x94\xc8\xf0\x3e\x51\x57\x08";
 
 /// The tag the test below produced on the host that wrote it, macOS on arm64, and must produce on
-/// every other. It pins that the null suite's octets do not vary by host; it says nothing about
+/// every other. It pins that the null suite's bytes do not vary by host; it says nothing about
 /// whether they are good ones. Test-only.
 const retry_tag_expected = "\x50\x0d\xea\xf3\x9f\x93\xfd\x3b\x14\x40\xc3\x22\xdb\xde\xd4\xea".*;
 
@@ -126,7 +126,7 @@ test "§5.8: the Retry tag is a function of the pseudo-packet, and a suite may d
     try vtable.retry_tag_write(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retry", &tag);
     try testing.expect(vtable.retry_tag_valid(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retry", &tag));
     try testing.expect(!vtable.retry_tag_valid(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retrz", &tag));
-    // One host's tag is every host's: the checksums are taken over octets in network order.
+    // One host's tag is every host's: the checksums are taken over bytes in network order.
     try testing.expectEqualSlices(u8, &retry_tag_expected, &tag);
     // RFC 9369 §3.3.3: version 2's Retry key and nonce are its own.
     try testing.expect(!vtable.retry_tag_valid(&suite_under_test, .v2, "\x08" ++ sample_dcid ++ "retry", &tag));
@@ -147,7 +147,7 @@ test "RFC 9000 §8.1.4: a token checks for its address, within its lifetime, and
     const checked = vtable.retry_token_check(&suite_under_test, .v1, "address", written, now_ns).retry;
     try testing.expectEqualStrings("original", checked.original_destination_slice());
     try testing.expectEqualStrings("retry", checked.retry_source_slice());
-    // Another address, an expired lifetime, a changed octet and a cut-short token all fail.
+    // Another address, an expired lifetime, a changed byte and a cut-short token all fail.
     try testing.expectEqual(.invalid, vtable.retry_token_check(&suite_under_test, .v1, "other", written, now_ns));
     // RFC 9369 §4.1: a token written in version 1 is refused in version 2.
     try testing.expectEqual(.invalid, vtable.retry_token_check(&suite_under_test, .v2, "address", written, now_ns));

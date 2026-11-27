@@ -75,7 +75,7 @@ const legacy_record_version: u16 = 0x0303;
 /// The most content one test record carries.
 const content_len_max: usize = 64;
 
-/// RFC 9846 §4.7.3: a KeyUpdate as a handshake message, type 24 with a body of one octet.
+/// RFC 9846 §4.7.3: a KeyUpdate as a handshake message, type 24 with a body of one byte.
 const handshake_key_update: u8 = 24;
 const update_not_requested: u8 = 0;
 const update_requested: u8 = 1;
@@ -140,7 +140,7 @@ test "RFC 9846 §4.7.3: a KeyUpdate that asks is answered in front of the next r
     const opened = try receiver.decrypt_record(update, &support.scratch);
     try testing.expectEqual(update.len, opened.consumed);
     try testing.expectEqual(tls_provider.Content.without_data, opened.content);
-    // chapulin sends the answer from `write`, so no handshake octet is owed.
+    // chapulin sends the answer from `write`, so no handshake byte is owed.
     try testing.expectEqual(0, try receiver.handshake_write(&output_storage, 0));
     // An output that holds the answer and no record of data takes nothing.
     const answer_len = chapulin.key_update_record_len;

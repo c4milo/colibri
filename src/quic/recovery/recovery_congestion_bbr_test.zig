@@ -53,7 +53,7 @@ test "decision 136: BBRv3 paces at its own rate, with its send quantum as the bu
     init_bbr();
     const rate = test_recovery.rate();
     try testing.expectEqual(bbr().pacing_rate, rate.period_len);
-    // 1 ms of 33,240,000 octets a second, the initial window over 1 ms at Startup's gain.
+    // 1 ms of 33,240,000 bytes a second, the initial window over 1 ms at Startup's gain.
     try testing.expectEqual(33_240, rate.burst_len);
     try testing.expectEqual(recovery_congestion.initial_window(test_datagram_len), test_recovery.congestion.window);
     try testing.expectEqual(test_recovery.congestion.window, bbr().window_len);

@@ -1,5 +1,5 @@
 //! What colibri checks about a TLS connection before h11 runs on it, and the record layer h11's
-//! octets cross once it does (RFC 9112 §9.7, decision 88). h2 has its own
+//! bytes cross once it does (RFC 9112 §9.7, decision 88). h2 has its own
 //! (`h2/connection/connection_tls.zig`): the rules on the handshake and on what a record may carry
 //! differ, and so does what a failure sends.
 //!
@@ -8,7 +8,7 @@
 //!
 //! RFC 9112 §9.7: all HTTP data is sent as TLS application data. A record that carries none — a
 //! ticket, a key update, a `user_canceled` alert — reaches no h11 parser, and a run of them is
-//! bounded. A failure here writes no HTTP octet: the connection closes, and the provider names
+//! bounded. A failure here writes no HTTP byte: the connection closes, and the provider names
 //! the alert.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -35,7 +35,7 @@ pub const AttachError = error{
 
 /// Checks a finished handshake, and stores the provider on success.
 pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!void {
-    // A provider is attached once, before any HTTP octet moves in either direction.
+    // A provider is attached once, before any HTTP byte moves in either direction.
     assert(target.provider == null);
     assert(target.phase == .head and target.scanner.scanned == 0 and target.outstanding_len == 0);
     try check(provider);
@@ -66,7 +66,7 @@ pub fn check(provider: tls_provider.Provider) AttachError!void {
     if (!tls_provider.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
 
-/// Why a record did not open or did not go out. Each ends the connection with no HTTP octet.
+/// Why a record did not open or did not go out. Each ends the connection with no HTTP byte.
 pub const RecordError = error{
     /// A run of records carrying no data passed its bound. `failure` names it, and the
     /// connection is closed.
@@ -81,7 +81,7 @@ pub const RecordError = error{
     NoSpaceLeft,
     /// A protected record arrived or was asked for before the keys exist (RFC 9846 §7.1).
     HandshakeIncomplete,
-    /// No provider is attached: this is a cleartext connection and its octets need no record.
+    /// No provider is attached: this is a cleartext connection and its bytes need no record.
     NoProvider,
 };
 
@@ -94,14 +94,14 @@ pub const Failure = error{
     KeyUpdates,
 };
 
-/// What `decrypt` took from the peer's octets.
+/// What `decrypt` took from the peer's bytes.
 pub const Decrypted = struct {
-    /// Octets of the input the record occupied, header and tag included. 0 means no whole record
+    /// Bytes of the input the record occupied, header and tag included. 0 means no whole record
     /// was there.
     consumed: usize,
-    /// Octets of plaintext written, which are h11's octets and are fed to `receive`.
+    /// Bytes of plaintext written, which are h11's bytes and are fed to `receive`.
     plaintext_len: usize,
-    /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
+    /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No byte the peer
     /// sends afterwards is read.
     end_of_data: bool,
 };
@@ -110,7 +110,7 @@ pub const Decrypted = struct {
 /// fed to `receive` (design §4.1).
 pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8) RecordError!Decrypted {
     // RFC 9112 §9.7: only a connection secured via TLS carries HTTP as application data, so a
-    // cleartext connection's octets pass through no record layer.
+    // cleartext connection's bytes pass through no record layer.
     const provider = target.provider orelse return error.NoProvider;
     // RFC 9846 §6: after a fatal alert, sent or received, no record is read.
     if (target.tls_failed) return error.TlsFailed;
@@ -121,7 +121,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8) RecordEr
         error.TlsFailed => {
             end_tls(target, error.TlsFailed);
             // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
-            // connection. Its last octets are the alert that the provider owes.
+            // connection. Its last bytes are the alert that the provider owes.
             return error.TlsFailed;
         },
         error.KeyUpdates => {
@@ -203,7 +203,7 @@ fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usiz
     }
 }
 
-/// Protects h11's octets as one or more records (RFC 9846 §5.2). RFC 9846 §4.7.3: the provider
+/// Protects h11's bytes as one or more records (RFC 9846 §5.2). RFC 9846 §4.7.3: the provider
 /// writes the answer to a peer's KeyUpdate in front of the records, under the keys the answer
 /// replaces. `now_ns` is the instant that `handshake_write` takes.
 ///
@@ -211,13 +211,13 @@ fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usiz
 /// no plaintext calls it too (RFC 9846 §6). When the output cannot hold the alert, nothing is
 /// written.
 pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
-    // RFC 9112 §9.7: a cleartext connection writes its octets straight to the transport.
+    // RFC 9112 §9.7: a cleartext connection writes its bytes straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
     assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
     // RFC 9846 §6: after the record layer failed, the alert the provider owes is the last thing the
     // connection writes, and the connection seals no data.
     if (target.tls_failed) return .{ .consumed = 0, .written = try write_owed(target, provider, output, now_ns) };
-    // Only `end_tls` makes the provider owe handshake octets: the alert of the failure.
+    // Only `end_tls` makes the provider owe handshake bytes: the alert of the failure.
     assert(!target.handshake_owed);
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
     const sealed = provider.encrypt_record(plaintext, output) catch |failure|
@@ -227,7 +227,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
 }
 
 /// Ends the connection at the record layer (RFC 9846 §6), with `failure` as the reason. The
-/// provider may owe the alert that says why, which `encrypt` writes. colibri sends no HTTP octet
+/// provider may owe the alert that says why, which `encrypt` writes. colibri sends no HTTP byte
 /// after it, so a server owes no error response either.
 fn end_tls(target: *Connection, failure: error{ TlsFailed, KeyUpdates }) void {
     target.tls_failed = true;

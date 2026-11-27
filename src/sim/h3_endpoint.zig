@@ -9,7 +9,7 @@
 //! A client sends its first request at once, on the defaults, and the rest once the server's
 //! SETTINGS arrived, in rounds of `h3_check_round_len`: a round goes out once every response of
 //! the one before it has ended. A server answers each request once it has read all of it. Both
-//! check every field section and content octet they read against the plan, and read no event the
+//! check every field section and content byte they read against the plan, and read no event the
 //! plan does not produce.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -25,7 +25,7 @@ const Plan = h3_plan.Plan;
 const constants = sim.constants;
 
 pub const Error = quic_endpoint.Error || h3.Connection.SendError || h3.http.FieldSection.AppendError || error{
-    /// A field section, content octet, trailer section or end differed from the plan's.
+    /// A field section, content byte, trailer section or end differed from the plan's.
     MessageMismatch,
     /// An event the plan does not produce: a reset, a refusal or a GOAWAY.
     UnexpectedEvent,
@@ -63,7 +63,7 @@ const idle_timeout_ms: u64 = 60_000;
 const rounds_granted: u64 = 2;
 /// Where every request goes.
 const authority = "sim.example";
-/// The octets of the longest path, `/e` and an exchange's index.
+/// The bytes of the longest path, `/e` and an exchange's index.
 const path_len_max: usize = 8;
 
 comptime {
@@ -121,7 +121,7 @@ pub const Endpoint = struct {
             endpoint.started = true;
         }
         if (endpoint.is_client()) try endpoint.send_requests();
-        // Bounded: every event reads at least one frame or content octet the peer sent, and a
+        // Bounded: every event reads at least one frame or content byte the peer sent, and a
         // step's datagrams carry at most this many of either.
         for (0..constants.h3_check_steps_max) |_| {
             const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body, now_ns) orelse return;
@@ -342,8 +342,8 @@ fn parameters() quic.transport_parameters.Parameters {
 
 const kept_vtable: quic.StreamProvider.VTable = .{ .read = read_kept };
 
-/// A request stream's octets from `offset`: the frames the caller kept, and the content made from
-/// its offset between them. Every call at one offset answers the same octets (RFC 9000 §2.2).
+/// A request stream's bytes from `offset`: the frames the caller kept, and the content made from
+/// its offset between them. Every call at one offset answers the same bytes (RFC 9000 §2.2).
 fn read_kept(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const endpoint: *const Endpoint = @ptrCast(@alignCast(context));
     const index = index_of(stream_id);

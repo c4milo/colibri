@@ -10,15 +10,15 @@
 //! 503 itself.
 //!
 //! In a turn the server fires the deadlines that passed, then passes the engine what each socket
-//! read: the octets of a TCP socket under the handle of its connection, and each datagram with the
+//! read: the bytes of a TCP socket under the handle of its connection, and each datagram with the
 //! address it came from. Each `receive` reports one event of any connection. The server answers a
 //! request by its id, which names the request's connection too, in h11, h2 and h3 alike. It sends
 //! what `send_stream` writes for a TCP connection at its `send` event, and every datagram
-//! `send_datagram` writes. Then it sleeps until a socket has octets or the engine's next
+//! `send_datagram` writes. Then it sleeps until a socket has bytes or the engine's next
 //! deadline passes (decision 110).
 //!
 //! The server also shows:
-//! - `transport_closed`, for a socket whose peer closes it before it sends an octet;
+//! - `transport_closed`, for a socket whose peer closes it before it sends a byte;
 //! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the engine
 //!   holds once it has a request, so the server closes it when its client keeps it open;
 //! - `h3_alternative`, with which each TLS connection advertises the server's h3 port;
@@ -29,8 +29,8 @@
 //! Its clients are in `server_peers.zig`: one sends five requests over TCP, and one a GET over
 //! QUIC. The links of `link.zig` and `link_datagram.zig` stand where a program's sockets would be.
 //!
-//! The program checks what arrived: each client must see 200, the content and its type, octet for
-//! octet, for each request that a route names, and 405 with its Allow field or 404 for each other
+//! The program checks what arrived: each client must see 200, the content and its type, byte for
+//! byte, for each request that a route names, and 405 with its Allow field or 404 for each other
 //! request. The server must see six responses done, one `close`, three connections end, the QUIC
 //! one at its idle deadline, and `closed`. Anything else exits with an error, which is how `zig
 //! build examples` and CI know the example still works.
@@ -59,7 +59,7 @@ const turns_max = 256;
 const events_per_input_max = 64;
 const datagrams_per_turn_max = 32;
 
-/// The longest the server sleeps when no octet waits, in nanoseconds: 100 ms.
+/// The longest the server sleeps when no byte waits, in nanoseconds: 100 ms.
 const wait_ns_max: u64 = 100_000_000;
 
 /// How long the server keeps a connection with no request open, in nanoseconds: 10 s, and 100 ms
@@ -69,7 +69,7 @@ const idle_after_answer_ns = 100_000_000;
 
 /// Requests the server keeps state for, at most.
 const requests_max = 7;
-/// The octets of the router's copy of a POST's header, which the router keeps until the content
+/// The bytes of the router's copy of a POST's header, which the router keeps until the content
 /// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
 /// fields too.
 const header_bytes = 512;
@@ -103,7 +103,7 @@ var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 // connections. The identity is read from the PEM files an operator holds, which colibri's test
 // identity stands in for: the chain's DER and the key go into these rooms, which stay in place
 // while the engine serves.
-/// The TCP and QUIC connections the engine holds at once, and the octets each QUIC connection
+/// The TCP and QUIC connections the engine holds at once, and the bytes each QUIC connection
 /// holds unread.
 const Engine = server.Engine(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 var chain_der: [chain_der_len]u8 = undefined;
@@ -208,7 +208,7 @@ pub fn main(init: std.process.Init) !void {
         try peers.turn();
         try server_turn();
         if (engine_closed) return check();
-        // No octet and no datagram waits. A program sleeps here until a socket has octets or a
+        // No byte and no datagram waits. A program sleeps here until a socket has bytes or a
         // deadline passes, whichever comes first.
         if (!link.pending() and !datagram_link.pending()) try link.wait(.server, sleep_ns());
     }
@@ -264,7 +264,7 @@ fn start_server(crypto: stdx.crypto.Context) !void {
     accepted = engine.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 }
 
-/// Accepts a second socket, which its peer closes before it sends an octet, as a port scan does.
+/// Accepts a second socket, which its peer closes before it sends a byte, as a port scan does.
 /// This example has no link for it: only the calls a program makes for such a socket are here.
 fn accept_closed() !void {
     const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
@@ -297,12 +297,12 @@ fn server_turn() !void {
     }
 }
 
-/// Passes the engine the octets the TCP socket read, until it consumes nothing and reports
+/// Passes the engine the bytes the TCP socket read, until it consumes nothing and reports
 /// nothing.
 fn read_stream(input: []u8, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
-        // The handle says which connection's socket read the octets.
+        // The handle says which connection's socket read the bytes.
         const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
         engine.receive(.{ .stream = read }, now_ns, &received);
         consumed += received.consumed;
@@ -354,13 +354,13 @@ fn serve(event: *const server.Event, now_ns: u64) !void {
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other.*) {
-            // A TCP connection owes its socket octets.
+            // A TCP connection owes its socket bytes.
             .send => |connection| try flush(connection, now_ns),
             // RFC 9112 §9.6: the program closes only the write side of this TCP connection's
             // socket, and passes on what the socket reads. The `close` follows.
             .half_close => half_closes += 1,
             // colibri reads and writes nothing more on this TCP connection. A program closes the
-            // socket once it has sent the octets it took, and owes the engine no call: the
+            // socket once it has sent the bytes it took, and owes the engine no call: the
             // connection's `ended` follows by itself.
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
@@ -458,12 +458,12 @@ fn on_error(_: *App, _: *server.RequestContext, _: *const server.Request, _: any
     response.status = .internal_server_error;
 }
 
-/// Sends what `connection` owes its socket, after its `send` event. The engine lends the octets
+/// Sends what `connection` owes its socket, after its `send` event. The engine lends the bytes
 /// where it holds them, so the send copies none into a buffer of the program's (decision 176).
 /// `sent_stream` then says how many the send took: 0 for one that failed. The engine reports
-/// another `send` for any octets left.
+/// another `send` for any bytes left.
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
-    // This example has one TCP link, so only the connection it carries may owe octets.
+    // This example has one TCP link, so only the connection it carries may owe bytes.
     if (connection != accepted) return error.ExchangeWrong;
     const owed = engine.output_stream(connection, now_ns);
     link.send(.server, owed) catch |failure| {

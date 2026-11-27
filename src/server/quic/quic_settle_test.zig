@@ -27,7 +27,7 @@ const trailer_value: [trailer_windows * window_small]u8 = @splat('t');
 /// The responses that the test of two requests writes.
 const responses_two: u32 = 2;
 
-/// A server and a client connected, the client's streams starting with `stream_window` octets of
+/// A server and a client connected, the client's streams starting with `stream_window` bytes of
 /// credit, and a GET whose head the server reported and that has no response yet.
 fn reported_get(stream_window: u64) !*support.Fetch {
     support.client_stream_window = stream_window;

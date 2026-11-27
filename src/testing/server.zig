@@ -1,7 +1,7 @@
 //! The server of design §9, which `tools/h2spec.sh` runs the pinned h2spec against and h2load
 //! measures. Every connection is served by colibri's `server` module, through one
 //! `server.Engine` for each worker (design §8 step 21b.6, decision 119). `zig build http-server
-//! -- --port <port>` runs it in cleartext, where a connection speaks h2 when its first octets are
+//! -- --port <port>` runs it in cleartext, where a connection speaks h2 when its first bytes are
 //! h2's preface and h11 otherwise (decision 117), or one alone with `--h11` or `--h2`. With `--tls
 //! <identity-prefix>` it serves TLS instead: the engine offers `h2` and `http/1.1` through ALPN,
 //! or one alone with `--h11` or `--h2`, and each connection speaks what its handshake selected
@@ -16,13 +16,13 @@
 //! No call here waits but the loop's `tick`, one system call per turn (decisions 46 and 58). A
 //! worker keeps one accept in flight while it has a free socket, and each socket at most one
 //! receive, one send and, at its end, one close. A peer that stops reading holds up only its own
-//! connection: its octets wait in that socket's buffer.
+//! connection: its bytes wait in that socket's buffer.
 //!
 //! Each connection runs on the instant the loop read at its last tick, which reads no clock of
 //! its own (decision 63), and a tick waits no longer than the engine's soonest deadline
 //! (decision 110), which the engine then gets through `on_instant`.
 //!
-//! The socket side holds no protocol rule: it reads octets into a buffer, hands them to the
+//! The socket side holds no protocol rule: it reads bytes into a buffer, hands them to the
 //! worker's session, writes back what the session produced, and closes a socket when the engine
 //! says so (RFC 9113 §5.4.1) or its peer left. Nothing here allocates: every worker, socket and
 //! buffer is in static storage sized by `constants.zig`, and each loop runs on memory its worker

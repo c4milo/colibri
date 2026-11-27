@@ -2,7 +2,7 @@
 #
 # A colibri client fetches files from a colibri server over real UDP on 127.0.0.1, over
 # hq-interop and over h3, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 steps
-# 9e and 12. Each file must arrive octet for octet, and a client with `resumption` must resume its
+# 9e and 12. Each file must arrive byte for byte, and a client with `resumption` must resume its
 # first connection's session on its second (RFC 9846 §2.2). The hq-interop and h3 runs write each
 # connection's qlog, and every file must pass tools/qlog_check.py (design §8 step 18c). The files
 # come over h3 from the server's `h3` mode too, which serves them through the `server` module

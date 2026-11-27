@@ -144,7 +144,7 @@ test "RFC 9000 §14.1, decision 54: a client's Initial datagram reaches 1,200 oc
     // carrying PADDING as in flight.
     try testing.expect(sent.written()[sent.count - 1].in_flight);
 
-    // And it still comes apart: the PADDING is frames inside the packet, not octets after it.
+    // And it still comes apart: the PADDING is frames inside the packet, not bytes after it.
     _ = try connection_module.space_at(&server, .initial).next_number();
     try testing.expectEqual(1, try walk_back(&server, sent));
 }
@@ -223,7 +223,7 @@ test "RFC 9000 §14.2: no datagram exceeds the smallest maximum, whatever the pe
     try testing.expectEqual(constants.protocol.datagram_len_min, after.len);
 }
 
-/// The unpredictable octets RFC 9000 §8.2.1 asks for, as a fixed value: §5.1 wants them drawn by
+/// The unpredictable bytes RFC 9000 §8.2.1 asks for, as a fixed value: §5.1 wants them drawn by
 /// the caller and invariant 5 forbids colibri a random number, so a test states them.
 const challenge_octet: u8 = 0x9c;
 const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
@@ -255,7 +255,7 @@ test "RFC 9000 §8.2.1: a PATH_CHALLENGE goes out in an expanded datagram and is
     try testing.expect(sent.packets[0].ack_eliciting);
     try testing.expect(sent.packets[0].in_flight);
 
-    // The datagram reached 1,200 octets, so §8.2.3's response will validate the path MTU too.
+    // The datagram reached 1,200 bytes, so §8.2.3's response will validate the path MTU too.
     open_application(&server);
     _ = try walk_back(&server, sent);
     try testing.expectEqualSlices(u8, &challenge_data, &server.path.response_owed.?);
@@ -284,7 +284,7 @@ test "RFC 9000 §8.2.1: a datagram the anti-amplification limit bounds is not ex
     open_pair();
     open_application(&server);
     // §8.1's limit is the server's: it may send three times what it received, which here is less
-    // than §14.1's 1,200 octets.
+    // than §14.1's 1,200 bytes.
     server.path.init(.unvalidated);
     server.path.on_datagram_received(small_receipt_len);
     server.path.take_challenge(challenge_data);
@@ -370,7 +370,7 @@ test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a n
     try testing.expectEqual(0, first.packets[0].packet_number);
     try testing.expectEqual(0, first.packets[0].data_offset);
     try testing.expectEqual(flight_len, first.packets[0].data_len);
-    // The provider gave its octets up, so there is nothing new to send until something is lost.
+    // The provider gave its bytes up, so there is nothing new to send until something is lost.
     try testing.expectEqual(null, try send_from(&client));
 
     // RFC 9002's loss detection declared that packet lost, and the record is the caller's.
@@ -383,7 +383,7 @@ test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a n
     // needed", and invariant 17 gives that new packet a number of its own.
     const again = (try send_from(&client)).?;
     try testing.expect(again.packets[0].packet_number > first.packets[0].packet_number);
-    // §19.6: the Offset is where the octets sit in the flow, so the repeat starts where they did.
+    // §19.6: the Offset is where the bytes sit in the flow, so the repeat starts where they did.
     try testing.expectEqual(0, again.packets[0].data_offset);
     try testing.expectEqual(flight_len, again.packets[0].data_len);
 
@@ -407,7 +407,7 @@ test "RFC 9000 §13.3: a lost packet that carried no CRYPTO asks for nothing" {
     try testing.expectEqual(0, report.packets);
     try testing.expectEqual(null, try send_from(&client));
 
-    // Octets a packet carried for a stream fall under §13.3's STREAM rule and not the CRYPTO one,
+    // Bytes a packet carried for a stream fall under §13.3's STREAM rule and not the CRYPTO one,
     // even where the offset is one the level's flow also used.
     var streamed = record_of(first, 0);
     streamed.carries = .stream;
@@ -444,7 +444,7 @@ test "RFC 9000 §13.3: the lowest lost offset is where the flow is sent again fr
     try testing.expectEqual(2, report.packets);
 
     // §13.3 sends the information again, and the lowest lost offset is where that starts:
-    // rewinding to the last record's offset instead would leave the first packet's octets unsent.
+    // rewinding to the last record's offset instead would leave the first packet's bytes unsent.
     const again = (try send_from(&client)).?;
     try testing.expectEqual(0, again.packets[0].data_offset);
 }
@@ -475,18 +475,18 @@ test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for no
     try testing.expectEqual(null, try send_from(&client));
 }
 
-/// Octets a server that has received this much may send, three times over (RFC 9000 §8.1): a
+/// Bytes a server that has received this much may send, three times over (RFC 9000 §8.1): a
 /// datagram's worth short of what §14.1's expansion asks for. Test-only.
 const tiny_allowance_received: u64 = 351;
 
 test "RFC 9001 §5.4.2: a tiny packet in an expanded datagram is padded rather than widened" {
     open_pair();
-    // A probe with nothing else to say is a lone PING: one octet, below the four a sample needs.
+    // A probe with nothing else to say is a lone PING: one byte, below the four a sample needs.
     send.owe_probes(&client, .initial, 1);
     const padded = (try send_from(&client)).?;
-    // RFC 9000 §14.1 asks for 1,200 octets, and the widening the PADDING replaced adds none.
+    // RFC 9000 §14.1 asks for 1,200 bytes, and the widening the PADDING replaced adds none.
     try testing.expectEqual(constants.protocol.datagram_len_min, padded.len);
-    // A server that may send less than that fills its allowance and not one octet past it.
+    // A server that may send less than that fills its allowance and not one byte past it.
     server.path.on_datagram_received(tiny_allowance_received);
     send.owe_probes(&server, .initial, 1);
     const limited = (try send_from(&server)).?;

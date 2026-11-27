@@ -10,13 +10,13 @@
 //!
 //! `Block` is in decoder_block.zig and reads one representation per call. Each is checked in
 //! this order (invariant 7):
-//!   1. its pattern, from the first octet's high bits (§6);
+//!   1. its pattern, from the first byte's high bits (§6);
 //!   2. a size update: at most twice (§4.2), before every field line in the block (§4.2), at or
 //!      below the protocol's limit (§6.3), and, after the limit was lowered, at or below the
 //!      lowered limit (RFC 9113 §4.3.1);
 //!   3. an index: not 0 in an indexed field (§6.1), and inside the address space (§2.3.3);
-//!   4. a string: an integer and octets `wire.string_literal` accepts, decoding to at most
-//!      `name_len_max` or `value_len_max` octets, or `error.StringTooLong` (§7.4).
+//!   4. a string: an integer and bytes `wire.string_literal` accepts, decoding to at most
+//!      `name_len_max` or `value_len_max` bytes, or `error.StringTooLong` (§7.4).
 //! An error refuses the whole block. The block's first error is its verdict, and the decoder's
 //! table is left as the representations before it left it; the protocol module ends the
 //! connection on any of them (RFC 9113 §4.3), so nothing decodes over that table again.
@@ -126,7 +126,7 @@ pub fn expect_lines(octets: []const u8, expected: []const Field) !void {
 /// Requires `octets` to be refused with `expected`, after any lines it yields first. Test-only.
 pub fn expect_refused(octets: []const u8, expected: Decoder.Error) !void {
     var block = test_decoder.block(octets);
-    // The refusal may come after accepted lines; a block of n octets holds at most n of them.
+    // The refusal may come after accepted lines; a block of n bytes holds at most n of them.
     for (0..octets.len + 1) |_| {
         const line = block.next() catch |failure| return testing.expectEqual(expected, failure);
         if (line == null) return error.TestUnexpectedResult;

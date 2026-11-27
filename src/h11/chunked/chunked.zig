@@ -1,11 +1,11 @@
-//! The chunked coding's decoder (RFC 9112 §7.1), over octets the caller has already read. Each
-//! call takes every unconsumed octet the caller holds, and consumes the framing it can read and
-//! at most one run of chunk data, which it returns as a slice of the caller's octets. The state
+//! The chunked coding's decoder (RFC 9112 §7.1), over bytes the caller has already read. Each
+//! call takes every unconsumed byte the caller holds, and consumes the framing it can read and
+//! at most one run of chunk data, which it returns as a slice of the caller's bytes. The state
 //! the caller keeps between calls says where the coding stands, so a body that arrives in any
-//! pieces decodes to the same octets (design §4.1).
+//! pieces decodes to the same bytes (design §4.1).
 //!
 //! A line of the coding, the chunk-size line or the trailer section, is read only once whole, as a
-//! head is, and `search` keeps the place of the search for its end between calls, so each octet
+//! head is, and `search` keeps the place of the search for its end between calls, so each byte
 //! is searched once. Each line is held to RFC 9112 §2.2: a bare CR is refused, and so is a lone
 //! LF, the strict side of the choice §2.2 leaves.
 //!
@@ -47,7 +47,7 @@ pub const Error = chunked_line.Error || message_fields.Error || error{
 pub const State = enum {
     /// Before a chunk-size line.
     size_line,
-    /// Inside a chunk's data, with `remaining` octets of it to come.
+    /// Inside a chunk's data, with `remaining` bytes of it to come.
     data,
     /// After a chunk's data, before its CRLF.
     data_end,
@@ -59,7 +59,7 @@ pub const State = enum {
 
 /// What one call decoded.
 pub const Decoded = struct {
-    /// Octets of the caller's input the call consumed. `data` is among them.
+    /// Bytes of the caller's input the call consumed. `data` is among them.
     consumed: usize,
     /// Chunk data, a slice of the caller's input. Empty when the call read framing alone.
     data: []const u8,
@@ -71,7 +71,7 @@ pub const Decoded = struct {
 /// The CR and LF that end every line (RFC 9112 §2.1).
 const line_end = "\r\n";
 
-/// Most octets of a chunk-size line with its CRLF.
+/// Most bytes of a chunk-size line with its CRLF.
 const size_line_octets_max = constants.limits.chunk_line_len_max + line_end.len;
 
 /// What a search for the end of a line looks for: the end of one line, or the empty line that ends
@@ -80,14 +80,14 @@ const Until = enum { line, empty_line };
 
 /// The place of a search for the end of a line, or of a section, kept between calls.
 const Search = struct {
-    /// Octets searched so far, from the start of the line or section.
+    /// Bytes searched so far, from the start of the line or section.
     scanned: u32 = 0,
-    /// Octets of the current line searched so far, its CR not counted.
+    /// Bytes of the current line searched so far, its CR not counted.
     line_len: u32 = 0,
-    /// The last octet searched was a CR, so the next must be LF.
+    /// The last byte searched was a CR, so the next must be LF.
     after_carriage_return: bool = false,
 
-    /// Searches the octets of `octets` not searched before, up to `octets_max` in all. Returns the
+    /// Searches the bytes of `octets` not searched before, up to `octets_max` in all. Returns the
     /// offset past the CRLF that ends what `until` names, or null while it has not arrived.
     fn find(search: *Search, until: Until, octets: []const u8, octets_max: u32) Error!?u32 {
         assert(search.scanned <= octets.len and search.scanned <= octets_max);
@@ -106,7 +106,7 @@ const Search = struct {
         return null;
     }
 
-    /// One octet. Returns true when it is the LF that ends the search.
+    /// One byte. Returns true when it is the LF that ends the search.
     fn step(search: *Search, until: Until, octet: u8) Error!bool {
         if (search.after_carriage_return) {
             search.after_carriage_return = false;
@@ -129,11 +129,11 @@ const Search = struct {
 
 pub const Decoder = struct {
     state: State = .size_line,
-    /// Data octets left in the current chunk.
+    /// Data bytes left in the current chunk.
     remaining: u64 = 0,
     search: Search = .{},
 
-    /// Decodes from the start of `input`, which holds every octet the last call did not consume
+    /// Decodes from the start of `input`, which holds every byte the last call did not consume
     /// and any that arrived since.
     pub fn decode(decoder: *Decoder, role: Role, input: []const u8, trailers: *FieldSection) Error!Decoded {
         assert(decoder.state != .done);
@@ -260,11 +260,11 @@ test "RFC 9112 §7.1.2: the trailer section is read into its own section" {
     try testing.expectEqualStrings("a b", test_trailers.find("x").?.value);
 }
 
-/// The longest input `decode_in_pieces` holds, and the passes it allows per octet of it.
+/// The longest input `decode_in_pieces` holds, and the passes it allows per byte of it.
 const test_input_len_max = 128;
 const test_passes_per_octet = 4;
 
-/// Feeds `input` to a decoder `split` octets at a time, keeping what each call does not consume,
+/// Feeds `input` to a decoder `split` bytes at a time, keeping what each call does not consume,
 /// and returns the data it decoded.
 fn decode_in_pieces(input: []const u8, split: usize, data: []u8) ![]const u8 {
     var decoder: Decoder = .{};
@@ -272,7 +272,7 @@ fn decode_in_pieces(input: []const u8, split: usize, data: []u8) ![]const u8 {
     var held_len: usize = 0;
     var written: usize = 0;
     var fed: usize = 0;
-    // Bounded: each pass feeds at least one octet, and the decoder consumes what it can.
+    // Bounded: each pass feeds at least one byte, and the decoder consumes what it can.
     for (0..input.len * test_passes_per_octet) |_| {
         const piece_end = @min(input.len, fed + split);
         @memcpy(held[held_len..][0 .. piece_end - fed], input[fed..piece_end]);
@@ -308,7 +308,7 @@ test "RFC 9112 §2.2 and §7.1: a bare CR, a lone LF, or data without its CRLF i
     try testing.expectError(error.ObsFold, decode_all(.request, "0\r\nX: a\r\n b\r\n\r\n", &data));
 }
 
-/// Octets the limit tests fill a line with.
+/// Bytes the limit tests fill a line with.
 threadlocal var test_octets: [constants.limits.trailer_len_max + 1]u8 = @splat('a');
 
 test "a chunk-size line or trailer section past its limit is refused, and one at it is read" {

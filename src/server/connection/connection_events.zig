@@ -20,7 +20,7 @@ pub fn note(connection: *Connection, reported: event.ConnectionEvent) void {
             if (!request.end) connection_bodies.add(connection, request.id.number);
         },
         .body => |body| {
-            // h11 counts its body's octets as it reads them, in `read_protocol`.
+            // h11 counts its body's bytes as it reads them, in `read_protocol`.
             if (connection.session == .h2) connection_bodies.count(connection, body.id.number, body.bytes.len);
             if (body.end) connection_bodies.remove(connection, body.id.number);
         },

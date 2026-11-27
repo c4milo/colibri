@@ -1,8 +1,8 @@
 //! The handshake over CRYPTO frames (RFC 9001 §4.1.3), which is what step 9e is named for.
 //!
 //! Three things meet here and none of them owns the other two. `quic.crypto_stream` turns the
-//! frames a peer sent into an in-order run of octets per encryption level (RFC 9000 §19.6). The
-//! caller's `tls_provider.QuicProvider` consumes that run and produces the octets colibri owes back
+//! frames a peer sent into an in-order run of bytes per encryption level (RFC 9000 §19.6). The
+//! caller's `tls_provider.QuicProvider` consumes that run and produces the bytes colibri owes back
 //! (decision 8). And `quic.frame` writes those into CRYPTO frames. This file is the wiring, and
 //! it holds no key: the secrets go from the provider to the caller's `crypto.Suite` without
 //! passing through colibri ([decision 48](../../../docs/decisions.md)).
@@ -44,7 +44,7 @@ pub const Error = error{
     /// The provider failed and raised no alert colibri could read, which §4.8 still makes a
     /// connection error.
     TlsFailed,
-    /// RFC 9000 §12.5: CRYPTO octets at a level the provider is not reading.
+    /// RFC 9000 §12.5: CRYPTO bytes at a level the provider is not reading.
     WrongLevel,
     /// RFC 9000 §7.4: the peer's transport parameters were refused.
     ParametersRefused,
@@ -76,7 +76,7 @@ pub fn connection_error_code(failure: Error) u64 {
         error.ConnectionIdsUnauthenticated => error_code.transport_parameter_error,
         // RFC 9368 §4: a version negotiation error, which §10.2 names.
         error.VersionNegotiationFailed => error_code.version_negotiation_error,
-        // RFC 9000 §12.5: octets at the wrong encryption level violate the protocol.
+        // RFC 9000 §12.5: bytes at the wrong encryption level violate the protocol.
         error.WrongLevel => error_code.protocol_violation,
         // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
         error.NoSpaceLeft, error.TlsFailed, error.TlsAlert => error_code.internal_error,
@@ -99,7 +99,7 @@ pub fn alert_error_code(description: tls_provider.Alert) u64 {
 }
 
 /// Takes one CRYPTO frame the peer sent at `level` (RFC 9000 §19.6). What it holds joins the
-/// level's in-order run, and a retransmission of octets already read changes nothing.
+/// level's in-order run, and a retransmission of bytes already read changes nothing.
 pub fn receive_crypto(connection: *Connection, level: Level, crypto: frame_stream.Crypto) Error!void {
     connection_module.crypto_at(connection, level).receive(crypto.offset, crypto.data) catch |failure| switch (failure) {
         error.CryptoBufferExceeded => return Error.CryptoBufferExceeded,
@@ -108,7 +108,7 @@ pub fn receive_crypto(connection: *Connection, level: Level, crypto: frame_strea
     connection_version.settle(connection);
 }
 
-/// Hands the provider every octet it can read now, at every level (RFC 9001 §4.1.3). A level with
+/// Hands the provider every byte it can read now, at every level (RFC 9001 §4.1.3). A level with
 /// nothing in order yet is skipped, and what the provider takes is forgotten.
 pub fn provide_handshake(connection: *Connection, provider: tls_provider.QuicProvider) Error!void {
     // Bounded by the levels, of which RFC 9001 §4.1.4 names three.
@@ -118,22 +118,22 @@ pub fn provide_handshake(connection: *Connection, provider: tls_provider.QuicPro
         const readable = stream.readable();
         if (readable.len == 0) continue;
         provider.provide_handshake(level, readable) catch |failure| return provider_failure(connection, provider, failure);
-        // The provider took the whole run: RFC 9001 §4.1.3 gives it octets and keeps no offset,
+        // The provider took the whole run: RFC 9001 §4.1.3 gives it bytes and keeps no offset,
         // so a message it cannot finish yet is the provider's to hold, not colibri's.
         stream.consume(readable.len);
     }
 }
 
-/// Writes the handshake octets the provider owes at `level` into `output` as a CRYPTO frame, and
-/// returns how many octets of `output` the frame occupies. 0 means the provider owes none there.
+/// Writes the handshake bytes the provider owes at `level` into `output` as a CRYPTO frame, and
+/// returns how many bytes of `output` the frame occupies. 0 means the provider owes none there.
 /// What one CRYPTO frame took, which the send path reports so RFC 9000 §13.3 can send the same
-/// octets again if the packet carrying them is lost.
+/// bytes again if the packet carrying them is lost.
 pub const Written = struct {
-    /// Octets of `output` the frame occupies, its own header included.
+    /// Bytes of `output` the frame occupies, its own header included.
     len: usize = 0,
     /// Where its payload sits in the level's flow (RFC 9000 §19.6).
     offset: u64 = 0,
-    /// Octets of that payload, which one packet bounds.
+    /// Bytes of that payload, which one packet bounds.
     payload_len: u16 = 0,
 };
 
@@ -145,7 +145,7 @@ pub fn write_crypto(
 ) Error!Written {
     assert(output.len > 0);
     const stream = connection_module.crypto_at(connection, level);
-    // The provider gives its octets up once, so they go into the level's own window before they
+    // The provider gives its bytes up once, so they go into the level's own window before they
     // go into a packet: RFC 9000 §13.3 retransmits them and §17.2.5.3 repeats them after a Retry.
     if (stream.send_full()) stream.forget_acknowledged(lowest_in_flight(connection, level) orelse stream.sent_len);
     const room = stream.send_room();
@@ -157,9 +157,9 @@ pub fn write_crypto(
     if (stream.unsent().len == 0) repeat_for_probe(connection, level);
     const waiting = stream.unsent();
     if (waiting.len == 0) return .{};
-    // The frame's own header costs octets, so the payload cannot have all of `output`. The
+    // The frame's own header costs bytes, so the payload cannot have all of `output`. The
     // Offset it reserves room for is the one `write_frame` will write: RFC 9000 §19.6 makes it
-    // how many octets colibri has sent at this level, which is a different number from how many
+    // how many bytes colibri has sent at this level, which is a different number from how many
     // it has read out of the peer's flow at the same level.
     const header_len = crypto_frame_header_len(stream.sent_len, output.len);
     if (output.len <= header_len) return .{};
@@ -174,7 +174,7 @@ pub fn write_crypto(
 
 /// The lowest Offset of a CRYPTO frame at `level` in a packet still in flight, or null when no
 /// such packet is. RFC 9000 §13.3 sends CRYPTO data again "until all data has been acknowledged",
-/// so the peer may still need each octet from here up.
+/// so the peer may still need each byte from here up.
 fn lowest_in_flight(connection: *Connection, level: Level) ?u64 {
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
     var lowest: ?u64 = null;
@@ -189,9 +189,9 @@ fn lowest_in_flight(connection: *Connection, level: Level) ?u64 {
 
 /// What a lost flight amounted to (RFC 9000 §13.3).
 pub const Lost = struct {
-    /// How many of the lost packets carried CRYPTO octets, which is what will be framed again.
+    /// How many of the lost packets carried CRYPTO bytes, which is what will be framed again.
     packets: usize = 0,
-    /// Whether any of them sat below the level's send window, so its octets are gone. The window
+    /// Whether any of them sat below the level's send window, so its bytes are gone. The window
     /// forgets only what the peer acknowledged, so this is a broken window. §13.3 has no answer
     /// for that: the handshake cannot go on, and the caller ends the connection.
     forgotten: bool = false,
@@ -217,7 +217,7 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
 }
 
 /// Decision 64 as amended: a PTO at a handshake level notes where its rewind left the level's
-/// CRYPTO octets, so a second probe with nothing else to carry carries them again. RFC 9002
+/// CRYPTO bytes, so a second probe with nothing else to carry carries them again. RFC 9002
 /// §6.2.4 sends two datagrams "to avoid an expensive consecutive PTO expiration due to a single
 /// lost datagram", and lets a probe carry "previously sent data". Called after the rewind.
 pub fn on_probes_owed(connection: *Connection, level: Level) void {
@@ -225,23 +225,23 @@ pub fn on_probes_owed(connection: *Connection, level: Level) void {
     connection.crypto_probe_from[@intFromEnum(level)] = connection_module.crypto_at(connection, level).sent_len;
 }
 
-/// Frames the probe's CRYPTO octets again while a probe is owed at `level` and nothing else is
-/// waiting there, which is the second of two probes the first one's octets filled. RFC 9000
-/// §2.2 has the peer discard octets it already holds, and they do not change.
+/// Frames the probe's CRYPTO bytes again while a probe is owed at `level` and nothing else is
+/// waiting there, which is the second of two probes the first one's bytes filled. RFC 9000
+/// §2.2 has the peer discard bytes it already holds, and they do not change.
 fn repeat_for_probe(connection: *Connection, level: Level) void {
     const at = @intFromEnum(level);
     if (connection.probes_owed[at] == 0) return;
     const from = connection.crypto_probe_from[at] orelse return;
-    // A window that has already forgotten those octets, because the peer acknowledged them,
+    // A window that has already forgotten those bytes, because the peer acknowledged them,
     // leaves the second probe a PING, as it was before.
     _ = connection_module.crypto_at(connection, level).on_lost(from);
 }
 
-/// Puts the octets in a CRYPTO frame at the level's current offset, and advances it.
+/// Puts the bytes in a CRYPTO frame at the level's current offset, and advances it.
 fn write_frame(connection: *Connection, level: Level, payload: []const u8, output: []u8) Error!usize {
     const stream = connection_module.crypto_at(connection, level);
     var writer = Writer.init(output);
-    // RFC 9000 §19.6: the Offset is where these octets sit in the level's own flow, which is how
+    // RFC 9000 §19.6: the Offset is where these bytes sit in the level's own flow, which is how
     // many colibri has already sent on it.
     frame_stream.write_crypto(&writer, .{ .offset = stream.sent_len, .data = payload }) catch
         return Error.NoSpaceLeft;
@@ -256,7 +256,7 @@ fn crypto_frame_header_len(offset: u64, room: usize) usize {
         wire.varint.encoded_len_minimal(room);
 }
 
-/// A CRYPTO frame's type is 0x06, one octet as a variable-length integer (RFC 9000 §19.6).
+/// A CRYPTO frame's type is 0x06, one byte as a variable-length integer (RFC 9000 §19.6).
 const frame_type_len: usize = 1;
 
 /// Reads the peer's transport parameters out of the provider once the handshake has carried them

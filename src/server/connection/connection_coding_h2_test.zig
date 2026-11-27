@@ -1,5 +1,5 @@
 //! The tests of content codings over h2 (`connection_coding.zig`, decision 101): a coded response
-//! goes out in DATA frames that h2's windows admit, `send` moves each stream's coded octets on as
+//! goes out in DATA frames that h2's windows admit, `send` moves each stream's coded bytes on as
 //! the windows open, and a stream the peer resets gives its encoder back.
 const std = @import("std");
 const h2 = @import("h2");
@@ -29,7 +29,7 @@ const Gathered = struct {
     coding: ?http.content_coding.Coding = null,
     vary: bool = false,
     content: []const u8 = &.{},
-    /// A DATA frame carried END_STREAM, and the octets of the last DATA frame.
+    /// A DATA frame carried END_STREAM, and the bytes of the last DATA frame.
     ended: bool = false,
     last_len: usize = 0,
 };
@@ -63,7 +63,7 @@ fn gather(sent: []const u8, stream_id: u32) !Gathered {
 /// Decodes a HEADERS frame's block, and keeps its coding fields when it is the stream's.
 fn read_head(payload: []const u8, keep: bool, gathered: *Gathered) !void {
     var block = test_decoder.block(payload);
-    // Bounded by the block's field lines, each one octet at least.
+    // Bounded by the block's field lines, each one byte at least.
     for (0..payload.len) |_| {
         const line = (try block.next()) orelse return;
         if (!keep) continue;
@@ -72,7 +72,7 @@ fn read_head(payload: []const u8, keep: bool, gathered: *Gathered) !void {
     }
 }
 
-/// Where a frame header's stream identifier starts: its last four octets (RFC 9113 §4.1).
+/// Where a frame header's stream identifier starts: its last four bytes (RFC 9113 §4.1).
 const stream_id_at: usize = constants.protocol.frame_header_len - @sizeOf(u32);
 
 /// Everything the connection owes, sent after what `test_sent` holds from `sent_len`.
@@ -91,7 +91,7 @@ test "decision 101: an h2 response is coded into DATA frames, and the last one e
     const gathered = try gather(test_sent[0..sent_len], 1);
     try testing.expectEqual(http.content_coding.Coding.deflate, gathered.coding.?);
     try testing.expect(gathered.vary and gathered.ended);
-    // The frame that ends the stream carries the last coded octets, and no empty one follows.
+    // The frame that ends the stream carries the last coded bytes, and no empty one follows.
     try testing.expect(gathered.last_len > 0);
     try testing.expectEqualStrings("hello world", try support.decode(.deflate, gathered.content));
     try support.expect_done(1);
@@ -112,7 +112,7 @@ test "decision 101: two coded streams go past the connection's window, and on as
         send_more(&sent_len);
     }
     try testing.expectEqual(0, support.pool.free_count());
-    // RFC 9113 §6.9.1: the connection's window of 65,535 octets stops the second stream partway.
+    // RFC 9113 §6.9.1: the connection's window of 65,535 bytes stops the second stream partway.
     send_more(&sent_len);
     send_more(&sent_len);
     try testing.expect(!(try gather(test_sent[0..sent_len], 3)).ended);
@@ -122,7 +122,7 @@ test "decision 101: two coded streams go past the connection's window, and on as
     const updates = writer.written();
     const received = try support.receive_copy(updates);
     try testing.expectEqual(null, received.event);
-    // Bounded: each round's `send` moves the second stream's coded octets on.
+    // Bounded: each round's `send` moves the second stream's coded bytes on.
     for (0..rounds_max) |_| {
         send_more(&sent_len);
         if (support.pool.free_count() == encoders_all) break;
@@ -135,7 +135,7 @@ test "decision 101: two coded streams go past the connection's window, and on as
     try testing.expectEqual(encoders_all, support.pool.free_count());
 }
 
-/// Octets of each stream's content: together more than the connection's first window.
+/// Bytes of each stream's content: together more than the connection's first window.
 const stream_content_len: usize = 49_152;
 /// What a WINDOW_UPDATE adds: as much again as the first window (RFC 9113 §6.9.2).
 const window_increment: u32 = 65_535;

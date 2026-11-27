@@ -8,9 +8,9 @@
 //! caller records it (RFC 9000 §13.1), so a repeat inside one datagram is a duplicate (§12.3).
 //!
 //! The suite is the corpus's own, because the golden module is given `quic` and not `sim`. It
-//! protects nothing: a packet's number is its one octet after the header, and the last octet of
-//! its 16-octet tag names the keys that open it. That models what a real suite learns by trying
-//! its keys (RFC 9001 §5.5, §6.3), so every verdict a key state produces is a matter of octets a
+//! protects nothing: a packet's number is its one byte after the header, and the last byte of
+//! its 16-byte tag names the keys that open it. That models what a real suite learns by trying
+//! its keys (RFC 9001 §5.5, §6.3), so every verdict a key state produces is a matter of bytes a
 //! mutation can edit.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -53,7 +53,7 @@ const original_id: [client_id.len]u8 = @splat(original_octet);
 pub const current_phase_lowest: u64 = 4;
 const test_now_ns: u64 = 1_000_000;
 
-/// The connection, the suite and the octets one case runs over, outside any stack frame and reset
+/// The connection, the suite and the bytes one case runs over, outside any stack frame and reset
 /// per case (decision 35).
 var connection: Connection align(@alignOf(Connection)) = undefined;
 var suite_state: GoldenSuite align(@alignOf(GoldenSuite)) = .{};
@@ -146,7 +146,7 @@ const GoldenSuite = struct {
         const self: *GoldenSuite = @ptrCast(@alignCast(context));
         if (self.integrity_exhausted) return error.IntegrityLimitReached;
         const protected_len = opening.packet.len - opening.packet_number_offset;
-        // A number and a tag, whose last octet is the marker.
+        // A number and a tag, whose last byte is the marker.
         if (protected_len < 1 + tag_len) return error.Discarded;
         const key_set = key_set_of(self, opening.level, opening.packet[opening.packet.len - 1]) orelse
             return error.Discarded;

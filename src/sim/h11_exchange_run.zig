@@ -24,7 +24,7 @@ pub const Error = h11.Connection.SendError || h11.Connection.Error || sim.trace.
     CloseUnexpected,
 };
 
-/// One direction's octets: written at the back, delivered in chunks, consumed from the front.
+/// One direction's bytes: written at the back, delivered in chunks, consumed from the front.
 pub const Stream = struct {
     octets: [constants.h11_exchange_stream_len_max]u8 = undefined,
     written: usize = 0,
@@ -65,13 +65,13 @@ pub const Seen = struct {
 /// The field lines a planned head carries at most: Host, the framing field and the close.
 const head_fields_max = 3;
 
-/// The octets of a decimal Content-Length.
+/// The bytes of a decimal Content-Length.
 const length_digits_max = 20;
 
-/// Passes of a read loop per octet held: one that consumes it, and one that ends its message.
+/// Passes of a read loop per byte held: one that consumes it, and one that ends its message.
 const passes_per_octet = 2;
 
-/// The chunks a chunked body is written in, when it has an octet for each.
+/// The chunks a chunked body is written in, when it has a byte for each.
 const chunks_per_body = 2;
 
 /// The trailer field each chunked body ends with (RFC 9112 §7.1.2).
@@ -127,8 +127,8 @@ pub const Run = struct {
     /// delay has passed.
     pub fn serve(run: *Run) Error!void {
         if (run.holding) try run.answer_when_due();
-        // Every pass consumes an octet or ends a message, and a message takes at least one octet,
-        // so n octets take at most 2n passes, and one more finds them short.
+        // Every pass consumes a byte or ends a message, and a message takes at least one byte,
+        // so n bytes take at most 2n passes, and one more finds them short.
         for (0..passes_per_octet * run.to_server.held().len + 1) |_| {
             const received = try run.server.receive(run.to_server.held(), &.{});
             run.to_server.consumed += received.consumed;
@@ -195,7 +195,7 @@ pub const Run = struct {
 
     /// Reads what the client holds, noting each response and its body.
     pub fn read_responses(run: *Run) Error!void {
-        // Bounded as `serve` is: at most 2n passes for n octets, and one more.
+        // Bounded as `serve` is: at most 2n passes for n bytes, and one more.
         for (0..passes_per_octet * run.to_client.held().len + 1) |_| {
             const received = try run.client.receive(run.to_client.held(), &.{});
             run.to_client.consumed += received.consumed;

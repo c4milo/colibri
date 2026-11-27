@@ -20,7 +20,7 @@
 //!
 //! The census counts the runs each deadline ended and the runs the server held open until the
 //! horizon. Its test pins the CRC-32 of the traces of seeds `[0, check_seeds_default)` and that of
-//! the octets their peers wrote, in Debug and in ReleaseSafe alike.
+//! the bytes their peers wrote, in Debug and in ReleaseSafe alike.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -40,7 +40,7 @@ pub const check_name = "deadline";
 
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order, and
 /// of the seeds' `Result.wire`. A change to the plan, to what the server does or to the trace
-/// format changes the first, and one to an octet a peer writes changes the second. Each is
+/// format changes the first, and one to a byte a peer writes changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0xf90d85a5;
 pub const census_wire_crc32_expected: u32 = 0xe6434a84;
@@ -69,7 +69,7 @@ pub const Storage = struct {
 pub const Result = struct {
     trace: []const u8,
     record: Record,
-    /// The CRC-32 of every octet the peer wrote to the server in the first run.
+    /// The CRC-32 of every byte the peer wrote to the server in the first run.
     wire: u32,
 };
 
@@ -92,7 +92,7 @@ pub const Census = struct {
     held: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
-    /// The CRC-32 of each seed's `Result.wire`, least significant octet first, in seed order.
+    /// The CRC-32 of each seed's `Result.wire`, least significant byte first, in seed order.
     wire_crc32: std.hash.Crc32 = .init(),
 };
 
@@ -113,7 +113,7 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     return first;
 }
 
-/// The CRC-32 of every octet the last run's peer wrote to the server.
+/// The CRC-32 of every byte the last run's peer wrote to the server.
 fn wire_of(storage: *const Storage) u32 {
     return std.hash.Crc32.hash(storage.run.to_server.octets[0..storage.run.to_server.written]);
 }
@@ -292,7 +292,7 @@ fn body_cut(plan: *const Plan) Cut {
 }
 
 /// The instant of the first piece from `start_ms` to before `end_ms` that makes colibri owe a
-/// WINDOW_UPDATE, or null when none does. h2 owes one once the octets it took since the last
+/// WINDOW_UPDATE, or null when none does. h2 owes one once the bytes it took since the last
 /// reach `window_update_threshold` (RFC 9113 §6.9.1), and each piece is one DATA frame, so every
 /// update takes the same count of pieces.
 fn update_ms(plan: *const Plan, start_ms: u64, end_ms: u64) ?u64 {
@@ -311,7 +311,7 @@ fn body_cut_at(passed: server.Timeout, at_ms: u64) Cut {
     return .{ .deadline = passed, .at_ms = at_ms, .status = timeout_status, .reset_code = h2.constants.protocol.error_no_error };
 }
 
-/// The octets of the body's pieces that arrive from `start_ms` to before `end_ms`: one piece a gap
+/// The bytes of the body's pieces that arrive from `start_ms` to before `end_ms`: one piece a gap
 /// after the start and each gap after, until the body stops.
 fn body_octets(plan: *const Plan, start_ms: u64, end_ms: u64) u64 {
     const first = @max(1, (start_ms + plan.gap_ms - 1) / plan.gap_ms);
@@ -341,7 +341,7 @@ fn ended_as_expected(plan: *const Plan, record: *const Record, expected: Expecte
 /// The code of the GOAWAY a hostile h2 peer reads at the end, or null for one it never reads.
 fn goaway_of(plan: *const Plan, expected: Expected) ?u32 {
     return switch (plan.peer) {
-        // The GOAWAY waits behind the octets the peer does not read.
+        // The GOAWAY waits behind the bytes the peer does not read.
         .reads_nothing, .reads_slowly => null,
         .opens_no_connection_window => h2.constants.protocol.error_enhance_your_calm,
         else => if (expected.head) h2.constants.protocol.error_enhance_your_calm else h2.constants.protocol.error_no_error,
@@ -422,7 +422,7 @@ test "decision 110 as amended: a slow h2 body's rate starts again at the WINDOW_
     try std.testing.expectEqual(server.Timeout.body_rate, result.record.app.cancelled.?);
 }
 
-/// Runs a slow h2 body of `piece_len` octets every `gap_ms` under the limits of `update_seed`,
+/// Runs a slow h2 body of `piece_len` bytes every `gap_ms` under the limits of `update_seed`,
 /// checks how it ends as `run_seed` does, and returns the instant its stream was reset.
 fn slow_body_reset_ms(gap_ms: u64, piece_len: u32) !u64 {
     var random = Random.init(update_seed);
@@ -436,19 +436,19 @@ fn slow_body_reset_ms(gap_ms: u64, piece_len: u32) !u64 {
 }
 
 test "decision 110 as amended: a window that ends as the update's piece arrives is judged before the rate starts again" {
-    // Pieces of 3,277 octets, of which the tenth brings a WINDOW_UPDATE, one every 3,000 ms: the
+    // Pieces of 3,277 bytes, of which the tenth brings a WINDOW_UPDATE, one every 3,000 ms: the
     // window from 20,000 ms holds three, short of the quota, and the tenth arrives as it ends.
     try std.testing.expectEqual(30_000, try slow_body_reset_ms(3_000, 3_277));
 }
 
 test "decision 110 as amended: a piece due as the body stops is never sent, and brings no update" {
-    // Pieces of 2,731 octets, of which the twelfth brings a WINDOW_UPDATE, one every 2,500 ms:
+    // Pieces of 2,731 bytes, of which the twelfth brings a WINDOW_UPDATE, one every 2,500 ms:
     // the rate starts again at 30,000 ms, every window to 60,000 ms holds its quota, and the
     // twenty-fourth piece is due at 60,000 ms, where the body stops.
     try std.testing.expectEqual(70_000, try slow_body_reset_ms(2_500, 2_731));
 }
 
-/// The first seed whose slow h11 body brings as many octets as make h2 owe a WINDOW_UPDATE.
+/// The first seed whose slow h11 body brings as many bytes as make h2 owe a WINDOW_UPDATE.
 const h11_body_seed: u64 = 0x16ec;
 
 test "decision 110: an h11 body has no window to update, and its rate never starts again" {
@@ -479,7 +479,7 @@ const no_room_seed_requests: u8 = 3;
 test "an answer whose head finds no room is written once the peer has read, and its exchange ends whole" {
     const result = try run_seed(&check_storage, no_room_seed);
     try std.testing.expectEqual(no_room_seed_requests, result.record.requests_done);
-    // The second answer waited for octets of the first to leave the output, and the others
+    // The second answer waited for bytes of the first to leave the output, and the others
     // found room.
     const answers = result.record.app.answers;
     try std.testing.expectEqual([_]bool{ false, true, false }, [_]bool{
@@ -487,7 +487,7 @@ test "an answer whose head finds no room is written once the peer has read, and 
     });
 }
 
-/// The first seed whose honest peer still has octets of its last response to read from the socket
+/// The first seed whose honest peer still has bytes of its last response to read from the socket
 /// when the idle deadline closes the connection, and the seed's exchanges.
 const unread_seed: u64 = 0x3be9;
 const unread_seed_requests: u8 = 3;

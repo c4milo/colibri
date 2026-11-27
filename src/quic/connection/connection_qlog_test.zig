@@ -217,8 +217,8 @@ test "a frame that does not parse ends a packet's frame list, and the packet is 
     send.owe_probes(&client, .initial, 1);
     send.owe_probes(&client, .handshake, 1);
     const sent = try send_from(&client, later_ns);
-    // `RoundTrip` protects nothing, so the last packet's PING is the datagram's last octet that is
-    // not zero: its PADDING and its tag follow. The first octet of the PADDING becomes a frame of
+    // `RoundTrip` protects nothing, so the last packet's PING is the datagram's last byte that is
+    // not zero: its PADDING and its tag follow. The first byte of the PADDING becomes a frame of
     // no defined type.
     const ping_at = std.mem.findLastNone(u8, datagram[0..sent.len], &.{0}).?;
     datagram[ping_at + 1] = unknown_frame_type;
@@ -266,7 +266,7 @@ test "a probe timeout logs the packets it declares lost, and counts itself" {
 test "a packet that does not open is logged as dropped, with the octets it held" {
     try open_pair(&.{.handshake});
     server_log.clear();
-    // Octets whose first says a short header of a connection ID nothing issued, so nothing opens.
+    // Bytes whose first says a short header of a connection ID nothing issued, so nothing opens.
     const garbage_len: usize = 50;
     @memset(datagram[0..garbage_len], 0);
     const received = try receive(&server, garbage_len, later_ns);

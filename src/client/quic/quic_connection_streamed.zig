@@ -1,9 +1,9 @@
-//! The octets of each request stream of a QUIC client connection (decision 79), split from
+//! The bytes of each request stream of a QUIC client connection (decision 79), split from
 //! `quic_connection_h3.zig` in design §8 step 39. A request stream carries the HEADERS frame, which
 //! the connection keeps, then a DATA frame for each piece of the request's content: its header,
 //! which the connection keeps too, and the piece from the caller's memory (decision 153). QUIC
 //! reads them by offset, and may read them again until the peer acknowledges them or the stream
-//! closes (RFC 9000 §3.1, §13.3), so an ended exchange holds its octets until then.
+//! closes (RFC 9000 §3.1, §13.3), so an ended exchange holds its bytes until then.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -19,7 +19,7 @@ const StreamProvider = quic.StreamProvider;
 /// The frames of one request stream the connection keeps (decision 79).
 pub const RequestStream = struct {
     /// The HEADERS frame, and after it the HEADERS frame of the trailer section, which the stream
-    /// carries after the last piece (RFC 9114 §4.1, decision 152): `trailers_len` octets, 0 for
+    /// carries after the last piece (RFC 9114 §4.1, decision 152): `trailers_len` bytes, 0 for
     /// none.
     prefix: [constants.limits.request_prefix_len_max]u8,
     prefix_len: u32,
@@ -29,16 +29,16 @@ pub const RequestStream = struct {
     data_header: [h3.constants.protocol.frame_header_len_max]u8,
     data_header_len: usize,
     piece_base: u64,
-    /// The stream's octets QUIC was told of (RFC 9000 §4.5): the end of the piece's frame.
+    /// The stream's bytes QUIC was told of (RFC 9000 §4.5): the end of the piece's frame.
     supplied_end: u64,
 };
 
 comptime {
-    // The frames a stream keeps count their octets in a `u32`.
+    // The frames a stream keeps count their bytes in a `u32`.
     assert(constants.limits.request_prefix_len_max <= std.math.maxInt(u32));
 }
 
-/// Supplies QUIC the DATA frame of `slot`'s piece, after the octets supplied before it, with FIN
+/// Supplies QUIC the DATA frame of `slot`'s piece, after the bytes supplied before it, with FIN
 /// when the piece is the last (RFC 9114 §4.1, RFC 9000 §2.2). `BodyStopped` says the stream's
 /// sending part takes no more: the server asked the client to stop sending (RFC 9114 §4.1), or
 /// the stream was reset.
@@ -57,7 +57,7 @@ pub fn supply_piece(connection: *QuicConnection, slot: *Slot, now_ns: u64) error
     // RFC 9114 §4.1: the trailer section follows the last piece.
     const trailers_len: u64 = if (slot.piece_end) stream.trailers_len else 0;
     const end = stream.piece_base + stream.data_header_len + slot.piece.len + trailers_len;
-    // RFC 9000 §2.2: the stream ends with the last octet of the content, or of the trailer
+    // RFC 9000 §2.2: the stream ends with the last byte of the content, or of the trailer
     // section after it, which carries FIN.
     quic.Connection.supply(&connection.transport, .{ .value = slot.stream_id }, end, slot.piece_end) catch {
         slot.content_stopped = true;
@@ -85,24 +85,24 @@ pub fn supply_pieces(connection: *QuicConnection, now_ns: u64) void {
 
 /// Whether the sending part of `slot`'s stream takes no more of the request. RFC 9114 §4.1: a
 /// server that needs no more of it asks the client to stop sending, and QUIC answers with a reset
-/// of the sending part (RFC 9000 §3.5), whose octets it then reads no more.
+/// of the sending part (RFC 9000 §3.5), whose bytes it then reads no more.
 pub fn sending_stopped(connection: *QuicConnection, slot: *const Slot) bool {
     if (slot.stage != .sent or !slot.holds_octets) return false;
     return quic.Connection.acknowledged_end(&connection.transport, .{ .value = slot.stream_id }) == null;
 }
 
-/// Reports each held piece the peer acknowledged to its last octet, or that the stream sends no
-/// more, as taken. RFC 9000 §13.3: QUIC sends a lost octet again by its offset, so the piece is
-/// the caller's again only then. The stream may still read the octets after the piece's.
+/// Reports each held piece the peer acknowledged to its last byte, or that the stream sends no
+/// more, as taken. RFC 9000 §13.3: QUIC sends a lost byte again by its offset, so the piece is
+/// the caller's again only then. The stream may still read the bytes after the piece's.
 pub fn note_taken(connection: *QuicConnection) void {
     for (&connection.slots.slots) |*slot| {
         if (!slot.piece_held or !slot.holds_octets) continue;
         const stream = &connection.streams[connection.slots.index_of(slot)];
         const acknowledged = quic.Connection.acknowledged_end(&connection.transport, .{ .value = slot.stream_id });
-        // Null when QUIC reads none of the stream's octets again: it closed, or it was reset.
+        // Null when QUIC reads none of the stream's bytes again: it closed, or it was reset.
         if (acknowledged) |end| {
-            // RFC 9000 §13.3: a piece handed since the last supply is in no octet the server
-            // acknowledged, though it acknowledged every octet before it.
+            // RFC 9000 §13.3: a piece handed since the last supply is in no byte the server
+            // acknowledged, though it acknowledged every byte before it.
             if (slot.piece_sent < slot.piece.len or end < stream.supplied_end) continue;
         } else slot.piece_sent = slot.piece.len;
         slot.piece_written();
@@ -117,9 +117,9 @@ pub fn provider(connection: *QuicConnection) StreamProvider {
 
 const vtable: quic.StreamProvider.VTable = .{ .read = read_request };
 
-/// A request stream's octets from `offset`: its HEADERS frame, then the DATA frame's header and
-/// the piece, and after the last piece the trailer section's HEADERS frame. Every call at one offset answers the same octets, which RFC 9000 §2.2 asks of a
-/// retransmission. QUIC reads no octet between the two: the pieces before the current one were
+/// A request stream's bytes from `offset`: its HEADERS frame, then the DATA frame's header and
+/// the piece, and after the last piece the trailer section's HEADERS frame. Every call at one offset answers the same bytes, which RFC 9000 §2.2 asks of a
+/// retransmission. QUIC reads no byte between the two: the pieces before the current one were
 /// acknowledged before it was handed (`note_taken`).
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const connection: *QuicConnection = @ptrCast(@alignCast(context));
@@ -134,7 +134,7 @@ fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
     }
     const from = offset + written;
     if (from >= stream.supplied_end) return written;
-    // RFC 9000 §13.3: only octets not acknowledged are sent again.
+    // RFC 9000 §13.3: only bytes not acknowledged are sent again.
     assert(from >= stream.piece_base);
     const header = stream.data_header[0..stream.data_header_len];
     written += copy_part(header, from - stream.piece_base, output[written..]);
@@ -151,8 +151,8 @@ fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
     return written;
 }
 
-/// Copies the octets of `part` from `from` into `output`, as far as `output` holds, and returns
-/// the octets copied.
+/// Copies the bytes of `part` from `from` into `output`, as far as `output` holds, and returns
+/// the bytes copied.
 fn copy_part(part: []const u8, from: u64, output: []u8) usize {
     if (from >= part.len) return 0;
     const start: usize = @intCast(from);
@@ -161,7 +161,7 @@ fn copy_part(part: []const u8, from: u64, output: []u8) usize {
     return len;
 }
 
-/// The slot whose stream is `stream_id` and may still send its octets, or null: an exchange the
+/// The slot whose stream is `stream_id` and may still send its bytes, or null: an exchange the
 /// caller cancelled holds none, so QUIC reads nothing of its memory.
 fn holding(connection: *QuicConnection, stream_id: u64) ?*Slot {
     for (&connection.slots.slots) |*slot| {
@@ -170,7 +170,7 @@ fn holding(connection: *QuicConnection, stream_id: u64) ?*Slot {
     return null;
 }
 
-/// Releases the octets of every stream that closed: QUIC sends nothing on it again (RFC 9000
+/// Releases the bytes of every stream that closed: QUIC sends nothing on it again (RFC 9000
 /// §3.1), so its exchange's `finished` event may go out.
 pub fn release_closed(connection: *QuicConnection) void {
     for (&connection.slots.slots) |*slot| {

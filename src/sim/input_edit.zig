@@ -1,20 +1,20 @@
-//! The edits the input checks make to octets one of colibri's writers produced, so a reader gets
-//! hostile input that reaches past its first octet. They stand where the fuzzer would: Zig 0.16.0
+//! The edits the input checks make to bytes one of colibri's writers produced, so a reader gets
+//! hostile input that reaches past its first byte. They stand where the fuzzer would: Zig 0.16.0
 //! cannot build its fuzz mode (design §8 step 1), and `core.fuzz.sweep` covers only inputs of two
-//! octets. `qpack_input_check.zig` and `quic_input_check.zig` share them.
+//! bytes. `qpack_input_check.zig` and `quic_input_check.zig` share them.
 const std = @import("std");
 const assert = std.debug.assert;
 const Random = @import("random.zig").Random;
 
-/// The edits: an octet changed, inserted or removed, the end cut off at the drawn offset, or an
-/// octet moved up or down by one. The last is what takes a value at a bound one past it.
+/// The edits: a byte changed, inserted or removed, the end cut off at the drawn offset, or an
+/// byte moved up or down by one. The last is what takes a value at a bound one past it.
 pub const Edit = enum { change, insert, remove, cut, nudge };
 
-/// The two ways a nudge moves an octet: up by one or down by one.
+/// The two ways a nudge moves a byte: up by one or down by one.
 const nudge_directions = 2;
 
 /// Copies `base` into `input`, makes up to `edits_max` edits drawn from `random`, and returns the
-/// edited octets. An insert into a full `input` and a change or removal past the end do nothing.
+/// edited bytes. An insert into a full `input` and a change or removal past the end do nothing.
 pub fn edit(random: *Random, input: []u8, base: []const u8, edits_max: u64) []const u8 {
     assert(input.len > 0);
     var len: usize = @min(base.len, input.len);
@@ -29,7 +29,7 @@ pub fn edit(random: *Random, input: []u8, base: []const u8, edits_max: u64) []co
     return input[0..len];
 }
 
-/// Makes one edit at `at` to the first `len` octets of `input`, and returns their new length.
+/// Makes one edit at `at` to the first `len` bytes of `input`, and returns their new length.
 fn apply(random: *Random, input: []u8, len: usize, at: usize, kind: Edit) usize {
     assert(at <= len and len <= input.len);
     switch (kind) {
@@ -51,7 +51,7 @@ fn apply(random: *Random, input: []u8, len: usize, at: usize, kind: Edit) usize 
     return len;
 }
 
-/// Moves one octet up or down by one, wrapping at either end.
+/// Moves one byte up or down by one, wrapping at either end.
 fn nudge(random: *Random, octet: *u8) void {
     if (random.below(nudge_directions) == 0) octet.* +%= 1 else octet.* -%= 1;
 }

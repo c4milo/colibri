@@ -1,16 +1,16 @@
-//! Percent-decoding of one octet (RFC 3986 §2.1), which a query's pairs and the server's router
+//! Percent-decoding of one byte (RFC 3986 §2.1), which a query's pairs and the server's router
 //! share (decision 127).
 const std = @import("std");
 
-/// The octets of one percent-encoded octet: "%" and two hex digits (RFC 3986 §2.1).
+/// The bytes of one percent-encoded byte: "%" and two hex digits (RFC 3986 §2.1).
 pub const encoded_len = 3;
-/// The octets of its hex digits.
+/// The bytes of its hex digits.
 const digits_len = encoded_len - 1;
 /// The base of a hex digit.
 const hex_radix = 16;
 
-/// The octet that the "%" at `index` and the two hex digits after it name, or null when no such
-/// "%" stands there. A "%" that two hex digits do not follow is no encoded octet, and its caller
+/// The byte that the "%" at `index` and the two hex digits after it name, or null when no such
+/// "%" stands there. A "%" that two hex digits do not follow is no encoded byte, and its caller
 /// keeps it as written (decision 127).
 pub fn decoded_at(encoded: []const u8, index: usize) ?u8 {
     if (encoded[index] != '%' or index + encoded_len > encoded.len) return null;

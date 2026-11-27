@@ -42,7 +42,7 @@ pub const Kind = enum {
     /// RFC 9000 §4.1: a flow control limited endpoint with nothing in flight owes its BLOCKED
     /// frames again.
     blocked,
-    /// RFC 9002 §7.7: the pacer has earned the octets of the next datagram. Nothing fires; the
+    /// RFC 9002 §7.7: the pacer has earned the bytes of the next datagram. Nothing fires; the
     /// caller calls `send`, which the pacer held back last time.
     pacing,
 };

@@ -29,13 +29,13 @@ pub const Client = struct {
     downloads: []const u8,
     /// The paths to fetch, each already checked by `hq.write_request`.
     paths: []const []const u8,
-    /// Each path's download, open until its stream's last octet arrives.
+    /// Each path's download, open until its stream's last byte arrives.
     files: [constants.hq_paths_max]hq_file.Descriptor,
     finished: [constants.hq_paths_max]bool,
     /// How many paths have a stream, and how many have arrived whole.
     opened: usize,
     finished_count: usize,
-    /// Octets of every response, which the endpoint reports.
+    /// Bytes of every response, which the endpoint reports.
     received_len: u64,
     buffer: [constants.hq_read_len]u8,
 
@@ -104,7 +104,7 @@ pub const Client = struct {
 
 const vtable: quic.StreamProvider.VTable = .{ .read = read_request };
 
-/// The request line of the stream's path from `offset`, as many octets as fit.
+/// The request line of the stream's path from `offset`, as many bytes as fit.
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const client: *Client = @ptrCast(@alignCast(context));
     const index: usize = @intCast(StreamId.index(.{ .value = stream_id }));

@@ -2,7 +2,7 @@
 //! that writes a response many times longer than `response_bytes` through `body()`, one message
 //! at a time, and an engine that reads each run in place until the test acknowledges it, as h3
 //! does (RFC 9000 §3.1), or copies each run at once, as h11 and h2 do. The engine records each
-//! octet it took, and checks that no run it holds changes before its release. Test-only.
+//! byte it took, and checks that no run it holds changes before its release. Test-only.
 const std = @import("std");
 const http = @import("http");
 const constants = @import("../constants.zig");
@@ -11,12 +11,12 @@ const connection_errors = @import("../connection/connection_errors.zig");
 const Response = @import("../response/response.zig").Response;
 const RequestContext = @import("../request_context.zig").RequestContext;
 
-/// The messages of the longest response a test's route writes, octets of its longest message, and
-/// octets of that response at most. Test-only.
+/// The messages of the longest response a test's route writes, bytes of its longest message, and
+/// bytes of that response at most. Test-only.
 pub const messages_max = 1000;
 pub const message_len_max = 128;
 pub const stream_len_max = messages_max * message_len_max;
-/// Octets of the shortest message of a response whose messages vary, the lengths such a message
+/// Bytes of the shortest message of a response whose messages vary, the lengths such a message
 /// can have, and the step from one message's length to the next, which shares no factor with
 /// that count.
 pub const message_len_min = 7;
@@ -32,12 +32,12 @@ const trailer_lines = [_]http.Field{.{ .name = "checksum", .value = "1" }};
 /// The prime that `octet_at` counts modulo, so no message repeats the one before it.
 const pattern_period = 251;
 
-/// The octet at `offset` of each test's response.
+/// The byte at `offset` of each test's response.
 pub fn octet_at(offset: usize) u8 {
     return @intCast(offset % pattern_period);
 }
 
-/// Whether `bytes` is the start of each test's response, `len` octets long.
+/// Whether `bytes` is the start of each test's response, `len` bytes long.
 pub fn is_stream(bytes: []const u8, len: usize) bool {
     if (bytes.len != len) return false;
     for (bytes, 0..) |octet, offset| {
@@ -46,13 +46,13 @@ pub fn is_stream(bytes: []const u8, len: usize) bool {
     return true;
 }
 
-/// Octets of message `index` of a response whose messages vary: each length from
+/// Bytes of message `index` of a response whose messages vary: each length from
 /// `message_len_min` to `message_len_max`, in an order that repeats after `varied_lengths`.
 pub fn varied_len(index: usize) usize {
     return message_len_min + (index * varied_step) % varied_lengths;
 }
 
-/// Octets of the first `count` messages of a response whose messages vary.
+/// Bytes of the first `count` messages of a response whose messages vary.
 pub fn varied_stream_len(count: usize) usize {
     var len: usize = 0;
     for (0..count) |index| len += varied_len(index);
@@ -61,14 +61,14 @@ pub fn varied_stream_len(count: usize) usize {
 
 /// What a test sets for its route, and what the route did.
 pub const App = struct {
-    /// Octets of the response and of each message, whether each message has the length that
+    /// Bytes of the response and of each message, whether each message has the length that
     /// `varied_len` gives in place of `message_len`, and whether the route flushes each message,
     /// so that each is a run of its own.
     stream_len: usize,
     message_len: usize,
     varied: bool = false,
     flush: bool = false,
-    /// Whether the route, after a write that failed, writes the next octet of the response alone
+    /// Whether the route, after a write that failed, writes the next byte of the response alone
     /// and flushes it, as a route does that sends a short message while a long one waits.
     octet_after_failure: bool = false,
     /// Whether the route ends with a trailer section, and whether it returns with no error from
@@ -76,7 +76,7 @@ pub const App = struct {
     trailers: bool = false,
     end_again: bool = false,
     /// The calls of `next`, those that found the writer with no room, the writes that
-    /// failed, which the route makes again in a later call, the flushes that failed, the octets
+    /// failed, which the route makes again in a later call, the flushes that failed, the bytes
     /// written alone after a write that failed, and the ends that changed nothing.
     calls: usize = 0,
     roomless_calls: usize = 0,
@@ -86,7 +86,7 @@ pub const App = struct {
     failed_ends: usize = 0,
 };
 
-/// Writes `App.stream_len` octets, `App.message_len` at a time, and ends the response. A message
+/// Writes `App.stream_len` bytes, `App.message_len` at a time, and ends the response. A message
 /// that does not fit is written again in the next call.
 pub const Stream = struct {
     pub const State = struct { written: usize = 0, messages: usize = 0 };
@@ -98,7 +98,7 @@ pub const Stream = struct {
         const writer = response.body();
         if (writer.unusedCapacityLen() == 0) app.roomless_calls += 1;
         var message: [message_len_max]u8 = undefined;
-        // Bounded: each pass writes one message of one octet at least.
+        // Bounded: each pass writes one message of one byte at least.
         for (0..stream_len_max) |_| {
             if (state.written == app.stream_len) return end_response(app, response);
             const next_len = if (app.varied) varied_len(state.messages) else app.message_len;
@@ -214,7 +214,7 @@ pub const Holder = struct {
         holder.owed = true;
     }
 
-    /// Acknowledges `count` more octets, and drops each run they cover whole.
+    /// Acknowledges `count` more bytes, and drops each run they cover whole.
     pub fn acknowledge(holder: *Holder, count: usize) void {
         holder.check();
         std.debug.assert(holder.acknowledged + count <= holder.taken);
@@ -230,7 +230,7 @@ pub const Holder = struct {
         holder.runs_len = rest;
     }
 
-    /// The octets of the oldest run held, or 0.
+    /// The bytes of the oldest run held, or 0.
     pub fn oldest_len(holder: *const Holder) usize {
         if (holder.runs_len == 0) return 0;
         return holder.run_offsets[0] + holder.runs[0].len - holder.acknowledged;
@@ -242,7 +242,7 @@ pub const Holder = struct {
         holder.runs_len += 1;
     }
 
-    /// Notes a held run whose octets differ from those the engine took.
+    /// Notes a held run whose bytes differ from those the engine took.
     fn check(holder: *Holder) void {
         for (holder.runs[0..holder.runs_len], holder.run_offsets[0..holder.runs_len]) |run, offset| {
             if (!std.mem.eql(u8, run, holder.stream[offset..][0..run.len])) holder.overwritten = true;

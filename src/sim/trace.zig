@@ -25,7 +25,7 @@ const end_word = "end";
 /// The record every chunk boundary writes, which `write_chunk_independent` leaves out.
 pub const feed_record = "feed";
 
-/// Calls to a line splitter past a trace's octet count: a trace of n octets holds at most n + 1
+/// Calls to a line splitter past a trace's byte count: a trace of n bytes holds at most n + 1
 /// pieces between its newlines, and one more call finds the end, so a bound of n plus this is
 /// never the reason a loop over the lines stops.
 const split_calls_past_len = 2;
@@ -81,7 +81,7 @@ pub const Trace = struct {
     }
 };
 
-/// One line under construction. It holds at most `trace_record_len_max` octets, its newline
+/// One line under construction. It holds at most `trace_record_len_max` bytes, its newline
 /// included, and a field that does not fit fails the record rather than cutting it.
 pub const Record = struct {
     line: [constants.trace_record_len_max]u8,
@@ -93,7 +93,7 @@ pub const Record = struct {
         try line.append(" {s}={d}", .{ key, value });
     }
 
-    /// Octets, in lowercase hexadecimal with no prefix. No octets is an empty value.
+    /// Bytes, in lowercase hexadecimal with no prefix. No bytes is an empty value.
     pub fn octets(line: *Record, key: []const u8, value: []const u8) Error!void {
         assert(is_key(key));
         try line.append(" {s}={x}", .{ key, value });
@@ -108,7 +108,7 @@ pub const Record = struct {
     }
 
     fn append(line: *Record, comptime format: []const u8, arguments: anytype) Error!void {
-        // One octet stays free for the newline `Trace.write` adds.
+        // One byte stays free for the newline `Trace.write` adds.
         var writer = Writer.init(line.line[0 .. constants.trace_record_len_max - 1]);
         writer.offset = line.len;
         try writer.print(format, arguments);
@@ -171,7 +171,7 @@ fn is_word(text: []const u8) bool {
 
 const testing = std.testing;
 
-/// Octets of trace the tests write into. Test-only.
+/// Bytes of trace the tests write into. Test-only.
 const test_trace_len_max = 1024;
 
 test "a trace is its first line, one line per record, and a last line that counts them" {
@@ -217,7 +217,7 @@ test "a record keeps its last octet for the newline" {
     var output = Writer.init(&buffer);
     const trace = try Trace.begin(&output, "chunk", 0);
     var line = try trace.record("a");
-    // " u=x" would end the line at `trace_record_len_max` octets, leaving none for the newline.
+    // " u=x" would end the line at `trace_record_len_max` bytes, leaving none for the newline.
     const value: [constants.trace_record_len_max - "a t= u=x".len]u8 = @splat('v');
     try line.word("t", &value);
     try testing.expectError(error.NoSpaceLeft, line.word("u", "x"));

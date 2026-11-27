@@ -19,7 +19,7 @@ pub const no_resets_one_in: u64 = 4;
 pub const actions_min: u32 = 16;
 pub const actions_max: u32 = 96;
 
-/// Octets one direction holds in flight: every frame of every stream, with the preface, SETTINGS
+/// Bytes one direction holds in flight: every frame of every stream, with the preface, SETTINGS
 /// and the replies, far below this.
 pub const queue_len_max: u32 = 16384;
 
@@ -40,7 +40,7 @@ pub const headers_max: u32 = streams_max * (1 + interims_max + 1);
 pub const receives_per_frame_max: u32 = 4;
 
 /// Rounds of delivery after the last action, each one way and then the other. A round that moves
-/// no octet ends the drain, and a frame answers at most one frame the other way.
+/// no byte ends the drain, and a frame answers at most one frame the other way.
 pub const drain_rounds_max: u32 = frames_max + 1;
 /// Deliveries one round of the drain makes: one to the server, then one to the client.
 pub const deliveries_per_round: u32 = 2;
@@ -49,7 +49,7 @@ pub const deliveries_per_round: u32 = 2;
 /// after each action, and at most one after each delivery of the drain.
 pub const states_max: u32 = 1 + actions_max + deliveries_per_round * drain_rounds_max;
 
-/// Octets of the TLA+ module one seed's trace is written as: 1 MiB.
+/// Bytes of the TLA+ module one seed's trace is written as: 1 MiB.
 pub const module_len_max: u32 = 1_048_576;
 
 /// The seeds `sim --h2-trace-write` writes for TLC, and the model's steps TLC may take between two

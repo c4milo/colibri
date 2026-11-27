@@ -153,7 +153,7 @@ pub const Replies = struct {
     }
 
     /// Writes as many queued frames as `output` holds, oldest queue first, then the RST_STREAM
-    /// frames the records of `streams` owe, then the GOAWAY, and returns the octets written. A
+    /// frames the records of `streams` owe, then the GOAWAY, and returns the bytes written. A
     /// frame that does not fit is kept for the next call.
     pub fn write(replies: *Replies, streams: *Streams, output: []u8) usize {
         var writer = Writer.init(output);
@@ -300,12 +300,12 @@ test "a short buffer writes what fits and keeps the rest, frame by frame" {
     test_replies.push_settings_ack();
     test_replies.push_settings_ack();
     test_replies.push_ping_ack("01234567".*);
-    // Two SETTINGS acknowledgments fit in the room given; the PING acknowledgment needs seventeen octets and one is left, so it stays queued.
+    // Two SETTINGS acknowledgments fit in the room given; the PING acknowledgment needs seventeen bytes and one is left, so it stays queued.
     const room = 2 * constants.protocol.frame_header_len + 1;
     try testing.expectEqual(2 * constants.protocol.frame_header_len, write_queues(test_output[0..room]));
     try testing.expectEqual(0, test_replies.settings_acks);
     try testing.expectEqual(1, test_replies.ping_ack_count);
-    // A buffer one octet short of the whole frame writes nothing at all.
+    // A buffer one byte short of the whole frame writes nothing at all.
     const short = constants.protocol.frame_header_len + constants.protocol.ping_len - 1;
     try testing.expectEqual(0, write_queues(test_output[0..short]));
     try testing.expectEqual(1, test_replies.ping_ack_count);

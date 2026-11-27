@@ -3,14 +3,14 @@
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
 //! `null_provider.zig` is the record-mode sibling, which serves h2. This one is QUIC mode, where
-//! RFC 9001 §4.1.3 replaces the record layer with one flow of handshake octets per encryption
+//! RFC 9001 §4.1.3 replaces the record layer with one flow of handshake bytes per encryption
 //! level. What it is for is the shape, not the secrecy: a client and a server carry made-up
 //! handshake messages at the three levels of RFC 9001 §4.1.4, in the order §4.1.5's Figure 5 puts
 //! them, so a check sees colibri move a flight over CRYPTO frames, put back together a message cut
 //! in two, and reach §4.1.1's completion. None of it is a real TLS message and none of it is
 //! protected.
 //!
-//! Each message is framed the way RFC 9846 §4 frames one: a one-octet HandshakeType, a uint24
+//! Each message is framed the way RFC 9846 §4 frames one: a one-byte HandshakeType, a uint24
 //! length, and the body. The ClientHello and the EncryptedExtensions carry the
 //! `quic_transport_parameters` body as their whole content, which is where RFC 9001 §8.2 puts the
 //! extension, so a pair exchanges parameters by exchanging those two messages.
@@ -106,7 +106,7 @@ pub const NullQuicProvider = struct {
     /// answers stays valid for the life of the connection.
     peer_params: [constants.null_quic_params_len_max]u8 = @splat(0),
     peer_params_len: usize = 0,
-    /// Octets received at each level that no step has read yet. RFC 9001 §4.1.3: "TLS is
+    /// Bytes received at each level that no step has read yet. RFC 9001 §4.1.3: "TLS is
     /// responsible for buffering handshake bytes that have arrived in order."
     pending: [core.levels_count][constants.null_quic_pending_len_max]u8 = @splat(@splat(0)),
     pending_len: [core.levels_count]usize = @splat(0),
@@ -161,7 +161,7 @@ pub const NullQuicProvider = struct {
     }
 
     /// Whether a step still to come reads at `level`. RFC 9001 §4.1.3 gives each level its own
-    /// flow of octets, and a level this endpoint has moved past reads no more.
+    /// flow of bytes, and a level this endpoint has moved past reads no more.
     fn reads_at(self: *const NullQuicProvider, level: Level) bool {
         for (self.script()[self.step..]) |step| {
             if (!step.writes and step.level == level) return true;
@@ -203,7 +203,7 @@ pub const NullQuicProvider = struct {
         // RFC 9001 §8.2 carries the extension in the ClientHello and in EncryptedExtensions, so a
         // client has none until it has read the server's EncryptedExtensions.
         if (self.peer_params_len == 0) return null;
-        // The octets are the provider's own, which is what the vtable asks: the slice stays valid
+        // The bytes are the provider's own, which is what the vtable asks: the slice stays valid
         // for the life of the connection.
         return self.peer_params[0..self.peer_params_len];
     }
@@ -216,7 +216,7 @@ pub const NullQuicProvider = struct {
         const self = of(context);
         self.note_start(.server);
         if (self.fails_with) |description| return self.fail(description);
-        // RFC 9001 §4.1.3: octets at a level this endpoint has moved past "MUST NOT contain data
+        // RFC 9001 §4.1.3: bytes at a level this endpoint has moved past "MUST NOT contain data
         // that extends past the end of previously received data in that flow", and a violation is
         // a connection error of type PROTOCOL_VIOLATION.
         if (!self.reads_at(level)) return error.WrongLevel;
@@ -239,7 +239,7 @@ pub const NullQuicProvider = struct {
     }
 
     /// Reads every whole message the next steps call for. RFC 9001 §4.1.3 leaves TLS to buffer
-    /// octets that arrived in order, so a message cut across calls waits here for the rest.
+    /// bytes that arrived in order, so a message cut across calls waits here for the rest.
     fn read_flight(self: *NullQuicProvider) tls_provider.quic_provider.ProvideError!void {
         for (0..constants.null_quic_steps_max) |_| {
             const step = self.current() orelse return;
@@ -307,7 +307,7 @@ pub const NullQuicProvider = struct {
         if (self.suite) |suite| suite.versions.negotiated = version;
     }
 
-    /// Drops the first `taken` octets of a level's flow and keeps the rest in order.
+    /// Drops the first `taken` bytes of a level's flow and keeps the rest in order.
     fn consume(self: *NullQuicProvider, index: usize, taken: usize) void {
         const held = self.pending_len[index];
         assert(taken > 0 and taken <= held);
@@ -325,7 +325,7 @@ pub const NullQuicProvider = struct {
         self.note_start(.client);
         if (self.fails_with) |description| return self.fail(description);
         const step = self.current() orelse return 0;
-        // RFC 9001 §4.1.3: handshake octets are appended to the flow of the current sending
+        // RFC 9001 §4.1.3: handshake bytes are appended to the flow of the current sending
         // encryption level, so a level this endpoint owes nothing at writes nothing.
         if (!step.writes or step.level != level) return 0;
         const written = try write_framed(output, step.message, self.body_of(step.message));
@@ -400,7 +400,7 @@ const length_len: usize = constants.null_quic_message_length_len;
 
 /// One framed message, as `read_framed` found it.
 const Framed = struct {
-    /// RFC 9846 §4's HandshakeType octet, whatever it holds. An octet naming no message of this
+    /// RFC 9846 §4's HandshakeType byte, whatever it holds. A byte naming no message of this
     /// handshake is compared against the expected one like any other and fails the same way.
     kind: u8,
     body: []const u8,
@@ -429,7 +429,7 @@ fn write_framed(output: []u8, kind: MessageType, body: []const u8) error{NoSpace
     return writer.written().len;
 }
 
-/// RFC 9846 §4's uint24 length, octet by octet in network byte order.
+/// RFC 9846 §4's uint24 length, byte by byte in network byte order.
 fn read_length(reader: *core.Reader) core.Reader.Error!usize {
     var value: usize = 0;
     for (0..length_len) |_| {
@@ -448,8 +448,8 @@ fn write_length(writer: *core.Writer, length: usize) core.Writer.Error!void {
 
 /// RFC 9846 §7.5's exporter, as a checksum rather than the HKDF the section names: the null
 /// provider holds no secret, so all it can answer is a function of the inputs. The offset and the
-/// label's length are folded in, so two octets of `output` differ and ("ab", "c") is not ("a",
-/// "bc"). Every integer goes in octet by octet in network order, so one host's octets are every
+/// label's length are folded in, so two bytes of `output` differ and ("ab", "c") is not ("a",
+/// "bc"). Every integer goes in byte by byte in network order, so one host's bytes are every
 /// host's (invariant 5).
 fn write_export(label: []const u8, context_value: []const u8, output: []u8) void {
     assert(label.len > 0 and output.len > 0);

@@ -17,7 +17,7 @@ const ok: u16 = 200;
 /// RFC 9110 §8.6: a response that states it has no content, which ends with its head.
 const empty_length: []const support.Header = &.{.{ .name = "Content-Length", .value = "0" }};
 
-/// Three pieces: the second is 26 octets, whose chunk size reads differently in hex and in
+/// Three pieces: the second is 26 bytes, whose chunk size reads differently in hex and in
 /// decimal, and the whole body. Test-only.
 const first = "hello";
 const second = "abcdefghijklmnopqrstuvwxyz";
@@ -56,7 +56,7 @@ fn h11_server_read(octets: []const u8) !void {
     read_len = 0;
     read_ends = 0;
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..octets.len + support.events_max) |_| {
         const received = try support.peer_h11.receive(octets[consumed..], &.{});
         consumed += received.consumed;
@@ -73,7 +73,7 @@ fn h11_server_read(octets: []const u8) !void {
     try testing.expectEqual(octets.len, consumed);
 }
 
-/// The octets after the request head in what the client sent.
+/// The bytes after the request head in what the client sent.
 fn after_head(octets: []const u8) []const u8 {
     const end = std.mem.indexOf(u8, octets, head_end).?;
     return octets[end + head_end.len ..];
@@ -118,7 +118,7 @@ test "decision 153: a piece handed before the head goes out after it, and the ne
     try support.start_cleartext(.h11);
     var post = streamed_post(null);
     const id = try connection.request(&post.request, &post.response);
-    // Nothing goes out of the body until a piece is handed, and the connection owes no octet.
+    // Nothing goes out of the body until a piece is handed, and the connection owes no byte.
     support.client_send();
     try testing.expect(!connection.should_send());
     const head_len = support.to_peer_len;
@@ -192,7 +192,7 @@ test "decision 139: streamed pieces go out over TLS chunked, and the server open
 /// the frames that ended the stream.
 fn h2_server_read() !void {
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or writes what the server owes, and both are finite.
+    // Bounded: each pass consumes a byte or writes what the server owes, and both are finite.
     for (0..support.to_peer_len + support.events_max) |_| {
         const received = try support.peer_h2.receive(support.to_peer[consumed..support.to_peer_len], support.now_ns);
         if (received.consumed == 0) {

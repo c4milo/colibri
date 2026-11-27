@@ -28,12 +28,12 @@ const preface_no_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\
 /// A HEADERS frame on stream 1 ending it, whose block is the static table's `:method: GET`,
 /// `:scheme: http` and `:path: /` (RFC 7541 §6.1, Appendix A).
 const get_frame = "\x00\x00\x03\x01\x05\x00\x00\x00\x01" ++ "\x82\x86\x84";
-/// A WINDOW_UPDATE of one octet on stream 1 (RFC 9113 §6.9).
+/// A WINDOW_UPDATE of one byte on stream 1 (RFC 9113 §6.9).
 const window_update = "\x00\x00\x04\x08\x00\x00\x00\x00\x01" ++ "\x00\x00\x00\x01";
 /// A RST_STREAM on stream 1 with CANCEL, 0x8 (RFC 9113 §6.4, §7).
 const reset_cancel = "\x00\x00\x04\x03\x00\x00\x00\x00\x01" ++ "\x00\x00\x00\x08";
 /// The seconds the peer opens its window for at most: past decision 110's default grace period
-/// and window, 10 s each. The answer is longer than one octet for each of them.
+/// and window, 10 s each. The answer is longer than one byte for each of them.
 const seconds_max: u64 = 40;
 const body_len: u32 = 1024;
 

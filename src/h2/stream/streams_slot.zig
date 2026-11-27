@@ -89,7 +89,7 @@ fn drop_oldest_closed(streams: *Streams) bool {
 }
 
 comptime {
-    // A slot's number fits one octet of `closed_slots`.
+    // A slot's number fits one byte of `closed_slots`.
     assert(constants.limits.concurrent_streams_max <= std.math.maxInt(u8) + 1);
 }
 

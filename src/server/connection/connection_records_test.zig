@@ -47,7 +47,7 @@ fn record_at(offset: usize, content_type: u8, content: []const u8) !usize {
 }
 
 /// Seals `count` KeyUpdates that ask for an answer, each in its own record, at `offset` of the
-/// test input. Returns the octets that they take. Test-only.
+/// test input. Returns the bytes that they take. Test-only.
 fn key_updates_at(offset: usize, count: usize) !usize {
     var sealed: usize = 0;
     for (0..count) |_| sealed += try record_at(offset + sealed, plain_support.content_handshake, &plain_support.key_update_requested);
@@ -89,7 +89,7 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     const received = try connection.receive(support.input[0 .. update_len + request_len], support.now_ns);
     try testing.expectEqual(update_len + request_len, received.consumed);
     try testing.expectEqual(1, received.event.?.request.id.number);
-    // Decision 119: the answer alone does not make `send` owe an octet. The provider writes it in
+    // Decision 119: the answer alone does not make `send` owe a byte. The provider writes it in
     // front of the next record of data.
     try testing.expect(!connection_owed.should_send(connection));
     // RFC 9846 §4.7.3: the answer is sent "prior to sending its next Application Data record".
@@ -220,7 +220,7 @@ test "RFC 9846 §5.1: a record that has not all arrived waits for its last octet
 }
 
 /// A request whose content is more than `plaintext_in_len` holds at once: records of the largest
-/// plaintext, then a record one octet longer than the room they leave in `plaintext_in_len`.
+/// plaintext, then a record one byte longer than the room they leave in `plaintext_in_len`.
 /// Test-only.
 const upload_records: usize = constants.limits.plaintext_in_len / tls_provider.constants.protocol.record_plaintext_len_max;
 const upload_tail_len: usize = constants.limits.plaintext_in_len % tls_provider.constants.protocol.record_plaintext_len_max + 1;

@@ -15,9 +15,9 @@ const in_flight = &host_support.in_flight;
 
 /// A request h11 keeps the connection open after (RFC 9112 §9.3).
 const get_kept = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
-/// The octets the first send takes in a test of a partial send.
+/// The bytes the first send takes in a test of a partial send.
 const partial_len = 5;
-/// A copy of the octets of the first send, made before they move: the head and "body".
+/// A copy of the bytes of the first send, made before they move: the head and "body".
 var first_sent: [first_sent_len_max]u8 = undefined;
 const first_sent_len_max = 256;
 
@@ -38,7 +38,7 @@ test "design §8 step 79: a hosted server sends from the engine, and a partial s
     const bytes = send.kind.send.bytes;
     try testing.expect(std.mem.startsWith(u8, bytes, "HTTP/1.1 200"));
     @memcpy(first_sent[0..bytes.len], bytes);
-    // The send takes five octets. The rest moves to the front of the same octets, and the next
+    // The send takes five bytes. The rest moves to the front of the same bytes, and the next
     // send writes it.
     in_flight.complete(send.id, .{ .sent = partial_len });
     const rest = (find(turn(operations_len), .send) orelse return error.OperationMissing).kind.send.bytes;

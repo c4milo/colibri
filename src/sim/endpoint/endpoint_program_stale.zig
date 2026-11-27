@@ -82,7 +82,7 @@ fn by_handle(program: *Program, connection: *const Connection, which: HandleCall
         .send_stream => try program.send_stream(handle, &program.probe, now_ns) == 0,
         .transport_closed => try closed_nothing(program, connection),
         .receive => dropped: {
-            // The connection that holds the slot now, if one does, reads none of the octets: a
+            // The connection that holds the slot now, if one does, reads none of the bytes: a
             // connection that failed on them would also consume them whole.
             const before = Holder.init(program, handle.slot);
             const octets = program.probe[0..limits.stale_octets_len];

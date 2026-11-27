@@ -125,14 +125,14 @@ pub const Ecn = files.connection_send.Ecn;
 /// The CONNECTION_CLOSE frame (RFC 9000 §19.19), which `Connection.owe_close` takes and
 /// `ConnectionClose.transport` makes (decision 158 ruling 8).
 pub const ConnectionClose = files.frame.frame_control.ConnectionClose;
-/// The stream a connection holds, its ID, and the provider a caller supplies its octets through
+/// The stream a connection holds, its ID, and the provider a caller supplies its bytes through
 /// (decision 57).
 pub const Stream = files.stream.Stream;
 pub const StreamId = files.stream.StreamId;
 pub const StreamProvider = files.stream.StreamProvider;
 /// A frame of RFC 9000 §19, as `frame.read` reads it and `frame.write` writes it.
 pub const Frame = files.frame.Frame;
-/// The pool a connection holds its unread stream octets in, which the caller places (decision
+/// The pool a connection holds its unread stream bytes in, which the caller places (decision
 /// 61), its sizes, and the pool as `Connection.Options.receive` takes it.
 pub const ReceivePool = files.stream.stream_incoming.Pool;
 pub const ReceivePoolOptions = files.stream.stream_incoming.PoolOptions;

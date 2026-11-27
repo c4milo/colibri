@@ -19,12 +19,12 @@ const Timeout = @import("../deadline.zig").Timeout;
 const grace_ns = server_constants.policy.rate_grace_ns;
 const window_ns = server_constants.policy.rate_window_ns;
 const idle_ns = server_constants.policy.idle_timeout_ns;
-/// The octets each window owes at the default rate.
+/// The bytes each window owes at the default rate.
 const quota: usize = server_constants.policy.body_rate_min * (window_ns / server_constants.nanoseconds_per_second);
 const first_end_ns = early_ns + grace_ns + window_ns;
 
-/// A request whose Content-Length is more than any test sends, one with a body of five octets,
-/// the same owed a 100 (Continue), and the octets of the bodies the tests send.
+/// A request whose Content-Length is more than any test sends, one with a body of five bytes,
+/// the same owed a 100 (Continue), and the bytes of the bodies the tests send.
 const upload_head = "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 1000000\r\n\r\n";
 const short_head = "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\n";
 const continue_head = "POST /u HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n";
@@ -39,7 +39,7 @@ const timeout_status: u16 = 408;
 /// Reads all of `octets` at `now_ns`, a call at a time.
 fn feed(octets: []const u8, now_ns: u64) !void {
     var taken: usize = 0;
-    // Bounded: each pass takes an octet at least.
+    // Bounded: each pass takes a byte at least.
     for (0..octets.len) |_| {
         if (taken == octets.len) return;
         const received = try receive_at(octets[taken..], now_ns);
@@ -98,7 +98,7 @@ test "decision 110: a body that ends, or has no limits, runs no deadline" {
     try support.start_cleartext(.h11);
     _ = try receive_at(short_head, early_ns);
     try feed(filler[0..short_body_len], early_ns + 1);
-    // h11 reports the body's end on the call after its last octet.
+    // h11 reports the body's end on the call after its last byte.
     try testing.expect((try connection.receive(&.{}, early_ns + 1)).event.?.body.end);
     try testing.expectEqual(null, connection.deadline_ns());
     try support.start_cleartext(.h11);

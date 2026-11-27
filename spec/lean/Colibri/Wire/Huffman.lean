@@ -3,9 +3,9 @@ import Colibri.Wire.HuffmanTable
 /-!
 # The Huffman code (RFC 7541 Appendix B, §5.2)
 
-HPACK and QPACK encode a string literal with Appendix B's code. Each octet becomes its code, most
-significant bit first. Then the most significant bits of EOS pad the string to an octet boundary.
-These definitions follow `src/wire/huffman.zig` over natural numbers, with an octet a `Nat` below
+HPACK and QPACK encode a string literal with Appendix B's code. Each byte becomes its code, most
+significant bit first. Then the most significant bits of EOS pad the string to a byte boundary.
+These definitions follow `src/wire/huffman.zig` over natural numbers, with a byte a `Nat` below
 256 and a code a `List Bool`. The theorems are about them
 (https://github.com/c4milo/colibri/issues/52).
 
@@ -17,8 +17,8 @@ What is proved:
 - `prefix_free`: no symbol's code is a prefix of another's, which is what lets a decoder end a
   symbol as soon as its bits match one.
 - `eos_ones`: EOS is thirty ones, so the padding §5.2 asks for is a run of ones.
-- `decode_encode`: every string of octets decodes back from its encoding, padding included.
-- `decode_octets`: whatever a decoding accepts is octets, each below 256; EOS never reaches the
+- `decode_encode`: every string of bytes decodes back from its encoding, padding included.
+- `decode_octets`: whatever a decoding accepts is bytes, each below 256; EOS never reaches the
   output.
 -/
 
@@ -40,19 +40,19 @@ def table : List (List Bool) := codes.map fun (code, length) => bitsOf code leng
 /-- The symbol whose code is exactly `bits`, if any. -/
 def symbolOf (bits : List Bool) : Option Nat := table.findIdx? (· == bits)
 
-/-- The bits of a string: each octet's code in turn. -/
+/-- The bits of a string: each byte's code in turn. -/
 def encodeBits (octets : List Nat) : List Bool := octets.flatMap fun octet => table.getD octet []
 
-/-- §5.2: the most significant bits of EOS, ones, up to the next octet boundary after `n` bits. -/
+/-- §5.2: the most significant bits of EOS, ones, up to the next byte boundary after `n` bits. -/
 def padding (n : Nat) : List Bool := List.replicate ((8 - n % 8) % 8) true
 
-/-- Bits as octets, eight at a time, most significant first. -/
+/-- Bits as bytes, eight at a time, most significant first. -/
 def pack : List Bool → List Nat
   | b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: rest =>
     ofBits [b0, b1, b2, b3, b4, b5, b6, b7] 0 :: pack rest
   | _ => []
 
-/-- Octets as bits, most significant first. -/
+/-- Bytes as bits, most significant first. -/
 def unpack (octets : List Nat) : List Bool := octets.flatMap fun octet => bitsOf octet 8
 
 /-- §5.2: `bytes` encoded and padded. `encode` in `huffman.zig`. -/
@@ -281,7 +281,7 @@ theorem decodeFrom_encodeBits (octets : List Nat) (h : ∀ octet ∈ octets, oct
       ih (fun o ho => h o (by simp [ho]))]
     rfl
 
-/-- One octet's eight bits read back to themselves. -/
+/-- One byte's eight bits read back to themselves. -/
 theorem bitsOf_ofBits_octet :
     ∀ b0 b1 b2 b3 b4 b5 b6 b7 : Bool,
       bitsOf (ofBits [b0, b1, b2, b3, b4, b5, b6, b7] 0) 8 = [b0, b1, b2, b3, b4, b5, b6, b7] := by
@@ -303,7 +303,7 @@ theorem unpack_pack (bits : List Bool) (h : bits.length % 8 = 0) : unpack (pack 
     | [_, _, _, _, _, _], _ | [_, _, _, _, _, _, _], _ => simp at h
     | _ :: _ :: _ :: _ :: _ :: _ :: _ :: _ :: _, hnot => exact absurd rfl (hnot _ _ _ _ _ _ _ _ _)
 
-/-- §5.2: every string of octets decodes back from its encoding. -/
+/-- §5.2: every string of bytes decodes back from its encoding. -/
 theorem decode_encode (octets : List Nat) (h : ∀ octet ∈ octets, octet < 256) :
     decode (encode octets) = .octets octets := by
   unfold decode encode
@@ -317,7 +317,7 @@ theorem cons_eq_octets (symbol : Nat) (outcome : Outcome) (octets : List Nat)
   | octets rest => simp only [Outcome.cons, Outcome.octets.injEq] at h; exact ⟨rest, rfl, h.symm⟩
   | _ => simp [Outcome.cons] at h
 
-/-- Whatever a decoding accepts is octets: EOS and nothing above it reaches the output. -/
+/-- Whatever a decoding accepts is bytes: EOS and nothing above it reaches the output. -/
 theorem decode_octets (encoded : List Nat) (octets : List Nat) (h : decode encoded = .octets octets) :
     ∀ octet ∈ octets, octet < 256 := by
   unfold decode at h

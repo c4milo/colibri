@@ -9,7 +9,7 @@
 //! sets it from its model of the path. A connection holds the state of one of the three, which
 //! `Choice` names (decision 136, the owner's ruling of 2026-10-31).
 //!
-//! **The octets in flight are not held here.** `recovery_sent.zig` knows what is outstanding
+//! **The bytes in flight are not held here.** `recovery_sent.zig` knows what is outstanding
 //! because it holds the records, and RFC 9002 Appendix B.2's `bytes_in_flight` is the sum over
 //! the three spaces. Keeping a second count here would be a second thing to get wrong, so the
 //! caller passes the sum in where a decision needs it.
@@ -137,7 +137,7 @@ pub const Congestion = struct {
         switch (congestion.state) {
             // RFC 9438 counts in segments, so a new segment starts the stage again.
             .cubic => |*cubic| cubic.epoch_ns = null,
-            // RFC 9002 counts in octets, so NewReno's carry stays whole.
+            // RFC 9002 counts in bytes, so NewReno's carry stays whole.
             .bbr, .newreno => {},
         }
         if (smaller) congestion.set_window(initial_window(max_datagram_len));
@@ -152,7 +152,7 @@ pub const Congestion = struct {
         }
     }
 
-    /// How many more octets may be put in flight, given how many already are.
+    /// How many more bytes may be put in flight, given how many already are.
     pub fn available_len(congestion: *const Congestion, in_flight_len: u64) u64 {
         return congestion.window -| in_flight_len;
     }
@@ -216,7 +216,7 @@ pub const Congestion = struct {
     }
 };
 
-/// RFC 9002 §7.2: ten maximum datagrams, held to the larger of 14,720 octets and two of them.
+/// RFC 9002 §7.2: ten maximum datagrams, held to the larger of 14,720 bytes and two of them.
 pub fn initial_window(max_datagram_len: u64) u64 {
     assert(max_datagram_len >= constants.protocol.datagram_len_min);
     const ten = max_datagram_len *| constants.recovery.congestion_window_initial_datagrams;
@@ -334,12 +334,12 @@ test "RFC 9438 §4.3: right after a decrease the window follows the Reno-friendl
     test_congestion.init(test_datagram_len);
     _ = test_congestion.on_congestion_event(test_early_ns, test_late_ns);
     const held = test_congestion.window;
-    // The curve starts back at the window and rises slowly, so W_est leads: a window of octets
+    // The curve starts back at the window and rises slowly, so W_est leads: a window of bytes
     // acknowledged adds α = 9/17 of a datagram, where NewReno would add one.
     var acknowledged_len: u64 = 0;
     // Bounded: one window of datagrams.
     while (acknowledged_len < held) : (acknowledged_len += test_datagram_len) acknowledge(test_late_ns + 1, test_late_ns + 1);
-    // α = 9/17 of a datagram, about 630 octets here; the curve alone adds under half a datagram.
+    // α = 9/17 of a datagram, about 630 bytes here; the curve alone adds under half a datagram.
     try testing.expect(test_congestion.window >= held + test_datagram_len / 2);
     try testing.expect(test_congestion.window < held + test_datagram_len);
     try testing.expectEqual(test_late_ns + 1, test_congestion.state.cubic.epoch_ns);

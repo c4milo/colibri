@@ -14,7 +14,7 @@ const Exchange = support.Exchange;
 const RequestId = @import("connection.zig").RequestId;
 const Header = support.Header;
 
-/// Where each piece lands: four octets, so most runs of content leave a tail. Test-only.
+/// Where each piece lands: four bytes, so most runs of content leave a tail. Test-only.
 var piece: [piece_len]u8 = undefined;
 const piece_len: usize = 4;
 /// Where each piece lands in the test of flow control: half a full DATA frame (RFC 9113 §4.2).
@@ -39,7 +39,7 @@ const ok: u16 = 200;
 const alphabet = "abcdefghijklmnopqrstuvwxyz";
 /// Rounds of reading and releasing one test takes at most.
 const rounds_max: usize = 256;
-/// RFC 9113 §6.9.2: the initial window of every stream, 65,535 octets.
+/// RFC 9113 §6.9.2: the initial window of every stream, 65,535 bytes.
 const window_initial: usize = 65_535;
 
 /// A GET whose response comes in pieces of `body`'s length.
@@ -119,7 +119,7 @@ test "decision 153 ruling 7: an h11 response comes in pieces of Response.body's 
     try read_pieces(id);
     try testing.expectEqual(1, headers_count);
     try testing.expectEqual(ok, @intFromEnum(get.response.status));
-    // RFC 9112 §6.3: 26 octets in pieces of 4.
+    // RFC 9112 §6.3: 26 bytes in pieces of 4.
     try testing.expectEqual(7, pieces_count);
     try testing.expectEqualStrings(alphabet, received[0..received_len]);
     try testing.expectEqual(1, finished_count);
@@ -292,7 +292,7 @@ test "decision 153 ruling 7: a cancel gives back an h11 piece, and the rest of t
     try testing.expectEqual(1, finished_count);
 }
 
-/// Writes a DATA frame on `stream_id` that carries `data` with `padding_len` octets of padding
+/// Writes a DATA frame on `stream_id` that carries `data` with `padding_len` bytes of padding
 /// and END_STREAM (RFC 9113 §6.1), as the h2 peer would.
 fn peer_padded_data(stream_id: u32, data: []const u8, padding_len: u8) !void {
     var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
@@ -381,12 +381,12 @@ test "decision 153 ruling 7: a cancel gives back an h2 piece, and the stream's t
 }
 
 /// The h2 peer reads every whole frame the client sent, and sends back each DATA frame's payload
-/// on the stream it came on, ending its own side when the client ended its. Returns the octets of
+/// on the stream it came on, ending its own side when the client ended its. Returns the bytes of
 /// the request's content it read.
 fn peer_h2_echo() !usize {
     var echoed: usize = 0;
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or writes what the peer owes, and both are finite.
+    // Bounded: each pass consumes a byte or writes what the peer owes, and both are finite.
     for (0..support.to_peer_len + support.events_max) |_| {
         const read = try support.peer_h2.receive(support.to_peer[consumed..support.to_peer_len], support.now_ns);
         if (read.consumed == 0) {

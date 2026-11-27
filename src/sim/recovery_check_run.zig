@@ -213,13 +213,13 @@ const Run = struct {
         var writer = Writer.init(&run.storage.datagram);
         writer.write_byte(kind_data) catch return Violation.DatagramNotRead;
         writer.write_int_big(u64, number) catch return Violation.DatagramNotRead;
-        // RFC 9000 §14.1: an ack-eliciting packet fills a datagram of at least 1200 octets.
+        // RFC 9000 §14.1: an ack-eliciting packet fills a datagram of at least 1200 bytes.
         // Bounded by the datagram, which is a named limit.
         while (writer.written().len < datagram_len) {
             writer.write_byte(0) catch return Violation.DatagramNotRead;
         }
         // RFC 9002 §7.5: a probe MUST NOT be blocked by the congestion controller, and §7.5 says
-        // in the same paragraph that sending one may put the octets in flight past the window.
+        // in the same paragraph that sending one may put the bytes in flight past the window.
         const congestion = &run.storage.sender.congestion;
         const over = run.storage.sender.in_flight_len() +| datagram_len > congestion.window;
         if (purpose == .data and over) return Violation.WindowExceeded;

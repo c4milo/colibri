@@ -1,6 +1,6 @@
 //! One connection of the client over TCP (decision 100, design §8 step 17c). The caller places a
 //! request and its response, and hands them to `request`, which returns their id. `send` writes the
-//! requests as the protocol, the room and the peer allow, and the octets the caller read go in
+//! requests as the protocol, the room and the peer allow, and the bytes the caller read go in
 //! through `receive`, which returns at most one event a call. Every exchange ends in one outcome,
 //! reported by its `finished` event, in h11 and h2 alike.
 //!
@@ -13,8 +13,8 @@
 //! decision 117).
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, calls `send`
-//! whenever the transport can take octets, and closes the transport once `should_close` says so.
-//! After each `send` it loops over `receive` again, even with no new octets: while the output was
+//! whenever the transport can take bytes, and closes the transport once `should_close` says so.
+//! After each `send` it loops over `receive` again, even with no new bytes: while the output was
 //! full, h2 read no frame past the replies it owed (RFC 9113 §6.5.3), and those frames are read
 //! then. A connection that fails reports it as its exchanges' outcomes and a `closed` event. The
 //! caller owns the struct and every request and response, and colibri allocates nothing (decision
@@ -126,19 +126,19 @@ pub const Connection = struct {
     /// handshake completes.
     session: Session,
     tls_client: tls.record.Client,
-    /// The protocol's octets opened from records and not yet read.
+    /// The protocol's bytes opened from records and not yet read.
     plain_in: [constants.limits.plaintext_in_len]u8,
     plain_in_len: usize,
-    /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
+    /// h11: the bytes of the last call's input that h11 did not consume, such as half a head or
     /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
-    /// call with no octets, as the pool makes to read what the connection owes, reads nothing
+    /// call with no bytes, as the pool makes to read what the connection owes, reads nothing
     /// from h11 while any remain.
     unread_len: usize,
     /// The rest of a run of a streamed response's content that did not fit `Response.body`, which
-    /// waits at the front of the next call's octets (decision 153).
+    /// waits at the front of the next call's bytes (decision 153).
     tail: connection_body.Tail,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
-    /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
+    /// `records_len` bytes of them, then the protocol's bytes, which `send` seals over TLS.
     output: [constants.limits.output_len]u8,
     output_len: usize,
     records_len: usize,
@@ -258,7 +258,7 @@ pub const Connection = struct {
     }
 
     /// Reports what the connection owes the caller, then reads at most one event from `input`,
-    /// the octets the transport read. Over TLS it runs the handshake first, and `input` is records,
+    /// the bytes the transport read. Over TLS it runs the handshake first, and `input` is records,
     /// which chapulin may open in place.
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) ReceiveResult {
         if (connection.owed_event()) |owed| return .{ .consumed = 0, .event = owed };
@@ -274,7 +274,7 @@ pub const Connection = struct {
     }
 
     /// Writes the requests waiting and what the protocol owes into `output`, sealed over TLS, and
-    /// returns the octets written. What does not fit waits for the next call. h11 and h2 write a
+    /// returns the bytes written. What does not fit waits for the next call. h11 and h2 write a
     /// request's content from the caller's memory, with no copy into the connection's output
     /// (https://github.com/c4milo/colibri/issues/105).
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
@@ -293,7 +293,7 @@ pub const Connection = struct {
     }
 
     /// Writes the content of the requests going out from the caller's memory into `output`, once
-    /// the connection's own output is empty. Returns the octets written.
+    /// the connection's own output is empty. Returns the bytes written.
     fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
         return switch (connection.session) {
             .h11 => connection_h11_streamed.send_content(connection, output, now_ns),
@@ -312,13 +312,13 @@ pub const Connection = struct {
         return written;
     }
 
-    /// Whether `send` may write an octet now (decision 125), which a pool's `send` event reports.
+    /// Whether `send` may write a byte now (decision 125), which a pool's `send` event reports.
     /// It writes nothing, so it can say yes when `send` then writes nothing: when a request waits
     /// for the peer or for room.
     pub fn should_send(connection: *const Connection) bool {
         if (connection.records_len > 0 or connection.output_len > 0) return true;
         return switch (connection.phase) {
-            // A `receive`, with no octets too, stages each flight of the handshake in the records,
+            // A `receive`, with no bytes too, stages each flight of the handshake in the records,
             // and the pool reads its connection so before it asks for a `send`.
             .handshake, .closed => false,
             .open => internal.should_send_when_open(connection),
@@ -332,7 +332,7 @@ pub const Connection = struct {
     }
 
     /// Whether the caller closes the transport now: the connection reported `closed`, and `send`
-    /// has written everything it owes. That is the octets its output holds, among them the alert
+    /// has written everything it owes. That is the bytes its output holds, among them the alert
     /// of a handshake it refused (RFC 9846 §6.2), and what the protocol queued: h2's GOAWAY (RFC
     /// 9113 §6.8). Over TLS it is also the `close_notify` (RFC 9846 §6.1), or the alert of a record
     /// that failed in place of it.

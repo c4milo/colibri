@@ -11,7 +11,7 @@
 //!
 //! What it holds: one sent-packet table per space (RFC 9000 §12.3), the round trip estimator of
 //! `rtt.zig`, the congestion window of `recovery_congestion.zig`, the pacer of
-//! `recovery_pacing.zig`, and the per-space facts `recovery_timer.zig` chooses from. The octets
+//! `recovery_pacing.zig`, and the per-space facts `recovery_timer.zig` chooses from. The bytes
 //! in flight are the sum over the three tables and are held nowhere else.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -134,7 +134,7 @@ pub const Recovery = struct {
         };
     }
 
-    /// How many octets may go out now: what the congestion window leaves, held to what the pacer
+    /// How many bytes may go out now: what the congestion window leaves, held to what the pacer
     /// has earned. RFC 9002 §7.7 exempts a packet carrying only ACK frames from the second,
     /// which the caller applies by sending it without asking.
     pub fn available_len(recovery: *const Recovery) u64 {
@@ -251,9 +251,9 @@ pub const Recovery = struct {
     /// Takes every packet `kind` has in flight out of its table as lost, and writes as many of the
     /// records as fit into `lost`. RFC 9002 §6.2.4: "instead of sending an ack-eliciting packet,
     /// the sender MAY mark any packets still in flight as lost". Decision 64 does so when a PTO
-    /// fires at a handshake level, so the probes carry the CRYPTO octets those packets held.
+    /// fires at a handshake level, so the probes carry the CRYPTO bytes those packets held.
     ///
-    /// It is no congestion event: the packets are declared lost to move their octets, and §6.2.4
+    /// It is no congestion event: the packets are declared lost to move their bytes, and §6.2.4
     /// names "an unnecessary rate reduction by the congestion controller" as this choice's risk.
     pub fn declare_in_flight_lost(recovery: *Recovery, kind: Kind, lost: []Record) recovery_sent.Removed {
         assert(kind != .application);

@@ -1,5 +1,5 @@
 //! The h2 trace run (https://github.com/c4milo/colibri/issues/75, decision 104): a colibri client
-//! and a colibri server act out a seed's `h2_trace_plan.zig`, one queue of octets in each
+//! and a colibri server act out a seed's `h2_trace_plan.zig`, one queue of bytes in each
 //! direction, which TCP would deliver in order (RFC 9113 §2). The plan draws write calls the
 //! connections must refuse as well as ones they take, and after its last action the run delivers
 //! what is left in both directions.

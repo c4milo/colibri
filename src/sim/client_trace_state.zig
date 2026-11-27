@@ -2,7 +2,7 @@
 //! run logs after each instant, computed from the caller's record, the pool, its connections
 //! and the servers' ledger.
 //!
-//! Whether a QUIC stream holds an exchange's octets is read from the stream itself, not from the
+//! Whether a QUIC stream holds an exchange's bytes is read from the stream itself, not from the
 //! client's own flag: the stream holds them while its connection is active and its sending part
 //! may still send (RFC 9000 §3.1). A client that freed an exchange whose stream still sends shows
 //! as a state the model cannot reach.
@@ -183,7 +183,7 @@ fn outcome_of(outcome: client.Result) Outcome {
     };
 }
 
-/// Whether exchange `index`'s QUIC stream may still read its octets: its connection is the one
+/// Whether exchange `index`'s QUIC stream may still read its bytes: its connection is the one
 /// running and active, and the stream's sending part may still send (RFC 9000 §3.1).
 fn holds(world: *World, tracker: *const Tracker, index: usize) bool {
     const stream_id = tracker.stream_id[index] orelse return false;

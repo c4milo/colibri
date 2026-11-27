@@ -88,7 +88,7 @@ pub const Event = union(enum) {
 
 /// What one `receive` call consumed and produced.
 pub const Received = struct {
-    /// Octets of the caller's slice the connection took. 0 when no whole frame was there, or when
+    /// Bytes of the caller's slice the connection took. 0 when no whole frame was there, or when
     /// the replies must be written first.
     consumed: usize,
     /// What the frame meant, when it meant anything to the caller.

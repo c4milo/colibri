@@ -1,10 +1,10 @@
 //! The tests of a `.hosted` `colibri.Client` against a `.hosted` `colibri.Server` on one fake host
-//! (decision 159, design §8 step 44h). The test is the host of both objects. It copies the octets
+//! (decision 159, design §8 step 44h). The test is the host of both objects. It copies the bytes
 //! of each send to the receive of the other object, and each datagram to the other object's
 //! receive of datagrams. It moves its clock only when neither object has work. So a GET and a POST
 //! run over h11, h2 and h3 through `request` and the handler, with no socket and no thread.
 //!
-//! The tests of one hosted object against octets that the test writes are in `fake_host_test.zig`.
+//! The tests of one hosted object against bytes that the test writes are in `fake_host_test.zig`.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -24,7 +24,7 @@ const testing = std.testing;
 /// The rounds a test runs at most, and the room each turn writes into.
 const rounds_max = 512;
 const operations_len = 32;
-/// The octets on their way to one object at most: what one send carries, and what one receive
+/// The bytes on their way to one object at most: what one send carries, and what one receive
 /// leaves behind.
 const pipe_len = constants.limits.socket_output_len + constants.limits.socket_input_len;
 
@@ -84,20 +84,20 @@ fn peer_of(side: Side) Side {
     return if (side == .client) .server else .client;
 }
 
-/// The octets on their way to one object over the TCP connection.
+/// The bytes on their way to one object over the TCP connection.
 const Pipe = struct {
     bytes: [pipe_len]u8 = undefined,
     len: usize = 0,
     /// The receive that the reader has in flight.
     receive: ?host.Operation = null,
-    /// The writer closed its socket, so the reader reads 0 octets after the last one.
+    /// The writer closed its socket, so the reader reads 0 bytes after the last one.
     ended: bool = false,
 };
 
 /// The fake host of the two objects: one TCP connection and one UDP path between them.
 const Pair = struct {
     now_ns: u64 = 0,
-    /// The octets on their way to each side, by the side that reads them.
+    /// The bytes on their way to each side, by the side that reads them.
     pipes: [sides]Pipe = @splat(.{}),
     /// The server's accept in flight, and each side's receive of datagrams in flight.
     accept: ?host.OperationId = null,
@@ -146,7 +146,7 @@ const Pair = struct {
         host_pair.complete(.client, .{ .id = id, .result = .connected });
     }
 
-    /// Copies the octets of a send into the pipe to its peer, as many as fit.
+    /// Copies the bytes of a send into the pipe to its peer, as many as fit.
     fn send(host_pair: *Pair, side: Side, id: host.OperationId, bytes: []const u8) void {
         const pipe = &host_pair.pipes[@intFromEnum(peer_of(side))];
         const count = @min(bytes.len, pipe.bytes.len - pipe.len);
@@ -156,7 +156,7 @@ const Pair = struct {
         host_pair.complete(side, .{ .id = id, .result = .{ .sent = @intCast(count) } });
     }
 
-    /// Closes the write side of the socket of `side`: its peer reads the end of the octets, and its
+    /// Closes the write side of the socket of `side`: its peer reads the end of the bytes, and its
     /// own receive goes on (RFC 9112 §9.6).
     fn shutdown_send(host_pair: *Pair, side: Side, id: host.OperationId) void {
         host_pair.pipes[@intFromEnum(peer_of(side))].ended = true;
@@ -164,7 +164,7 @@ const Pair = struct {
     }
 
     /// Closes the socket of `side`. The close ends the socket's receive first (decision 159, rule
-    /// 1), and its peer then reads the end of the octets.
+    /// 1), and its peer then reads the end of the bytes.
     fn close(host_pair: *Pair, side: Side, id: host.OperationId) void {
         const own = &host_pair.pipes[@intFromEnum(side)];
         if (own.receive) |receive| {
@@ -204,7 +204,7 @@ const Pair = struct {
         host_pair.complete(side, .{ .id = id, .result = .{ .datagram_sent = @intCast(bytes.len) } });
     }
 
-    /// Gives the receive of `side` the octets on their way to it, or their end.
+    /// Gives the receive of `side` the bytes on their way to it, or their end.
     fn deliver(host_pair: *Pair, side: Side) void {
         const pipe = &host_pair.pipes[@intFromEnum(side)];
         const receive = pipe.receive orelse return;
@@ -215,12 +215,12 @@ const Pair = struct {
         @memmove(pipe.bytes[0 .. pipe.len - count], pipe.bytes[count..pipe.len]);
         pipe.len -= count;
         pipe.receive = null;
-        // A read of 0 octets means that the peer closed its side.
+        // A read of 0 bytes means that the peer closed its side.
         host_pair.complete(side, .{ .id = receive.id, .result = .{ .received = @intCast(count) } });
     }
 
     /// One round: a turn of each object that has not stopped, each operation that the turn wrote,
-    /// and the octets on their way. When no completion came and neither object has work, the
+    /// and the bytes on their way. When no completion came and neither object has work, the
     /// clock moves to the earliest instant that a turn named (decision 159, rule 5).
     fn round(host_pair: *Pair) !void {
         var operations: [operations_len]host.Operation = undefined;

@@ -34,7 +34,7 @@ pub fn act(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool 
 }
 
 /// What a peer that read a GOAWAY does: it opens no more requests and finishes those it began
-/// (RFC 9114 §5.2): an upload's content and a late head's last octet. A hostile body keeps its
+/// (RFC 9114 §5.2): an upload's content and a late head's last byte. A hostile body keeps its
 /// pace. The endpoint check's peers read one at its shutdown while they still act.
 pub fn finish_begun(peer: *Peer, plan: *const Plan, now_ms: u64) bool {
     if (!peer.h3_started or !peer.active()) return false;
@@ -60,7 +60,7 @@ fn begin_all(peer: *Peer, plan: *const Plan, now_ns: u64) Error!bool {
     return true;
 }
 
-/// Opens the plan's next exchange once the one before it has ended, with `content_len` octets of
+/// Opens the plan's next exchange once the one before it has ended, with `content_len` bytes of
 /// content, of which it sends none yet.
 fn begin_next(peer: *Peer, plan: *const Plan, content_len: usize, now_ns: u64) Error!bool {
     if (peer.requests_begun == plan.requests_count) return false;
@@ -73,7 +73,7 @@ fn begin_next(peer: *Peer, plan: *const Plan, content_len: usize, now_ns: u64) E
 }
 
 /// An honest peer whose heads arrive late: one exchange at a time, each request's head without
-/// its last octet, and that octet a gap after.
+/// its last byte, and that byte a gap after.
 fn late_heads(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
     if (peer.next_act_ms != null) return finish_head(peer, now_ms);
     if (peer.requests_begun == plan.requests_count) return false;
@@ -85,7 +85,7 @@ fn late_heads(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bo
     return true;
 }
 
-/// Sends the last octet of the latest request's head once it is due.
+/// Sends the last byte of the latest request's head once it is due.
 fn finish_head(peer: *Peer, now_ms: u64) bool {
     const due_ms = peer.next_act_ms orelse return false;
     if (now_ms < due_ms) return false;
@@ -118,7 +118,7 @@ fn send_piece(peer: *Peer, plan: *const Plan, finishes: bool, now_ms: u64) bool 
     }
     const reaches = @min(fetch.supplied + plan.piece_len, fetch.total());
     const last = reaches == fetch.total();
-    // A slow body never ends: it holds its last octet back.
+    // A slow body never ends: it holds its last byte back.
     if (last and !finishes) {
         peer.next_act_ms = null;
         return false;
@@ -145,7 +145,7 @@ fn idle_pinger(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!b
     return ping_every_gap(peer, plan, now_ms);
 }
 
-/// Opens a request and sends all of its head but the last octet.
+/// Opens a request and sends all of its head but the last byte.
 fn partial_head(peer: *Peer, now_ns: u64) Error!bool {
     const fetch = try peer.stage("GET", 0, now_ns) orelse return error.PeerFailed;
     peer.supply(fetch, fetch.prefix_len - 1, false);
@@ -166,7 +166,7 @@ fn slow_second_head(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Er
     return partial_head(peer, now_ns);
 }
 
-/// A request's head, then its content a piece every gap and never its last octet: under the
+/// A request's head, then its content a piece every gap and never its last byte: under the
 /// minimum body rate, or over it for longer than the cap on a body.
 fn slow_body(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
     if (peer.fetches_len == 0) {

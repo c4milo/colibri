@@ -35,7 +35,7 @@ const initial_capacity: u64 = 4096;
 const raw_data_directory = "raw-data";
 
 /// The directories the run skips: each one's encoder used a dynamic table larger than colibri
-/// keeps, 16,384 octets where colibri keeps 4,096 (decision 166 as amended). colibri never
+/// keeps, 16,384 bytes where colibri keeps 4,096 (decision 166 as amended). colibri never
 /// advertises a larger table, so no peer sends it such a block.
 const skipped_directories = [_][]const u8{"nghttp2-16384-4096"};
 
@@ -45,7 +45,7 @@ const story_bytes_max = 16 << 20;
 /// The longest field block the encoder writes for one case.
 const block_len_max = 64 << 10;
 
-/// The longest name and value the corpus holds, in octets; a longer one is a corpus change.
+/// The longest name and value the corpus holds, in bytes; a longer one is a corpus change.
 const name_len_max = hpack.constants.limits.name_len_max;
 const value_len_max = hpack.constants.limits.value_len_max;
 

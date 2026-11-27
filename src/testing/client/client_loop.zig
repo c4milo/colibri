@@ -216,7 +216,7 @@ fn step_session(connection: *Connection) void {
     for (connection.sockets) |*socket| socket.arm(&loop);
 }
 
-/// Steps the pool once with no socket's octets, then once for each socket that carries a
+/// Steps the pool once with no socket's bytes, then once for each socket that carries a
 /// connection, and does what the pool asked of each socket: the close first, then the open.
 /// Returns whether anything moved.
 fn step_once(connection: *Connection) bool {
@@ -229,8 +229,8 @@ fn step_once(connection: *Connection) bool {
     return moved;
 }
 
-/// Steps the pool with the octets `slot`'s socket read and the room it has, while it carries the
-/// slot's connection. Returns whether the step read or wrote an octet.
+/// Steps the pool with the bytes `slot`'s socket read and the room it has, while it carries the
+/// slot's connection. Returns whether the step read or wrote a byte.
 fn step_slot(connection: *Connection, slot: u32) bool {
     const socket = &connection.sockets[slot];
     if (!socket.carrying()) return false;
@@ -455,7 +455,7 @@ test "https://github.com/c4milo/colibri/issues/124: a failed connection names ho
     on_happened(connection, 0, socket.on_event(&loop, event));
     try testing.expectEqual(.receive_failed, connection.ending.cause);
     try testing.expectEqualStrings("ConnectionReset", connection.ending.error_name.?);
-    // A receive of no octets is the peer's close, with no error.
+    // A receive of no bytes is the peer's close, with no error.
     socket.descriptor = try pool_tcp.open_descriptor(.ipv4);
     socket.state = .open;
     on_happened(connection, 0, socket.on_event(&loop, rotor.Event.success(event.user_data, 0)));

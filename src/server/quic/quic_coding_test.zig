@@ -1,7 +1,7 @@
 //! The tests of content codings over h3 (`quic_coding.zig`, decision 101): a coded response goes
 //! out from its encoder's ring in place, the ring frees what the peer acknowledged, and the
 //! response ends once the encoder has finished. Its encoder goes back once the peer acknowledged
-//! every octet, or once the response is cancelled.
+//! every byte, or once the response is cancelled.
 const std = @import("std");
 const quic = @import("quic");
 const http = @import("http");
@@ -114,7 +114,7 @@ test "RFC 9110 §6.5: an h3 trailer section waits for the encoder's last octets,
     const taken = try connection.write_body(fetch.id, .{ .bytes = tcp_support.incompressible[0..], .end = false });
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try testing.expectError(error.Blocked, connection.write_trailers(fetch.id, &trailer));
-    // Bounded: each round's acknowledgments free the ring for the encoder's last octets.
+    // Bounded: each round's acknowledgments free the ring for the encoder's last bytes.
     const written = for (0..rounds_max) |_| {
         try support.pump(1);
         connection.write_trailers(fetch.id, &trailer) catch |failure| {

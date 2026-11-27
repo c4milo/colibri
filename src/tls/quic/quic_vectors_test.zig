@@ -6,11 +6,11 @@
 //!
 //! One client session covers A.1 to A.4. A session's role is fixed when it starts, and a
 //! client's Initial keys are the server's in the other direction (RFC 9001 §5.2), so:
-//!   - A.2: the client seals its Initial, and the octets must be the published packet;
+//!   - A.2: the client seals its Initial, and the bytes must be the published packet;
 //!   - A.3: the client opens the server's published Initial, and must find its header and payload;
 //!   - A.4: the Retry Integrity Tag checks, and chapulin writes the published one over the
 //!     pseudo-packet colibri builds.
-//! A.1's keys are what makes A.2 and A.3 come out octet for octet.
+//! A.1's keys are what makes A.2 and A.3 come out byte for byte.
 //!
 //! A.5 of each is chapulin's to check, in its own tests: it starts from a 1-RTT secret, and under
 //! decision 48 no secret crosses the vtable, so colibri has no way to give one.
@@ -25,7 +25,7 @@ const identity = @import("../record/record_test_support.zig");
 
 const testing = std.testing;
 
-/// The octets a string of hex digits spells, at compile time.
+/// The bytes a string of hex digits spells, at compile time.
 fn hex(comptime digits: []const u8) [digits.len / hex_digits_per_octet]u8 {
     @setEvalBranchQuota(hex_branches_per_digit * digits.len);
     var octets: [digits.len / hex_digits_per_octet]u8 = undefined;
@@ -171,7 +171,7 @@ const server_protected_v2 = hex("dc6b3343cf0008f067a5502a4262b5004075d92faaf16f0
 const retry_packet_v2 = hex("cf6b3343cf0008f067a5502a4262b5746f6b656ec8646ce8bfe33952d9555436" ++
     "65dcc7b6");
 
-/// A.2: the client's Initial payload is the CRYPTO frame and PADDING frames, 1162 octets in all.
+/// A.2: the client's Initial payload is the CRYPTO frame and PADDING frames, 1162 bytes in all.
 const client_payload_len = 1162;
 const client_packet_number = 2;
 const client_packet_number_len = 4;

@@ -2,7 +2,7 @@
 //! passes plain values, so this module knows no type of `h3`'s: a frame event is its stream ID and
 //! one frame, written between `begin_frame` and `end_frame`.
 //!
-//! A field line's name and value are text when every octet is printable ASCII, and hexstrings
+//! A field line's name and value are text when every byte is printable ASCII, and hexstrings
 //! otherwise, which is h3-events §4.2.2's rule (decision 102 as amended).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -73,7 +73,7 @@ pub fn begin_frame(text: *TextWriter, stream_id: u64, frame_type: []const u8) Er
     try member.string(text, "frame_type", frame_type);
 }
 
-/// Closes the frame, whose payload is `payload_len` octets long, which main schema §10's RawInfo
+/// Closes the frame, whose payload is `payload_len` bytes long, which main schema §10's RawInfo
 /// holds.
 pub fn end_frame(text: *TextWriter, payload_len: u64) Error!void {
     try text.name("raw");
@@ -124,7 +124,7 @@ pub fn begin_headers(text: *TextWriter) Error!void {
     try text.begin_array();
 }
 
-/// One field line: its name, and its value, each as text when every octet is printable ASCII and
+/// One field line: its name, and its value, each as text when every byte is printable ASCII and
 /// as a hexstring otherwise (h3-events §4.2.2).
 pub fn field_line(text: *TextWriter, field_name: []const u8, value: []const u8) Error!void {
     try text.begin_object();
@@ -142,9 +142,9 @@ fn text_or_octets(text: *TextWriter, comptime text_key: []const u8, comptime oct
     try member.hex(text, octets_key, octets);
 }
 
-/// Whether every octet is printable ASCII, which JSON text holds as it is, `"` and `\` escaped.
+/// Whether every byte is printable ASCII, which JSON text holds as it is, `"` and `\` escaped.
 fn is_printable(octets: []const u8) bool {
-    // Bounded by the octets.
+    // Bounded by the bytes.
     for (octets) |octet| {
         if (octet < constants.protocol.printable_first or octet > constants.protocol.printable_last) return false;
     }
@@ -163,7 +163,7 @@ test "a HEADERS frame's lines are text when printable, and octets otherwise" {
     try begin_frame(&text, 0, "headers");
     try begin_headers(&text);
     try field_line(&text, ":status", "200");
-    // A value a peer sent with an octet past ASCII, and one with a control octet.
+    // A value a peer sent with a byte past ASCII, and one with a control byte.
     try field_line(&text, "x-tag", &.{ 'a', 0xe9 });
     try field_line(&text, "x-tab", "a\tb");
     try end_headers(&text);

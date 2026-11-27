@@ -1,5 +1,5 @@
 //! The run-time probe: `match` on one path, a fixed number of times, against a table of k literal
-//! edges of four octets at the root. callgrind counts its instructions (`run_time.sh`).
+//! edges of four bytes at the root. callgrind counts its instructions (`run_time.sh`).
 //!   probe <k> <first|middle|last|miss> <count>
 //! k is one of `edge_counts`. The path is the first edge, the middle edge, the last edge, or
 //! "/r999", which no edge holds.

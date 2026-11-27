@@ -95,7 +95,7 @@ test "RFC 9959 §4.1: BBRv3 saves its model's BDP, BBR.bw over BBR.min_rtt" {
     open(.bbr, null);
     sample();
     const bbr = &connection.recovery.congestion.state.bbr;
-    // 20 Mbit/s over 50 ms is 125,000 octets.
+    // 20 Mbit/s over 50 ms is 125,000 bytes.
     bbr.bw = 2_500_000;
     bbr.model.min_rtt_ns = rtt_ns;
     try testing.expectEqual(125_000, connection_resume.observe(&connection, observed_at_ns).?.window_len);

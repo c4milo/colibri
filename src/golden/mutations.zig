@@ -1,5 +1,5 @@
 //! The corpus mutations (CLAUDE.md, "Tests are proved by mutation"). Each one edits the committed
-//! octets of one corpus case and names the verdict the edited octets must produce. A mutation is a
+//! bytes of one corpus case and names the verdict the edited bytes must produce. A mutation is a
 //! rule written down as a counterexample: if a decoder change stops the edit producing its verdict,
 //! `golden.zig` fails and names the rule that broke.
 const std = @import("std");
@@ -12,11 +12,11 @@ const Writer = core.Writer;
 const Format = cases.Format;
 
 pub const Edit = union(enum) {
-    /// Replace the octet at `offset` with `value`.
+    /// Replace the byte at `offset` with `value`.
     set: struct { offset: u8, value: u8 },
-    /// Remove the last `count` octets.
+    /// Remove the last `count` bytes.
     truncate: u8,
-    /// Append these octets.
+    /// Append these bytes.
     append: []const u8,
 };
 
@@ -26,7 +26,7 @@ pub const Mutation = struct {
     /// The rule the mutation guards, in words.
     rule: []const u8,
     edit: Edit,
-    /// Null when the edited octets must still decode; otherwise the error they must produce.
+    /// Null when the edited bytes must still decode; otherwise the error they must produce.
     rejection: ?anyerror,
 };
 

@@ -20,11 +20,11 @@ const read = transport_parameters_read.read;
 const version_2: u32 = 0x6b33_43cf;
 const reserved_version: u32 = 0x1a2a_3a4a;
 
-/// Octets one test's extension is built in. Larger than any set of parameters a test writes.
+/// Bytes one test's extension is built in. Larger than any set of parameters a test writes.
 const test_buffer_len: usize = 512;
 var test_buffer: [test_buffer_len]u8 = undefined;
 
-/// Writes one parameter by hand, so a test can build octets `write` would assert against.
+/// Writes one parameter by hand, so a test can build bytes `write` would assert against.
 fn one(id: u64, body: []const u8) ![]const u8 {
     var writer = Writer.init(&test_buffer);
     try wire.varint.encode(&writer, id);
@@ -219,18 +219,18 @@ test "a value that is not the shape its parameter defines is refused" {
     // RFC 9000 §18.2: disable_active_migration is included with a zero-length value.
     var carried = Reader.init(try one(@intFromEnum(Id.disable_active_migration), &.{1}));
     try testing.expectError(error.ParameterInvalid, read(&carried, .server));
-    // RFC 9000 §17.2: a version 1 connection ID is at most 20 octets.
+    // RFC 9000 §17.2: a version 1 connection ID is at most 20 bytes.
     const too_long: [constants.protocol.connection_id_len_max + 1]u8 = @splat(7);
     var long = Reader.init(try one(@intFromEnum(Id.initial_source_connection_id), &too_long));
     try testing.expectError(error.ParameterInvalid, read(&long, .server));
     // RFC 9000 §18: the Length field is the length of the Value field, so an integer parameter
-    // carrying octets past its integer states a value it does not define.
+    // carrying bytes past its integer states a value it does not define.
     var padded = Reader.init(try one(@intFromEnum(Id.initial_max_data), &.{ 0, 0 }));
     try testing.expectError(error.ParameterInvalid, read(&padded, .server));
 }
 
 test "octets that end inside a parameter are a value that cannot be read" {
-    // A length longer than the octets that follow it.
+    // A length longer than the bytes that follow it.
     var writer = Writer.init(&test_buffer);
     try wire.varint.encode(&writer, @intFromEnum(Id.initial_max_data));
     try wire.varint.encode(&writer, 8);
@@ -244,7 +244,7 @@ test "octets that end inside a parameter are a value that cannot be read" {
 
 test "RFC 9368 §3: Version Information is written as §3 lays it out and reads back the same" {
     // Identifier 0x11 (§10.1), a length of 8, then the Chosen Version and one Available Version,
-    // four octets each in network byte order.
+    // four bytes each in network byte order.
     var sent = Parameters.initial();
     sent.version_information = .init(constants.protocol.version_1, &.{version_2});
     var writer = Writer.init(&test_buffer);
@@ -315,7 +315,7 @@ test "RFC 9368 §4: a list longer than colibri keeps is checked whole, and still
     try testing.expectError(error.ParameterInvalid, read(&reader, .client));
 }
 
-/// Most octets one fuzz input carries: room for a few parameters and one connection ID.
+/// Most bytes one fuzz input carries: room for a few parameters and one connection ID.
 const fuzz_input_len_max = 96;
 
 /// Reads the input as a client's extension and as a server's. What is accepted keeps RFC 9000
@@ -342,7 +342,7 @@ const known_id_max: u64 = @intFromEnum(Id.version_information);
 /// The parameters RFC 9000 §18.2 gives a server alone.
 const server_only_ids = [_]Id{ .original_destination_connection_id, .preferred_address, .retry_source_connection_id, .stateless_reset_token };
 
-/// Fewest octets a parameter takes: an identifier and a length of one octet each (RFC 9000 §18).
+/// Fewest bytes a parameter takes: an identifier and a length of one byte each (RFC 9000 §18).
 const parameter_len_min = 2;
 
 /// Walks an accepted extension (RFC 9000 §18): none of §18.2's identifiers twice (§7.4), and
@@ -350,7 +350,7 @@ const parameter_len_min = 2;
 fn expect_identifiers(octets: []const u8, sender: transport_parameters.Role) !void {
     var reader = Reader.init(octets);
     var seen: u32 = 0;
-    // Bounded: every parameter takes at least two octets.
+    // Bounded: every parameter takes at least two bytes.
     for (0..octets.len / parameter_len_min + 1) |_| {
         if (reader.remaining_len() == 0) break;
         const id = (try wire.varint.decode(&reader)).value;
@@ -366,8 +366,8 @@ fn expect_identifiers(octets: []const u8, sender: transport_parameters.Role) !vo
     try testing.expectEqual(0, reader.remaining_len());
 }
 
-/// The shape RFC 9000 §18.2 gives each of its parameters' values: a token of 16 octets, an empty
-/// value, a connection ID of at most 20 octets (§17.2), or one integer and nothing after it (§18).
+/// The shape RFC 9000 §18.2 gives each of its parameters' values: a token of 16 bytes, an empty
+/// value, a connection ID of at most 20 bytes (§17.2), or one integer and nothing after it (§18).
 fn expect_shape(id: u64, body: []const u8) !void {
     switch (id) {
         @intFromEnum(Id.stateless_reset_token) => try testing.expectEqual(transport_parameters.stateless_reset_token_len, body.len),
@@ -386,12 +386,12 @@ fn expect_shape(id: u64, body: []const u8) !void {
     }
 }
 
-/// RFC 9368 §4's shape of Version Information: versions of four octets each, at least one, and
+/// RFC 9368 §4's shape of Version Information: versions of four bytes each, at least one, and
 /// none of them zero.
 fn expect_versions(body: []const u8) !void {
     try testing.expect(body.len >= @sizeOf(u32) and body.len % @sizeOf(u32) == 0);
     var reader = Reader.init(body);
-    // Bounded by the octets: every turn takes four.
+    // Bounded by the bytes: every turn takes four.
     while (reader.remaining_len() > 0) try testing.expect(try reader.take_int_big(u32) != 0);
 }
 
@@ -423,7 +423,7 @@ test "fuzz: accepted transport parameters keep §18.2's bounds, and read back th
             // initial_max_streams_bidi and _uni at 2^60, then one past it.
             core.fuzz.input("\x08\x08\xd0\x00\x00\x00\x00\x00\x00\x00"),
             core.fuzz.input("\x09\x08\xd0\x00\x00\x00\x00\x00\x00\x01"),
-            // A connection ID of 20 octets and of 21, a stateless reset token of 16 and of 15.
+            // A connection ID of 20 bytes and of 21, a stateless reset token of 16 and of 15.
             core.fuzz.input("\x0f\x14" ++ "\xaa" ** 20),
             core.fuzz.input("\x0f\x15" ++ "\xaa" ** 21),
             core.fuzz.input("\x02\x10" ++ "\x5a" ** 16),
@@ -434,11 +434,11 @@ test "fuzz: accepted transport parameters keep §18.2's bounds, and read back th
             core.fuzz.input("\x0c\x01\x00"),
             core.fuzz.input("\x0d\x01\x00"),
             core.fuzz.input("\x40\x99\x00\x40\x99\x00"),
-            // initial_max_data twice, and one whose integer has an octet after it.
+            // initial_max_data twice, and one whose integer has a byte after it.
             core.fuzz.input("\x04\x01\x10\x04\x01\x10"),
             core.fuzz.input("\x04\x02\x10\x00"),
             // Version Information naming version 1 and listing it, listing nothing, listing a
-            // zero, and ending two octets into a version (RFC 9368 §4).
+            // zero, and ending two bytes into a version (RFC 9368 §4).
             core.fuzz.input("\x11\x08\x00\x00\x00\x01\x00\x00\x00\x01"),
             core.fuzz.input("\x11\x04\x00\x00\x00\x01"),
             core.fuzz.input("\x11\x08\x00\x00\x00\x01\x00\x00\x00\x00"),

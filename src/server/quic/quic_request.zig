@@ -22,7 +22,7 @@ pub const Request = struct {
     stream_slot: ?u32,
     /// The request's end went to the caller: its content ended, or its trailer section came.
     ended: bool,
-    /// The final response's head went out, and the stream's last octet is supplied, its FIN.
+    /// The final response's head went out, and the stream's last byte is supplied, its FIN.
     answered: bool,
     finished: bool,
     /// The request ended for the caller: its `done` or `cancelled` event is owed or went out,
@@ -31,7 +31,7 @@ pub const Request = struct {
     /// The request expects a 100 (Continue) the connection has not written (RFC 9110 §10.1.1,
     /// `quic_continue.zig`).
     continue_owed: bool,
-    /// The response's frames and the runs of the caller's octets, until the peer acknowledges
+    /// The response's frames and the runs of the caller's bytes, until the peer acknowledges
     /// them.
     response: quic_response.Pieces,
     /// What the request asked of the codings the server applies, and the coded response, whose

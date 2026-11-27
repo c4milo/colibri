@@ -1,5 +1,5 @@
 //! The vectors of `spec/lean/Colibri/Quic/BbrStates.lean`: the draws of each probe wait and the
-//! volumes BBRv3's states compare with the octets in flight (design §8 step 29b.2).
+//! volumes BBRv3's states compare with the bytes in flight (design §8 step 29b.2).
 const std = @import("std");
 const testing = std.testing;
 const recovery_bbr = @import("recovery_bbr.zig");

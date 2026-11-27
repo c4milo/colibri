@@ -36,13 +36,13 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
     assert(connection.protocol().? == chosen);
 }
 
-/// Reads the protocol's octets until an exchange ends, or the octets run out, and returns
-/// the octets taken.
+/// Reads the protocol's bytes until an exchange ends, or the bytes run out, and returns
+/// the bytes taken.
 pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     if (connection.stopped) return 0;
     // Decision 153 ruling 7: while the caller holds a piece of a response, h11 reads no more of
     // the connection, since its responses come in order (RFC 9112 §9.2), and h2 reads no more
-    // either. Every octet waits for the next call.
+    // either. Every byte waits for the next call.
     if (connection.slots.holding_body()) {
         if (plaintext.len > 0) connection.unread_len = plaintext.len;
         return 0;
@@ -98,7 +98,7 @@ pub fn fail(connection: *Connection) void {
     assert(connection.slots.idle());
 }
 
-/// Whether the protocol owes octets `write_owed` has not written yet.
+/// Whether the protocol owes bytes `write_owed` has not written yet.
 pub fn protocol_pending(connection: *const Connection) bool {
     return switch (connection.session) {
         .h2 => connection.session.h2.has_pending(),
@@ -126,7 +126,7 @@ pub fn handshake_owed(connection: *const Connection) bool {
     };
 }
 
-/// Whether an open connection may owe octets that its output does not hold yet: what the protocol
+/// Whether an open connection may owe bytes that its output does not hold yet: what the protocol
 /// owes, a request not written whole, and over TLS an alert or the `close_notify` (decision 125).
 /// After a record failed, the alert is all that goes out, and the pool closes the transport once
 /// it is out, before it asks again.
@@ -143,7 +143,7 @@ pub fn should_send_when_open(connection: *const Connection) bool {
     return !connection.close_sent and finished(connection);
 }
 
-/// Drops the first `written` octets of `output`, which `send` has taken.
+/// Drops the first `written` bytes of `output`, which `send` has taken.
 pub fn take_output(connection: *Connection, written: usize) void {
     assert(written <= connection.output_len);
     @memmove(connection.output[0 .. connection.output_len - written], connection.output[written..connection.output_len]);
@@ -151,7 +151,7 @@ pub fn take_output(connection: *Connection, written: usize) void {
     connection.records_len -= @min(connection.records_len, written);
 }
 
-/// Drops the first `read` octets of the protocol's plaintext, which the protocol has taken.
+/// Drops the first `read` bytes of the protocol's plaintext, which the protocol has taken.
 pub fn take_plaintext(connection: *Connection, read: usize) void {
     assert(read <= connection.plain_in_len);
     @memmove(connection.plain_in[0 .. connection.plain_in_len - read], connection.plain_in[read..connection.plain_in_len]);
@@ -163,8 +163,8 @@ pub fn room(connection: *Connection) []u8 {
     return connection.output[connection.output_len..];
 }
 
-/// The octets that fill the record of what the output holds over TLS, and none when it holds none
-/// or in cleartext, where no record joins them. A request's content up to this many octets is
+/// The bytes that fill the record of what the output holds over TLS, and none when it holds none
+/// or in cleartext, where no record joins them. A request's content up to this many bytes is
 /// copied into the output, so a small content goes out in the record of its head
 /// (https://github.com/c4milo/colibri/issues/105).
 pub fn record_fill(connection: *const Connection) usize {

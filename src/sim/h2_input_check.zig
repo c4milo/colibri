@@ -1,7 +1,7 @@
-//! The h2 input check: hostile octets for the h2 frame reader, drawn from one seed
+//! The h2 input check: hostile bytes for the h2 frame reader, drawn from one seed
 //! (https://github.com/c4milo/colibri/issues/53). It stands where the fuzzer would, as
 //! `qpack_input_check.zig` and `quic_input_check.zig` do: Zig 0.16.0 cannot build its fuzz mode
-//! (design §8 step 1), and `core.fuzz.sweep` covers only inputs of two octets.
+//! (design §8 step 1), and `core.fuzz.sweep` covers only inputs of two bytes.
 //!
 //! Each input is a stream of frames colibri's writers produce (`h2_input_frames.zig`), which must
 //! be read whole, and then takes up to `h2_input_check_edits_max` edits (`input_edit.zig`). The
@@ -25,7 +25,7 @@ pub const census_crc32_expected: u32 = 0x0d547a5d;
 pub const census_frames_read_expected: u64 = 157_943;
 
 pub const Storage = struct {
-    /// The random octets every drawn string is a slice of, drawn once per seed.
+    /// The random bytes every drawn string is a slice of, drawn once per seed.
     material: [constants.h2_input_check_material_len]u8,
     frames: frames.Storage,
     input: [constants.h2_input_check_input_len_max]u8,

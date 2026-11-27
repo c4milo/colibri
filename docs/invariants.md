@@ -169,15 +169,15 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   may construct a slice from a peer length by any other route.
 - **Check.** Type system (the reader returns an error union that cannot be ignored), plus golden
   corpus cases that truncate every length-bearing structure by one byte. Step 1.
-- **Violation.** A varint decoder that returns a value without reporting how many octets it
+- **Violation.** A varint decoder that returns a value without reporting how many bytes it
   consumed, so the caller guesses.
 
 ## Field compression
 
-### INV-10 — every octet of a field block is decoded, even when the result is discarded
+### INV-10 — every byte of a field block is decoded, even when the result is discarded
 
 - **Claim.** When colibri refuses a field section for exceeding its own limit, it still runs every
-  octet through the decoder so the dynamic table stays synchronised with the peer's.
+  byte through the decoder so the dynamic table stays synchronised with the peer's.
 - **Mechanism.** The size limit is enforced on the *emitted* fields, not on the input, and the
   decode loop has no early return that skips input. RFC 9113 §4.3 makes a decode failure a
   connection error of `COMPRESSION_ERROR`, and RFC 9113 §10.5.1 states there is no hard limit on
@@ -199,7 +199,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   statement that moves the entry. The formula is RFC 7541 §4.1 and RFC 9204 §3.2.1, identical in
   both, and is written once, in one shared function (decision 11).
 - **Check.** Runtime assertion recomputing the sum on every insert and evict, plus the
-  `http2jp/hpack-test-case` and `qpackers/qifs` vectors, plus a mutation of the 32-octet constant
+  `http2jp/hpack-test-case` and `qpackers/qifs` vectors, plus a mutation of the 32-byte constant
   that must be `CAUGHT`. Steps 3 and 11.
 - **Violation.** Accounting the Huffman-encoded length instead of the unencoded one, which passes
   every round-trip test against itself and fails against every other implementation.
@@ -407,30 +407,30 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Applying RFC 9000's 20-byte connection-ID maximum in the invariant reader, which
   RFC 9000 §17.2.1 forbids from influencing whether a Version Negotiation packet is sent.
 
-### INV-29 — a framed stream octet is in one place
+### INV-29 — a framed stream byte is in one place
 
-- **Claim.** Every stream octet colibri has framed is in exactly one of three places: one packet
+- **Claim.** Every stream byte colibri has framed is in exactly one of three places: one packet
   in flight, the lost-range table, or acknowledged. The FIN is the same. So a stream's count of
-  acknowledged octets never counts one twice, and "Data Recvd" (RFC 9000 §3.1) is entered once
-  every octet and the FIN are acknowledged, and not before.
+  acknowledged bytes never counts one twice, and "Data Recvd" (RFC 9000 §3.1) is entered once
+  every byte and the FIN are acknowledged, and not before.
 - **Mechanism.** A lost packet's record leaves the sent table (RFC 9002 Appendix A.10) as its
   range enters the lost table. Framing a lost range again puts it in one new packet and takes it
   out of the table. An acknowledgment takes the record out of the sent table, so a late
   acknowledgment of a packet already declared lost finds nothing to count. A probe carries new
-  octets or a PING and never a stream range already in flight (RFC 9002 §6.2.4 permits either).
-  CRYPTO octets are not stream octets and keep no acknowledged count: at the Initial and
+  bytes or a PING and never a stream range already in flight (RFC 9002 §6.2.4 permits either).
+  CRYPTO bytes are not stream bytes and keep no acknowledged count: at the Initial and
   Handshake levels the second probe repeats the first one's (decision 64 as amended). INV-34
   covers them.
   [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
-  rewinding a stream, which would put an octet in two packets at once.
+  rewinding a stream, which would put a byte in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
   never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
   read off the packets in flight and the lost table, never passes that count. A simulator
   invariant that each stream's acknowledged count
   equals its final size at "Data Recvd" lands with the QUIC connection check (design §8 step 9e,
   piece 10). Step 9e.
-- **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost
-  offset: either puts one octet in two packets, and acknowledging both counts it twice.
+- **Violation.** A probe that resends bytes still in flight, or a rewind to the lowest lost
+  offset: either puts one byte in two packets, and acknowledging both counts it twice.
 
 ### INV-33 — the sent table says which stream ranges in the ring are live
 
@@ -448,27 +448,27 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   are read. Tests in `src/quic/recovery/` fill the ring, acknowledge and lose
   records out of order, and read each record's ranges back. Step 26.
 - **Violation.** A tail that moves past a record still held. A later packet then writes over that
-  record's ranges, and its loss resends another stream's octets.
+  record's ranges, and its loss resends another stream's bytes.
 
-### INV-34 — a CRYPTO octet in flight stays in its level's send window
+### INV-34 — a CRYPTO byte in flight stays in its level's send window
 
-- **Claim.** Every CRYPTO octet that a packet in flight carries is in its level's send window,
-  at or above `send_base`. So `on_lost` can always frame a lost CRYPTO octet again, as RFC 9000
+- **Claim.** Every CRYPTO byte that a packet in flight carries is in its level's send window,
+  at or above `send_base`. So `on_lost` can always frame a lost CRYPTO byte again, as RFC 9000
   §13.3 requires "until all data has been acknowledged".
-- **Mechanism.** The window forgets octets only when it is full, and then only octets below two
+- **Mechanism.** The window forgets bytes only when it is full, and then only bytes below two
   bounds. The first is the lowest Offset of a CRYPTO frame in a packet still in flight at the
   level, which `connection_crypto.write_crypto` reads from the sent table. The second is
   `sent_len`. `on_lost` moves `sent_len` down to a lost packet's Offset, and each new packet's
-  Offset is at or above `sent_len`. So an octet below both bounds was last carried by a packet
+  Offset is at or above `sent_len`. So a byte below both bounds was last carried by a packet
   the peer acknowledged.
 - **Check.** Runtime assertion: `CryptoStream.forget_acknowledged` asserts that the smaller of
-  the two bounds is at or above the old `send_base`. So no packet in flight holds an octet that
+  the two bounds is at or above the old `send_base`. So no packet in flight holds a byte that
   the window forgets. Tests in `src/quic/connection/connection_crypto_window_test.zig` lose
   packets of a flight longer than the window, by a PTO and by the packet threshold, and require
-  each resend to carry the flight's own octets. A packet below `send_base` closes the connection
+  each resend to carry the flight's own bytes. A packet below `send_base` closes the connection
   with `CryptoForgotten`, which peer input cannot reach while this invariant holds. Step 33e.
-- **Violation.** A window that forgets every octet it framed when it is full. A PTO before the
-  peer's first ACK then declares lost a packet whose octets are gone, and the handshake fails.
+- **Violation.** A window that forgets every byte it framed when it is full. A PTO before the
+  peer's first ACK then declares lost a packet whose bytes are gone, and the handshake fails.
 
 ## What the caller supplies
 
@@ -595,7 +595,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   the program's own cancel, a failure, a failed send and an acknowledged response that outlives a
   stop. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's check over seeds.
 - **Violation.** A stop that drops the endings its connection owed, so a program that frees a
-  request's state on `finished` holds it forever, and keeps octets QUIC no longer reads. Or an event
+  request's state on `finished` holds it forever, and keeps bytes QUIC no longer reads. Or an event
   of a request after its `finished`, which a program that freed the request's state reads after
   it freed it.
 
@@ -625,15 +625,15 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ### INV-32 — a match reads each node of its table at most once
 
-- **Claim.** `match` reads each node of its table's trie at most once. It reads each octet of the
-  path once, before the walk, and it reads no octet of a path longer than `path_len_max`. So the
+- **Claim.** `match` reads each node of its table's trie at most once. It reads each byte of the
+  path once, before the walk, and it reads no byte of a path longer than `path_len_max`. So the
   table, which the program declares at compile time, and `path_len_max` bound its work. How the
   segments of a path branch does not change the bound.
 - **Mechanism.** Each node has one parent. The walk keeps a stack of frames, one for each level,
   and each frame records the child kind it tried last: the literal, the parameter or the
   wildcard. A segment matches one literal edge at most. So the walk pushes each node once at
   most, and backs up past each node once at most. The check of the path is one loop over its
-  octets, which `path_len_max` bounds (INV-8, [decision 122](decisions.md)).
+  bytes, which `path_len_max` bounds (INV-8, [decision 122](decisions.md)).
 - **Check.** Runtime assertion: the walk's loop runs at most `walk_steps_max`, a bound that the
   build computes from the node count. The code after the loop asserts that it is unreachable.
   Tests in `src/server/router/router_test.zig` run every order of a table and a deep table whose

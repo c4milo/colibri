@@ -105,7 +105,7 @@ pub const World = struct {
     now_ns: u64,
     server_random: Random,
     peer_random: Random,
-    /// The units of each request the client sent, and the octets of its HEADERS frame.
+    /// The units of each request the client sent, and the bytes of its HEADERS frame.
     sent_units: [limits.requests_max]u32,
     headers_len: [limits.requests_max]usize,
     /// The application: the requests it heard of, those whose content it heard end, those the
@@ -451,7 +451,7 @@ fn index_of(number: u64) ?usize {
     return if (index < limits.requests_max) @intCast(index) else null;
 }
 
-/// The octets of the HEADERS frame at the front of `prefix` (RFC 9114 §7.1): its type, its length
+/// The bytes of the HEADERS frame at the front of `prefix` (RFC 9114 §7.1): its type, its length
 /// and its payload.
 fn headers_len_of(prefix: []const u8) ?usize {
     var reader = quic.core.Reader.init(prefix);

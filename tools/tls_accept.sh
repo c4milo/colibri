@@ -34,7 +34,7 @@ zig build
 go build -o "$scratch/tls_client" tools/h2_interop/tls_client.go
 
 # The identity colibri serves: the leaf, the root that signed it, and the P-256 scalar and point
-# chapulin's ecdsa_p256 slot takes. All raw DER or raw octets, never PEM.
+# chapulin's ecdsa_p256 slot takes. All raw DER or raw bytes, never PEM.
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 
 # Starts colibri's server, which serves one connection, logging to $1. It prints its port once

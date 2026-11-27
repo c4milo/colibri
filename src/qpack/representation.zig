@@ -1,7 +1,7 @@
 //! The field line representations of RFC 9204 §4.5, and the field section prefix of §4.5.1.
 //! Part of design §8 step 11.
 //!
-//! Five shapes, told apart by the high bits of the first octet: an index into a table, an index
+//! Five shapes, told apart by the high bits of the first byte: an index into a table, an index
 //! past the Base, a literal value with the name taken from a table, the same with the name taken
 //! from past the Base, and a literal name with a literal value. §4.5 draws all five; this reads
 //! and writes them, and nothing more. What an index means is §3.2's, and which representation an
@@ -117,14 +117,14 @@ pub const Prefix = struct {
 pub fn read_prefix(reader: *Reader) Error!Prefix {
     var cursor = reader.*;
     const encoded_insert_count = try prefixed_integer.decode(constants.protocol.required_insert_count_prefix_bits, &cursor);
-    // §4.5.1: the Sign bit is the high bit of the octet the Delta Base starts in.
+    // §4.5.1: the Sign bit is the high bit of the byte the Delta Base starts in.
     const sign = (try cursor.peek_byte()) & constants.protocol.delta_base_sign_flag != 0;
     const delta_base = try prefixed_integer.decode(constants.protocol.delta_base_prefix_bits, &cursor);
     reader.* = cursor;
     return .{ .encoded_insert_count = encoded_insert_count, .sign = sign, .delta_base = delta_base };
 }
 
-/// Writes the field section prefix. All of the octets are written, or none.
+/// Writes the field section prefix. All of the bytes are written, or none.
 pub fn write_prefix(writer: *Writer, prefix: Prefix) core.Writer.Error!void {
     var cursor = writer.*;
     try prefixed_integer.encode(constants.protocol.required_insert_count_prefix_bits, &cursor, 0, prefix.encoded_insert_count);
@@ -134,7 +134,7 @@ pub fn write_prefix(writer: *Writer, prefix: Prefix) core.Writer.Error!void {
 }
 
 /// Reads one field line representation (RFC 9204 §4.5), writing any literal name or value into
-/// `strings` and pointing at what it wrote. All of the octets are consumed, or none.
+/// `strings` and pointing at what it wrote. All of the bytes are consumed, or none.
 pub fn read(reader: *Reader, strings: *Writer) Error!Representation {
     var cursor = reader.*;
     const first = try cursor.peek_byte();
@@ -143,7 +143,7 @@ pub fn read(reader: *Reader, strings: *Writer) Error!Representation {
     return found;
 }
 
-/// Picks the representation from the high bits of the first octet (RFC 9204 §4.5).
+/// Picks the representation from the high bits of the first byte (RFC 9204 §4.5).
 fn read_by_pattern(first: u8, cursor: *Reader, strings: *Writer) Error!Representation {
     if (first & constants.protocol.indexed_pattern_mask == constants.protocol.indexed_pattern) {
         return .{ .indexed = try read_indexed(first, cursor) };
@@ -231,7 +231,7 @@ fn table_of(first: u8, flag: u8) Table {
 const testing = std.testing;
 const representation_write = @import("representation_write.zig");
 
-/// Room for the octets a test writes and for the strings it decodes, larger than any of them.
+/// Room for the bytes a test writes and for the strings it decodes, larger than any of them.
 /// Test-only.
 const test_room: usize = 256;
 threadlocal var test_octets: [test_room]u8 = undefined;
@@ -244,7 +244,7 @@ fn read_one(octets: []const u8) Error!Representation {
     return read(&reader, &strings);
 }
 
-/// Writes one representation and returns the octets. Test-only.
+/// Writes one representation and returns the bytes. Test-only.
 fn write_one(held: Representation) ![]const u8 {
     var writer = Writer.init(&test_octets);
     try representation_write.write(&writer, held);
@@ -273,7 +273,7 @@ test "B.1: the RFC's own encoded field section reads as it says it does" {
     // The name that index names is Appendix A's entry 1.
     try testing.expectEqualStrings(":path", static_table.entries[1].name);
     try testing.expectEqual(0, reader.remaining_len());
-    // And writing it back yields the RFC's octets exactly.
+    // And writing it back yields the RFC's bytes exactly.
     var writer = Writer.init(&test_octets);
     try write_prefix(&writer, Prefix.static_only);
     try representation_write.write(&writer, .{ .literal_name_reference = line });
@@ -293,7 +293,7 @@ test "§4.5.2: an indexed field line names a table and an index" {
     const dynamic = (try read_one(&.{0x91})).indexed;
     try testing.expectEqual(Table.dynamic, dynamic.table);
     try testing.expectEqual(17, dynamic.index);
-    // An index at or above the 6-bit prefix continues into the octets that follow.
+    // An index at or above the 6-bit prefix continues into the bytes that follow.
     const long = (try read_one(&.{ 0xff, 0x01 })).indexed;
     try testing.expectEqual(64, long.index);
     try testing.expectEqualSlices(u8, &.{ 0xff, 0x01 }, try write_one(.{ .indexed = long }));
@@ -335,7 +335,7 @@ test "§4.5.4: the N and T bits of a literal with a name reference are read and 
     const back = (try read_one(held[0..coded.len])).literal_name_reference;
     try testing.expectEqualStrings("/index.html", back.value);
     try testing.expectEqual(Coding.huffman, back.value_coding);
-    // Appendix B.1 wrote the same field line raw in 13 octets, so the coded one is shorter.
+    // Appendix B.1 wrote the same field line raw in 13 bytes, so the coded one is shorter.
     try testing.expect(coded.len < 13);
 }
 
@@ -398,8 +398,8 @@ test "§4.5.1.2: the Base follows the Sign bit, and a negative one is refused" {
 }
 
 test "a representation that runs off the end consumes nothing" {
-    // An indexed line whose continuation octets are missing, and a literal whose string is cut
-    // short: both leave the reader where they found it, so a caller can wait for more octets.
+    // An indexed line whose continuation bytes are missing, and a literal whose string is cut
+    // short: both leave the reader where they found it, so a caller can wait for more bytes.
     var reader = Reader.init(&.{0xff});
     var strings = Writer.init(&test_strings);
     try testing.expectError(error.Truncated, read(&reader, &strings));
@@ -414,7 +414,7 @@ test "a representation that runs off the end consumes nothing" {
     var half = Reader.init(&partial);
     try testing.expectError(error.Truncated, read(&half, &strings));
     try testing.expectEqual(partial.len, half.remaining_len());
-    // And with the value whole it reads, so the octets before it were never the problem.
+    // And with the value whole it reads, so the bytes before it were never the problem.
     const full = [_]u8{ 0x23, 'a', 'b', 'c', 0x05, 'd', 'e', 'f', 'g', 'h' };
     var whole = Reader.init(&full);
     var room = Writer.init(&test_strings);

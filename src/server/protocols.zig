@@ -18,7 +18,7 @@ pub const Protocols = struct {
 };
 
 /// How a TCP connection in cleartext chooses its version: at once when `versions` allows one of h11
-/// and h2, and by its first octets when it allows both (RFC 9113 §3.3).
+/// and h2, and by its first bytes when it allows both (RFC 9113 §3.3).
 pub const Choice = union(enum) {
     speak: Protocol,
     read_preface,

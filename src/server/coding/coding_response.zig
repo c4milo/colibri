@@ -1,7 +1,7 @@
 //! One coded response (decision 101, design §8 step 17e): the slot of the encoder pool it holds
-//! until its last coded octet is written, or for h3 acknowledged, and how far its content has come.
-//! The encoder writes into the slot's ring after the octets held there. h11 and h2 copy the octets
-//! out and free them at once (`code` and `finish`), and h3 frames each octet run the encoder wrote
+//! until its last coded byte is written, or for h3 acknowledged, and how far its content has come.
+//! The encoder writes into the slot's ring after the bytes held there. h11 and h2 copy the bytes
+//! out and free them at once (`code` and `finish`), and h3 frames each byte run the encoder wrote
 //! and frees it once the peer acknowledges it (`step`).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -44,11 +44,11 @@ pub const Coded = struct {
     /// A trailer section ends the content, so the response's end is the trailer section's to
     /// write.
     trailers: bool = false,
-    /// The encoder wrote its last octet.
+    /// The encoder wrote its last byte.
     finished: bool = false,
 
     /// Codes `input` into the ring's room, or once `finishing` ends the coding, and returns what
-    /// the encoder did and the octets it wrote, now the ring's newest.
+    /// the encoder did and the bytes it wrote, now the ring's newest.
     pub fn step(coded: *Coded, encoders: Encoders, input: []const u8) Stepped {
         assert(!coded.finished);
         assert(!coded.finishing or input.len == 0);
@@ -61,11 +61,11 @@ pub const Coded = struct {
         return .{ .consumed = progress.consumed, .written = room[0..progress.written] };
     }
 
-    /// Codes as much of `input` as the ring has room for, and returns the octets taken.
+    /// Codes as much of `input` as the ring has room for, and returns the bytes taken.
     pub fn code(coded: *Coded, encoders: Encoders, input: []const u8) usize {
         assert(!coded.finishing);
         var consumed: usize = 0;
-        // The room ends at the ring's end or at its oldest octet held, so two steps fill it.
+        // The room ends at the ring's end or at its oldest byte held, so two steps fill it.
         for (0..steps_max) |_| {
             if (consumed == input.len or coded.room_len(encoders) == 0) break;
             consumed += coded.step(encoders, input[consumed..]).consumed;
@@ -82,7 +82,7 @@ pub const Coded = struct {
         }
     }
 
-    /// Octets of room the ring has after the octets held, up to its end.
+    /// Bytes of room the ring has after the bytes held, up to its end.
     pub fn room_len(coded: *const Coded, encoders: Encoders) usize {
         return coded.ring.room(encoders.ring(coded.slot)).len;
     }
@@ -108,7 +108,7 @@ threadlocal var test_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undef
 threadlocal var test_coded_octets: [test_coded_len]u8 = undefined;
 threadlocal var test_decoded: [test_input_len]u8 = undefined;
 threadlocal var test_input: [test_input_len]u8 = undefined;
-/// Three rings of input, which deflate cannot shrink, so the coded octets pass the ring's end.
+/// Three rings of input, which deflate cannot shrink, so the coded bytes pass the ring's end.
 const test_input_len: usize = test_input_rings * constants.limits.encoder_ring_len;
 const test_coded_len: usize = (test_input_rings + 1) * constants.limits.encoder_ring_len;
 const test_input_rings: usize = 3;
@@ -133,7 +133,7 @@ const test_shift_first: u6 = 30;
 const test_shift_second: u6 = 27;
 const test_shift_third: u6 = 31;
 
-/// Copies every octet the ring holds to the test's coded octets, as h11 and h2 do.
+/// Copies every byte the ring holds to the test's coded bytes, as h11 and h2 do.
 fn copy_held(coded: *Coded, encoders: Encoders, copied: *usize) void {
     for (0..steps_max) |_| {
         const held = coded.ring.oldest(encoders.ring(coded.slot));
@@ -154,7 +154,7 @@ test "decision 101: content past the ring's room waits for the ring to empty, an
     for (0..test_input_len) |_| {
         taken += coded.code(encoders, test_input[taken..]);
         if (taken == test_input_len) break;
-        // A full ring takes no more until its octets leave.
+        // A full ring takes no more until its bytes leave.
         try testing.expectEqual(0, coded.code(encoders, test_input[taken..]));
         copy_held(&coded, encoders, &copied);
     }

@@ -15,19 +15,19 @@
 //! and both moves count against one budget, `moves_max`.
 //!
 //! The caller opens a transport when an `open` event says to, starts its connection with
-//! `start_quic` or `start_tcp`, and closes it when a `close` event says to, dropping the octets it
+//! `start_quic` or `start_tcp`, and closes it when a `close` event says to, dropping the bytes it
 //! still holds of what the socket read. It passes what each transport reads to `receive`, and
 //! writes what `send_datagram` and `send_stream` return. It loops over `receive` as it does for one
 //! connection: until nothing is consumed and no event comes.
-//! After each send, each event and each `on_instant` it reads again, with the TCP octets it still
-//! holds, or with `.none` when it holds none: an h11 connection reads a held octet only once the
+//! After each send, each event and each `on_instant` it reads again, with the TCP bytes it still
+//! holds, or with `.none` when it holds none: an h11 connection reads a held byte only once the
 //! response before it ends. colibri makes no system call and reads no clock: time is a value the
 //! caller passes (non-negotiable 3).
 //!
 //! The caller gives one configuration with one TLS value, and `init` builds from it the TLS
 //! configuration of each transport the pool offers, with the ALPN list `versions` gives
 //! (decision 120). A caller that offers h3 also places the receive pool each QUIC connection holds
-//! the server's octets in, one at a time (decision 61), and sizes it to the longest response it
+//! the server's bytes in, one at a time (decision 61), and sizes it to the longest response it
 //! expects: `ReceivePool(.{ .capacity = capacity })`. The pool copies the configuration, and stays
 //! in place after `init`: the TLS configurations it built point into its copy.
 //!
@@ -125,13 +125,13 @@ pub const Connected = struct {
 pub const Event = union(enum) {
     /// Open this transport, then start its connection with `start_quic` or `start_tcp`.
     open: Open,
-    /// The TCP connection owes octets: the program calls `send_stream` for it (decision 125), as a
+    /// The TCP connection owes bytes: the program calls `send_stream` for it (decision 125), as a
     /// server's program does for its engine (decision 119). The event comes once for each debt.
     /// A call of `send_stream` that leaves room in its output ends the debt, and the next debt
     /// gives the next event.
     send: ConnectionHandle,
     /// Close the transport of this connection: the connection is over, and the pool reads and
-    /// writes nothing more on it. The program drops the octets it read from the socket and still
+    /// writes nothing more on it. The program drops the bytes it read from the socket and still
     /// holds: they are that connection's, and the next connection must not get them.
     close: ConnectionHandle,
     /// The connection that takes the exchanges, and its version. The event comes only for a
@@ -142,7 +142,7 @@ pub const Event = union(enum) {
     ticket: ConnectionHandle,
     /// The pool reads the exchange's last request piece no more, and the caller may reuse its
     /// memory and hand the next with `write_body` (decision 153). Over h11 and h2 the piece went
-    /// out, and over h3 the server acknowledged it, since QUIC sends a lost octet again (RFC 9000
+    /// out, and over h3 the server acknowledged it, since QUIC sends a lost byte again (RFC 9000
     /// §13.3).
     body_taken: RequestId,
     /// A streamed response's final status and headers arrived in the exchange's `Response`
@@ -282,7 +282,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         ///   start when it cannot open the transport;
         /// - it closes the socket a `close` names, and takes the ticket a `ticket` names;
         /// - it calls `shutdown`.
-        /// A call that takes octets, a `transport_closed` after the start, and any other call of
+        /// A call that takes bytes, a `transport_closed` after the start, and any other call of
         /// the program, start a new count.
         pub fn receive_events_without_input_max(counts: Counts) usize {
             return pool_state.events_without_input_max(counts, capacity.quic);
@@ -311,7 +311,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// port stays the origin's. The pool keeps the h3 alternative it knows unless
         /// `values.alternative` names one. The pool copies `values`, and reads
         /// `values.addresses` until the next `set_destination` or `init`. `values` is over 16
-        /// octets, so the call takes a pointer (TigerStyle, decision 159 as amended on
+        /// bytes, so the call takes a pointer (TigerStyle, decision 159 as amended on
         /// 2026-11-10).
         pub fn set_destination(pool: *Self, values: *const Destination) void {
             pool_calls.set_destination(pool, values);
@@ -326,7 +326,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         }
 
         /// Hands exchange `id`'s streamed request its next `piece` (decision 153), the last one
-        /// when `end` is `.last`. The pool copies no octet of it: the caller keeps it in place until
+        /// when `end` is `.last`. The pool copies no byte of it: the caller keeps it in place until
         /// the exchange's `body_taken` event, its `finished` event, or until `cancel` returns. The
         /// pool holds one piece of each exchange at a time. With a length stated, the pieces add
         /// up to it.
@@ -368,7 +368,7 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
             return pool_calls.send_datagram(pool, output, now_ns);
         }
 
-        /// The octets the TCP connection `connection` names owes, written into `output`: 0 for a
+        /// The bytes the TCP connection `connection` names owes, written into `output`: 0 for a
         /// handle that names no running connection.
         pub fn send_stream(pool: *Self, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
             return pool_calls.send_stream(pool, connection, output, now_ns);

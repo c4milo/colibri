@@ -69,20 +69,20 @@ pub const error_version_fallback: u64 = 0x0110;
 pub const critical_streams: u32 = 3;
 
 /// The longest frame header: a type and a length, each a variable-length integer of at most eight
-/// octets (RFC 9114 §7.1, RFC 9000 §16). A unidirectional stream header is shorter still.
+/// bytes (RFC 9114 §7.1, RFC 9000 §16). A unidirectional stream header is shorter still.
 pub const frame_header_len_max: u32 = 16;
 
 /// The longest QPACK field section prefix (RFC 9204 §4.5.1): two prefixed integers of up to 62
-/// bits, each at most one octet plus one for every seven bits.
+/// bits, each at most one byte plus one for every seven bits.
 pub const section_prefix_len_max: usize = 20;
 
-/// The most octets a QPACK field line representation adds to its name and value (RFC 9204
-/// §4.5.2 to §4.5.6): its pattern octet and the prefixed integers of a name index or length and
+/// The most bytes a QPACK field line representation adds to its name and value (RFC 9204
+/// §4.5.2 to §4.5.6): its pattern byte and the prefixed integers of a name index or length and
 /// of a value length, within colibri's field limits.
 pub const line_representation_len_max: usize = 8;
 
 /// The longest decoder instruction (RFC 9204 §4.4): a stream ID or an increment of up to 62 bits
-/// in a prefixed integer with a 6-bit prefix, which takes one octet plus one per 7 bits.
+/// in a prefixed integer with a 6-bit prefix, which takes one byte plus one per 7 bits.
 pub const decoder_instruction_len_max: usize = 10;
 
 /// The range RFC 9114 §7.2.4.1's reserved setting and §8.1's reserved error codes draw `N` from,

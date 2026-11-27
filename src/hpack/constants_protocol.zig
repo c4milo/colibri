@@ -11,7 +11,7 @@ pub const static_table_len: u32 = 61;
 /// maximum in the interval and the final one, "resulting in at most two".
 pub const size_updates_per_block_max: u32 = 2;
 
-/// The first-octet patterns of the five representations (RFC 7541 §6), each a mask over the
+/// The first-byte patterns of the five representations (RFC 7541 §6), each a mask over the
 /// bits above its prefix.
 pub const indexed_pattern: u8 = 0x80;
 pub const incremental_pattern: u8 = 0x40;

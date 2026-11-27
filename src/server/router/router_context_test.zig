@@ -19,7 +19,7 @@ const quic_support = @import("../quic/quic_test_support.zig");
 const testing = std.testing;
 const Recorder = support.Recorder;
 
-/// Octets of the longest text that the values or a route's state hold a copy of. Test-only.
+/// Bytes of the longest text that the values or a route's state hold a copy of. Test-only.
 const text_len_max = 8;
 
 /// A copy of a short text. Test-only.
@@ -155,7 +155,7 @@ const routes = .{
 /// One entry, so each request of a test holds the entry that the request before it held.
 const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
 
-/// Octets of the entry's response memory, and the status the error function chooses. Test-only.
+/// Bytes of the entry's response memory, and the status the error function chooses. Test-only.
 const response_bytes = 64;
 const unprocessable: http.Status = .unprocessable_content;
 
@@ -313,7 +313,7 @@ fn start_tcp() !event.ConnectionHandle {
     return tcp_engine.accept(.{ .tls = false }, tcp_support.now_ns).?;
 }
 
-/// Requires the connection to have sent `content` after its first `from` octets, and `count`
+/// Requires the connection to have sent `content` after its first `from` bytes, and `count`
 /// requests to have finished.
 fn expect_sent(handle: event.ConnectionHandle, from: usize, content: []const u8, count: usize) !void {
     const sent = tcp_support.sent_of(handle.slot)[from..];

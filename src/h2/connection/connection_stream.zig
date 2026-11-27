@@ -247,7 +247,7 @@ const start_server = support.start_server;
 const write_queued = support.write_queued;
 const test_input = &support.test_input;
 
-/// The octets of a RST_STREAM frame for `stream_id` carrying `code`. Test-only.
+/// The bytes of a RST_STREAM frame for `stream_id` carrying `code`. Test-only.
 fn expect_rst_stream(written: []const u8, stream_id: u32, code: u32) !void {
     var expected: [constants.protocol.frame_header_len + constants.protocol.rst_stream_len]u8 = undefined;
     var writer = @import("core").Writer.init(&expected);

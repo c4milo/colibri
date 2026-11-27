@@ -29,7 +29,7 @@ pub var walk: receive.Walk align(@alignOf(receive.Walk)) = undefined;
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
 
-/// The connection IDs of RFC 9000 §7.3's Figure 7, as fixed octets (invariant 5).
+/// The connection IDs of RFC 9000 §7.3's Figure 7, as fixed bytes (invariant 5).
 const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
 const other_octet: u8 = 0x77;
@@ -38,7 +38,7 @@ pub const local_id: [id_len]u8 = @splat(local_octet);
 pub const peer_id: [id_len]u8 = @splat(peer_octet);
 const other_id: [id_len]u8 = @splat(other_octet);
 
-/// One octet of made-up payload, repeated. Nothing reads its value.
+/// One byte of made-up payload, repeated. Nothing reads its value.
 const payload_octet: u8 = 0x33;
 /// A payload long enough that the Packet Number field and it reach RFC 9001 §5.4.2's sample, plus
 /// room for the tag this opener pretends to strip.
@@ -51,7 +51,7 @@ const datagram_len: usize = 512;
 pub var datagram: [datagram_len]u8 = undefined;
 
 /// A `crypto.Suite` that performs no cryptography. `open` reports the Packet Number field as one
-/// octet, the payload as everything after it less a tag, and the number as that octet's value —
+/// byte, the payload as everything after it less a tag, and the number as that byte's value —
 /// enough for the walk, which reads the offsets and nothing else.
 const Opener = struct {
     /// Packet numbers this opener refuses, modelling RFC 9001 §5.5's failure. Test-only.
@@ -67,7 +67,7 @@ const Opener = struct {
     discarded: usize,
     /// The version colibri switched this suite to (RFC 9369 §4.1), or null before any switch.
     switched: ?crypto.suite.Version,
-    /// Makes `switch_version` refuse, as chapulin refuses a switch past the server's CRYPTO octets.
+    /// Makes `switch_version` refuse, as chapulin refuses a switch past the server's CRYPTO bytes.
     refuses_switch: bool,
 
     fn init(held: *Opener) void {
@@ -76,7 +76,7 @@ const Opener = struct {
 
     fn switch_version(context: *anyopaque, version: crypto.suite.Version) crypto.suite.SwitchError!void {
         const held: *Opener = @ptrCast(@alignCast(context));
-        // RFC 9369 §4.1: chapulin refuses a switch past the server's first CRYPTO octet.
+        // RFC 9369 §4.1: chapulin refuses a switch past the server's first CRYPTO byte.
         if (held.refuses_switch) return error.Refused;
         held.switched = version;
     }
@@ -253,8 +253,8 @@ test "RFC 9000 §12.2: two packets coalesced in one datagram are both processed"
     try testing.expectEqual(0, first.opened.packet_number);
     try testing.expectEqual(payload_len, first.opened.payload.len);
     // RFC 9000 §17.2: the Payload begins after the Packet Number field, so the frames start at
-    // `packet_number_offset + packet_number_len` and the number's own octet is not one of them.
-    // Every payload octet is the same value and the number's is not, so a slice taken one octet
+    // `packet_number_offset + packet_number_len` and the number's own byte is not one of them.
+    // Every payload byte is the same value and the number's is not, so a slice taken one byte
     // early shows here rather than in the length, which would still be right.
     for (first.opened.payload) |octet| try testing.expectEqual(payload_octet, octet);
 

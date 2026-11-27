@@ -1,4 +1,4 @@
-//! The SETTINGS frame of RFC 9113 §6.5 as octets: the frame's shape, and the settings it carries
+//! The SETTINGS frame of RFC 9113 §6.5 as bytes: the frame's shape, and the settings it carries
 //! in the order they appear (§6.5.3). What each identifier means, and which values are legal, is
 //! settings.zig's job; this file never reads a value.
 //!
@@ -9,7 +9,7 @@
 //!      FRAME_SIZE_ERROR (§6.5);
 //!   3. the length is a multiple of the setting length, or `error.LengthInvalid`, a connection
 //!      error of FRAME_SIZE_ERROR (§6.5).
-//! `Iterator` then yields one `Setting` per six octets (§6.5.1), bounded by
+//! `Iterator` then yields one `Setting` per six bytes (§6.5.1), bounded by
 //! `settings_per_frame_max`. The writers write the whole frame or nothing and set only the ACK
 //! flag (§4.1).
 const std = @import("std");
@@ -38,9 +38,9 @@ pub const Setting = struct {
     value: u32,
 };
 
-/// A SETTINGS frame as octets (RFC 9113 §6.5): its ACK flag and the payload `iterator` walks.
+/// A SETTINGS frame as bytes (RFC 9113 §6.5): its ACK flag and the payload `iterator` walks.
 pub const Settings = struct {
-    /// The whole payload, checked to be a multiple of `setting_len` octets and at most
+    /// The whole payload, checked to be a multiple of `setting_len` bytes and at most
     /// `frame_size_max`.
     payload: []const u8,
     ack: bool,
@@ -81,7 +81,7 @@ pub fn parse_settings(header: Header, payload: []const u8) Error!Settings {
     // RFC 9113 §6.5: a SETTINGS frame with the ACK flag set and a length other than 0 is a
     // connection error of FRAME_SIZE_ERROR.
     if (ack and payload.len != 0) return error.AckNotEmpty;
-    // RFC 9113 §6.5: a length other than a multiple of 6 octets is a connection error of
+    // RFC 9113 §6.5: a length other than a multiple of 6 bytes is a connection error of
     // FRAME_SIZE_ERROR.
     if (payload.len % constants.protocol.setting_len != 0) return error.LengthInvalid;
     return .{ .payload = payload, .ack = ack };
@@ -162,7 +162,7 @@ test "an unknown setting identifier is yielded, not refused (RFC 9113 §6.5.2 le
     try testing.expectEqual(Setting{ .id = 0xffff, .value = 1 }, iterator.next().?);
 }
 
-/// Octets of the largest SETTINGS payload colibri accepts: every setting zero. Test-only.
+/// Bytes of the largest SETTINGS payload colibri accepts: every setting zero. Test-only.
 const full_payload_len = constants.limits.settings_per_frame_max * constants.protocol.setting_len;
 threadlocal var full_payload: [full_payload_len]u8 = @splat(0);
 

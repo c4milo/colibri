@@ -1,5 +1,5 @@
 //! Content-Length as RFC 9110 §8.6 defines it, for both h2 and h3 (decision 15): the decimal
-//! number of octets a message's content holds, read from every content-length line of a field
+//! number of bytes a message's content holds, read from every content-length line of a field
 //! section.
 //!
 //! RFC 9110 §8.6 gives the grammar `Content-Length = 1*DIGIT`. It lets a recipient of a value that
@@ -12,12 +12,12 @@
 //!
 //! The members are checked in arrival order, line by line and then left to right (invariant 7):
 //!   1. a member that is not 1*DIGIT, an empty member included, is `error.ContentLengthNotDigits`;
-//!   2. a member whose octets differ from the first member's is `error.ContentLengthDiffers`;
+//!   2. a member whose bytes differ from the first member's is `error.ContentLengthDiffers`;
 //!   3. once every member has passed, a first member that does not fit a u64 is
 //!      `error.ContentLengthTooLarge`.
 //!
 //! Where RFC 9110 §8.6 leaves a choice, this file takes the strict side:
-//!   - members compare by their octets, so "4" and "04" differ, and a message carrying both is
+//!   - members compare by their bytes, so "4" and "04" differ, and a message carrying both is
 //!     refused. §8.6 lets a recipient reject any repeated value.
 //!   - RFC 9110 §8.6 asks a recipient to prevent integer overflow on a large value. A value that
 //!     does not fit a u64 is refused.
@@ -40,7 +40,7 @@ const FieldSection = field_section.FieldSection;
 pub const Error = error{
     /// A member that is not 1*DIGIT (RFC 9110 §8.6).
     ContentLengthNotDigits,
-    /// A member whose octets differ from the first member's (RFC 9110 §8.6).
+    /// A member whose bytes differ from the first member's (RFC 9110 §8.6).
     ContentLengthDiffers,
     /// A value that does not fit a u64 (RFC 9110 §8.6).
     ContentLengthTooLarge,
@@ -53,7 +53,7 @@ pub const name = "Content-Length";
 /// (RFC 9110 §5.6.3).
 const optional_whitespace = " \t";
 
-/// Most calls `check_line` makes to its splitter. n octets hold at most n + 1 members, and one
+/// Most calls `check_line` makes to its splitter. n bytes hold at most n + 1 members, and one
 /// more call finds the end, so the bound is never the reason the loop stops.
 const member_split_calls_max = core.constants.limits.field_value_len_max + member_split_calls_past_len;
 const member_split_calls_past_len = 2;
@@ -64,9 +64,9 @@ pub fn from_section(section: *const FieldSection) Error!?u64 {
     assert(section.len() <= core.constants.limits.field_count_max);
     var first: ?[]const u8 = null;
     for (section.lines[0..section.len()], 0..) |*record, index| {
-        // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one octet
-        // to one octet, so a name of another length is not Content-Length: the line is skipped
-        // without reading its octets.
+        // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one byte
+        // to one byte, so a name of another length is not Content-Length: the line is skipped
+        // without reading its bytes.
         if (record.name_len != name.len) continue;
         const line = section.get(@intCast(index));
         if (!field.names_equal(line.name, name)) continue;
@@ -214,7 +214,7 @@ test "a value of field_value_len_max members ends the list rather than the loop"
     try testing.expectEqual(1, (try from_section(&test_section)).?);
 }
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 32;
 
 /// The base `std.fmt.parseUnsigned` reads a member in, independent of `parse_digits`. Test-only.
@@ -242,7 +242,7 @@ test "sweep: every content-length of up to two octets this file accepts reads ba
     try core.fuzz.sweep(fuzz_content_length, null);
 }
 
-// The test below holds `from_section` to the loop it was, which read every line's octets to
+// The test below holds `from_section` to the loop it was, which read every line's bytes to
 // compare its name. It stays here as the reference.
 
 /// The reference: `from_section` as it was.
@@ -265,7 +265,7 @@ fn verdict_of(result: Error!?u64) Verdict {
     return .{ .length = length };
 }
 
-/// The names and values the test mixes: Content-Length in two cases, a name one octet longer, and
+/// The names and values the test mixes: Content-Length in two cases, a name one byte longer, and
 /// other names; values that agree, differ, are not digits, or are empty. Test-only.
 const mixed_names = [_][]const u8{ "content-length", "CONTENT-LENGTH", "content-lengths", "host" };
 const mixed_values = [_][]const u8{ "4", "4, 4", "5", "x", "" };

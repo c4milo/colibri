@@ -72,7 +72,7 @@ test "decision 152: a streamed request's trailer section follows its last piece 
     try expect_trailers(&exchange, content.len);
 }
 
-/// A value of the longest length colibri sends (RFC 9110 §5.4), of an octet whose Huffman code is
+/// A value of the longest length colibri sends (RFC 9110 §5.4), of a byte whose Huffman code is
 /// longer than 8 bits, so the encoder writes it as it is (RFC 7541 Appendix B). Test-only.
 const long_value: [long_value_len]u8 = @splat('^');
 const long_value_len: usize = @import("h3").core.constants.limits.field_value_len_max;

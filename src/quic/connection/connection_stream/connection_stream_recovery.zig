@@ -28,7 +28,7 @@ const Range = stream_module.stream_lost.Range;
 pub const Error = stream_module.stream_lost.Error;
 
 /// RFC 9000 §20.1: the code a refusal closes the connection with. A lost table that cannot hold
-/// a range leaves octets colibri can no longer send again, and no code names that more closely
+/// a range leaves bytes colibri can no longer send again, and no code names that more closely
 /// than INTERNAL_ERROR.
 pub fn connection_error_code(failure: Error) u64 {
     return switch (failure) {
@@ -45,9 +45,9 @@ pub const Acknowledged = struct {
     unwritten: usize = 0,
 };
 
-/// Counts the stream octets the acknowledged records carried (RFC 9000 §3.1). A stream whose
-/// every octet and FIN are now acknowledged enters "Data Recvd", and its identifier goes into
-/// `completed`: from then on the caller may drop that stream's octets (decision 57). A stream
+/// Counts the stream bytes the acknowledged records carried (RFC 9000 §3.1). A stream whose
+/// every byte and FIN are now acknowledged enters "Data Recvd", and its identifier goes into
+/// `completed`: from then on the caller may drop that stream's bytes (decision 57). A stream
 /// whose RESET_STREAM the records carried enters "Reset Recvd". The records are the ones `level`'s
 /// space took out, and a packet number means nothing outside its space (RFC 9000 §12.3).
 pub fn on_packets_acknowledged(
@@ -70,7 +70,7 @@ pub fn on_packets_acknowledged(
     return held;
 }
 
-/// Counts one acknowledged range, and reports its stream when every octet and the FIN are in.
+/// Counts one acknowledged range, and reports its stream when every byte and the FIN are in.
 fn acknowledge_range(connection: *Connection, range: Range, completed: []StreamId, held: *Acknowledged) void {
     if (!connection.streams.on_range_acknowledged(range)) return;
     if (held.written < completed.len) {
@@ -83,7 +83,7 @@ fn acknowledge_range(connection: *Connection, range: Range, completed: []StreamI
     _ = stream_close.close_if_finished(connection, connection.streams.lookup(.{ .value = range.stream_id }).live);
 }
 
-/// Keeps the stream octets the lost records carried, so `send` frames them again (RFC 9000
+/// Keeps the stream bytes the lost records carried, so `send` frames them again (RFC 9000
 /// §13.3: "Application data sent in STREAM frames is retransmitted in new STREAM frames"), and
 /// owes again each RESET_STREAM and STOP_SENDING whose most recent copy was lost: §13.3 sends the
 /// first "until acknowledged" and the second "until the receiving part of the stream enters

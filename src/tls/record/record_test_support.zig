@@ -101,7 +101,7 @@ pub const ms_per_second: u64 = 1000;
 
 pub const cookie_key: [constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
 pub const ticket_key: [constants.protocol.server_key_len]u8 = @splat(ticket_key_octet);
-/// The octet each test key repeats, which only has to differ from the other key's.
+/// The byte each test key repeats, which only has to differ from the other key's.
 const cookie_key_octet: u8 = 0x07;
 const ticket_key_octet: u8 = 0x09;
 pub const chain = [_][]const u8{ leaf, root };
@@ -119,12 +119,12 @@ pub var to_server: Wire align(@alignOf(Wire)) = .{};
 pub var to_client: Wire align(@alignOf(Wire)) = .{};
 pub var scratch: [wire_len]u8 = undefined;
 
-/// Octets one direction holds in flight: a server's whole flight and the records after it.
+/// Bytes one direction holds in flight: a server's whole flight and the records after it.
 pub const wire_len: usize = 65_536;
 /// Calls each side makes before a handshake in memory must have completed.
 const handshake_rounds_max = 8;
 
-/// One direction's octets, written at the back and consumed from the front.
+/// One direction's bytes, written at the back and consumed from the front.
 pub const Wire = struct {
     octets: [wire_len]u8 = undefined,
     len: usize = 0,

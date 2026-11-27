@@ -33,7 +33,7 @@ const Fake = struct {
     alert_held: ?tls_provider.AlertReport = null,
     /// The plaintext the next `decrypt_record` writes. Test-only.
     body: []const u8 = "",
-    /// The handshake octets the provider owes, which `handshake_write` hands over whole once.
+    /// The handshake bytes the provider owes, which `handshake_write` hands over whole once.
     /// Test-only.
     owed: []const u8 = "",
     /// The error that the next `decrypt_record` returns, or null. The provider then owes
@@ -109,7 +109,7 @@ const Fake = struct {
         return 1;
     }
 
-    /// A sealed alert record's length in octets, as a provider owes one. Test-only.
+    /// A sealed alert record's length in bytes, as a provider owes one. Test-only.
     const refusal_alert = "a sealed alert, 24 octets";
 
     var table: tls_provider.VTable align(@alignOf(tls_provider.VTable)) = undefined;
@@ -211,7 +211,7 @@ test "§9.2.3: a NewSessionTicket or a KeyUpdate is consumed, yields no plaintex
 
 test "encrypt asks the provider for owed octets only after a failure" {
     Fake.init_table();
-    // The provider says that it owes octets, but no failure happened. colibri does not ask for
+    // The provider says that it owes bytes, but no failure happened. colibri does not ask for
     // them, so `encrypt` calls the vtable once for the common record.
     var state: Fake = .{ .owed = "stray" };
     support.test_connection.init(.{ .role = .server });
@@ -272,7 +272,7 @@ test "application data reaches the caller's buffer, and a cleartext connection h
 
 test "RFC 9846 §5.1: a record that is not whole consumes nothing, whatever the provider reports" {
     Fake.init_table();
-    // This provider reports octets consumed alongside `incomplete`, which is a contradiction. The
+    // This provider reports bytes consumed alongside `incomplete`, which is a contradiction. The
     // caller must be told nothing was taken, or it would drop the start of the record it is
     // still waiting for.
     var state: Fake = .{ .content = .incomplete, .body = "partial" };

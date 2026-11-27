@@ -1,16 +1,16 @@
 //! The string literal of RFC 7541 §5.2, with the N-bit prefix form RFC 9204 §4.1.2 adds for QPACK
 //! (decision 11).
 //!
-//! A literal is an H flag, a length, and that many octets of string data. HPACK's literal starts on
-//! an octet boundary: H is the high bit and the length is a 7-bit prefixed integer. QPACK's
-//! "N-bit prefix string literal" starts mid-octet, after `8 - N` bits of the previous field: H is
+//! A literal is an H flag, a length, and that many bytes of string data. HPACK's literal starts on
+//! a byte boundary: H is the high bit and the length is a 7-bit prefixed integer. QPACK's
+//! "N-bit prefix string literal" starts mid-byte, after `8 - N` bits of the previous field: H is
 //! the highest of the N bits and the length is an `N - 1`-bit prefixed integer, for N in 2..8. N
-//! of 8 is HPACK's form, so one codec serves both. The length counts octets of string data as sent,
+//! of 8 is HPACK's form, so one codec serves both. The length counts bytes of string data as sent,
 //! which for a Huffman-coded string is its encoded length.
 //!
 //! Decoding checks, in order (invariant 7):
 //!   1. the length decodes as a prefixed integer, or its error;
-//!   2. that many octets of string data are present, or `error.Truncated` (invariant 9);
+//!   2. that many bytes of string data are present, or `error.Truncated` (invariant 9);
 //!   3. Huffman-coded data decodes, or one of the three errors of RFC 7541 §5.2;
 //!   4. the decoded string fits the caller's output, or `error.NoSpaceLeft`.
 //! A failed decode moves neither the input cursor nor the output cursor.
@@ -31,7 +31,7 @@ pub const Coding = enum { raw, huffman };
 
 pub const Decoded = struct {
     coding: Coding,
-    /// Octets of string data the literal carried, before any Huffman decoding.
+    /// Bytes of string data the literal carried, before any Huffman decoding.
     encoded_len: usize,
 };
 
@@ -43,14 +43,14 @@ fn huffman_flag(comptime prefix_size: u4) u8 {
 }
 
 /// Decodes one literal whose H flag and length occupy the low `prefix_size` bits of the next
-/// octet, writing the string it carries into `output`.
+/// byte, writing the string it carries into `output`.
 pub fn decode(comptime prefix_size: u4, reader: *Reader, output: *Writer) DecodeError!Decoded {
     const flag = huffman_flag(prefix_size);
     var cursor = reader.*;
     // RFC 9204 §4.1.2: one bit for the Huffman flag, then the length as an (N-1)-bit integer.
     const coding: Coding = if ((try cursor.peek_byte()) & flag != 0) .huffman else .raw;
     const length = try prefixed_integer.decode(prefix_size - 1, &cursor);
-    // RFC 7541 §5.2: String Length is the number of octets used to encode the string literal.
+    // RFC 7541 §5.2: String Length is the number of bytes used to encode the string literal.
     const encoded_len = std.math.cast(usize, length) orelse return error.Truncated;
     const data = try cursor.take(encoded_len);
     switch (coding) {
@@ -62,7 +62,7 @@ pub fn decode(comptime prefix_size: u4, reader: *Reader, output: *Writer) Decode
 }
 
 /// Encodes `bytes` as one literal whose H flag and length occupy the low `prefix_size` bits of the
-/// first octet, below `high_bits`. All of the octets are written, or none.
+/// first byte, below `high_bits`. All of the bytes are written, or none.
 pub fn encode(
     comptime prefix_size: u4,
     output: *Writer,
@@ -165,7 +165,7 @@ test "a literal that does not fit the output moves neither cursor" {
     try testing.expectEqual(0, output.offset);
 }
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 64;
 
 fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {

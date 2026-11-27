@@ -50,7 +50,7 @@ const statuses = [_]u16{
 pub const Plan = struct {
     count: u32,
     exchanges: [constants.h11_requests_max]Exchange,
-    /// Each exchange's request and response body octets.
+    /// Each exchange's request and response body bytes.
     request_octets: [constants.h11_requests_max][constants.h11_exchange_body_len_max]u8,
     response_octets: [constants.h11_requests_max][constants.h11_exchange_body_len_max]u8,
 

@@ -6,7 +6,7 @@
 //!
 //! One seed in `h11_split_defect_one_in` plants a defect in one message, a shape RFC 9112 §11.2
 //! ties to request smuggling or §2.2 refuses. The writers refuse to write any of them, so the plan
-//! edits the octets the writers wrote. The messages before the defect must be read whole, and the
+//! edits the bytes the writers wrote. The messages before the defect must be read whole, and the
 //! defect refused with the error `Defect.expected` names.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -46,7 +46,7 @@ pub const Defect = enum {
     obs_fold,
     /// Content-Length beside chunked (RFC 9112 §6.1).
     length_and_chunked,
-    /// The first chunk-size starts with an octet that is no hex digit (RFC 9112 §7.1).
+    /// The first chunk-size starts with a byte that is no hex digit (RFC 9112 §7.1).
     chunk_size_not_hex,
 
     /// The error reading the defective message must return.
@@ -93,10 +93,10 @@ const framing_fields = 1;
 /// The two roles a plan draws between.
 const roles = [_]Role{ .request, .response };
 
-/// The octets of a decimal Content-Length.
+/// The bytes of a decimal Content-Length.
 const length_digits_max = 20;
 
-/// The octets a head's lines end with, and the empty line that ends it (RFC 9112 §2.1).
+/// The bytes a head's lines end with, and the empty line that ends it (RFC 9112 §2.1).
 const line_end = "\r\n";
 const head_end_octets = "\r\n\r\n";
 const carriage_return_len = 1;

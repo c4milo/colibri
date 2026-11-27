@@ -3,7 +3,7 @@
 //!
 //! A stream that `write_request` opened with `hold_credit` gives back no stream credit for its data
 //! as its DATA frames arrive. The caller gives the credit back with `release_stream` once it has
-//! used the octets, so the peer sends no more on that stream than the caller takes. The
+//! used the bytes, so the peer sends no more on that stream than the caller takes. The
 //! connection's credit still goes back at each frame, so the other streams keep their windows.
 //!
 //! The program calls `release_stream`, not a frame the connection reads, so the reply queue can be
@@ -18,7 +18,7 @@ const connection = @import("connection.zig");
 const Connection = connection.Connection;
 const Stream = streams_table.Stream;
 
-/// Gives back `len` octets of the stream credit `stream_id` holds. It does nothing on a stream the
+/// Gives back `len` bytes of the stream credit `stream_id` holds. It does nothing on a stream the
 /// table no longer holds, and queues no WINDOW_UPDATE on a stream the peer can send no more on
 /// (RFC 9113 §5.1).
 pub fn release_stream(target: *Connection, stream_id: u32, len: u32) void {
@@ -59,7 +59,7 @@ pub fn queue_waiting(target: *Connection) void {
         if (!record.hold_credit or !receives_data(record)) continue;
         if (record.receive.released < constants.policy.window_update_threshold) continue;
         if (!has_stream_room(target)) return;
-        // The credit is at the threshold, so a release of no more octets gives all of it back.
+        // The credit is at the threshold, so a release of no more bytes gives all of it back.
         push_update(target, record, record.receive.release(0).?);
     }
     target.stream_credit_waiting = false;
@@ -112,7 +112,7 @@ fn open_held_stream_ending(end_stream: bool) !void {
 /// Feeds the peer's whole stream window on stream 1 in full frames. Test-only.
 fn fill_stream_window() !void {
     var left: usize = constants.protocol.initial_window_size_initial;
-    // Bounded: each frame carries at least one octet of what is left.
+    // Bounded: each frame carries at least one byte of what is left.
     while (left > 0) {
         const len = @min(left, full_payload.len);
         _ = (try feed_data(1, full_payload[0..len], false)).?.data;
@@ -199,7 +199,7 @@ const padding_len: u8 = 50;
 
 test "§6.1: a held stream gets a DATA frame's padding back at once, and holds its data" {
     try open_held_stream();
-    // RFC 9113 §6.1: the Pad Length octet, the data, then the padding.
+    // RFC 9113 §6.1: the Pad Length byte, the data, then the padding.
     var payload: [1 + padded_data_len + padding_len]u8 = @splat(0);
     payload[0] = padding_len;
     const bytes = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_data, constants.protocol.flag_padded, 1, &payload);

@@ -3,12 +3,12 @@
 //! session is both: RFC 9001 §4.1.4 has TLS produce the secrets packet protection uses, and
 //! decision 48 keeps them inside the object that derived them.
 //!
-//! The two roles hand out handshake octets differently. A chapulin client stages one message at a
+//! The two roles hand out handshake bytes differently. A chapulin client stages one message at a
 //! level and the caller pulls it with `crypto_out`; a server pushes its flight through
 //! `on_crypto_out` as it writes it, because one Certificate message is larger than a staging
 //! buffer. Both land in `State.outgoing`, one buffer per level, and `write_handshake` hands colibri
 //! what waits there. A client's message is pulled the moment chapulin stages it, because chapulin
-//! takes no more octets while one is staged.
+//! takes no more bytes while one is staged.
 //!
 //! Each vtable member is a one-line call into a function below that takes the role's session as
 //! `anytype`: a `Client` or a `Server` of `quic.zig`, each with `session`, `chosen` and `state`.
@@ -43,7 +43,7 @@ pub const State = struct {
     local_parameters: [c.CH_TRANSPORT_PARAMS_MAX]u8 = undefined,
     /// The peer's, which chapulin copies here as they arrive.
     peer_parameters: [constants.limits.transport_parameters_len_max]u8 = undefined,
-    /// The handshake octets at each level that colibri has not taken yet, and how many it took.
+    /// The handshake bytes at each level that colibri has not taken yet, and how many it took.
     outgoing: [level_count][constants.limits.crypto_out_len]u8 = undefined,
     outgoing_len: [level_count]usize = @splat(0),
     outgoing_taken: [level_count]usize = @splat(0),
@@ -59,7 +59,7 @@ pub const State = struct {
     /// A server's choice of the negotiated version (decision 111), which chapulin's
     /// `choose_version` reaches through the same hook context, or null to keep the original one.
     chooser: ?tls_provider.VersionChooser = null,
-    /// Octets of `local_parameters` that hold this endpoint's transport parameters.
+    /// Bytes of `local_parameters` that hold this endpoint's transport parameters.
     local_len: usize = 0,
 };
 
@@ -159,10 +159,10 @@ fn provide(role: anytype, level: Level, data: []const u8) provider_module.Provid
     const result = if (@TypeOf(role.*).is_client) client_in(role, level, data) else server_in(role, level, data);
     // RFC 9001 §4.1.3: a message larger than a level's buffer is the provider's limit.
     if (state.overflowed) return error.NoSpaceLeft;
-    // chapulin refuses a message longer than 2^14 octets as the peer's error, and answers a
+    // chapulin refuses a message longer than 2^14 bytes as the peer's error, and answers a
     // capacity error only for one its buffer could not hold, which `receive_len` rules out.
     result catch |failure| switch (failure) {
-        // chapulin answers Invalid and changes nothing for octets at a level it is not reading
+        // chapulin answers Invalid and changes nothing for bytes at a level it is not reading
         // yet (RFC 9001 §4.1.3), and fails the session for every other refusal.
         error.Invalid => if (role.session.state() != .failed) return error.WrongLevel else return error.TlsFailed,
         // RFC 9001 §4.8: every other refusal is a TLS alert.

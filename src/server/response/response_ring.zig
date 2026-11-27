@@ -19,8 +19,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Response = @import("response.zig").Response;
 
-/// Takes back the runs at the front that the engine released. The octets the engine took, less
-/// the octets it still reads, cover each run that goes, whole.
+/// Takes back the runs at the front that the engine released. The bytes the engine took, less
+/// the bytes it still reads, cover each run that goes, whole.
 pub fn reclaim(response: *Response) void {
     const held: u64 = response.sink.held_len(response.sink.context, response.id);
     assert(held <= response.taken_len - response.released_len);
@@ -47,7 +47,7 @@ pub fn free_pieces(response: *Response) void {
     response.piece_released = 0;
 }
 
-/// Gives the body's writer a free region of `need` octets at least, from memory whose bytes the
+/// Gives the body's writer a free region of `need` bytes at least, from memory whose bytes the
 /// engine released, and returns whether it found one. Memory the engine may still read is never
 /// written again (decision 103). The writer holds no bytes it has not cut into a run.
 pub fn refill(response: *Response, need: usize) bool {
@@ -71,7 +71,7 @@ pub fn wait_for_release(response: *Response) void {
 }
 
 /// Asks the engine again for the `writable` of a release, after a push that followed the first
-/// ask. It reads the octets the engine holds again first. When the engine holds none, the push
+/// ask. It reads the bytes the engine holds again first. When the engine holds none, the push
 /// gave it no run, so its wait still stands, and `wait_for_release` asks for nothing.
 pub fn wait_again(response: *Response) void {
     assert(response.release_waited);
@@ -100,23 +100,23 @@ pub fn cut_full(response: *Response) error{Full}!void {
     response.writer.end = 0;
 }
 
-/// Adds the `written` octets at the front of the writer's region to the newest run, and returns
+/// Adds the `written` bytes at the front of the writer's region to the newest run, and returns
 /// whether it did. A run the engine took whole stays as it is, since the engine may read it in
-/// place (decision 103). So does a run of `write_kept`, whose octets are the program's.
+/// place (decision 103). So does a run of `write_kept`, whose bytes are the program's.
 fn extend_newest(response: *Response, written: usize) bool {
     if (response.piece_sent == response.piece_count) return false;
     const newest = &response.pieces[response.piece_count - 1];
     if (!in_memory(response, newest.*)) return false;
     const at = offset_of(response, response.writer.buffer.ptr);
     // `select` moved the region from the newest run only with a slot free, so the run ends where
-    // the writer's octets start, and no run the engine holds lies under them.
+    // the writer's bytes start, and no run the engine holds lies under them.
     assert(offset_of(response, newest.ptr) + newest.len == at);
     assert(!overlaps_held(response, at, at + written));
     newest.len += written;
     return true;
 }
 
-/// Places the writer over a free region of `need` octets at least: after the newest run, or from
+/// Places the writer over a free region of `need` bytes at least: after the newest run, or from
 /// the region's start up to the oldest run the engine holds. Returns false when neither has room.
 fn select(response: *Response, need: usize) bool {
     const low = response.header_len;

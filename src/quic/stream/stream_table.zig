@@ -45,13 +45,13 @@ pub const Stream = struct {
     send_flow: flow.Sender = flow.Sender.init(0),
     /// What the peer may send on it, against this endpoint's limit (§4.1).
     receive_flow: flow.Receiver = flow.Receiver.init(1, 1),
-    /// How far this endpoint's octets reach, how far they went out and how many arrived
+    /// How far this endpoint's bytes reach, how far they went out and how many arrived
     /// (decision 57).
     outgoing: stream_outgoing.Outgoing = .{},
-    /// The octets the peer sent and the application has not read, in the connection's receive
+    /// The bytes the peer sent and the application has not read, in the connection's receive
     /// pool (decision 61).
     incoming: stream_incoming.Incoming = .{},
-    /// Where this stream's new octets go against other streams': a lower value first (RFC 9000
+    /// Where this stream's new bytes go against other streams': a lower value first (RFC 9000
     /// §2.3).
     priority: u8 = constants.policy.stream_priority_default,
     /// The MAX_STREAM_DATA and STREAM_DATA_BLOCKED frames most recently sent for this stream
@@ -123,7 +123,7 @@ pub const Streams = struct {
     peer_limit: [constants.protocol.stream_directionalities]flow.Receiver,
     /// The next index this endpoint opens, by directionality (§2.1).
     next_index: [constants.protocol.stream_directionalities]u64,
-    /// The stream octets lost in transit and owed again (§13.3), across every stream.
+    /// The stream bytes lost in transit and owed again (§13.3), across every stream.
     lost: stream_lost.LostRanges,
     /// The MAX_STREAMS and STREAMS_BLOCKED frames most recently sent for each stream type (§13.3).
     max_streams: [constants.protocol.stream_directionalities]frame_latest.Latest,
@@ -134,7 +134,7 @@ pub const Streams = struct {
     /// How many streams are in "Reset Sent", waiting for their RESET_STREAM to be acknowledged
     /// (RFC 9000 §3.1). An acknowledgment looks for one only while this is above zero.
     resets_unacknowledged: u32,
-    /// The table slot of the stream that last sent new octets, so streams of one priority take
+    /// The table slot of the stream that last sent new bytes, so streams of one priority take
     /// turns: the slot after it goes next.
     send_turn: u32,
     /// The slots whose stream may owe a MAX_STREAM_DATA frame: each stream this endpoint receives
@@ -142,7 +142,7 @@ pub const Streams = struct {
     /// receiving part out of "Recv" (§13.3). The walk then passes over the rest (design §8 step
     /// 29d.10).
     may_owe_credit: std.StaticBitSet(constants.limits.streams_per_connection_max),
-    /// The slots whose stream may owe new STREAM octets: each stream this endpoint sends on, set
+    /// The slots whose stream may owe new STREAM bytes: each stream this endpoint sends on, set
     /// when it opens and cleared when it closes, or when the send walk finds its sending part out
     /// of "Ready" and "Send" (§3.1). The walk then passes over the rest (design §8 step 29d.16).
     may_send_new: std.StaticBitSet(constants.limits.streams_per_connection_max),
@@ -242,7 +242,7 @@ pub const Streams = struct {
     }
 
     /// Marks the slot of a stream this endpoint receives on, which may come to owe credit, and
-    /// of one it sends on, which may come to owe new octets.
+    /// of one it sends on, which may come to owe new bytes.
     fn on_opened(streams: *Streams, stream: *Stream) void {
         assert(stream.receiving.state == .recv);
         assert(stream.sending.state == .ready);
@@ -278,8 +278,8 @@ pub const Streams = struct {
     }
 
     /// Counts a range the peer acknowledged toward its stream (RFC 9000 §3.1). True when that
-    /// acknowledged the whole stream, every octet and the FIN, which moves its sending part to
-    /// "Data Recvd": from then on the caller may drop the stream's octets (decision 57).
+    /// acknowledged the whole stream, every byte and the FIN, which moves its sending part to
+    /// "Data Recvd": from then on the caller may drop the stream's bytes (decision 57).
     pub fn on_range_acknowledged(streams: *Streams, range: stream_lost.Range) bool {
         const stream = streams.sent_on(range) orelse return false;
         stream.outgoing.on_acknowledged(range.len, range.fin);
@@ -302,7 +302,7 @@ pub const Streams = struct {
     /// which a reset acknowledged before the range was can do.
     fn sent_on(streams: *Streams, range: stream_lost.Range) ?*Stream {
         const id: StreamId = .{ .value = range.stream_id };
-        // colibri frames octets only for a stream it may send on (§2.1).
+        // colibri frames bytes only for a stream it may send on (§2.1).
         assert(id.is_sendable_by(streams.role));
         return switch (streams.lookup(id)) {
             .live => |stream| stream,

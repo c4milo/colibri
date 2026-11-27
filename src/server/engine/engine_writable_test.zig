@@ -169,11 +169,11 @@ test "RFC 9110 §6.5: a coded response's trailers wait for its last octets, and 
     try start_coding();
     const id = try open_get(&accepts_gzip);
     try engine.respond(id, .{ .status = ok, .end = false, .codable = true });
-    // The content ends where the ring filled, and the encoder's last octets wait for room.
+    // The content ends where the ring filled, and the encoder's last bytes wait for room.
     _ = try engine.write_body(id, .{ .bytes = tcp_support.incompressible[0..], .end = false });
     const trailer = [_]http.Field{.{ .name = "checksum", .value = "1" }};
     try testing.expectError(error.Blocked, engine.write_trailers(id, &trailer));
-    // Acknowledgments free the ring, the encoder writes its last octets, and then the trailer
+    // Acknowledgments free the ring, the encoder writes its last bytes, and then the trailer
     // section has its room.
     try await_writable();
     try engine.write_trailers(id, &trailer);

@@ -157,7 +157,7 @@ fn raise_inflight_longterm_slope(state: *Bbr, path: Path) void {
 }
 
 /// §5.3.3.9's `ProbeInflightLongtermUpward`: one datagram more for each
-/// `probe_up_acked_per_increase_len` octets acknowledged while the window is full.
+/// `probe_up_acked_per_increase_len` bytes acknowledged while the window is full.
 fn probe_inflight_longterm_upward(state: *Bbr, sample: Sample, path: Path) void {
     if (!path.window_limited or state.window_len < state.inflight_longterm_len) return;
     state.bw_probe_up_acked_len +|= sample.acknowledged_len;

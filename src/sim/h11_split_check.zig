@@ -8,7 +8,7 @@
 //!   1. the two chunked runs must write the same trace and draw the same values (invariant 5);
 //!   2. the chunked run's trace must be the one-piece run's, which is the check that no split
 //!      changes what a parser reads;
-//!   3. every body must be the octets the plan wrote, and the run must end as the plan says: every
+//!   3. every body must be the bytes the plan wrote, and the run must end as the plan says: every
 //!      message read, or the planted defect refused with its error after the messages before it.
 //!
 //! The census hashes the chunked traces of seeds `[0, check_seeds_default)` with CRC-32, and the
@@ -95,7 +95,7 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) (Viola
     const stream = storage.plan.written();
     var fed: usize = 0;
     var chunks: u64 = 0;
-    // Every chunk carries at least one octet, so a stream of n octets takes at most n chunks.
+    // Every chunk carries at least one byte, so a stream of n bytes takes at most n chunks.
     for (0..stream.len) |_| {
         if (fed == stream.len or reading.refused) break;
         const remaining = stream.len - fed;
@@ -113,14 +113,14 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) (Viola
 const Reading = struct {
     storage: *Storage,
     trace: *Trace,
-    /// Octets of the stream consumed.
+    /// Bytes of the stream consumed.
     consumed: usize = 0,
     /// The message being read.
     index: u32 = 0,
     state: State = .head,
     scanner: h11.message.Scanner = .{},
     decoder: h11.chunked.Decoder = .{},
-    /// Body octets still to come of a fixed body, and what the body held so far.
+    /// Body bytes still to come of a fixed body, and what the body held so far.
     remaining: u64 = 0,
     body_len: u32 = 0,
     body_crc32: std.hash.Crc32 = .init(),
@@ -128,14 +128,14 @@ const Reading = struct {
 
     const State = enum { head, fixed, chunked };
 
-    /// Passes of `drain` per octet held: one that consumes it, and one that ends its message.
+    /// Passes of `drain` per byte held: one that consumes it, and one that ends its message.
     const passes_per_octet = 2;
 
-    /// Reads what `held` holds until it needs more octets, every message is read, or it refuses.
+    /// Reads what `held` holds until it needs more bytes, every message is read, or it refuses.
     fn drain(reading: *Reading, held: []const u8) (Violation || sim.trace.Error)!void {
         var rest = held;
-        // Every pass consumes an octet or ends a message, and a message takes at least one octet,
-        // so n octets take at most 2n passes, and one more finds them short.
+        // Every pass consumes a byte or ends a message, and a message takes at least one byte,
+        // so n bytes take at most 2n passes, and one more finds them short.
         for (0..passes_per_octet * held.len + 1) |_| {
             if (reading.index == reading.storage.plan.count) return;
             const used = reading.step(rest) catch |failure| return reading.refuse(failure);
@@ -146,7 +146,7 @@ const Reading = struct {
         unreachable;
     }
 
-    /// One step: the octets it consumed, or null when it needs more.
+    /// One step: the bytes it consumed, or null when it needs more.
     fn step(reading: *Reading, held: []const u8) anyerror!?usize {
         return switch (reading.state) {
             .head => reading.read_head(held),

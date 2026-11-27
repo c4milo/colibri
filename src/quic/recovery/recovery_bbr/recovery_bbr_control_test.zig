@@ -15,7 +15,7 @@ const test_rate = support.test_rate;
 const test_bdp_len = support.test_bdp_len;
 const test_acknowledged_len = support.test_acknowledged_len;
 
-/// A sample of `test_acknowledged_len` octets with no rate. Test-only.
+/// A sample of `test_acknowledged_len` bytes with no rate. Test-only.
 fn test_sample() recovery_delivery.Sample {
     var sample = std.mem.zeroes(recovery_delivery.Sample);
     sample.acknowledged_len = test_acknowledged_len;
@@ -35,10 +35,10 @@ test "§5.6.2: a smoothed round trip of 0 is no first sample, and keeps the rate
 test "§5.6.2: the pacing rate starts at Startup's gain over 1 ms, and again over the first round trip" {
     var driver: Driver = undefined;
     driver.init();
-    // 12,000 octets over 1 ms is 12,000,000 octets a second, and 2.77 times that.
+    // 12,000 bytes over 1 ms is 12,000,000 bytes a second, and 2.77 times that.
     try testing.expectEqual(33_240_000, driver.state.pacing_rate);
     recovery_bbr_control.update(&driver.state, test_sample(), driver.path(0), test_round_trip_ns);
-    // Over 50 ms, 240,000 octets a second, and 2.77 times that.
+    // Over 50 ms, 240,000 bytes a second, and 2.77 times that.
     try testing.expectEqual(664_800, driver.state.pacing_rate);
     try testing.expect(driver.state.has_seen_rtt);
     // A later sample does not start it again.

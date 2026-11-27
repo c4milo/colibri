@@ -1,5 +1,5 @@
 //! What the tests of decision 110's deadlines share (`connection_deadline_test.zig`,
-//! `connection_bodies_test.zig`): octets read and sent at an instant, and the h2 frames a test
+//! `connection_bodies_test.zig`): bytes read and sent at an instant, and the h2 frames a test
 //! sends or looks for in what the connection sent. Test-only.
 const std = @import("std");
 const h2 = @import("h2");
@@ -11,7 +11,7 @@ const testing = std.testing;
 const connection = &support.connection;
 const constants = h2.constants;
 
-/// An instant well inside every deadline, at which a test's peer sends its first octets.
+/// An instant well inside every deadline, at which a test's peer sends its first bytes.
 pub const early_ns: u64 = 1_000_000;
 
 /// The status each answer carries: 204 (No Content), RFC 9110 §15.3.5.
@@ -121,7 +121,7 @@ pub fn response_status(sent: []const u8, stream_id: u32) !u16 {
 pub var decoder: h2.hpack.Decoder align(@alignOf(h2.hpack.Decoder)) = undefined;
 const decimal: u8 = 10;
 
-/// A DATA frame carrying `octets` on `stream_id`, with `padding_len` octets of padding.
+/// A DATA frame carrying `octets` on `stream_id`, with `padding_len` bytes of padding.
 pub fn data_frame(stream_id: u32, octets: []const u8, end: bool, padding_len: u8) ![]const u8 {
     var writer = h2.core.Writer.init(&data_frames);
     try h2.frame.write_data(&writer, stream_id, octets, end, padding_len);

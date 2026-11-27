@@ -15,7 +15,7 @@ const Storage = check.Storage;
 var check_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "decision 102: every check gives the same census when both endpoints write a qlog" {
-    // Each check's census without a log, and the logs it writes with one: their octets, the
+    // Each check's census without a log, and the logs it writes with one: their bytes, the
     // digest of every record and the events read back. The logs change when an event or its
     // fields change, and are committed with the new values after both build modes agree.
     const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
@@ -39,7 +39,7 @@ test "decision 102: every check gives the same census when both endpoints write 
             std.debug.print("QUIC {t} check with qlog: seed 0x{x} broke {t}, endpoint error {?}\n", .{ logged.adversary, failed_seed orelse 0, failure, check_storage.failure });
             return failure;
         };
-        // The digest folds in every datagram's octets, so the same digest is the same datagrams.
+        // The digest folds in every datagram's bytes, so the same digest is the same datagrams.
         try std.testing.expectEqual(logged.crc32, census.crc32);
         // A seed replays its logs byte for byte (invariant 5).
         try std.testing.expectEqual(logged.qlog_len, census.qlog_len);

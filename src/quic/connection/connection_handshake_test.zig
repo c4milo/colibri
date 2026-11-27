@@ -71,7 +71,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
         keys.on_keys_installed(connection, level, .write);
     }
     // RFC 9000 §8.1: a server sends only after it has received, and a client's first datagram
-    // is at least 1,200 octets (§14.1).
+    // is at least 1,200 bytes (§14.1).
     if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 

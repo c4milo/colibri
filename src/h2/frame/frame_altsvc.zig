@@ -35,7 +35,7 @@ pub fn parse(header: Header, payload: []const u8) ?AltSvc {
     var reader = Reader.init(payload);
     // RFC 7838 §4: the payload starts with the 16-bit Origin-Len.
     const origin_len = reader.take_int_big(u16) catch return null;
-    // RFC 7838 §4: the Origin holds Origin-Len octets, and the field value is every octet after.
+    // RFC 7838 §4: the Origin holds Origin-Len bytes, and the field value is every byte after.
     const origin = reader.take(origin_len) catch return null;
     return .{ .origin = origin, .value = reader.take_rest() };
 }
@@ -76,7 +76,7 @@ test "RFC 7838 §4: an ALTSVC frame carries its Origin-Len, its Origin and the f
     try testing.expectEqual(constants.protocol.frame_type_altsvc, @intFromEnum(header.type));
     try testing.expectEqual(0, header.flags);
     try testing.expectEqual(3, header.stream_id);
-    // Two octets of Origin-Len, none of Origin, then the value.
+    // Two bytes of Origin-Len, none of Origin, then the value.
     try testing.expectEqualSlices(u8, &.{ 0, 0 }, written[constants.protocol.frame_header_len..][0..2]);
     const read = parse(header, reader.take_rest()).?;
     try testing.expectEqualStrings("", read.origin);
@@ -101,7 +101,7 @@ test "RFC 7838 §4: a payload whose Origin-Len runs past it, or too short for on
     const short = [_]u8{0};
     const short_header: Header = .{ .length = short.len, .type = @enumFromInt(constants.protocol.frame_type_altsvc), .flags = 0, .stream_id = 1 };
     try testing.expectEqual(null, parse(short_header, &short));
-    // Exactly Origin-Len octets, and no value.
+    // Exactly Origin-Len bytes, and no value.
     const exact = [_]u8{ 0, 2, 'a', 'b' };
     const read = parse(header, &exact).?;
     try testing.expectEqualStrings("ab", read.origin);

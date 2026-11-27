@@ -41,7 +41,7 @@ pub fn rewrite(fields: []const Field, plan: coding_rules.Plan, into: *Rewritten)
 
 /// The line `field` becomes in a coded representation's section, or null for a line it loses.
 fn recode(field: Field, into: *Rewritten, etag_seen: *bool) Error!?Field {
-    // RFC 9110 §8.6: Content-Length counts the coded octets, which are not known when the head
+    // RFC 9110 §8.6: Content-Length counts the coded bytes, which are not known when the head
     // goes out, and those of a HEAD's or a 304's coded 200 are never known.
     if (http.field.names_equal(field.name, content_length)) return null;
     if (!http.field.names_equal(field.name, etag)) return field;

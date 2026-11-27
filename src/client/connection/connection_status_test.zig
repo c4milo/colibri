@@ -34,7 +34,7 @@ const status_name_literal: u8 = 0x08;
 /// The longest status text a test writes into one HPACK string, whose length takes 7 bits with
 /// the Huffman bit clear (RFC 7541 §5.2).
 const status_text_len_max: usize = 4;
-/// Octets of a field line before its value: the index octet and the length octet.
+/// Bytes of a field line before its value: the index byte and the length byte.
 const line_prefix_len: usize = 2;
 /// Room for one HEADERS frame of one `:status` line.
 const frame_len_max: usize = h2.constants.protocol.frame_header_len + line_prefix_len + status_text_len_max;

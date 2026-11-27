@@ -34,11 +34,11 @@ readonly h3_port=8443
 # Requests each client sends at once on one connection, fewer than the 100 concurrent streams RFC
 # 9113 §6.5.2 recommends a peer allow at least.
 readonly requests=64
-# Octets of request content: past the 65,535-octet window a stream starts with (RFC 9113 §6.9.2),
+# Bytes of request content: past the 65,535-byte window a stream starts with (RFC 9113 §6.9.2),
 # so an upload finishes only if the server sends WINDOW_UPDATE frames.
 readonly content_len=300000
 # What the server answers every request with (src/testing/constants.zig), without its final
-# newline, and the octets it takes with it.
+# newline, and the bytes it takes with it.
 readonly body="colibri"
 readonly body_len=$((${#body} + 1))
 # Seconds to wait for the server to listen before the run gives it up.

@@ -12,10 +12,10 @@ const Identity = identity_module.Identity;
 const Parameters = transport_parameters.Parameters;
 const ConnectionId = transport_parameters.ConnectionId;
 
-/// RFC 9000 §7.3's Figure 7 and Figure 8 name five connection IDs. These are those: one octet
+/// RFC 9000 §7.3's Figure 7 and Figure 8 name five connection IDs. These are those: one byte
 /// repeated, distinct per identifier, so a test that reads the wrong one cannot pass by
 /// coincidence. The server's and the client's differ in length too, which §5.1 permits and which
-/// makes a mix-up fail on the length as well as the octets.
+/// makes a mix-up fail on the length as well as the bytes.
 const s1_octet: u8 = 0x51;
 const s2_octet: u8 = 0x52;
 const s3_octet: u8 = 0x53;

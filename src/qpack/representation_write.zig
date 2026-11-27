@@ -5,7 +5,7 @@
 //! do is choose: which of the five shapes a field line takes, and whether a string is Huffman
 //! coded, are the encoder's decisions and arrive here already made.
 //!
-//! Every function writes all of its octets or none, so a writer that runs out of room leaves
+//! Every function writes all of its bytes or none, so a writer that runs out of room leaves
 //! nothing half-written behind it.
 const std = @import("std");
 const assert = std.debug.assert;

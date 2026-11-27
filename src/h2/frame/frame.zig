@@ -4,9 +4,9 @@
 //! frame_settings.zig), and the ALTSVC extension frame of RFC 7838 §4 (frame_altsvc.zig).
 //!
 //! The connection reads a header with `read_header`, checks the Length against
-//! SETTINGS_MAX_FRAME_SIZE (§4.2), collects that many octets and hands both to `parse`, which
-//! dispatches on the Type octet and applies every format rule of that type. A type this document
-//! does not define is returned as `Payload.unknown` with its octets, for the connection to ignore
+//! SETTINGS_MAX_FRAME_SIZE (§4.2), collects that many bytes and hands both to `parse`, which
+//! dispatches on the Type byte and applies every format rule of that type. A type this document
+//! does not define is returned as `Payload.unknown` with its bytes, for the connection to ignore
 //! and discard (§4.1, §5.5). `verdict` is the one table that maps each parse error, for the type
 //! and stream it occurred on, to the connection or stream error and the code the RFC attaches.
 //!
@@ -61,7 +61,7 @@ pub const write_altsvc = frame_altsvc.write_altsvc;
 
 pub const Type = frame_header.Type;
 
-/// A frame of a type RFC 9113 does not define: its Type octet and its whole payload.
+/// A frame of a type RFC 9113 does not define: its Type byte and its whole payload.
 pub const Unknown = struct {
     type: Type,
     payload: []const u8,
@@ -86,7 +86,7 @@ pub const Payload = union(enum) {
 pub const ParseError = frame_data.Error || frame_headers.Error || frame_control.Error || frame_settings.Error;
 
 /// Parses the payload of one frame whose header the connection has read and sized: `payload` is
-/// exactly `header.length` octets, at most `frame_size_max` of them (§4.2).
+/// exactly `header.length` bytes, at most `frame_size_max` of them (§4.2).
 pub fn parse(header: Header, payload: []const u8) ParseError!Payload {
     assert(payload.len == header.length);
     assert(header.length <= constants.limits.frame_size_max);
@@ -148,7 +148,7 @@ pub fn verdict(failure: ParseError, frame_type: Type, stream_id: u32) Verdict {
         // error in HEADERS, PUSH_PROMISE, CONTINUATION, SETTINGS or any frame on stream 0, and
         // §6.4, §6.7, §6.9: in RST_STREAM, PING or WINDOW_UPDATE, is a connection error of
         // FRAME_SIZE_ERROR. The one size error DATA has, a PADDED frame with no Pad Length
-        // octet, §4.2 leaves at the stream level; colibri ends the connection instead, which
+        // byte, §4.2 leaves at the stream level; colibri ends the connection instead, which
         // §5.4.1 permits (an endpoint MAY treat a stream error as a connection error).
         error.LengthInvalid => length_verdict(frame_type, stream_id),
         // RFC 9113 §6.9: an increment of 0 is a stream error of PROTOCOL_ERROR; on the connection
@@ -172,11 +172,11 @@ fn increment_verdict(frame_type: Type, stream_id: u32) Verdict {
 
 const testing = std.testing;
 
-/// Most octets a fuzzed frame holds, header included. Test-only.
+/// Most bytes a fuzzed frame holds, header included. Test-only.
 const fuzz_frame_len_max = 64;
 
 /// A whole frame either fails to read, parses, or is refused with an error `verdict` maps; none of
-/// the three traps, and an unknown type keeps every octet of its payload.
+/// the three traps, and an unknown type keeps every byte of its payload.
 fn fuzz_frame(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_frame_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];

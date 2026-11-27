@@ -70,11 +70,11 @@ pub const flow_window_growth: u64 = 2;
 pub const ecn_testing_packets: u64 = 10;
 pub const ecn_testing_probe_timeouts: u64 = 3;
 
-/// The fewest octets of room for which a packet tries one more STREAM frame (RFC 9000 §19.8).
+/// The fewest bytes of room for which a packet tries one more STREAM frame (RFC 9000 §19.8).
 pub const stream_frame_room_min: usize = 8;
 
 /// The fewest 1-RTT packets colibri sends between two packet numbers it skips (RFC 9000 §21.4).
-/// Each interval adds one octet the caller drew at start, so a skip comes 128 to 383 packets
+/// Each interval adds one byte the caller drew at start, so a skip comes 128 to 383 packets
 /// after the one before: often enough to catch a peer that acknowledges packets it never
 /// received, and seldom enough that a peer's ACK frames carry few gaps for them.
 pub const packet_number_skip_interval_min: u16 = 128;
@@ -84,7 +84,7 @@ pub const packet_number_skip_interval_min: u16 = 128;
 /// rest.
 pub const stream_priority_default: u8 = 128;
 
-/// Decision 65: how many times per connection a server sends its Initial CRYPTO octets again at
+/// Decision 65: how many times per connection a server sends its Initial CRYPTO bytes again at
 /// once, before the PTO, when its client shows it lacks them (RFC 9002 §6.2.3). §6.2.3 limits it
 /// because "An endpoint that always retransmits packets in response to receiving packets that it
 /// cannot process risks creating an infinite exchange of packets".

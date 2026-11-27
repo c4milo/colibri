@@ -24,7 +24,7 @@ threadlocal var gzip_room: [room_factor * coding_support.plain.len]u8 = undefine
 const GzipEncoder = gzip.Encoder(.{ .level = 1 });
 const room_factor: usize = 2;
 
-/// Whether the octets the client sent and the peer has not read hold `wanted`. Test-only.
+/// Whether the bytes the client sent and the peer has not read hold `wanted`. Test-only.
 fn sent(wanted: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], wanted) != null;
 }
@@ -200,7 +200,7 @@ test "decision 101 as amended: over h2, br decodes, and a zstd frame or a br str
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
-    // RFC 8878 §3.1.1: a frame without its checksum's last octet never ends.
+    // RFC 8878 §3.1.1: a frame without its checksum's last byte never ends.
     var cut: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try connection.request(&cut.request, &cut.response);
     try support.pump_h2();

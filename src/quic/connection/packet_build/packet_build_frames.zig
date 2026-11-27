@@ -14,11 +14,11 @@
 //!    §4.1.2).
 //! 5. The limits this endpoint gives, then the BLOCKED frames, then RESET_STREAM and
 //!    STOP_SENDING, then NEW_CONNECTION_ID and RETIRE_CONNECTION_ID: small frames a peer may be
-//!    waiting on, ahead of any octets.
-//! 6. The octets: one CRYPTO frame of the handshake's, or up to `stream_frames_per_packet_max`
-//!    STREAM frames (decision 131). Lost stream octets go before new ones (§13.3), and new ones go
+//!    waiting on, ahead of any bytes.
+//! 6. The bytes: one CRYPTO frame of the handshake's, or up to `stream_frames_per_packet_max`
+//!    STREAM frames (decision 131). Lost stream bytes go before new ones (§13.3), and new ones go
 //!    in the order RFC 9000 §2.3 sets. A second probe at a handshake level repeats the first one's
-//!    CRYPTO octets (decision 64 as amended).
+//!    CRYPTO bytes (decision 64 as amended).
 //! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
 //!
 //! A packet the congestion window holds back carries the first two alone (`Room.in_flight_allowed`).
@@ -43,11 +43,11 @@ const Connection = connection_module.Connection;
 const Error = @import("packet_build.zig").Error;
 const Carries = @import("../../recovery/recovery_sent.zig").Carries;
 
-/// What one packet may hold. RFC 9002 §7 bounds the octets in flight by the congestion window,
+/// What one packet may hold. RFC 9002 §7 bounds the bytes in flight by the congestion window,
 /// and §2 counts a packet of ACK frames alone as not in flight, so an endpoint the window holds
 /// back still acknowledges.
 pub const Room = struct {
-    /// Octets of the datagram the packet may occupy.
+    /// Bytes of the datagram the packet may occupy.
     len: usize,
     /// Whether the packet may count toward the bytes in flight. False admits only ACK and
     /// CONNECTION_CLOSE, neither of which elicits an acknowledgment (§2).
@@ -71,7 +71,7 @@ pub const Framed = struct {
     carries_path_response: bool = false,
     /// Whether it carries a HANDSHAKE_DONE frame, whose packet number §13.3 needs.
     carries_handshake_done: bool = false,
-    /// RFC 9000 §13.3: which octets this packet carries and where they sit in their flow, so a
+    /// RFC 9000 §13.3: which bytes this packet carries and where they sit in their flow, so a
     /// lost packet can say which to send again (`recovery_sent.Record`).
     carries: Carries = .none,
     data_offset: u64 = 0,
@@ -114,18 +114,18 @@ pub fn write(
     if (!room.in_flight_allowed) return acknowledgment_only(space, ack, written_ack);
     // RFC 9000 §8.2: the path frames go next. §8.2.2 says an endpoint "MUST NOT delay
     // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
-    // control", so they are written before the handshake's octets compete for the room.
+    // control", so they are written before the handshake's bytes compete for the room.
     const path = write_path_frames(connection, level, &writer);
     if (room.withholding_data) return path_packet(space, ack, written_ack, writer.written().len, path);
     // RFC 9001 §4.1.2: "The server MUST send a HANDSHAKE_DONE frame as soon as the handshake is
-    // complete", so it goes before any octets compete for the room.
+    // complete", so it goes before any bytes compete for the room.
     const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
-    // RFC 9000 §4.2: the limits the peer may use, before any octets compete for the room, so a
+    // RFC 9000 §4.2: the limits the peer may use, before any bytes compete for the room, so a
     // peer waiting on credit is not kept waiting by this endpoint's own data.
     var carries_control = connection_flow.write_limits(connection, level, &writer, number, now_ns);
     // RFC 9000 §4.1, §4.6: what the peer's limits hold back, after the limits this endpoint gives.
     if (connection_flow.write_blocked(connection, level, &writer, number)) carries_control = true;
-    // RFC 9000 §19.4, §19.5: the streams this endpoint ends, before any stream's octets.
+    // RFC 9000 §19.4, §19.5: the streams this endpoint ends, before any stream's bytes.
     if (connection_stream_send.write_endings(connection, level, &writer, number)) carries_control = true;
     // RFC 9000 §19.15, §19.16: the connection IDs this endpoint gives and retires.
     if (connection_id_frames.write(connection, level, &writer, number)) carries_control = true;
@@ -168,7 +168,7 @@ pub fn write(
 /// Writes the owed MAX_STREAMS frames after the STREAM frames, each of which carries its length
 /// (RFC 9000 §19.8), when the packet already elicits an acknowledgment. So a frame owed while the
 /// peer still holds half its stream count rides in a packet that goes anyway (decision 130 as
-/// amended). Returns the octets written.
+/// amended). Returns the bytes written.
 fn write_riding_count(connection: *Connection, level: Level, output: []u8, number: u64, now_ns: u64, eliciting: bool) usize {
     if (!eliciting) return 0;
     var writer = Writer.init(output);
@@ -217,7 +217,7 @@ fn acknowledgment_only(space: anytype, ack: AckWritten, written_ack: usize) Fram
 
 /// Writes a PING when a probe is owed at `level` and nothing already written elicits an
 /// acknowledgment. RFC 9002 §6.2.4: "When there is no data to send, the sender SHOULD send a PING
-/// or other ack-eliciting frame in a single packet". Returns the octets written.
+/// or other ack-eliciting frame in a single packet". Returns the bytes written.
 fn write_probe(connection: *const Connection, level: Level, output: []u8, eliciting: bool, ping_owed: bool) usize {
     if (eliciting) return 0;
     if (connection.probes_owed[@intFromEnum(level)] == 0 and !ping_owed) return 0;
@@ -266,8 +266,8 @@ const DataFrame = struct {
     ranges_len: u8 = 0,
 };
 
-/// Writes the handshake's octets when the provider owes some at this level, and streams'
-/// otherwise. Never both: CRYPTO octets are one range in the record (decisions 56 and 57).
+/// Writes the handshake's bytes when the provider owes some at this level, and streams'
+/// otherwise. Never both: CRYPTO bytes are one range in the record (decisions 56 and 57).
 fn write_data(
     connection: *Connection,
     provider: tls_provider.QuicProvider,
@@ -275,7 +275,7 @@ fn write_data(
     level: Level,
     output: []u8,
 ) Error!DataFrame {
-    // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
+    // RFC 9001 §4.1.3: the handshake's bytes, which `connection_crypto` puts in CRYPTO frames.
     const crypto = connection_crypto.write_crypto(connection, provider, level, output) catch
         return Error.Crypto;
     if (crypto.len > 0) {

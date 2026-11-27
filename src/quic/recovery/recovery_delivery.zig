@@ -21,30 +21,30 @@ const Record = recovery_sent.Record;
 /// draft-ietf-ccwg-bbr-06 §2.3's and §4.1.2.1.3's rate sample `RS`, for one ACK frame that took
 /// packets out of flight. Its fields come from the newest of those packets, which went out last.
 pub const Sample = struct {
-    /// `RS.delivery_rate`: octets a second, or 0 when the frame gave no reliable rate (§4.1.2.3).
+    /// `RS.delivery_rate`: bytes a second, or 0 when the frame gave no reliable rate (§4.1.2.3).
     rate: u64,
-    /// `RS.delivered`: the octets delivered over the interval.
+    /// `RS.delivered`: the bytes delivered over the interval.
     delivered_len: u64,
     /// `RS.interval`: the longer of the send interval and the ACK interval, or 0 when the newest
     /// packet went out before anything was sent.
     interval_ns: u64,
     /// `RS.is_app_limited`: whether the application, and not the path, bounded the sample.
     application_limited: bool,
-    /// `RS.prior_delivered`: the octets delivered when the newest packet went out (§5.5.1).
+    /// `RS.prior_delivered`: the bytes delivered when the newest packet went out (§5.5.1).
     prior_delivered_len: u64,
-    /// `RS.newly_acked`: the octets in flight that this frame acknowledged.
+    /// `RS.newly_acked`: the bytes in flight that this frame acknowledged.
     acknowledged_len: u64,
     /// `RS.rtt`: the time from when the newest packet went out to this frame (§5.5.7.1).
     rtt_ns: u64,
-    /// `RS.tx_in_flight`: the octets in flight just after the newest packet went out.
+    /// `RS.tx_in_flight`: the bytes in flight just after the newest packet went out.
     tx_in_flight_len: u64,
-    /// `RS.lost`: the octets declared lost between when the newest packet went out and this frame.
+    /// `RS.lost`: the bytes declared lost between when the newest packet went out and this frame.
     lost_len: u64,
 };
 
 /// draft-ietf-ccwg-bbr-06 §4.1.2.1.1's per-connection state.
 pub const Delivery = struct {
-    /// `C.delivered`: the octets the peer has acknowledged over the connection.
+    /// `C.delivered`: the bytes the peer has acknowledged over the connection.
     delivered_len: u64,
     /// `C.delivered_time`: the instant `delivered_len` last rose, or 0 before anything is sent.
     delivered_at_ns: u64,
@@ -54,7 +54,7 @@ pub const Delivery = struct {
     /// `C.app_limited`: the value of `delivered_len` past which the application no longer limits
     /// the samples, or 0 when it does not limit them.
     application_limited_until: u64,
-    /// `C.lost`: the octets in flight that RFC 9002 §6.1 declared lost over the connection.
+    /// `C.lost`: the bytes in flight that RFC 9002 §6.1 declared lost over the connection.
     lost_len: u64,
 
     pub fn init(delivery: *Delivery) void {
@@ -68,7 +68,7 @@ pub const Delivery = struct {
     }
 
     /// draft-ietf-ccwg-bbr-06 §4.1.2.2's `OnPacketSent`: writes the connection's state into the
-    /// record of a packet sent at `sent.sent_at_ns`. `in_flight_len` is the octets in flight
+    /// record of a packet sent at `sent.sent_at_ns`. `in_flight_len` is the bytes in flight
     /// before the packet went out.
     pub fn on_packet_sent(delivery: *Delivery, sent: *Record, in_flight_len: u64) void {
         // The caller works forward in time (invariant 24).
@@ -89,19 +89,19 @@ pub const Delivery = struct {
         sent.lost_len = delivery.lost_len;
     }
 
-    /// RFC 9002 §6.1 declared packets lost, `lost_len` octets of them in flight: §2.2's `C.lost`.
+    /// RFC 9002 §6.1 declared packets lost, `lost_len` bytes of them in flight: §2.2's `C.lost`.
     pub fn on_lost(delivery: *Delivery, lost_len: u64) void {
         delivery.lost_len +|= lost_len;
     }
 
     /// draft-ietf-ccwg-bbr-06 §4.1.2.3: `UpdateRateSample` over the packets one ACK frame took
     /// out of flight, then `GenerateRateSample`. `newest` is the largest of them, which went out
-    /// last (RFC 9000 §12.3), and `acknowledged_len` is their octets in flight.
+    /// last (RFC 9000 §12.3), and `acknowledged_len` is their bytes in flight.
     pub fn on_ack(delivery: *Delivery, newest: Record, acknowledged_len: u64, now_ns: u64, min_rtt_ns: u64) Sample {
         assert(now_ns >= newest.sent_at_ns);
         assert(newest.sent_at_ns >= newest.first_sent_at_ns);
         assert(delivery.lost_len >= newest.lost_len);
-        // `UpdateRateSample`: each packet adds its octets, and the newest one gives the sample.
+        // `UpdateRateSample`: each packet adds its bytes, and the newest one gives the sample.
         // A frame's newest packet is the newest of all the frame took, so one test does for each.
         delivery.delivered_len +|= acknowledged_len;
         delivery.delivered_at_ns = now_ns;
@@ -149,7 +149,7 @@ pub const Delivery = struct {
     }
 };
 
-/// Octets a second, from octets over nanoseconds. The product is taken in 128 bits, so no
+/// Bytes a second, from bytes over nanoseconds. The product is taken in 128 bits, so no
 /// sample overflows, and the quotient saturates at the largest `u64`.
 pub fn rate_of(delivered_len: u64, interval_ns: u64) u64 {
     assert(interval_ns > 0);
@@ -232,7 +232,7 @@ test "§4.1.2.3: an interval shorter than min_rtt gives no sample" {
     const sent = test_send(&delivery, 0, test_start_ns, 0);
     const ack_ns = test_start_ns + 10 * test_millisecond_ns;
     try testing.expectEqual(0, delivery.on_ack(sent, test_datagram_len, ack_ns, 20 * test_millisecond_ns).rate);
-    // The octets still count as delivered: only the sample is withheld.
+    // The bytes still count as delivered: only the sample is withheld.
     try testing.expectEqual(test_datagram_len, delivery.delivered_len);
 }
 
@@ -341,7 +341,7 @@ fn expect_mark_line(fields: *Tokens) !void {
     try testing.expectEqual(try field(fields), delivery.application_limited_until);
 }
 
-/// One `cleared` line: the mark after an ACK frame raised the octets delivered.
+/// One `cleared` line: the mark after an ACK frame raised the bytes delivered.
 fn expect_cleared_line(fields: *Tokens) !void {
     var delivery: Delivery = undefined;
     delivery.init();

@@ -23,7 +23,7 @@ var body: [body_len]u8 = undefined;
 const body_len: usize = 64;
 
 const https_port: u16 = 443;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);

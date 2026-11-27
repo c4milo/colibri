@@ -1,6 +1,6 @@
-//! The octets a server connection over TCP lends its socket (decision 176, design §8 step 79).
+//! The bytes a server connection over TCP lends its socket (decision 176, design §8 step 79).
 //! `lend` gives the socket what the connection owes, where the connection holds it, and `took`
-//! drops what the socket's send took. In cleartext the octets are the front of `output`. Over TLS
+//! drops what the socket's send took. In cleartext the bytes are the front of `output`. Over TLS
 //! they are the records sealed into the TLS session's `sealed`, and `copy_sealed` hands those to
 //! a program that sends from a copy. Split off `connection.zig`, which stays under 500 lines.
 const std = @import("std");
@@ -19,8 +19,8 @@ const TlsSession = tls_session.TlsSession;
 
 /// Lends the socket what the connection owes it at `now_ns`. What the protocol owes is written
 /// first, as `send` writes it. Over TLS it is sealed after the records that an earlier send left.
-/// The octets stay where they are until `took`, and the connection writes only after them. A
-/// second lend before `took` returns the same octets from the same front, and those written
+/// The bytes stay where they are until `took`, and the connection writes only after them. A
+/// second lend before `took` returns the same bytes from the same front, and those written
 /// since, for a socket that has not started its send.
 pub fn lend(connection: *Connection, now_ns: u64) []const u8 {
     const lent_before = connection.lent_len;
@@ -29,14 +29,14 @@ pub fn lend(connection: *Connection, now_ns: u64) []const u8 {
     _ = internal.write_owed(connection, now_ns);
     connection_coding.drain(connection);
     const owed = owed_octets(connection, now_ns);
-    // Decision 176: a lend never moves or drops octets an earlier one gave.
+    // Decision 176: a lend never moves or drops bytes an earlier one gave.
     assert(owed.len >= lent_before);
     connection.lent_len = owed.len;
     connection_deadline.observe(connection, now_ns);
     return owed;
 }
 
-/// The octets the socket sends next: the output in cleartext, and over TLS the records sealed
+/// The bytes the socket sends next: the output in cleartext, and over TLS the records sealed
 /// from it after those a send left.
 fn owed_octets(connection: *Connection, now_ns: u64) []const u8 {
     if (connection.config.tls == null) return connection.output[0..connection.output_len];
@@ -45,7 +45,7 @@ fn owed_octets(connection: *Connection, now_ns: u64) []const u8 {
     return session.sealed[0..session.sealed_len];
 }
 
-/// The socket's send took the first `sent` of the octets `lend` lent, at `now_ns`: 0 for a send
+/// The socket's send took the first `sent` of the bytes `lend` lent, at `now_ns`: 0 for a send
 /// that failed or never went. They leave the front, and what is left moves there. The send meter
 /// counts them before the deadlines fire (decision 110).
 pub fn took(connection: *Connection, sent: usize, now_ns: u64) void {
@@ -60,7 +60,7 @@ pub fn took(connection: *Connection, sent: usize, now_ns: u64) void {
 }
 
 /// Over TLS, writes into `output` the records an earlier `lend` sealed and no send took, then
-/// what `connection_tls.send` writes after them, and returns the octets written.
+/// what `connection_tls.send` writes after them, and returns the bytes written.
 pub fn copy_sealed(connection: *Connection, output: []u8, now_ns: u64) usize {
     const session = connection.tls_session.?;
     const copied = @min(output.len, session.sealed_len);
@@ -71,7 +71,7 @@ pub fn copy_sealed(connection: *Connection, output: []u8, now_ns: u64) usize {
     return copied + connection_tls.send(connection, output[copied..], now_ns);
 }
 
-/// The octets of `output` that no lend gave the socket: in cleartext those after the lent ones,
+/// The bytes of `output` that no lend gave the socket: in cleartext those after the lent ones,
 /// and over TLS all of them, since a lend seals them into the session's `sealed`. Once the
 /// transport closed, the output holds none, and a send may still hold what it was lent.
 pub fn unlent_len(connection: *const Connection) usize {
@@ -92,7 +92,7 @@ pub fn sealed_unlent(connection: *const Connection) bool {
     return session.sealed_len > connection.lent_len;
 }
 
-/// Drops the first `sent` sealed octets, which a send took, and moves the rest to the front.
+/// Drops the first `sent` sealed bytes, which a send took, and moves the rest to the front.
 fn drop_sealed(session: *TlsSession, sent: usize) void {
     assert(sent <= session.sealed_len);
     @memmove(session.sealed[0 .. session.sealed_len - sent], session.sealed[sent..session.sealed_len]);

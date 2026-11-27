@@ -26,7 +26,7 @@ const body_len: usize = 64;
 const ok: u16 = 200;
 /// RFC 9110 §4.2.1: the port of an "http" origin whose URI names none.
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -49,9 +49,9 @@ fn start(exchange: *Exchange) !ConnectionHandle {
 }
 
 /// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing, with
-/// `.none` once no octet is left. Starts the connection an `open` asks for, and keeps the events.
+/// `.none` once no byte is left. Starts the connection an `open` asks for, and keeps the events.
 fn collect() !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const connection = pool_support.connection_of(&pool, .tcp);
         const octets = support.to_client[0..support.to_client_len];
@@ -106,7 +106,7 @@ test "decision 125: a pool says send once for each debt, and not again for a deb
     try testing.expectEqual(connection, find(.send, 0).?.send);
     try testing.expectEqual(1, count(.send));
     try testing.expect(send(connection) > 0);
-    // Nothing more is owed, so a call with no octets reports nothing.
+    // Nothing more is owed, so a call with no bytes reports nothing.
     try testing.expectEqual(null, pool.receive(.none, support.now_ns).event);
     // RFC 9112 §9.3.2: h11 holds a request back until a POST before it is answered (decision 88).
     var second: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[1] } };
@@ -114,7 +114,7 @@ test "decision 125: a pool says send once for each debt, and not again for a deb
     try collect();
     try testing.expectEqual(connection, find(.send, 1).?.send);
     try testing.expectEqual(0, send(connection));
-    // The connection writes nothing, so the pool says no `send` until it reads octets.
+    // The connection writes nothing, so the pool says no `send` until it reads bytes.
     try collect();
     try testing.expectEqual(2, count(.send));
     try support.peer_h11_read();
@@ -144,7 +144,7 @@ test "decision 125: a handle names nothing once its connection's close went out"
     const next = find(.open, 1).?.open.connection;
     try testing.expectEqual(old.slot, next.slot);
     try testing.expectEqual(old.generation +% 1, next.generation);
-    // Each call with the old handle changes nothing, and its octets are dropped.
+    // Each call with the old handle changes nothing, and its bytes are dropped.
     try testing.expectEqual(0, pool.send_stream(old, &support.to_peer, support.now_ns));
     var stale = "HTTP/1.1 200 OK\r\n".*;
     const dropped = pool.receive(.{ .stream = .{ .connection = old, .bytes = &stale } }, support.now_ns);

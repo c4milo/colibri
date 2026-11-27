@@ -121,7 +121,7 @@ pub fn write_trailers(
     connection_qlog.frame_event(connection, .created, stream_id, .{ .headers = .{ .section = section, .payload_len = payload_len } });
 }
 
-/// Writes a DATA frame's header on `stream_id` (RFC 9114 §7.2.1). The caller writes `len` octets
+/// Writes a DATA frame's header on `stream_id` (RFC 9114 §7.2.1). The caller writes `len` bytes
 /// of content after it.
 pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer) Error!void {
     try frame_write.write_header(output, constants.protocol.frame_data, len);
@@ -172,7 +172,7 @@ fn may_insert(indexing: []const Indexing) bool {
     return std.mem.indexOfScalar(Indexing, indexing, .may_insert) != null;
 }
 
-/// The longest HEADERS frame `section` can make. §4.2.2's size counts 32 octets for each line
+/// The longest HEADERS frame `section` can make. §4.2.2's size counts 32 bytes for each line
 /// beyond its name and value, more than the representation of a line ever adds, so it bounds the
 /// lines; the prefix and the frame header are added to it.
 fn frame_len_max(section: *const FieldSection) usize {
@@ -180,7 +180,7 @@ fn frame_len_max(section: *const FieldSection) usize {
 }
 
 comptime {
-    // A line's representation adds its pattern octet and two length prefixes to its name and
+    // A line's representation adds its pattern byte and two length prefixes to its name and
     // value (RFC 9204 §4.5.6), which `field_line_overhead` covers.
     assert(core.constants.protocol.field_line_overhead >= constants.protocol.line_representation_len_max);
     // The longest section `frame_len_max` admits fits the scratch it is encoded into.

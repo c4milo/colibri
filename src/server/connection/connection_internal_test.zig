@@ -1,8 +1,8 @@
 //! The tests of `make_h2_session` and `make_h11_session` in `connection_internal.zig`. Each one
-//! leaves its session's payload unfilled. So a connection must send the same octets and report
+//! leaves its session's payload unfilled. So a connection must send the same bytes and report
 //! the same events, whatever its storage held before. Each test fills the whole connection with
-//! one octet and runs one exchange over it. Then it compares the output with the output over
-//! storage filled with another octet.
+//! one byte and runs one exchange over it. Then it compares the output with the output over
+//! storage filled with another byte.
 const std = @import("std");
 const h2 = @import("h2");
 const http = @import("http");
@@ -19,10 +19,10 @@ const stream_trailers: u32 = 3;
 const stream_reset: u32 = 5;
 /// A SETTINGS frame with no setting in it (RFC 9113 §6.5). Test-only.
 const empty_settings = "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
-/// The octets a PING carries. Test-only.
+/// The bytes a PING carries. Test-only.
 const ping_octet: u8 = 'p';
 
-/// Octets a run's record holds: everything the connection sent, and one octet a reported event.
+/// Bytes a run's record holds: everything the connection sent, and one byte a reported event.
 const record_len_max = 16_384;
 
 /// What one run sent and reported, in order. Test-only.
@@ -127,7 +127,7 @@ const h11_fourth = "GET /four HTTP/1.1\r\nHost: example.test\r\n\r\n";
 const h11_pipelined = "GET /three HTTP/1.1\r\nHost: example.test\r\n\r\n" ++ h11_fourth;
 const h11_close = "GET /five HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n";
 
-/// Feeds `octets` to an h11 connection as a program does. Each call passes the octets the last
+/// Feeds `octets` to an h11 connection as a program does. Each call passes the bytes the last
 /// call left, until a call takes none and reports nothing. Records the kind of each event, and
 /// then what the connection sends.
 fn feed_h11(record: *Record, octets: []const u8) !void {
@@ -161,7 +161,7 @@ fn run_h11_exchange(record: *Record) !void {
     try connection.write_trailers(connection.current_id, &.{.{ .name = "x-done", .value = "1" }});
     try record.add(support.drain());
     // The second request waits unread until the first is answered, and then the program passes
-    // its octets again.
+    // its bytes again.
     try feed_h11(record, h11_pipelined);
     try connection.respond(connection.current_id, .{ .status = ok, .end = true });
     try feed_h11(record, h11_fourth);

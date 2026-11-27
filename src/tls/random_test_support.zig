@@ -1,6 +1,6 @@
 //! The source the `tls` tests' contexts hold, which each session draws from (decision 175):
 //! SplitMix64 from a seed, so every run of the tests draws the same key shares and nonces, and two
-//! streams from one seed draw the same octets. Nothing here is secret, and a program never draws
+//! streams from one seed draw the same bytes. Nothing here is secret, and a program never draws
 //! its keys from a seeded source.
 
 /// The type of a context's random source, `stdx.crypto.Context.random`.

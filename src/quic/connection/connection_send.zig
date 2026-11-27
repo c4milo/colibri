@@ -1,7 +1,7 @@
 //! One UDP datagram, assembled out of the packets RFC 9000 §12.2 lets a sender coalesce.
 //!
 //! **Every packet is planned before any is sealed.** §14.1 makes a client expand a datagram
-//! carrying an Initial to 1,200 octets, and [decision 54](../../../docs/decisions.md) puts that
+//! carrying an Initial to 1,200 bytes, and [decision 54](../../../docs/decisions.md) puts that
 //! expansion on the datagram's last packet. The AEAD covers the payload, so PADDING cannot be
 //! appended after `seal` — the assembler plans each level, learns which packet is last, pads
 //! that one and seals them all.
@@ -18,7 +18,7 @@
 //! nothing in flight: ACK frames (§2). colibri waits until the window holds the rest of the
 //! datagram rather than cut a packet short, so §14.1's padding fits in it too.
 //!
-//! **Two more rules expand a datagram.** RFC 9000 §8.2.1 and §8.2.2 ask for 1,200 octets around a
+//! **Two more rules expand a datagram.** RFC 9000 §8.2.1 and §8.2.2 ask for 1,200 bytes around a
 //! PATH_CHALLENGE and a PATH_RESPONSE, and both except the anti-amplification limit — which
 //! `datagram_ceiling` has already bounded the datagram by, so the padding stops there on its own
 //! and §8.2.3's second validation is what the short datagram leaves owed.
@@ -62,7 +62,7 @@ pub const Error = packet_build.Error || error{
 pub fn connection_error_code(connection: *const Connection, failure: Error) ?u64 {
     // RFC 9001 §8.2: a missing extension is a TRANSPORT_PARAMETER_ERROR (RFC 9000 §7.4).
     if (failure == error.ParametersMissing) return connection_crypto.connection_error_code(error.ParametersMissing);
-    // RFC 9001 §4.8: TLS failed while its octets were written, and the alert it raised is the
+    // RFC 9001 §4.8: TLS failed while its bytes were written, and the alert it raised is the
     // CRYPTO_ERROR code, or INTERNAL_ERROR when it raised none (RFC 9000 §11).
     if (failure == error.Crypto) return connection_crypto.close_code(connection, error.TlsAlert);
     return packet_build.connection_error_code(@errorCast(failure));
@@ -70,7 +70,7 @@ pub fn connection_error_code(connection: *const Connection, failure: Error) ?u64
 
 /// The sizes of a `Scratch` (decision 158 ruling 3). Each field has a default.
 pub const ScratchOptions = struct {
-    /// The octets of frames one packet admits. Decision 54 makes RFC 9000 §14.1's smallest
+    /// The bytes of frames one packet admits. Decision 54 makes RFC 9000 §14.1's smallest
     /// allowed maximum datagram size the default.
     payload_len_max: usize = constants.protocol.datagram_len_min,
 };
@@ -91,12 +91,12 @@ pub fn Scratch(comptime options: ScratchOptions) type {
 pub const Packet = struct {
     level: Level,
     packet_number: u64,
-    /// Octets it occupies, which §8 counts and RFC 9002 §7.2 measures the congestion window in.
+    /// Bytes it occupies, which §8 counts and RFC 9002 §7.2 measures the congestion window in.
     len: usize,
     ack_eliciting: bool,
     in_flight: bool,
-    /// RFC 9000 §13.3: the CRYPTO or STREAM octets this packet carried, which the caller keeps in
-    /// its `recovery_sent.Record` so a loss can say which octets to send again.
+    /// RFC 9000 §13.3: the CRYPTO or STREAM bytes this packet carried, which the caller keeps in
+    /// its `recovery_sent.Record` so a loss can say which bytes to send again.
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
@@ -107,7 +107,7 @@ pub const Packet = struct {
 
 /// What was assembled.
 pub const Sent = struct {
-    /// Octets of `output` the datagram occupies.
+    /// Bytes of `output` the datagram occupies.
     len: usize,
     packets: [core.levels_count]Packet,
     count: usize,
@@ -129,7 +129,7 @@ pub const Sent = struct {
 /// PTO MUST be ack-eliciting". Each ack-eliciting packet `send` builds at `level` counts off one;
 /// one that would elicit nothing carries a PING, which §6.2.4 asks for "When there is no data to
 /// send". A probe never repeats a stream range still in flight (invariant 29); at a handshake
-/// level the second probe repeats the first one's CRYPTO octets (decision 64 as amended).
+/// level the second probe repeats the first one's CRYPTO bytes (decision 64 as amended).
 pub fn owe_probes(connection: *Connection, level: Level, count: u8) void {
     assert(count > 0 and count <= constants.recovery.probe_packets);
     const owed = &connection.probes_owed[@intFromEnum(level)];
@@ -164,7 +164,7 @@ pub fn send(
     }
     // A ceiling too small for a level's packet is `plan`'s to find (`error.NoSpaceLeft`): a
     // 1-RTT packet's header is far shorter than an Initial's, and RFC 9000 §8.2.1 still wants a
-    // PATH_CHALLENGE sent on a new path whose §8 limit is a few dozen octets.
+    // PATH_CHALLENGE sent on a new path whose §8 limit is a few dozen bytes.
     const ceiling = @min(output.len, datagram_ceiling(connection));
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
@@ -253,18 +253,18 @@ fn note_handshake_complete(connection: *Connection, provider: tls_provider.QuicP
 
 /// `room_at`, on a path that may be waiting for validation. Decision 72: until a path the peer
 /// moved to is validated, §8 limits what may go there to three times what arrived, and the
-/// PATH_CHALLENGE frames §13.3 sends until one is answered need those octets more than data.
+/// PATH_CHALLENGE frames §13.3 sends until one is answered need those bytes more than data.
 fn room_on_path(connection: *const Connection, level: Level, window_len: u64, room: usize) ?packet_build.Room {
     if (!connection.migration.awaiting_validation or level != .application) return room_at(connection, level, window_len, room);
     // RFC 9000 §9.4: "Packets sent on the old path MUST NOT contribute to congestion control or
     // RTT estimation for the new path", and "A sender can make exceptions for probe packets". So
-    // the octets still in flight to the old address hold back nothing here: the packet carries ACK
+    // the bytes still in flight to the old address hold back nothing here: the packet carries ACK
     // and path frames alone, and §8's limit is what bounds it.
     return .{ .len = room, .withholding_data = true };
 }
 
-/// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and
-/// the octets `room` the datagram leaves. Null when the level sends nothing in this datagram.
+/// What `level`'s packet may hold, given the bytes `window_len` the congestion window leaves and
+/// the bytes `room` the datagram leaves. Null when the level sends nothing in this datagram.
 fn room_at(connection: *const Connection, level: Level, window_len: u64, room: usize) ?packet_build.Room {
     // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
     // containing a CONNECTION_CLOSE frame", so no recovery state bounds it, and §10.2.1's own
@@ -282,7 +282,7 @@ fn room_at(connection: *const Connection, level: Level, window_len: u64, room: u
     return .{ .len = room, .in_flight_allowed = false };
 }
 
-/// The octets `level`'s packet may add to the bytes in flight, or null when the congestion window
+/// The bytes `level`'s packet may add to the bytes in flight, or null when the congestion window
 /// allows it none.
 fn in_flight_len_allowed(connection: *const Connection, level: Level, window_len: u64, room: usize) ?usize {
     // RFC 9002 §7: the window binds every packet "unless the packet is sent on a PTO timer
@@ -398,7 +398,7 @@ fn note_close_sent(connection: *Connection, plans: []const packet_build.Planned,
     connection.termination.on_close_sent(now_ns, probe_timeout_ns);
 }
 
-/// Octets a planned packet will occupy once sealed: its header with any widening of its packet
+/// Bytes a planned packet will occupy once sealed: its header with any widening of its packet
 /// number, its payload and the tag.
 fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
     _ = connection;
@@ -440,7 +440,7 @@ fn seal_all(
     var sent: Sent = .{ .len = 0, .packets = undefined, .count = 0 };
     for (plans) |planned| {
         const payload = &scratch.payloads[@intFromEnum(planned.level)];
-        // RFC 9000 §19.1: PADDING is octets of 0x00, and a run of them is one frame to a reader.
+        // RFC 9000 §19.1: PADDING is bytes of 0x00, and a run of them is one frame to a reader.
         @memset(payload[planned.payload_len..][0..planned.padding_len], 0);
         const built = try packet_build.seal_planned(
             connection,

@@ -113,7 +113,7 @@ fn name_line(checked: *Checked, line: Field) void {
 pub fn line_asks_close(line: Field) bool {
     if (!http.field.names_equal(line.name, connection_name)) return false;
     var options = std.mem.splitScalar(u8, line.value, ',');
-    // Bounded: a value of n octets holds at most n + 1 members.
+    // Bounded: a value of n bytes holds at most n + 1 members.
     for (0..line.value.len + 1) |_| {
         const option = options.next() orelse return false;
         if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, option, " \t"), "close")) return true;

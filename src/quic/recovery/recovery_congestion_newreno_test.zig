@@ -91,7 +91,7 @@ test "RFC 9002 §7.3.3: the carry adds what acknowledgments too small to add an 
     start();
     _ = test_congestion.on_congestion_event(early_ns, late_ns);
     const window = test_congestion.window;
-    // One octet acknowledged adds `datagram_len / window` of an octet, below one.
+    // One byte acknowledged adds `datagram_len / window` of a byte, below one.
     const per_octet = window / datagram_len;
     for (0..per_octet - 1) |_| test_congestion.on_ack(late_ns + 1, 1, .full, late_ns + 10, rtt_ns, null);
     try testing.expectEqual(window, test_congestion.window);

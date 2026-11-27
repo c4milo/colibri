@@ -33,7 +33,7 @@ test "a buffer too short for the preface writes nothing and keeps it pending" {
     try testing.expectEqual(0, test_connection.write_pending(test_output[0 .. constants.protocol.client_preface_len - 1], 0));
     try testing.expect(test_connection.has_pending());
     try testing.expectEqual(0, test_connection.pending.len());
-    // The 24 octets fit, the SETTINGS frame does not.
+    // The 24 bytes fit, the SETTINGS frame does not.
     try testing.expectEqual(constants.protocol.client_preface_len, test_connection.write_pending(test_output[0..constants.protocol.client_preface_len], 0));
     try testing.expect(test_connection.has_pending());
     const rest = test_connection.write_pending(test_output, 0);
@@ -111,7 +111,7 @@ test "a connection with nothing pending writes no reply, after each kind of repl
 }
 
 /// The parts of a connection `init` leaves as they were: storage written before it is read. The
-/// HPACK tables hold an entry's octets once it is inserted, the stream pool an entry once it opens
+/// HPACK tables hold an entry's bytes once it is inserted, the stream pool an entry once it opens
 /// (invariant 5), and the decoder's scratch and the field block what a call writes before it reads.
 /// Test-only.
 const storage_left_by_init = [_][]const u8{
@@ -124,7 +124,7 @@ const storage_left_by_init = [_][]const u8{
 var over_zeros: Connection align(@alignOf(Connection)) = undefined;
 var over_ones: Connection align(@alignOf(Connection)) = undefined;
 
-/// Fails, naming the field, when a field of `T` at any depth holds different octets in `a` and
+/// Fails, naming the field, when a field of `T` at any depth holds different bytes in `a` and
 /// `b`, other than the storage `init` leaves.
 fn expect_written(comptime T: type, a: *const T, b: *const T, comptime path: []const u8) !void {
     inline for (storage_left_by_init) |left| {

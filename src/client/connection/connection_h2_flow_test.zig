@@ -19,9 +19,9 @@ var bodies: [bodies_count][body_len]u8 = undefined;
 var upload: [upload_len]u8 = undefined;
 const bodies_count: usize = 2;
 const body_len: usize = 64;
-/// RFC 9113 §6.9.2: past the 65,535 octets a stream's window starts with. Test-only.
+/// RFC 9113 §6.9.2: past the 65,535 bytes a stream's window starts with. Test-only.
 const upload_len: usize = 196_605;
-/// Longer than the connection's own output, and within the 65,535 octets a stream's window starts
+/// Longer than the connection's own output, and within the 65,535 bytes a stream's window starts
 /// with (RFC 9113 §6.9.2). Test-only.
 const direct_len: usize = 60_000;
 
@@ -198,6 +198,6 @@ test "decision 138: a content longer than the connection's output goes out in cl
         ended = peer_event.data.end_stream;
     }
     try testing.expectEqual(direct_len, received);
-    // RFC 9113 §8.1: the frame of the last octet ends the request.
+    // RFC 9113 §8.1: the frame of the last byte ends the request.
     try testing.expect(ended);
 }

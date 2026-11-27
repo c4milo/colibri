@@ -6,11 +6,11 @@ const assert = std.debug.assert;
 /// Interop" format. The largest in the qpackers/qifs corpus is 352 KB.
 pub const file_len_max: usize = 1 << 20;
 
-/// The largest encoded field section, or encoder stream octets written with one, the encode tool
+/// The largest encoded field section, or encoder stream bytes written with one, the encode tool
 /// holds before it writes them to the file.
 pub const section_len_max: usize = 64 * 1024;
 
-/// Octets of decoder instructions the tools write at once: every Section Acknowledgment and
+/// Bytes of decoder instructions the tools write at once: every Section Acknowledgment and
 /// Stream Cancellation the decoder can queue, and an Insert Count Increment, with room to spare.
 pub const decoder_stream_len_max: usize = 4096;
 

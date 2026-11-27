@@ -26,8 +26,8 @@ const Connection = connection_module.Connection;
 const Slot = slots_module.Slot;
 
 /// Reads frames from `plaintext` until an exchange ends or the connection owes the caller an
-/// event, h2 needs more octets, or the replies h2 owes must be written first and `output` has no
-/// room for them. Returns the octets taken.
+/// event, h2 needs more bytes, or the replies h2 owes must be written first and `output` has no
+/// room for them. Returns the bytes taken.
 pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     const session = &connection.session.h2;
     var consumed: usize = 0;
@@ -47,7 +47,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
         }
         const h2_event = received.event orelse continue;
         if (record(connection, h2_event)) {
-            // Decision 153: the frame's octets after a piece that `Response.body` holds wait for
+            // Decision 153: the frame's bytes after a piece that `Response.body` holds wait for
             // the next call. h2 reads one frame a call, whose header `note_head` read.
             consumed -= held_back(connection, header.?, h2_event);
             return consumed;
@@ -56,19 +56,19 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
     return consumed;
 }
 
-/// The octets of the frame just read that its event left for the next call: the tail of a DATA
+/// The bytes of the frame just read that its event left for the next call: the tail of a DATA
 /// frame's payload that did not fit `Response.body`, and the padding after it (RFC 9113 §6.1).
 fn held_back(connection: *Connection, header: h2.frame.Header, h2_event: h2.Event) usize {
     const tail = &connection.tail;
     if (tail.len == 0) return 0;
     const payload_len = h2_event.data.payload.len;
-    // RFC 9113 §6.1: a PADDED frame carries the Pad Length octet, the data, then the padding.
+    // RFC 9113 §6.1: a PADDED frame carries the Pad Length byte, the data, then the padding.
     const padded = h2.frame.has_flag(header, h2.constants.protocol.flag_padded);
     tail.skip_len = if (padded) header.length - pad_length_len - payload_len else 0;
     return tail.len + tail.skip_len;
 }
 
-/// RFC 9113 §6.1: the Pad Length field of a PADDED frame is one octet.
+/// RFC 9113 §6.1: the Pad Length field of a PADDED frame is one byte.
 const pad_length_len: usize = 1;
 
 /// Notes that a response began when `octets` start with the header of a HEADERS frame on the
@@ -166,7 +166,7 @@ fn on_piece(connection: *Connection, slot: *Slot, data: h2.Connection.Data) bool
     if (data.payload.len == 0) return data.end_stream and finish(connection, slot);
     const tail_len = connection_body.hold(connection, slot, data.payload);
     connection.tail.ends = data.end_stream;
-    // RFC 9113 §8.1: the response ends once the caller had the frame's last octet.
+    // RFC 9113 §8.1: the response ends once the caller had the frame's last byte.
     if (tail_len == 0 and data.end_stream) return finish(connection, slot);
     return true;
 }
@@ -268,7 +268,7 @@ pub fn write_requests(connection: *Connection) void {
 
 comptime {
     // Decision 152: `check_request` refuses a trailer section past `field_section_size_max`. Each
-    // line's 32 octets of that size hold its HPACK representation's own (RFC 7541 §6.2), so the
+    // line's 32 bytes of that size hold its HPACK representation's own (RFC 7541 §6.2), so the
     // block fits h2's block buffer, and its frames fit an empty output.
     const section_max = h2.core.constants.limits.field_section_size_max;
     assert(h2.constants.limits.send_block_len_max >= section_max + section_max);

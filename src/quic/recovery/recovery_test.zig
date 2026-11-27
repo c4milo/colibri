@@ -19,7 +19,7 @@ const testing = std.testing;
 var test_recovery: recovery.Recovery align(@alignOf(recovery.Recovery)) = undefined;
 var test_acknowledged: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
 var test_lost: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
-/// A path of 1200-octet datagrams. Every instant is written whole in nanoseconds, because the
+/// A path of 1200-byte datagrams. Every instant is written whole in nanoseconds, because the
 /// magic-numbers rule reads a constant's whole value.
 const test_datagram_len: u16 = 1_200;
 const test_start_ns: u64 = 1_000_000_000;
@@ -61,7 +61,7 @@ fn send(kind: Kind, first: u64, count: u64, from_ns: u64, interval_ns: u64) !voi
     }
 }
 
-/// A packet carrying only PADDING: RFC 9002 §2 counts it toward the octets in flight but the
+/// A packet carrying only PADDING: RFC 9002 §2 counts it toward the bytes in flight but the
 /// peer owes no acknowledgment for it. Test-only.
 fn padding_only(number: u64, sent_at_ns: u64) Record {
     var held = eliciting(number, sent_at_ns);
@@ -90,7 +90,7 @@ test "A.5: a sent packet is outstanding, counted and paced" {
     const window = test_recovery.congestion.window;
     try testing.expectEqual(0, test_recovery.in_flight_len());
     try send_spaced(.application, 3);
-    // The octets in flight are the sum over the spaces, held in no second place.
+    // The bytes in flight are the sum over the spaces, held in no second place.
     try testing.expectEqual(3 * test_datagram_len, test_recovery.in_flight_len());
     try testing.expectEqual(window - 3 * test_datagram_len, test_recovery.congestion.available_len(test_recovery.in_flight_len()));
     // RFC 9002 Appendix A.8 arms a probe for a space with something outstanding, measured from
@@ -282,7 +282,7 @@ test "§7.6: a long enough span of loss puts the window back to the minimum" {
     try testing.expect(outcome.lost.is_persistent_congestion(test_recovery.rtt.persistent_congestion_ns()));
     // RFC 9002 Appendix B.8 puts the window at the minimum and ends the recovery period, and
     // Appendix A.7 then runs `OnPacketsAcked` over what this same frame acknowledged. With no
-    // period left to hold it, that packet grows the minimum window by its own octets — which is
+    // period left to hold it, that packet grows the minimum window by its own bytes — which is
     // what the two texts say together, so it is pinned rather than hidden.
     try testing.expectEqual(null, test_recovery.congestion.recovery_started_at_ns);
     try testing.expectEqual(test_recovery.congestion.minimum_window() + test_datagram_len, test_recovery.congestion.window);
@@ -336,7 +336,7 @@ test "A.8: a space holding only PADDING owes no acknowledgment and arms no probe
     test_recovery.timer.handshake_confirmed = true;
     test_recovery.timer.peer_completed_address_validation = true;
     try test_recovery.on_packet_sent(.application, padding_only(0, test_start_ns), test_start_ns);
-    // RFC 9002 §2: it counts toward the octets in flight, so the congestion window feels it.
+    // RFC 9002 §2: it counts toward the bytes in flight, so the congestion window feels it.
     try testing.expectEqual(test_datagram_len, test_recovery.in_flight_len());
     // But the peer owes nothing for it, so RFC 9002 Appendix A.8 arms no Probe Timeout.
     try testing.expect(!test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
@@ -427,7 +427,7 @@ test "RFC 9000 §13.4.2.1: an increase smaller than the packets acknowledged fai
 }
 
 /// RFC 9000 §19.3.1 encodes each range after the first as a gap and a length, where
-/// `largest = previous_smallest - gap - 2`. These two octets name one more range at zero.
+/// `largest = previous_smallest - gap - 2`. These two bytes name one more range at zero.
 const two_range_gap: u8 = 1;
 const two_range_len: u8 = 0;
 const two_range_octets = [_]u8{ two_range_gap, two_range_len };

@@ -1,13 +1,13 @@
 //! One head of an HTTP/1.1 message (RFC 9112 §2.1): the start line and the field section, read
-//! from octets the caller has already read (design §4.1). A server reads request heads and a
+//! from bytes the caller has already read (design §4.1). A server reads request heads and a
 //! client reads response heads.
 //!
 //! A head is read in two passes. `message_scan` finds where it ends, keeping its place between
 //! calls, so a head that arrives in pieces is scanned once. Then, with the whole head in the
-//! caller's octets, `message_start` reads the start line and `message_fields` the field lines,
+//! caller's bytes, `message_start` reads the start line and `message_fields` the field lines,
 //! the way h2 reads only a whole frame. Nothing is consumed until a head is whole.
 //!
-//! The start line's slices point into the caller's octets and stay valid while the caller keeps
+//! The start line's slices point into the caller's bytes and stay valid while the caller keeps
 //! them. The field lines are copied into the caller's `FieldSection`, because a client joins a
 //! folded value (RFC 9112 §5.2) and the joined value exists nowhere in the input.
 //!
@@ -52,7 +52,7 @@ pub const line_asks_close = message_write_fields.line_asks_close;
 pub const Error = message_scan.Error || message_start.Error || message_fields.Error ||
     message_target.Error || message_body.Error;
 
-/// A request head read whole. `head_len` octets of the caller's input belong to it, a skipped
+/// A request head read whole. `head_len` bytes of the caller's input belong to it, a skipped
 /// leading empty line and the empty line that ends it included.
 pub const Request = struct {
     head_len: u32,
@@ -63,7 +63,7 @@ pub const Request = struct {
     body: Body,
 };
 
-/// A response head read whole. `head_len` octets of the caller's input belong to it.
+/// A response head read whole. `head_len` bytes of the caller's input belong to it.
 pub const Response = struct {
     head_len: u32,
     line: StatusLine,
@@ -75,7 +75,7 @@ pub const Response = struct {
 const line_end = "\r\n";
 
 /// Reads one request head from the start of `input` into `line` and `section`. Returns null while
-/// `input` holds no whole head; the caller calls again with the same octets and more. Once a head
+/// `input` holds no whole head; the caller calls again with the same bytes and more. Once a head
 /// is returned, or an error, `scanner` is ready for the next head.
 pub fn read_request(scanner: *Scanner, input: []const u8, section: *FieldSection) Error!?Request {
     const head, const head_len = try read_head(scanner, .request, input) orelse return null;
@@ -101,8 +101,8 @@ pub fn read_response(scanner: *Scanner, asked: Asked, input: []const u8, section
     return .{ .head_len = head_len, .line = line, .body = body };
 }
 
-/// The octets of a whole head from its start line through the empty line that ends it, and the
-/// octets of `input` the head takes; or null when the head is not whole yet.
+/// The bytes of a whole head from its start line through the empty line that ends it, and the
+/// bytes of `input` the head takes; or null when the head is not whole yet.
 fn read_head(scanner: *Scanner, role: Role, input: []const u8) Error!?struct { []const u8, u32 } {
     const span = scanner.scan(role, input) catch |failure| {
         scanner.reset();

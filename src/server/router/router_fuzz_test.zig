@@ -6,7 +6,7 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;
 
-/// The tables that the sweep reads. The sweep's paths of up to two octets find each route but
+/// The tables that the sweep reads. The sweep's paths of up to two bytes find each route but
 /// "/a/", which the fuzz inputs find. The parameter child of `swept` matches each path of one
 /// segment before the wildcard can, so the wildcard has a table of its own.
 const swept_patterns = [_][]const u8{ "/", "/a", "/:x", "/a/" };
@@ -25,7 +25,7 @@ const swept_wildcard = router(u8, .{
     .{ .get, swept_patterns[swept_slash], swept_slash },
 });
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 64;
 
 fn fuzz_match(_: void, smith: *testing.Smith) anyerror!void {
@@ -64,7 +64,7 @@ fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parame
         return;
     }
     // The value is the path after its first "/", decoded. A parameter's encoded value holds no
-    // "/", and a value with no "%" is the path's own octets.
+    // "/", and a value with no "%" is the path's own bytes.
     const value = parameters.get(name).?;
     try testing.expectEqual(1, parameters.count);
     try testing.expectEqualStrings(decoded, value);
@@ -84,8 +84,8 @@ fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parame
     }
 }
 
-/// `encoded` percent-decoded, the plain way: "%" and two hex digits give the octet they name, and
-/// any other octet stays. It is written apart from the router's own decoder, so the two check
+/// `encoded` percent-decoded, the plain way: "%" and two hex digits give the byte they name, and
+/// any other byte stays. It is written apart from the router's own decoder, so the two check
 /// each other. Test-only.
 fn reference_decode(encoded: []const u8, out: []u8) []const u8 {
     const radix = 16;

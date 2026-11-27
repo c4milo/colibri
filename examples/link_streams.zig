@@ -2,10 +2,10 @@
 //! part of colibri, and a real program replaces it with its own sockets.
 //!
 //! It runs on the loops of `link.zig`: each side on its own rotor loop, in one process and on one
-//! thread. Where `Link` moves one stream of octets, this one moves `streams_max` of them, one for
+//! thread. Where `Link` moves one stream of bytes, this one moves `streams_max` of them, one for
 //! each socket the client connects. What one side sends on a stream is copied into the other
 //! side's queue of that stream, and the sending loop posts the other loop a message saying how
-//! many octets arrived. No socket is opened (decision 96).
+//! many bytes arrived. No socket is opened (decision 96).
 //!
 //! A program reads every stream after each tick of its loop. `close` drops both queues of a
 //! stream, as a socket's close drops what it held.
@@ -17,13 +17,13 @@ pub const Side = link.Side;
 pub const Error = link.Error;
 pub const Loops = link.Loops;
 
-/// Streams the link carries, and octets waiting in one side's queue of a stream, at most.
+/// Streams the link carries, and bytes waiting in one side's queue of a stream, at most.
 pub const streams_max = 4;
 pub const queue_len_max = link.queue_len_max;
 
 const side_count = std.meta.fields(Side).len;
 
-/// One stream's queues, one for each side, and how many octets wait in each.
+/// One stream's queues, one for each side, and how many bytes wait in each.
 const Stream = struct {
     queues: [side_count][queue_len_max]u8,
     queue_lens: [side_count]usize,
@@ -61,14 +61,14 @@ pub const StreamsLink = struct {
         try self.loops.tick(side, 0);
     }
 
-    /// Every octet waiting for `side` on `stream`. The side hands them to colibri, then calls
-    /// `consume` with how many colibri took. The octets are the side's to change.
+    /// Every byte waiting for `side` on `stream`. The side hands them to colibri, then calls
+    /// `consume` with how many colibri took. The bytes are the side's to change.
     pub fn queue(self: *StreamsLink, stream: usize, side: Side) []u8 {
         const held = &self.streams[stream];
         return held.queues[@intFromEnum(side)][0..held.queue_lens[@intFromEnum(side)]];
     }
 
-    /// Drops the first `len` octets of `side`'s queue of `stream`, which colibri consumed.
+    /// Drops the first `len` bytes of `side`'s queue of `stream`, which colibri consumed.
     pub fn consume(self: *StreamsLink, stream: usize, side: Side, len: usize) void {
         const held = &self.streams[stream];
         const queue_len = &held.queue_lens[@intFromEnum(side)];
@@ -83,7 +83,7 @@ pub const StreamsLink = struct {
         self.streams[stream].queue_lens = @splat(0);
     }
 
-    /// Whether octets wait for either side on any stream.
+    /// Whether bytes wait for either side on any stream.
     pub fn pending(self: *const StreamsLink) bool {
         for (&self.streams) |*stream| {
             for (stream.queue_lens) |queue_len| {

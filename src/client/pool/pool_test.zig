@@ -24,7 +24,7 @@ const body_len: usize = 1024;
 
 const ok: u16 = 200;
 const https_port: u16 = 443;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -57,13 +57,13 @@ fn scoped(address: pool_module.Address, scope_id: u32) pool_module.Address {
 /// Whether `collect` starts a TCP connection an `open` event asks for.
 var starts: bool = true;
 const unstarted_octet: u8 = 0x01;
-/// Rounds of moving octets a test takes at most.
+/// Rounds of moving bytes a test takes at most.
 const rounds: usize = 8;
 
 /// Reports every event the pool owes, taking what the peer sent, starts a transport an `open`
 /// event asks for, and keeps the events.
 fn collect(pool: anytype) !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
@@ -81,7 +81,7 @@ fn collect(pool: anytype) !void {
     return error.TestUnexpectedResult;
 }
 
-/// Moves octets both ways for a few rounds.
+/// Moves bytes both ways for a few rounds.
 fn pump(pool: anytype) !void {
     for (0..rounds) |_| {
         support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
@@ -122,7 +122,7 @@ fn fresh_peer() void {
     support.peer_events_len = 0;
 }
 
-/// What the peer read of requests since `fresh_peer`: the heads, the octets of content, and
+/// What the peer read of requests since `fresh_peer`: the heads, the bytes of content, and
 /// whether a DATA frame ended a stream.
 const PeerRead = struct { requests: usize = 0, content_len: usize = 0, ended: bool = false };
 
@@ -162,7 +162,7 @@ fn Tests(comptime Pool: type) type {
 
         fn start_at(to: []const pool_module.Address) !void {
             config = .{ .cpu_features = .none(), .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(.h2)) };
-            // Every octet 1, so each flag of a connection the pool never started reads as set,
+            // Every byte 1, so each flag of a connection the pool never started reads as set,
             // and a read of one shows.
             @memset(std.mem.asBytes(&pool), unstarted_octet);
             try pool.init(&pool_memory, &config, &.{ .addresses = to, .port = https_port }, null);
@@ -393,7 +393,7 @@ fn Tests(comptime Pool: type) type {
         }
 
         /// The h2 peer writes the header of a HEADERS frame on stream 1 that ends its field block,
-        /// then `payload`, which is the frame's payload or the first octets of it.
+        /// then `payload`, which is the frame's payload or the first bytes of it.
         fn peer_headers(payload_len: u32, payload: []const u8) !void {
             var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
             try h2.frame.write_header(&frame, .{ .length = payload_len, .type = .headers, .flags = h2.constants.protocol.flag_end_headers, .stream_id = 1 });

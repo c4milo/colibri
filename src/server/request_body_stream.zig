@@ -5,15 +5,15 @@
 //! `next` gives each piece of the body that has arrived, with no copy, from the reader of the
 //! body: the router's, or the last wrapper of a middleware's `wrap_body`. A reader cannot say that
 //! no piece waits yet, so `next` returns null then. `keep` leaves the end of a piece unread. The
-//! next call of `next`, in this `on_data` or in a later one, gives those octets again, joined with
-//! the octets that arrive after them. So a route reads a message that two events cut, as Connect
-//! and gRPC frame theirs. At the body's end, `next` gives the kept octets once more as the last
+//! next call of `next`, in this `on_data` or in a later one, gives those bytes again, joined with
+//! the bytes that arrive after them. So a route reads a message that two events cut, as Connect
+//! and gRPC frame theirs. At the body's end, `next` gives the kept bytes once more as the last
 //! piece, so a route reads a body with no length whole, as Connect's unary call sends it.
 //!
-//! Through a wrapper, `next` copies the kept octets into the entry's `body_bytes`, and joins the
-//! octets that the wrapper gives later there (decision 163 ruling 6 as amended). So it asks a
-//! wrapper for one octet past those it gave, never more. A wrapper's `rebase` may hold fewer
-//! octets than its buffer, as std's flate decompressor does, which keeps its window there. A
+//! Through a wrapper, `next` copies the kept bytes into the entry's `body_bytes`, and joins the
+//! bytes that the wrapper gives later there (decision 163 ruling 6 as amended). So it asks a
+//! wrapper for one byte past those it gave, never more. A wrapper's `rebase` may hold fewer
+//! bytes than its buffer, as std's flate decompressor does, which keeps its window there. A
 //! piece that follows no `keep` stays in the wrapper's buffer, with no copy.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -23,14 +23,14 @@ const assert = std.debug.assert;
 /// a piece, after `on_data` returns.
 pub const RequestBodyStream = struct {
     // Each field is colibri's. A program reads none of them.
-    /// The reader of the body: the router's, over the octets of the event and the octets it held,
+    /// The reader of the body: the router's, over the bytes of the event and the bytes it held,
     /// or the last wrapper of a middleware's `wrap_body`.
     reader: *std.Io.Reader,
-    /// The octets of the entry's `body_bytes` that kept octets may take, whose length bounds them.
-    /// The router's reader holds kept octets there itself. Through a wrapper, the router points
-    /// `storage` at the octets past the ones it holds, and `next` copies kept octets to its end.
+    /// The bytes of the entry's `body_bytes` that kept bytes may take, whose length bounds them.
+    /// The router's reader holds kept bytes there itself. Through a wrapper, the router points
+    /// `storage` at the bytes past the ones it holds, and `next` copies kept bytes to its end.
     storage: []u8 = &.{},
-    /// Octets of the piece that `next` gave last, and the octets at its end that `keep` kept.
+    /// Bytes of the piece that `next` gave last, and the bytes at its end that `keep` kept.
     given: usize = 0,
     kept: usize = 0,
     /// Whether the reader is a middleware's wrapper.
@@ -38,34 +38,34 @@ pub const RequestBodyStream = struct {
     /// Whether the piece that `next` gave last lies at the end of `storage`, and not in the
     /// reader's buffer. Only a wrapper's pieces lie there.
     stored: bool = false,
-    /// Whether kept octets did not fit `storage`. The router then answers 413.
+    /// Whether kept bytes did not fit `storage`. The router then answers 413.
     too_large: bool = false,
-    /// Whether `next` gave the kept octets once more as the body's last piece.
+    /// Whether `next` gave the kept bytes once more as the body's last piece.
     last: bool = false,
     /// Whether `next` found the body's end.
     at_end: bool = false,
 
     /// The next piece of the body that has arrived, or null when no piece waits now. Each call
-    /// first lets go of the piece it gave before, less the octets that `keep` kept. A piece that
-    /// follows a `keep` starts with the kept octets. A piece stays valid until the next call of
+    /// first lets go of the piece it gave before, less the bytes that `keep` kept. A piece that
+    /// follows a `keep` starts with the kept bytes. A piece stays valid until the next call of
     /// `next`, or until `on_data` returns.
     ///
-    /// At the body's end, a call after a `keep` gives the kept octets once more as the last piece,
-    /// with no new octet. The call after that one returns null. A null at the body's end makes
+    /// At the body's end, a call after a `keep` gives the kept bytes once more as the last piece,
+    /// with no new byte. The call after that one returns null. A null at the body's end makes
     /// `ended` true.
     pub fn next(stream: *RequestBodyStream) ?[]const u8 {
-        // Through a wrapper, kept octets join the later octets in `storage`.
+        // Through a wrapper, kept bytes join the later bytes in `storage`.
         if (stream.wrapped and (stream.kept > 0 or stream.stored)) return next_stored(stream);
         return next_buffered(stream);
     }
 
-    /// Leaves the last `len` octets of the piece that `next` gave last unread. The next call of
-    /// `next`, in this `on_data` or in a later one, starts with them, joined with the octets that
+    /// Leaves the last `len` bytes of the piece that `next` gave last unread. The next call of
+    /// `next`, in this `on_data` or in a later one, starts with them, joined with the bytes that
     /// arrive later. A later `keep` takes the place of an earlier one, and `keep(0)` keeps none.
     /// A `keep` of the body's last piece keeps nothing.
     ///
-    /// The kept octets take the entry's `body_bytes` when they outlive the engine's event, or
-    /// when they come through a middleware's wrapper. Kept octets that do not fit there get 413
+    /// The kept bytes take the entry's `body_bytes` when they outlive the engine's event, or
+    /// when they come through a middleware's wrapper. Kept bytes that do not fit there get 413
     /// (RFC 9110 §15.5.14), at the body's end too.
     pub fn keep(stream: *RequestBodyStream, len: usize) void {
         assert(len <= stream.given);
@@ -77,19 +77,19 @@ pub const RequestBodyStream = struct {
     ///
     /// A route never relies on `ended` at its last piece. Over h2 the end may come with the last
     /// piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later event with
-    /// no octets, and the router calls `on_data` again for it.
+    /// no bytes, and the router calls `on_data` again for it.
     pub fn ended(stream: *const RequestBodyStream) bool {
         return stream.at_end;
     }
 };
 
-/// The next piece in the reader's buffer, which starts with the kept octets that the reader holds:
-/// the router's reader, or a wrapper when no octet is kept.
+/// The next piece in the reader's buffer, which starts with the kept bytes that the reader holds:
+/// the router's reader, or a wrapper when no byte is kept.
 inline fn next_buffered(stream: *RequestBodyStream) ?[]const u8 {
     const reader = stream.reader;
     reader.toss(stream.given - stream.kept);
     stream.given = stream.kept;
-    // One octet past the kept ones: a piece holds at least one octet that is new.
+    // One byte past the kept ones: a piece holds at least one byte that is new.
     const piece = reader.peekGreedy(stream.kept + 1) catch |failure| return past_end(stream, failure);
     assert(piece.len > stream.kept);
     stream.given = piece.len;
@@ -97,8 +97,8 @@ inline fn next_buffered(stream: *RequestBodyStream) ?[]const u8 {
     return piece;
 }
 
-/// What `next` returns when no octet waits past the kept ones. At the body's end, it gives the
-/// kept octets once more as the last piece. A `keep` of that piece keeps nothing, so the call after
+/// What `next` returns when no byte waits past the kept ones. At the body's end, it gives the
+/// kept bytes once more as the last piece. A `keep` of that piece keeps nothing, so the call after
 /// it returns null.
 fn past_end(stream: *RequestBodyStream, failure: std.Io.Reader.Error) ?[]const u8 {
     if (failure != error.EndOfStream) return null;
@@ -117,8 +117,8 @@ fn past_end(stream: *RequestBodyStream, failure: std.Io.Reader.Error) ?[]const u
 }
 
 /// `next` through a wrapper after a `keep`, or after a piece that `storage` held. It copies the
-/// kept octets to the end of `storage`, and joins there the octets that the wrapper gives after
-/// them. So it asks the wrapper for one octet past those it gave, never more.
+/// kept bytes to the end of `storage`, and joins there the bytes that the wrapper gives after
+/// them. So it asks the wrapper for one byte past those it gave, never more.
 fn next_stored(stream: *RequestBodyStream) ?[]const u8 {
     assert(stream.wrapped);
     const kept = stream.kept;
@@ -130,21 +130,21 @@ fn next_stored(stream: *RequestBodyStream) ?[]const u8 {
         return next_buffered(stream);
     }
     if (!stream.stored) {
-        // RFC 9110 §15.5.14: kept octets past the entry's `body_bytes` get 413.
+        // RFC 9110 §15.5.14: kept bytes past the entry's `body_bytes` get 413.
         if (kept > stream.storage.len) return mark_too_large(stream);
         store_kept(stream);
     }
-    // The router keeps the octets it holds clear of the stored ones.
+    // The router keeps the bytes it holds clear of the stored ones.
     assert(kept <= stream.storage.len);
     stream.given = kept;
     const fresh = stream.reader.peekGreedy(1) catch |failure| return past_end(stream, failure);
     const room = stream.storage.len - kept;
-    // RFC 9110 §15.5.14: kept octets that fill the entry's `body_bytes` join no later octet.
+    // RFC 9110 §15.5.14: kept bytes that fill the entry's `body_bytes` join no later byte.
     if (room == 0) return mark_too_large(stream);
     return join(stream, fresh[0..@min(fresh.len, room)]);
 }
 
-/// Copies the kept octets at the end of the wrapper's last piece to the end of `storage`, and
+/// Copies the kept bytes at the end of the wrapper's last piece to the end of `storage`, and
 /// lets the wrapper go of them.
 fn store_kept(stream: *RequestBodyStream) void {
     const reader = stream.reader;
@@ -155,7 +155,7 @@ fn store_kept(stream: *RequestBodyStream) void {
     stream.stored = true;
 }
 
-/// Moves the kept octets at the end of `storage` back by `fresh.len`, copies `fresh` after them,
+/// Moves the kept bytes at the end of `storage` back by `fresh.len`, copies `fresh` after them,
 /// and lets the wrapper go of `fresh`. The piece ends at the end of `storage`.
 fn join(stream: *RequestBodyStream, fresh: []const u8) []const u8 {
     const end = stream.storage.len;
@@ -169,7 +169,7 @@ fn join(stream: *RequestBodyStream, fresh: []const u8) []const u8 {
     return stream.storage[start..];
 }
 
-/// Records that kept octets did not fit `storage`, and gives no piece.
+/// Records that kept bytes did not fit `storage`, and gives no piece.
 fn mark_too_large(stream: *RequestBodyStream) ?[]const u8 {
     stream.too_large = true;
     return null;
@@ -182,7 +182,7 @@ test "decision 163 ruling 6: RequestBodyStream exports next, keep and ended" {
 const testing = std.testing;
 const router_body = @import("router/router_body.zig");
 
-/// A stream over the router's reader, and the octets of each event. Test-only.
+/// A stream over the router's reader, and the bytes of each event. Test-only.
 const Fixture = struct {
     body: router_body.Body(body_bytes) = .{},
     stream: RequestBodyStream = undefined,
@@ -193,12 +193,12 @@ const Fixture = struct {
         fixture.stream = .{ .reader = &fixture.body.cursor.reader, .storage = &fixture.body.held };
     }
 
-    /// Starts a stream as through a wrapper, which copies kept octets into `storage`.
+    /// Starts a stream as through a wrapper, which copies kept bytes into `storage`.
     fn start_wrapped(fixture: *Fixture, storage: []u8) void {
         fixture.stream = .{ .reader = &fixture.body.cursor.reader, .storage = storage, .wrapped = true };
     }
 
-    /// Points the reader at `bytes`, after any octets held, as the router does at a body event.
+    /// Points the reader at `bytes`, after any bytes held, as the router does at a body event.
     fn give(fixture: *Fixture, bytes: []const u8, end: bool) !void {
         fixture.body.cursor.ended = end;
         if (fixture.body.held_len > 0) try fixture.body.append(bytes);
@@ -227,7 +227,7 @@ test "decision 163 ruling 6: keep joins the kept octets with the next piece" {
     try fixture.give("abcd", false);
     try testing.expectEqualStrings("abcd", fixture.stream.next().?);
     fixture.stream.keep(2);
-    // No octet arrived after the kept ones, so no piece waits.
+    // No byte arrived after the kept ones, so no piece waits.
     try testing.expectEqual(null, fixture.stream.next());
     // A later `keep` takes the place of the earlier one.
     fixture.stream.keep(1);
@@ -293,7 +293,7 @@ test "decision 163 ruling 6 as amended: through a wrapper, kept octets join late
     try testing.expect(lies_in(fixture.stream.next().?, &first));
     fixture.stream.keep(2);
     try testing.expectEqual(null, fixture.stream.next());
-    // The kept octets left the reader's buffer, which the next event writes again.
+    // The kept bytes left the reader's buffer, which the next event writes again.
     first = "xyz".*;
     try fixture.give("de", false);
     const joined = fixture.stream.next().?;

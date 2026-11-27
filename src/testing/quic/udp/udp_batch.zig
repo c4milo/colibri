@@ -34,7 +34,7 @@ pub const Batch = struct {
 
     pub const State = enum { free, open, sending };
 
-    /// The octets each segment holds, for the send's `segment_bytes`: 0 for a batch of one
+    /// The bytes each segment holds, for the send's `segment_bytes`: 0 for a batch of one
     /// datagram, which the kernel sends as it is.
     pub fn segment_bytes(batch: *const Batch) u16 {
         return if (batch.count > 1) @intCast(batch.segment_len) else 0;

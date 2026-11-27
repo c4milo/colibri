@@ -1,16 +1,16 @@
 //! The byte pipe (design §4.1, §10): the harness acts as the caller of a parser, giving it a stream
 //! in chunks whose boundaries and delays the seed chooses.
 //!
-//! A real caller reads what its socket returned, hands colibri the octets it holds, and keeps what
+//! A real caller reads what its socket returned, hands colibri the bytes it holds, and keeps what
 //! colibri did not consume for the next call. The pipe does the same over a stream fixed before the
-//! run. It holds the octets from the first one not yet consumed to the last one fed, and after each
+//! run. It holds the bytes from the first one not yet consumed to the last one fed, and after each
 //! chunk it offers them to the subject until the subject asks for more. Holding them is slicing the
 //! stream, not copying it, so a subject that read past what it was offered would fail the slice's
 //! bounds check.
 //!
 //! A subject is any type with two declarations:
 //!
-//! - `fn step(subject: *Subject, held: []const u8) Step`: what the subject did with the octets the
+//! - `fn step(subject: *Subject, held: []const u8) Step`: what the subject did with the bytes the
 //!   caller holds. It consumes a whole value or nothing.
 //! - `fn describe(subject: *const Subject, line: *trace.Record) trace.Error!void`: the fields of the
 //!   value `step` last accepted.
@@ -27,19 +27,19 @@ const trace_module = @import("trace.zig");
 
 const Trace = trace_module.Trace;
 
-/// What a subject did with the octets the caller holds.
+/// What a subject did with the bytes the caller holds.
 pub const Step = union(enum) {
-    /// The octets held are a prefix of a value: the caller must feed more before asking again.
+    /// The bytes held are a prefix of a value: the caller must feed more before asking again.
     need_more,
-    /// A whole value of this many octets, the first ones held, was consumed.
+    /// A whole value of this many bytes, the first ones held, was consumed.
     accept: usize,
-    /// The first octets held are refused, for this reason.
+    /// The first bytes held are refused, for this reason.
     reject: anyerror,
 };
 
 /// How a run ended.
 pub const Outcome = enum {
-    /// Every octet of the stream was consumed by an accepted value.
+    /// Every byte of the stream was consumed by an accepted value.
     pass,
     /// The subject refused a value.
     rejected,
@@ -51,7 +51,7 @@ pub const Outcome = enum {
 pub const Schedule = union(enum) {
     /// The whole stream in one chunk, at instant 0.
     one_piece,
-    /// Chunks of 1 to `chunk_len_max` octets, each after a delay of 0 to `chunk_delay_ns_max`,
+    /// Chunks of 1 to `chunk_len_max` bytes, each after a delay of 0 to `chunk_delay_ns_max`,
     /// both drawn from this generator.
     seeded: *Random,
 };
@@ -68,7 +68,7 @@ pub fn run(
 ) trace_module.Error!Outcome {
     comptime assert(@hasDecl(Subject, "step") and @hasDecl(Subject, "describe"));
     var pipe: Pipe = .{ .stream = stream };
-    // Every chunk carries at least one octet, so a stream of n octets takes at most n chunks.
+    // Every chunk carries at least one byte, so a stream of n bytes takes at most n chunks.
     for (0..stream.len) |_| {
         if (pipe.fed == stream.len) break;
         try pipe.feed(schedule, clock, trace);
@@ -87,9 +87,9 @@ const Drained = enum { need_more, rejected };
 
 const Pipe = struct {
     stream: []const u8,
-    /// Octets of the stream handed to the caller so far.
+    /// Bytes of the stream handed to the caller so far.
     fed: usize = 0,
-    /// Octets of the stream the subject consumed so far.
+    /// Bytes of the stream the subject consumed so far.
     consumed: usize = 0,
 
     fn feed(pipe: *Pipe, schedule: Schedule, clock: *Clock, trace: *Trace) trace_module.Error!void {
@@ -112,15 +112,15 @@ const Pipe = struct {
         try trace.write(&line);
     }
 
-    /// Offers the held octets to the subject until it asks for more or refuses them.
+    /// Offers the held bytes to the subject until it asks for more or refuses them.
     fn drain(
         pipe: *Pipe,
         comptime Subject: type,
         subject: *Subject,
         trace: *Trace,
     ) trace_module.Error!Drained {
-        // Every accepted value consumes at least one octet, so n held octets take at most n
-        // accepts, and one more step finds the held octets empty or short.
+        // Every accepted value consumes at least one byte, so n held bytes take at most n
+        // accepts, and one more step finds the held bytes empty or short.
         for (0..pipe.fed - pipe.consumed + 1) |_| {
             const held = pipe.stream[pipe.consumed..pipe.fed];
             if (held.len == 0) return .need_more;
@@ -164,7 +164,7 @@ const Pipe = struct {
 const testing = std.testing;
 const Writer = core.Writer;
 
-/// A value of the toy format: one octet giving a length, then that many octets. A length of 255
+/// A value of the toy format: one byte giving a length, then that many bytes. A length of 255
 /// is refused. It stands in for a real decoder so the pipe is tested with no protocol module.
 const LengthPrefixed = struct {
     const refused_len = std.math.maxInt(u8);
@@ -186,7 +186,7 @@ const LengthPrefixed = struct {
     }
 };
 
-/// Octets of trace a test run writes into. Test-only.
+/// Bytes of trace a test run writes into. Test-only.
 const test_trace_len_max = 8192;
 
 const TestRun = struct {

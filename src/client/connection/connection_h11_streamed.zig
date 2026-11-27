@@ -23,7 +23,7 @@ const Slot = slots_module.Slot;
 
 comptime {
     // Decision 152: `check_request` refuses a trailer section past `field_section_size_max`. Each
-    // line's 32 octets of that size hold its ": " and CRLF, and the first line's hold the CRLF
+    // line's 32 bytes of that size hold its ": " and CRLF, and the first line's hold the CRLF
     // owed, the last chunk and the empty line (RFC 9112 §7.1), so an empty output holds the end.
     assert(constants.limits.output_len >= core.constants.limits.field_section_size_max);
 }
@@ -43,7 +43,7 @@ pub fn end_content(connection: *Connection, slot: *Slot) bool {
     if (slot.content_done()) return true;
     if (!slot.piece_end or slot.piece_sent < slot.piece.len) return false;
     const session = &connection.session.h11;
-    // RFC 9112 §6.2: a body of a declared length ends with its last octet, and RFC 9112 §7.1: a
+    // RFC 9112 §6.2: a body of a declared length ends with its last byte, and RFC 9112 §7.1: a
     // chunked body ends with the last chunk. The next head may follow.
     // RFC 9112 §7.1.2: the last chunk carries the request's trailer section (decision 152).
     if (session.writer.open()) connection.output_len += session.write_end(internal.room(connection), slot.request.trailers) catch {
@@ -99,8 +99,8 @@ fn open_chunk(connection: *Connection, slot: *Slot) void {
 }
 
 /// Writes the content of the request going out from the caller's memory into `output`, sealed
-/// over TLS, once the connection's own output is empty, and ends its body after its last octet.
-/// Returns the octets written into `output` (https://github.com/c4milo/colibri/issues/105).
+/// over TLS, once the connection's own output is empty, and ends its body after its last byte.
+/// Returns the bytes written into `output` (https://github.com/c4milo/colibri/issues/105).
 pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     assert(connection.output_len == 0);
     assert(connection.session == .h11);
@@ -114,7 +114,7 @@ pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
         connection_tls.seal_content(connection, content, output, now_ns);
     // A record that failed ended the connection and every exchange it held.
     if (sent.consumed == 0) return sent.written;
-    // The head declared the body's length, or the chunk head the chunk's, and the octets sent stay
+    // The head declared the body's length, or the chunk head the chunk's, and the bytes sent stay
     // within it (decision 95).
     connection.session.h11.count_body(sent.consumed) catch unreachable;
     slot.piece_sent += sent.consumed;
@@ -127,7 +127,7 @@ pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     return sent.written;
 }
 
-/// The octets of `slot`'s piece that may go out now: in a chunked body, the data of the chunk
+/// The bytes of `slot`'s piece that may go out now: in a chunked body, the data of the chunk
 /// whose head went out, and none before its head (RFC 9112 §7.1).
 fn sendable_len(connection: *const Connection, slot: *const Slot) usize {
     const left = slot.piece.len - slot.piece_sent;

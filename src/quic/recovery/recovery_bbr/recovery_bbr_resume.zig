@@ -15,7 +15,7 @@ const Bbr = recovery_bbr.Bbr;
 const Path = recovery_bbr.Path;
 
 /// Appendix C's state: whether the flag is set, or waits for the next round to be, the probing
-/// rate in octets a second, and the round at which the flag clears.
+/// rate in bytes a second, and the round at which the flag clears.
 pub const Resuming = struct {
     /// Appendix C: "The flag 'carefully-resuming' is added to the BBR state".
     active: bool = false,
@@ -28,7 +28,7 @@ pub const Resuming = struct {
     end_round: u64 = 0,
 };
 
-/// C.1: the probing rate of a jump of `jump_len` octets over the saved round trip.
+/// C.1: the probing rate of a jump of `jump_len` bytes over the saved round trip.
 pub fn probing_rate(jump_len: u64, saved_rtt_ns: u64) u64 {
     assert(saved_rtt_ns > 0);
     const product = @as(u128, jump_len) * core.constants.nanoseconds_per_second / saved_rtt_ns;

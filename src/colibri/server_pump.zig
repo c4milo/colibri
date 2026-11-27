@@ -1,11 +1,11 @@
-//! The program around a `colibri.Server`'s engine, with no socket in it: the octets a socket read
-//! go in, the octets it sends come out, and the router answers every request. Moved from the
+//! The program around a `colibri.Server`'s engine, with no socket in it: the bytes a socket read
+//! go in, the bytes it sends come out, and the router answers every request. Moved from the
 //! test-only server's `server_session.zig` for design §8 step 37b, with the router in place of its
 //! fixed answers. `server_loop.zig` is the socket side.
 //!
 //! The server keeps one entry for each socket, and the entry outlives the engine's slot: the
 //! engine frees a slot when it reports the connection's `ended`, straight after its `close`,
-//! while the socket may still hold octets to send. So `entry_of` maps each slot to the entry of
+//! while the socket may still hold bytes to send. So `entry_of` maps each slot to the entry of
 //! the connection the slot holds now, and an entry keeps its connection's whole handle.
 //!
 //! `step` serves one socket. It repeats two things until the first one moves nothing:
@@ -35,10 +35,10 @@ pub const Entry = struct {
     handle: server.ConnectionHandle,
     /// Whether the engine holds that connection: it has not reported its `ended`.
     attached: bool,
-    /// The engine reported the connection's `close`: the socket closes once its octets are out.
+    /// The engine reported the connection's `close`: the socket closes once its bytes are out.
     closing: bool,
     /// The engine reported the connection's `half_close`: the socket's write side closes once its
-    /// octets are out, and its receives go on (decision 160).
+    /// bytes are out, and its receives go on (decision 160).
     half_closing: bool = false,
 };
 
@@ -62,7 +62,7 @@ pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
 }
 
 /// Serves `socket`, the socket of entry `index`, at `now_ns`: consumes what it can of its unread
-/// octets. See the header.
+/// bytes. See the header.
 pub fn step(run: anytype, index: usize, socket: anytype, now_ns: u64) void {
     const state = run;
     const entry = &state.entries[index];
@@ -90,7 +90,7 @@ pub fn lend(run: anytype, index: usize) void {
     if (lent.len > 0) socket.give(lent);
 }
 
-/// The socket of entry `index` sent `sent` octets of what `lend` lent: 0 for a send that failed
+/// The socket of entry `index` sent `sent` bytes of what `lend` lent: 0 for a send that failed
 /// or never went. The engine ends a connection whose socket closed only after this call.
 pub fn sent(run: anytype, index: usize, sent_len: usize, now_ns: u64) void {
     const state = run;
@@ -170,7 +170,7 @@ fn request_connection(reported: *const server.Event) ?server.ConnectionHandle {
 
 fn on_connection_event(state: anytype, reported: *const server.Event) void {
     switch (reported.*) {
-        // The socket takes the octets when the driver arms it.
+        // The socket takes the bytes when the driver arms it.
         .send => |handle| _ = named(state, handle),
         .half_close => |handle| named(state, handle).half_closing = true,
         .close => |handle| named(state, handle).closing = true,

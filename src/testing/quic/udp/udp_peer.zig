@@ -3,7 +3,7 @@
 //!
 //! The caller's four duties are the loopback check's (`loopback_endpoint.zig`): it derives the
 //! Initial keys (RFC 9001 §5.2), gives the provider this endpoint's transport parameters before
-//! the handshake (§8.2), places the receive pool (decision 61) and supplies the octets of the
+//! the handshake (§8.2), places the receive pool (decision 61) and supplies the bytes of the
 //! streams it sends (decision 57). colibri reads each later level's keys from the suite on its
 //! own (decision 62). The application on top, `hq_server.zig` or `hq_client.zig`, owns the
 //! streams, and `udp_run.zig` owns the socket and the instant (decision 63).
@@ -35,7 +35,7 @@ pub const Outgoing = struct {
 
 const PeerAddress = quic.PeerAddress;
 
-/// A socket address as colibri names a peer's (decision 72): four octets for IPv4 and sixteen for
+/// A socket address as colibri names a peer's (decision 72): four bytes for IPv4 and sixteen for
 /// IPv6, the port, and an IPv6 address's scope id.
 pub fn peer_address(address: udp.Address) PeerAddress {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
@@ -116,10 +116,10 @@ pub fn destination_of(datagram: []const u8, local_id_len: usize) ?[]const u8 {
     };
 }
 
-/// Octets of the longest address a Retry token binds: an IPv6 address and a port.
+/// Bytes of the longest address a Retry token binds: an IPv6 address and a port.
 pub const token_address_len_max: usize = udp.Address.ipv6_bytes + @sizeOf(u16);
 
-/// The client's address as the opaque octets a Retry token binds. RFC 9000 §8.1.4: a token lets
+/// The client's address as the opaque bytes a Retry token binds. RFC 9000 §8.1.4: a token lets
 /// "the server verify that the source IP address and port in client packets remain constant", so
 /// it covers both: the address, then the port in network byte order.
 pub fn token_address(address: udp.Address, into: *[token_address_len_max]u8) []const u8 {
@@ -135,7 +135,7 @@ pub fn token_address(address: udp.Address, into: *[token_address_len_max]u8) []c
 /// The Version Negotiation packet a server owes a datagram that asks for a version it does not
 /// speak, written into `output`, or null when it owes none. RFC 9000 §6.1: a server "SHOULD send
 /// a Version Negotiation packet" when the packet "is large enough to initiate a new connection
-/// for any supported version", which §14.1 makes 1,200 octets, and §5.2.2 has it drop a smaller
+/// for any supported version", which §14.1 makes 1,200 bytes, and §5.2.2 has it drop a smaller
 /// one.
 pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
     const invariant = quic.packet.invariant;
@@ -306,7 +306,7 @@ fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
 
 test "RFC 9000 §6.1: a server answers an unknown version with Version Negotiation, and only then" {
     var answer: [quic.constants.protocol.datagram_len_min]u8 = undefined;
-    // A version 1 Initial, expanded to 1,200 octets, asks for a version the server speaks.
+    // A version 1 Initial, expanded to 1,200 bytes, asks for a version the server speaks.
     const initial = try long_packet(.initial);
     @memset(test_packet[initial.len..], 0);
     const expanded = test_packet[0..quic.constants.protocol.datagram_len_min];
@@ -318,7 +318,7 @@ test "RFC 9000 §6.1: a server answers an unknown version with Version Negotiati
     const written = version_negotiation(probe, &answer).?;
     const parsed = try quic.packet.invariant.read_long(written);
     try testing.expect(parsed.is_version_negotiation());
-    // RFC 8999 §6: the connection IDs come back swapped, and here they are the same octets.
+    // RFC 8999 §6: the connection IDs come back swapped, and here they are the same bytes.
     try testing.expectEqualSlices(u8, &test_id, parsed.dcid);
     // RFC 9000 §6.1: it lists the versions the server accepts, both of them (decision 108).
     const listed = (try quic.packet.header.read(written, 0)).version_negotiation.supported;

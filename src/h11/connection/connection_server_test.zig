@@ -16,7 +16,7 @@ var test_connection: Connection align(@alignOf(Connection)) = undefined;
 var test_output: [test_output_len]u8 = undefined;
 const test_output_len = 512;
 
-/// Calls `drain` makes past one per octet: the owed end, and the call that finds nothing.
+/// Calls `drain` makes past one per byte: the owed end, and the call that finds nothing.
 const test_calls_past_len = 2;
 
 fn server() *Connection {
@@ -24,7 +24,7 @@ fn server() *Connection {
     return &test_connection;
 }
 
-/// Receives from `input` until the connection consumes nothing, and returns the octets consumed.
+/// Receives from `input` until the connection consumes nothing, and returns the bytes consumed.
 fn drain(target: *Connection, input: []const u8) !usize {
     var offset: usize = 0;
     for (0..input.len + test_calls_past_len) |_| {
@@ -119,7 +119,7 @@ test "decision 92: a malformed request owes an error response with the close, by
     }
 }
 
-/// Octets the limit tests fill a request with.
+/// Bytes the limit tests fill a request with.
 var test_long: [test_long_len]u8 = undefined;
 const test_long_len = 9000;
 
@@ -219,7 +219,7 @@ test "RFC 9931 §5 and §6.1: an ignored Upgrade keeps HTTP/1.1, and a TLS recor
     _ = try target.write_response(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = "0" }});
     // RFC 9931 §5: the server refused the switch by ignoring it, and keeps the connection.
     try testing.expect(!target.should_close());
-    // RFC 9931 §6.1: no method holds the record's first octet, 22, so no line end is awaited.
+    // RFC 9931 §6.1: no method holds the record's first byte, 22, so no line end is awaited.
     try testing.expectError(error.ConnectionFailed, target.receive(input[first..], &.{}));
     try testing.expectEqual(error.MethodInvalid, target.failure.?);
     try testing.expectEqual(400, target.reply_status.?);

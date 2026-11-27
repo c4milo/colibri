@@ -27,7 +27,7 @@ pub const quic_slots: usize = 2;
 pub const tcp_peers: usize = 3;
 pub const quic_peers: usize = 3;
 
-/// The octets each QUIC connection holds unread, as the test-only UDP server sizes it. The
+/// The bytes each QUIC connection holds unread, as the test-only UDP server sizes it. The
 /// connection's credit follows it.
 pub const receive_pool_len: usize = 65_536;
 
@@ -62,7 +62,7 @@ pub const port_first: u16 = 50_000;
 
 /// What the program answers a request with: content of one of three tiers, drawn out of
 /// `answer_tiers`. Draws below `answer_small_below` are small, one equal to `answer_medium_draw`
-/// medium, and the rest long. A long answer passes h2's first window of 65,535 octets and h3's
+/// medium, and the rest long. A long answer passes h2's first window of 65,535 bytes and h3's
 /// credit, so the response waits for room.
 pub const answer_tiers: u64 = 4;
 pub const answer_small_below: u64 = 2;
@@ -101,24 +101,24 @@ pub const reword_one_in: u64 = 16;
 /// One pass in this many makes a call by an id or a handle that names nothing any more.
 pub const stale_call_one_in: u64 = 8;
 
-/// The octets a stale call passes as a socket's read.
+/// The bytes a stale call passes as a socket's read.
 pub const stale_octets_len: usize = 8;
 
-/// The octets each direction of a TCP peer's socket holds over the run: what a peer writes, at
+/// The bytes each direction of a TCP peer's socket holds over the run: what a peer writes, at
 /// most its script or its requests with their uploads, and what the endpoint writes, at most the
 /// longest answer to each exchange with its framing.
 pub const to_server_len: u32 = 262_144;
 pub const to_client_len: u32 = 524_288;
 
-/// Octets of framing an answer carries at most beside its content: h2's frame headers and TLS's
-/// record overhead, each at most this much per 512 octets, and its head.
+/// Bytes of framing an answer carries at most beside its content: h2's frame headers and TLS's
+/// record overhead, each at most this much per 512 bytes, and its head.
 pub const answer_slack_len: u32 = 16_384;
 
-/// Octets the endpoint writes to a TCP peer beside its answers: the TLS handshake, h2's SETTINGS,
+/// Bytes the endpoint writes to a TCP peer beside its answers: the TLS handshake, h2's SETTINGS,
 /// PING replies, resets and GOAWAY, at most.
 pub const server_output_slack_len: u32 = 65_536;
 
-/// Octets a peer writes beside its script or its requests' content: request heads, frame
+/// Bytes a peer writes beside its script or its requests' content: request heads, frame
 /// headers, records and acknowledgments, at most.
 pub const peer_output_slack_len: u32 = 65_536;
 
@@ -129,7 +129,7 @@ pub const handles_max: u32 = 16;
 pub const instants_max: u32 = 131_072;
 pub const passes_per_instant_max: u32 = 64;
 
-/// The events, the datagrams and the `receive` calls with one socket's octets one pass makes at
+/// The events, the datagrams and the `receive` calls with one socket's bytes one pass makes at
 /// most.
 pub const events_per_pass_max: u32 = 4_096;
 pub const datagrams_per_pass_max: u32 = 256;
@@ -145,7 +145,7 @@ pub const server_salt: u64 = 0x5e5e_5e5e_5e5e_5e5e;
 pub const peer_salt: u64 = 0x9e9e_9e9e_9e9e_9e9e;
 pub const program_salt: u64 = 0x7a7a_7a7a_7a7a_7a7a;
 
-/// Octets of a check's trace line, and of a trace: its first line, a line for each peer, the
+/// Bytes of a check's trace line, and of a trace: its first line, a line for each peer, the
 /// line of its totals and a violation line.
 pub const line_len_max: u32 = 512;
 pub const trace_lines_max: u32 = 12;

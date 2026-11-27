@@ -96,8 +96,8 @@ pub const Application = struct {
         return null;
     }
 
-    /// Writes what each answer owes at `now_ms`, from the first octets of `content`, which stay
-    /// the application's (decision 103): its head and first octets once the request's content has
+    /// Writes what each answer owes at `now_ms`, from the first bytes of `content`, which stay
+    /// the application's (decision 103): its head and first bytes once the request's content has
     /// ended and its delay has passed, and the rest a gap after. Returns whether anything moved.
     pub fn answer(app: *Application, endpoint: *Engine, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
         var moved = false;
@@ -154,8 +154,8 @@ fn next_write_ms(pending: *const Answer, plan: *const Plan, index: usize) ?u64 {
     return first_ms + plan.answer_gap_ms[index];
 }
 
-/// Writes the answer's head and first octets, or its last octets and its end. QUIC reads the
-/// octets in place until the peer acknowledges them.
+/// Writes the answer's head and first bytes, or its last bytes and its end. QUIC reads the
+/// bytes in place until the peer acknowledges them.
 fn write(endpoint: *Engine, pending: *Answer, plan: *const Plan, content: []const u8, index: usize, now_ms: u64) server.SendError!void {
     const in_two = plan.answer_gap_ms[index] > 0;
     const first_len = if (in_two) content.len / halves else content.len;

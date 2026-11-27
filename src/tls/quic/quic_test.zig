@@ -245,7 +245,7 @@ test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the ale
 test "a level's octets that do not fit its buffer fail the handshake, and nothing is handed over" {
     try support.configure(support.web_pki, .{});
     try support.start_both(null);
-    // Nearly full with octets colibri has not taken, the server's Initial level cannot hold its
+    // Nearly full with bytes colibri has not taken, the server's Initial level cannot hold its
     // ServerHello.
     const initial = @intFromEnum(tls_provider.Level.initial);
     server.state.outgoing_len[initial] = constants.limits.crypto_out_len - 1;
@@ -313,7 +313,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     try testing.expect(!server.resumed());
     const server_suite = server.suite();
     try testing.expectError(error.Unsupported, server_suite.vtable.install_initial_keys(server_suite.context, .server, &support.destination_id));
-    // chapulin's session holds at most `CH_TRANSPORT_PARAMS_MAX` octets of parameters.
+    // chapulin's session holds at most `CH_TRANSPORT_PARAMS_MAX` bytes of parameters.
     const long_parameters: [client.state.local_parameters.len + 1]u8 = @splat(0);
     try testing.expectError(error.TlsFailed, provider.vtable.set_transport_params(provider.context, &long_parameters));
     client.close();
@@ -392,7 +392,7 @@ test "the keylog context a program sets is the one chapulin's hook carries" {
     client.close();
 }
 
-/// A token key and lifetime for the Retry test, the key an octet repeated.
+/// A token key and lifetime for the Retry test, the key a byte repeated.
 const token_key_octet: u8 = 0x4b;
 const token_key: [quic.token_key_len]u8 = @splat(token_key_octet);
 const token_lifetime_seconds: u64 = 10;

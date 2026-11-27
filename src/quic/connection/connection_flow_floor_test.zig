@@ -1,6 +1,6 @@
 //! The tests of the credit floor of `connection_flow.zig` (decision 49 as amended on 2026-11-06):
 //! a connection with a receive pool owes MAX_DATA once the credit left to its peer is below one
-//! stream's reserve and the application consumed one octet since the last MAX_DATA. A held stream
+//! stream's reserve and the application consumed one byte since the last MAX_DATA. A held stream
 //! whose window grew to its cap thus leaves the other streams credit (RFC 9000 §4.1, §4.2).
 const std = @import("std");
 const core = @import("core");
@@ -86,7 +86,7 @@ fn max_data_written() !?u64 {
     };
 }
 
-/// The peer's octets arrive up to `reached` on the connection, and the application takes
+/// The peer's bytes arrive up to `reached` on the connection, and the application takes
 /// `consumed` more of them. Test-only.
 fn arrive(reached: u64, consumed: u64) !void {
     try server.receive_flow.use(reached, error.FlowControlExceeded);
@@ -103,7 +103,7 @@ test "decision 49 as amended: a held stream at its cap leaves the other streams 
     try testing.expect(!flow_frames.data_credit_owed(&server));
     try arrive(pool_capacity, 0);
     try testing.expectEqual(0, server.receive_flow.available());
-    // RFC 9000 §4.2: credit below the floor with octets consumed is worth a MAX_DATA frame.
+    // RFC 9000 §4.2: credit below the floor with bytes consumed is worth a MAX_DATA frame.
     try testing.expect(flow_frames.data_credit_owed(&server));
     try testing.expectEqual(consumed_before_hold + pool_capacity, (try max_data_written()).?);
     // The held stream reaches its cap. What is left is one reserve, which the other streams get.
@@ -132,7 +132,7 @@ test "decision 49 as amended: a connection with no receive pool keeps no credit 
 }
 
 test "decision 49 as amended: the floor is what the cap leaves free, and none when a stream can fill the pool" {
-    // A stream that starts with the whole pool leaves no reserve, so no octet is worth a frame.
+    // A stream that starts with the whole pool leaves no reserve, so no byte is worth a frame.
     open_server(pool.storage(), pool_capacity);
     try testing.expectEqual(0, connection_module.receive_credit_floor(&server));
     try arrive(stream_window / half, stream_window / half);

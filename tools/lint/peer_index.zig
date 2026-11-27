@@ -11,7 +11,7 @@
 //! 2. A name declared, assigned or captured from an expression that reads a peer-derived name is
 //!    peer-derived too: `const len = try reader.take_int_big(u16);`, `total += len;`,
 //!    `if (reader.peek()) |octet|`. A `for` capture follows its own input, so in
-//!    `for (octets, 0..) |octet, index|` the octet is peer-derived and the index is not.
+//!    `for (octets, 0..) |octet, index|` the byte is peer-derived and the index is not.
 //! 3. A `[...]` index, or a slice's start, end or sentinel, that reads a peer-derived name is a
 //!    finding.
 //!

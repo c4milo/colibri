@@ -38,9 +38,9 @@ var asked_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memo
 var asked_connection: client_module.ConnectionHandle align(@alignOf(client_module.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
 var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
-// The octets the client wrote, which the server reads, and the octets the server wrote, which the
-// client reads. The engine reports a `send` while `wire` may still hold octets the server has
-// not read, so the server's octets go into a buffer of their own.
+// The bytes the client wrote, which the server reads, and the bytes the server wrote, which the
+// client reads. The engine reports a `send` while `wire` may still hold bytes the server has
+// not read, so the server's bytes go into a buffer of their own.
 var wire: [4096]u8 = undefined;
 var server_output: [4096]u8 = undefined;
 // A `colibri.Server` of one TCP connection on colibri's own loop, which binds a port the system
@@ -63,7 +63,7 @@ const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connectio
 const BoundClient = colibri.Client(client_capacity, .private);
 var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 
-/// Rounds of moving octets between the client and the server before the exchange must have ended.
+/// Rounds of moving bytes between the client and the server before the exchange must have ended.
 const exchange_rounds_max = 8;
 /// Events one side reads in one round, at most.
 const events_per_round_max = 16;
@@ -98,7 +98,7 @@ const now_seconds: u64 = 1_800_000_000;
 /// RFC 9846 §5.1: a handshake record's content type.
 const handshake_record: u8 = 22;
 /// The server's address, which a DNS lookup returns, and the port of an "http" origin (RFC 9110
-/// §4.2.1). The octets move in memory, so no socket connects to them.
+/// §4.2.1). The bytes move in memory, so no socket connects to them.
 const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_addresses = [_]client_module.Address{.init(&loopback, 0)};
 const server_port: u16 = 80;
@@ -121,7 +121,7 @@ pub fn main(init: std.process.Init) !void {
     const status = @intFromEnum(step.event.?.response.line.status);
     if (status != 204) return error.ResponseWrong;
 
-    // h2's client preface starts with the 24 octets of RFC 9113 §3.4.
+    // h2's client preface starts with the 24 bytes of RFC 9113 §3.4.
     h2_client.init(.{ .role = .client });
     const preface_len = h2_client.write_pending(&output, 0);
     if (!std.mem.startsWith(u8, output[0..preface_len], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")) return error.PrefaceWrong;
@@ -222,7 +222,7 @@ fn check_tls(crypto: stdx.crypto.Context) !void {
     tls_client.close();
 }
 
-/// The server reads the first `len` octets of `wire`, which the socket of `accepted` read. It
+/// The server reads the first `len` bytes of `wire`, which the socket of `accepted` read. It
 /// answers each request with 204, by the request's id, and sends what its connection owes at each
 /// `send` event.
 fn serve(accepted: server_module.ConnectionHandle, len: usize) !void {
@@ -254,7 +254,7 @@ fn send(connection: server_module.ConnectionHandle) !void {
 }
 
 /// The client reads `octets`, which the server wrote, and its response holds what they say. Each
-/// call passes the octets it still holds, or `.none` when it holds none.
+/// call passes the bytes it still holds, or `.none` when it holds none.
 fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {

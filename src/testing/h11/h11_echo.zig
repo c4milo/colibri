@@ -8,7 +8,7 @@
 //!
 //!     {"method":"R0VU","uri":"Lw==","version":"SFRUUC8xLjE=","headers":[["SG9zdA==","YQ=="]],"body":""}
 //!
-//! `begin` writes everything up to the content when the head arrives, because the head's octets
+//! `begin` writes everything up to the content when the head arrives, because the head's bytes
 //! and its field section are valid only until the connection reads again. `add` keeps the content
 //! as it arrives, and `finish` writes it once the request has ended.
 const std = @import("std");
@@ -61,7 +61,7 @@ pub const Echo = struct {
         echo.put("],\"body\":\"");
     }
 
-    /// Keeps content octets as they arrive, or notes that there are too many to keep.
+    /// Keeps content bytes as they arrive, or notes that there are too many to keep.
     pub fn add(echo: *Echo, data: []const u8) void {
         if (data.len > echo.body.len - echo.body_len) {
             echo.body_too_long = true;
@@ -97,7 +97,7 @@ pub const Echo = struct {
     }
 };
 
-/// Octets of "HTTP/1.1", the version as the request line spells it (RFC 9112 §2.3).
+/// Bytes of "HTTP/1.1", the version as the request line spells it (RFC 9112 §2.3).
 const version_len = "HTTP/1.1".len;
 
 const testing = std.testing;

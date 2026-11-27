@@ -20,7 +20,7 @@ var peers: tcp_module.Peers align(@alignOf(tcp_module.Peers)) = undefined;
 /// The one instant every call of a test is made at.
 const now_ms: u64 = 1;
 const now_ns: u64 = now_ms * limits.ns_per_ms;
-/// The content each request of an uploading peer carries, in octets.
+/// The content each request of an uploading peer carries, in bytes.
 const upload_len: u32 = 16;
 
 /// A response with no content, after which the server closes the connection (RFC 9112 §9.6).
@@ -70,7 +70,7 @@ test "decision 120: a peer closes its socket once its pool reported close, and n
     // carries the request.
     try write_all(peer, &plan);
     try testing.expect(std.mem.startsWith(u8, peer.to_server.octets[0..peer.to_server.written], "GET / HTTP/1.1\r\n"));
-    // The endpoint read every octet, and the pool has reported no `close`.
+    // The endpoint read every byte, and the pool has reported no `close`.
     try testing.expect(!tcp_module.closes(peer, &plan, now_ms));
     answer(peer, closing_response);
     try testing.expect(try tcp_module.read(peer, &plan, now_ns, now_ms));

@@ -1,14 +1,14 @@
-//! How far a stream's octets are acknowledged from its start (decision 78). Part of design §8
+//! How far a stream's bytes are acknowledged from its start (decision 78). Part of design §8
 //! step 12.
 //!
-//! A caller keeps a stream's octets until the peer acknowledges them (decision 57). For a stream
+//! A caller keeps a stream's bytes until the peer acknowledges them (decision 57). For a stream
 //! that ends, "Data Recvd" says when (RFC 9000 §3.1). A stream that never ends, such as the
-//! control stream of an application protocol, needs to know which of its first octets the peer
+//! control stream of an application protocol, needs to know which of its first bytes the peer
 //! has, so the caller can reuse that storage.
 //!
-//! colibri keeps no state for it. Each octet colibri framed sits in one packet in flight, in the
-//! lost table, or is acknowledged (invariant 29). So every octet below the lowest offset that a
-//! packet in flight or a lost range holds is acknowledged, and so is every framed octet when
+//! colibri keeps no state for it. Each byte colibri framed sits in one packet in flight, in the
+//! lost table, or is acknowledged (invariant 29). So every byte below the lowest offset that a
+//! packet in flight or a lost range holds is acknowledged, and so is every framed byte when
 //! neither holds any. Finding it scans the application space's sent records and the lost table,
 //! at most `sent_packets_max` and `stream_lost_ranges_max` entries: a few hundred reads of memory
 //! already in cache, which a caller pays only when it needs room.
@@ -21,10 +21,10 @@ const stream_ranges = @import("connection_stream_ranges.zig");
 const Connection = connection_module.Connection;
 const StreamId = stream_module.StreamId;
 
-/// The offset below which the peer has acknowledged every octet of `id`. The caller may drop the
-/// octets below it, because colibri never reads them through the stream provider again.
+/// The offset below which the peer has acknowledged every byte of `id`. The caller may drop the
+/// bytes below it, because colibri never reads them through the stream provider again.
 ///
-/// Null when colibri reads none of the stream's octets again at all: the stream is closed or
+/// Null when colibri reads none of the stream's bytes again at all: the stream is closed or
 /// reset (RFC 9000 §13.3, "no further STREAM frames are needed"), or it is not one this endpoint
 /// sends on.
 pub fn acknowledged_end(connection: *Connection, id: StreamId) ?u64 {
@@ -33,7 +33,7 @@ pub fn acknowledged_end(connection: *Connection, id: StreamId) ?u64 {
         .live => |stream| stream,
         .closed, .unopened => return null,
     };
-    // A reset stream's lost ranges are dropped rather than framed again, so its octets are done
+    // A reset stream's lost ranges are dropped rather than framed again, so its bytes are done
     // with even where they were never acknowledged.
     if (stream.sending.state == .reset_sent or stream.sending.state == .reset_recvd) return null;
     const outgoing = &stream.outgoing;
@@ -48,7 +48,7 @@ pub fn acknowledged_end(connection: *Connection, id: StreamId) ?u64 {
         }
     }
     if (connection.streams.lost.lowest_offset(id.value)) |offset| lowest = @min(lowest, offset);
-    // Invariant 29: every octet below it was acknowledged, and counted once.
+    // Invariant 29: every byte below it was acknowledged, and counted once.
     assert(lowest <= outgoing.acknowledged_len);
     assert(lowest <= outgoing.framed_end);
     return lowest;
@@ -168,10 +168,10 @@ test "decision 78: a reset stream, and one this endpoint does not send on, have 
     const id = try send_test.open_supplied(send_test.long_body_len, true);
     const record = try sent_record(&body);
     try stream_send.reset(&send_test.client, id, 0);
-    // The lost range is not kept, so its octets are never acknowledged, and none is read again.
+    // The lost range is not kept, so its bytes are never acknowledged, and none is read again.
     try lose(record);
     try testing.expectEqual(null, end_of(id));
-    // A stream the peer opened for its own octets alone, and one not yet opened.
+    // A stream the peer opened for its own bytes alone, and one not yet opened.
     const peer_stream = StreamId.init(.server, .unidirectional, 0);
     _ = try send_test.client.streams.open_peer(peer_stream);
     try testing.expectEqual(.live, std.meta.activeTag(send_test.client.streams.lookup(peer_stream)));

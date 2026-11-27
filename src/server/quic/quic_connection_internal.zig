@@ -38,7 +38,7 @@ pub fn attach_log(connection: *QuicConnection, log: *quic.qlog.Log, now_ns: u64)
 }
 
 /// Starts the connection a client's first Initial asked for. `receive_pool` holds the client's
-/// octets until h3 reads them (decision 61), and no other connection uses it while this one
+/// bytes until h3 reads them (decision 61), and no other connection uses it while this one
 /// runs. Every draw the connection and its handshake make comes from the random source of the
 /// TLS configuration's context (decision 175), and `now_seconds` is the instant the server's
 /// tickets are issued at, or 0 for none.
@@ -48,7 +48,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
     try config.timeouts.validate();
     // Over QUIC a request's content arrives a packet at a time. The bound kept for a TLS record
-    // and an h2 DATA frame covers a packet of up to `body_unit_len` octets, and one `Timeouts`
+    // and an h2 DATA frame covers a packet of up to `body_unit_len` bytes, and one `Timeouts`
     // then suits a server's TCP and QUIC connections (decision 110 as amended).
     try config.timeouts.validate_units();
     connection.config = config;
@@ -292,7 +292,7 @@ fn start_h3(connection: *QuicConnection, now_ns: u64) void {
 }
 
 /// Stops the connection: no request is read or answered from here on, and no stream reads the
-/// caller's octets again, because a connection that is not active sends none (RFC 9000
+/// caller's bytes again, because a connection that is not active sends none (RFC 9000
 /// §10.2.1). The endings it already owes stay owed, so a response the peer acknowledged before
 /// the stop still ends with `done` (INV-30); an engine ends the rest with `cancelled`.
 pub fn stop(connection: *QuicConnection) void {

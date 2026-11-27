@@ -4,12 +4,12 @@
 //! hand-written source file stays at or under 500 lines (CLAUDE.md).
 //!
 //! Two shapes. A frame whose payload colibri holds — SETTINGS, GOAWAY and the rest — is written
-//! whole, with its Length computed from the fields before a single octet goes out. A frame whose
+//! whole, with its Length computed from the fields before a single byte goes out. A frame whose
 //! payload the caller streams — DATA, HEADERS, PUSH_PROMISE's field section — gets its header
 //! written here and its payload written by the caller, because §7.1's Length is the only thing
-//! this layer can add to octets it never holds.
+//! this layer can add to bytes it never holds.
 //!
-//! Every function writes all of its octets or none.
+//! Every function writes all of its bytes or none.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -63,7 +63,7 @@ pub fn write_settings(writer: *Writer, settings: Settings) Error!void {
     writer.* = cursor;
 }
 
-/// The octets a SETTINGS payload will take, which §7.1's Length needs before any of it is written.
+/// The bytes a SETTINGS payload will take, which §7.1's Length needs before any of it is written.
 fn settings_len(settings: Settings) u64 {
     var total: u64 = 0;
     total +|= pair_len(constants.protocol.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
@@ -116,7 +116,7 @@ test "§7.2.6: a one-integer frame is its type, its length and its value" {
     var writer = Writer.init(&test_octets);
     try write_single(&writer, constants.protocol.frame_goaway, 4);
     try testing.expectEqualSlices(u8, &.{ 0x07, 0x01, 0x04 }, writer.written());
-    // The Length counts the octets the value takes, not the value.
+    // The Length counts the bytes the value takes, not the value.
     var wide = Writer.init(&test_octets);
     try write_single(&wide, constants.protocol.frame_max_push_id, 0x100);
     try testing.expectEqualSlices(u8, &.{ 0x0d, 0x02, 0x41, 0x00 }, wide.written());
@@ -160,7 +160,7 @@ test "§7.2.4.1: a reserved setting goes out, and a reader ignores it" {
 }
 
 test "§7.1: the Length a writer computes is the payload a reader finds" {
-    // Every combination of present and absent settings, so the computed Length and the octets
+    // Every combination of present and absent settings, so the computed Length and the bytes
     // written can never disagree about which pairs went out.
     const values = [_]?u64{ null, 0, 0x3f, 0x40, 0x4000 };
     for (values) |capacity| {
@@ -214,7 +214,7 @@ test "§7.2.8: a reserved frame is 0x1f * N + 0x21 and means nothing" {
 }
 
 test "a frame that does not fit writes nothing" {
-    // GOAWAY with a one-octet value takes three octets. Two are not enough, and a writer that
+    // GOAWAY with a one-byte value takes three bytes. Two are not enough, and a writer that
     // ran out must leave nothing half-written behind it.
     var room: [3]u8 = undefined;
     var tight = Writer.init(room[0..2]);

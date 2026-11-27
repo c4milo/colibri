@@ -1,6 +1,6 @@
 //! The tests of streamed bodies over h3 at the pool (decision 153, design §8 steps 39e and 39f).
 //! Each request piece goes out in a DATA frame of its own, its `body_taken` event comes once the
-//! server acknowledged it, since QUIC sends a lost octet again by its offset (RFC 9000 §13.3), and
+//! server acknowledged it, since QUIC sends a lost byte again by its offset (RFC 9000 §13.3), and
 //! a server that needs no more of the body stops it (RFC 9114 §4.1). Each response piece stays in
 //! QUIC, which gives the server no credit for it until the program releases it (RFC 9000 §4.1).
 //! A request body goes on after the response's head (design §8 step 39g).
@@ -90,7 +90,7 @@ test "RFC 9000 §13.3: a piece handed at the last one's `body_taken` waits for i
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     // The program hands the next piece as it reads the event, and calls `receive` again before
-    // the piece goes out: the server acknowledged every octet the stream holds so far.
+    // the piece goes out: the server acknowledged every byte the stream holds so far.
     try pool.write_body(id, pieces[1], .more);
     const received = pool.receive(.none, quic_support.now_ns);
     try testing.expectEqual(null, received.event);
@@ -330,7 +330,7 @@ test "decision 49 as amended: a held h3 stream whose window grew leaves its rese
     try testing.expectEqual(grown_window_max, stream.send_flow.limit);
     try testing.expectEqual(1, count(.body));
     // RFC 9000 §4.1, §4.2: the reserve is left, and its frames make the other response larger
-    // than it. MAX_DATA follows each octet consumed below the reserve, so the response finishes.
+    // than it. MAX_DATA follows each byte consumed below the reserve, so the response finishes.
     try quic_support.server_answer(try answer_at("/dns-query"), 200, long_content[0..other_body_len]);
     for (0..rounds_max) |_| {
         if (count(.finished) > 0) break;
@@ -420,7 +420,7 @@ test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, 
     try testing.expectEqual(whole.len, exchange.response.body_sent);
 }
 
-/// The most `receive` calls in a row that report an event and take no octet, for the fixture's
+/// The most `receive` calls in a row that report an event and take no byte, for the fixture's
 /// pool. Test-only.
 const events_bound = pool_module.ConnectionPool(.{}).receive_events_without_input_max(.{});
 /// Where each piece of the test of the event bound lands, and the content it reads: more pieces

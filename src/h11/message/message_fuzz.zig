@@ -1,5 +1,5 @@
 //! The fuzz properties of h11's parsers, and the sweeps that run them over every input of up to
-//! two octets (decision 29, design §8 step 15a). They show that no input reaches an assertion
+//! two bytes (decision 29, design §8 step 15a). They show that no input reaches an assertion
 //! (invariant 24), and that what a parser accepts keeps the rules it checks. The properties read
 //! those rules again here, without the parsers' own helpers. Everything in this file is test-only.
 const std = @import("std");
@@ -11,7 +11,7 @@ const chunked = @import("../chunked/chunked.zig");
 const Smith = std.testing.Smith;
 const FieldSection = http.FieldSection;
 
-/// Most octets one fuzz input carries: room for a start line, a few field lines and a body.
+/// Most bytes one fuzz input carries: room for a start line, a few field lines and a body.
 const fuzz_input_len_max = 96;
 
 /// The highest code that three digits hold (RFC 9112 §4: status-code = 3DIGIT).

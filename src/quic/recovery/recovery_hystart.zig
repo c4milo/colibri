@@ -20,10 +20,10 @@ pub const Stage = enum { slow_start, conservative, done };
 
 /// What one acknowledgment does to the window.
 pub const Growth = enum {
-    /// The octets acknowledged, as in standard slow start (§4.2's `cwnd + min(N, L * SMSS)` with
+    /// The bytes acknowledged, as in standard slow start (§4.2's `cwnd + min(N, L * SMSS)` with
     /// L infinity).
     full,
-    /// The octets acknowledged divided by CSS_GROWTH_DIVISOR (§4.2).
+    /// The bytes acknowledged divided by CSS_GROWTH_DIVISOR (§4.2).
     conservative,
     /// None in slow start: the window enters congestion avoidance with `ssthresh = cwnd` (§4.2).
     avoidance,
@@ -57,7 +57,7 @@ pub const HyStart = struct {
 
     /// One ACK frame that arrived in slow start. `largest_sent_at_ns` is when the largest packet it
     /// newly acknowledged went out, and `rtt_ns` the round trip sample it gave, if any (RFC 9002
-    /// §5.1). The answer is how the window takes the octets the frame acknowledged.
+    /// §5.1). The answer is how the window takes the bytes the frame acknowledged.
     pub fn on_ack(held: *HyStart, largest_sent_at_ns: u64, rtt_ns: ?u64, now_ns: u64) Growth {
         if (held.stage == .done) return .full;
         // §4.2: "When windowEnd is ACKed, the current round ends".

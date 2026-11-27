@@ -33,9 +33,9 @@ pub const endpoint_slots: u32 = slots_max + slots_max;
 /// Instants one run moves through at most, and events one side reports at most in one turn.
 pub const instants_max: u32 = 256;
 pub const turn_events_max: u32 = 64;
-/// Octets each direction of a socket holds at most: a request head or a short response.
+/// Bytes each direction of a socket holds at most: a request head or a short response.
 pub const pipe_len: u32 = 4096;
-/// Octets of a response's content: "ok", which every body holds.
+/// Bytes of a response's content: "ok", which every body holds.
 pub const body_len: u32 = 64;
 
 /// The model's states one run keeps, each differing from the one before.
@@ -44,7 +44,7 @@ pub const states_max: u32 = 512;
 pub const steps_max: u32 = 16;
 /// The seeds `--pool-trace-write` writes, and `--pool-trace-check` runs by default.
 pub const written_seeds: u32 = 64;
-/// Octets of one logged state at its longest, and of one seed's module and configuration
+/// Bytes of one logged state at its longest, and of one seed's module and configuration
 /// together: every state at its longest.
 pub const state_len_max: u32 = 1024;
 pub const module_len_max: u32 = states_max * state_len_max;

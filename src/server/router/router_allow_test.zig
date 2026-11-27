@@ -20,7 +20,7 @@ test "decision 128: each method has a bit in decision 122 ruling 11's order, and
         .{ "PATCH", "/a", 0 }, .{ .delete, "/a", 1 }, .{ .get, "/b", 2 }, .{ "COPY", "/b", 3 }, .{ .post, "/a", 4 },
     });
     const A = router_allow.Allows(layout);
-    // RFC 9110 §9.1's order, then the tokens by octets.
+    // RFC 9110 §9.1's order, then the tokens by bytes.
     try testing.expectEqualDeep([_][]const u8{ "GET", "POST", "DELETE", "COPY", "PATCH" }, A.order);
     try testing.expectEqual(@as(router_allow.Mask, 0b10110), A.leaf_masks[layout.nodes[layout.edges[0].child].leaf.?] | 0);
     try testing.expectEqual(@as(router_allow.Mask, 1 << 3), router_allow.bit_of(&A.order, "COPY"));

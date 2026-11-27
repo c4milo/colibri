@@ -75,7 +75,7 @@ pub const Connection = struct {
     kind: Kind,
     peer: u8,
     honest: bool,
-    /// A TCP peer that reads its responses slowly. The run's socket takes every octet the endpoint
+    /// A TCP peer that reads its responses slowly. The run's socket takes every byte the endpoint
     /// writes at once, so what the peer has not read waits in the socket, never in the endpoint's
     /// output, and its h2 streams' send meters never wait (decision 110 as amended): the send rate
     /// may cut it, which a socket that fills would not. Design §8 step 21b.5 leaves a full socket

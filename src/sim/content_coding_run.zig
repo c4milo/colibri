@@ -38,7 +38,7 @@ const ipv4_len: usize = 4;
 const address_octet: u8 = 0x0a;
 const origin_port: u16 = 80;
 
-/// One direction's octets: written at the back, delivered in pieces, consumed from the front.
+/// One direction's bytes: written at the back, delivered in pieces, consumed from the front.
 const Stream = struct {
     octets: [limits.stream_len_max]u8,
     written: usize,
@@ -108,13 +108,13 @@ const now_ns: u64 = 0;
 /// Makes the plan's exchanges between a new client and server and runs them until each ended.
 pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Random) Error!void {
     try start(storage, plan, content_seed);
-    // Bounded: each round moves octets both ways, and the plan's responses end in fewer.
+    // Bounded: each round moves bytes both ways, and the plan's responses end in fewer.
     for (0..limits.rounds_max) |_| {
         storage.to_server.written += storage.pool.send_stream(storage.connection, storage.to_server.free(), now_ns);
         storage.to_server.deliver(pieces);
         try server_read(storage);
         try server_write(storage, plan);
-        // Once a round, where the connection's own `send` was: every octet leaves as it did.
+        // Once a round, where the connection's own `send` was: every byte leaves as it did.
         storage.to_client.written += storage.endpoint.send_stream(storage.accepted, storage.to_client.free(), now_ns);
         storage.to_client.deliver(pieces);
         client_read(storage);
@@ -186,7 +186,7 @@ fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize
     const response = &storage.responses[index];
     message.* = .{ .method = if (planned.head) "HEAD" else "GET", .path = "/" };
     response.* = .{ .body = &storage.bodies[index] };
-    // A body the client decodes or takes as it came is one octet short of the content when the
+    // A body the client decodes or takes as it came is one byte short of the content when the
     // plan says so; one it passes on coded gets all its room.
     const expected = plan_module.expect_short(planned);
     if (expected) response.body = storage.bodies[index][0 .. planned.content_len - 1];
@@ -201,7 +201,7 @@ fn fill(random: *Random, buffer: []u8) void {
     for (buffer) |*octet| octet.* = @truncate(random.next());
 }
 
-/// Content from `seed`: runs of text DEFLATE shrinks, or octets it cannot.
+/// Content from `seed`: runs of text DEFLATE shrinks, or bytes it cannot.
 fn fill_content(content: []u8, compressible: bool, seed: u64) void {
     var random = Random.init(seed);
     if (!compressible) return fill(&random, content);
@@ -209,13 +209,13 @@ fn fill_content(content: []u8, compressible: bool, seed: u64) void {
 }
 
 const text = "colibri codes content a request accepts, and decodes content it offered. ";
-/// How far a compressible octet's text may slip, so the runs vary.
+/// How far a compressible byte's text may slip, so the runs vary.
 const text_skew_max: u64 = 2;
 
 /// The server reads what the client sent and notes each request it must answer.
 fn server_read(storage: *Storage) Error!void {
     const stream = &storage.to_server;
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
         var received: server.ReceiveResult = undefined;
         storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, now_ns, &received);
@@ -273,7 +273,7 @@ fn respond(storage: *Storage, answer: *Answer, planned: *const plan_module.Excha
 /// server takes no more for now.
 fn write_content(storage: *Storage, answer: *Answer, planned: *const plan_module.Exchange) Error!bool {
     const content = storage.contents[answer.index][0..planned.content_len];
-    // Bounded: each pass takes an octet at least, or stops.
+    // Bounded: each pass takes a byte at least, or stops.
     for (0..content.len + 1) |_| {
         if (answer.written == content.len) return true;
         const left = content[answer.written..];
@@ -292,7 +292,7 @@ fn write_content(storage: *Storage, answer: *Answer, planned: *const plan_module
 /// The client reads what the server sent, and counts the exchanges that ended.
 fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
         const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .bytes = stream.held() } }, now_ns);
         stream.consumed += received.consumed;

@@ -39,7 +39,7 @@ pub const State = struct {
     closed: bool = false,
     /// Whether the handshake completed, which a closed session still did.
     completed: bool = false,
-    /// The octets a failed `handshake` wrote at the front of its output (RFC 9846 §6.2).
+    /// The bytes a failed `handshake` wrote at the front of its output (RFC 9846 §6.2).
     failure_written: usize = 0,
 };
 
@@ -118,7 +118,7 @@ pub fn Provider(comptime Held: type) type {
 }
 
 /// RFC 9846 §4.7: after the handshake, tickets and KeyUpdates ride records, which `read` opens, so
-/// colibri hands over no handshake octets.
+/// colibri hands over no handshake bytes.
 fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) provider_module.HandshakeReadError!usize {
     _ = .{ context, input, now_ns };
     return 0;
@@ -148,7 +148,7 @@ fn hand_over(state: *State, output: []u8) provider_module.HandshakeWriteError!us
 fn seal(role: anytype, plaintext: []const u8, output: []u8) provider_module.SealError!provider_module.Sealed {
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
     const fits = @min(plaintext.len, role.session.writable_len(output.len));
-    // RFC 9846 §5.2: a record carries at least one octet of application data here.
+    // RFC 9846 §5.2: a record carries at least one byte of application data here.
     if (fits == 0) return error.NoSpaceLeft;
     // RFC 9846 §6.1: a session that closed or failed seals nothing more.
     const written = role.session.write(plaintext[0..fits], output) catch return error.TlsFailed;
@@ -261,7 +261,7 @@ pub const FailError = error{
     /// The handshake has not completed, or the session already closed or failed, and chapulin
     /// sends an alert on a connected session alone. The session is as it was.
     NotConnected,
-    /// `output` holds fewer than `alert_record_len` octets. The session is as it was.
+    /// `output` holds fewer than `alert_record_len` bytes. The session is as it was.
     NoSpaceLeft,
     /// The write key seals no more records (RFC 9846 §5.5), so no alert went out. The session
     /// failed all the same.
@@ -291,7 +291,7 @@ pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailEr
 fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8, output: []u8) provider_module.ExportError!void {
     // RFC 9846 §7.5: the exporter secret exists once the handshake completes.
     if (role.session.state() != .connected) return error.HandshakeIncomplete;
-    // RFC 9846 §7.5: the exporter's output, which chapulin bounds at `CH_EXPORT_MAX` octets.
+    // RFC 9846 §7.5: the exporter's output, which chapulin bounds at `CH_EXPORT_MAX` bytes.
     if (output.len > c.CH_EXPORT_MAX) return error.OutputTooLong;
     if (output.len == 0) return;
     var storage: [c.CH_EXPORT_LABEL_MAX + 1]u8 = undefined;
@@ -301,8 +301,8 @@ fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8,
     role.session.export_keying_material(terminated, context_value orelse &.{}, output) catch return error.Unsupported;
 }
 
-/// chapulin takes an exporter label as a C string of at most `CH_EXPORT_LABEL_MAX` octets. A longer
-/// label, or one holding a zero octet, which C would end early, is one this provider has no
+/// chapulin takes an exporter label as a C string of at most `CH_EXPORT_LABEL_MAX` bytes. A longer
+/// label, or one holding a zero byte, which C would end early, is one this provider has no
 /// exporter for.
 fn label_string(label: []const u8, storage: *[c.CH_EXPORT_LABEL_MAX + 1]u8) ?[:0]const u8 {
     if (label.len > c.CH_EXPORT_LABEL_MAX) return null;

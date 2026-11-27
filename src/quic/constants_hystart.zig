@@ -1,6 +1,6 @@
 //! HyStart++'s constants (RFC 9406, decision 135), which `constants.zig` exports as `hystart`.
 //! Each is RFC 9406 §4.3's recommended value. Its L is infinity, because colibri paces (RFC 9002
-//! §7.7), so no constant limits the octets one ACK adds to the window.
+//! §7.7), so no constant limits the bytes one ACK adds to the window.
 const std = @import("std");
 const assert = std.debug.assert;
 const nanoseconds_per_millisecond = @import("constants.zig").nanoseconds_per_millisecond;
@@ -19,7 +19,7 @@ pub const rtt_divisor: u64 = 8;
 /// §4.3: N_RTT_SAMPLE, the round trip samples a round takes before its minimum is compared.
 pub const rtt_samples: u8 = 8;
 
-/// §4.3: CSS_GROWTH_DIVISOR. In Conservative Slow Start (CSS) the window grows by the octets
+/// §4.3: CSS_GROWTH_DIVISOR. In Conservative Slow Start (CSS) the window grows by the bytes
 /// acknowledged divided by it.
 pub const css_growth_divisor: u64 = 4;
 

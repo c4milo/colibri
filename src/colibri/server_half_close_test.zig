@@ -44,7 +44,7 @@ const Hold = struct {
     pub fn on_request(_: *Held, _: *server.RequestContext, _: *void, _: *const server.Request, _: *server.Response) !void {}
 
     pub fn on_data(_: *Held, _: *server.RequestContext, _: *void, body: *server.RequestBodyStream, _: *server.Response) !void {
-        // With no wrapper, one piece holds each octet of the event.
+        // With no wrapper, one piece holds each byte of the event.
         _ = body.next();
     }
 
@@ -98,7 +98,7 @@ fn turn_for(operations: []host.Operation, comptime kind: std.meta.Tag(host.Opera
     return find(operations[0..turned.operations], kind) orelse error.OperationMissing;
 }
 
-/// Gives the receive in flight on socket 0 the octets `octets`, as a peer sends them. No octets
+/// Gives the receive in flight on socket 0 the bytes `octets`, as a peer sends them. No bytes
 /// is the peer's close.
 fn deliver(octets: []const u8) void {
     const socket = &test_server.sockets[0];
@@ -171,8 +171,8 @@ test "decision 160: after the half-close the socket receives again, and the peer
     test_server.complete(&.{ .id = shutdown.id, .result = .shut_down }, now_ns);
     const socket = &test_server.sockets[0];
     try testing.expect(socket.half_closing and !socket.closing and !socket.failed);
-    // The client writes on, and the socket reads the octets. The next turn steps the socket: the
-    // engine discards the octets, and the socket receives again.
+    // The client writes on, and the socket reads the bytes. The next turn steps the socket: the
+    // engine discards the bytes, and the socket receives again.
     deliver("more of the body");
     _ = try turn_for(&operations, .receive);
     try testing.expect(socket.receiving and socket.unread().len == 0);
@@ -215,7 +215,7 @@ test "decision 159 as amended: a reset ends the connection at the next turn, and
     const accept = try turn_for(&operations, .accept);
     test_server.complete(&.{ .id = accept.id, .result = .accepted }, now_ns);
     _ = try turn_for(&operations, .receive);
-    // RFC 9112 §6.3: the content is 100 octets long and 3 arrive, so the request stays open.
+    // RFC 9112 §6.3: the content is 100 bytes long and 3 arrive, so the request stays open.
     deliver("POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 100\r\n\r\nabc");
     _ = try turn_for(&operations, .receive);
     const receive_id = test_server.operations.id(socket_module.slot_of(0, .receive));

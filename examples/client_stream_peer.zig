@@ -22,21 +22,21 @@ pub const content_type = "application/grpc";
 pub const count_trailer = "x-message-count";
 pub const count_value = "3";
 
-/// The octets the server writes before it sends them, at most.
+/// The bytes the server writes before it sends them, at most.
 const output_len = 16384;
 
 /// Events the server takes in one turn, and calls to `send_stream` one `send` event takes, at most.
 const events_per_turn_max = 64;
 const sends_per_event_max = 4;
 
-/// The octets of the request's body the server keeps, which it sends back from its own memory:
+/// The bytes of the request's body the server keeps, which it sends back from its own memory:
 /// the engine may read them until the request's `finished`.
 const echo_len_max = 1024;
 
 pub const Error = error{
     /// What arrived is not what was sent.
     ExchangeWrong,
-    /// A connection still owed octets after `sends_per_event_max` calls to `send_stream`.
+    /// A connection still owed bytes after `sends_per_event_max` calls to `send_stream`.
     SendUnfinished,
 };
 
@@ -53,7 +53,7 @@ var engine: Engine align(@alignOf(Engine)) = undefined;
 var received: server.ReceiveResult align(@alignOf(server.ReceiveResult)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
-/// The call's id, and the octets of its body the server sent back.
+/// The call's id, and the bytes of its body the server sent back.
 var call: ?server.RequestId align(@alignOf(server.RequestId)) = null;
 var echo: [echo_len_max]u8 = undefined;
 var echo_len: usize = 0;
@@ -84,7 +84,7 @@ pub fn closed() void {
     accepted = null;
 }
 
-/// One turn of the server: fire its deadlines, pass the engine the octets the socket read, and
+/// One turn of the server: fire its deadlines, pass the engine the bytes the socket read, and
 /// act on every event it reports.
 pub fn turn() !void {
     const input = try link.receive(.server);
@@ -188,7 +188,7 @@ pub fn over() bool {
     return ended == 1;
 }
 
-/// Whether the server answered the call whole, read `sent` octets of its body and its trailer
+/// Whether the server answered the call whole, read `sent` bytes of its body and its trailer
 /// section, and saw its connection end.
 pub fn check(sent: []const u8) bool {
     if (counted and answered == 1 and ended == 1 and std.mem.eql(u8, echo[0..echo_len], sent)) return true;

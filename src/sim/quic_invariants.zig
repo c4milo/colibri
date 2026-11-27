@@ -31,7 +31,7 @@ pub const Violation = error{
 pub const History = struct {
     /// The largest packet number sent in each space (RFC 9000 §12.3), or null before the first.
     largest_sent: [quic.core.levels_count]?u64,
-    /// Octets of every datagram this endpoint sent and received, counted by the harness and not
+    /// Bytes of every datagram this endpoint sent and received, counted by the harness and not
     /// read off the path, so invariant 18 is checked against the network and not colibri's count.
     octets_sent: u64,
     octets_received: u64,
@@ -126,7 +126,7 @@ test "each invariant this file reads is reported when it breaks" {
     // Invariant 17: the same number again in the same space.
     try testing.expectError(Violation.PacketNumberReused, test_history.on_sent(&test_client, sent, octets));
     // Invariant 20: a datagram addressed to another connection ID. The Destination Connection
-    // ID of a long header starts after byte 0, the Version and its length octet (RFC 8999 §5.1).
+    // ID of a long header starts after byte 0, the Version and its length byte (RFC 8999 §5.1).
     test_history.init(&test_client);
     const dcid_offset = invariant.first_octet_len + invariant.version_len + invariant.connection_id_length_len;
     octets[dcid_offset] ^= 1;

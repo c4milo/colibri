@@ -1,5 +1,5 @@
 //! What the tests of `colibri` share: a source each test passes as the program's, which fills its
-//! octets from a counter so every run draws the same octets, and the context a test makes of it,
+//! bytes from a counter so every run draws the same bytes, and the context a test makes of it,
 //! with no CPU feature (decision 175). A real program draws from a cryptographic source.
 //! Test-only.
 const stdx = @import("stdx");

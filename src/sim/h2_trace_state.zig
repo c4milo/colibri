@@ -25,7 +25,7 @@ pub const HeadKind = h2_trace_pair.HeadKind;
 pub const StreamState = enum { idle, open, half_closed_local, half_closed_remote, closed };
 /// How a closed stream closed, as the model names it.
 pub const Closing = enum { none, end_stream, rst_sent, rst_received };
-/// The frames the model carries: the client's preface, its 24 octets and its SETTINGS, is one, and
+/// The frames the model carries: the client's preface, its 24 bytes and its SETTINGS, is one, and
 /// the server's, its SETTINGS, another (RFC 9113 §3.4).
 pub const Kind = enum { head, interim, data, trailers, rst, goaway, preface, settings };
 
@@ -86,7 +86,7 @@ const type_offset: usize = 3;
 const flags_offset: usize = 4;
 const stream_offset: usize = 5;
 const header_len: usize = h2.constants.protocol.frame_header_len;
-/// Octets of a GOAWAY's Last-Stream-ID (RFC 9113 §6.8).
+/// Bytes of a GOAWAY's Last-Stream-ID (RFC 9113 §6.8).
 const last_stream_id_len: usize = 4;
 
 /// The model's state after a step, for a seed whose plan names `plan.streams` streams.
@@ -182,7 +182,7 @@ fn frames_of(queue: *const Queue, preface: Kind, frames: *[limits.frames_max]Fra
 pub fn headers_in(octets: []const u8) usize {
     var count: usize = 0;
     var counting: FrameIterator = .{ .octets = octets };
-    // Bounded: a frame is a header of `header_len` octets at least.
+    // Bounded: a frame is a header of `header_len` bytes at least.
     for (0..octets.len / header_len + 1) |_| {
         const frame = counting.next() orelse break;
         if (frame[type_offset] == type_headers) count += 1;
@@ -198,7 +198,7 @@ pub fn frames_in(octets: []const u8, heads: ?[]const HeadKind, frames: []Frame) 
     var head_index: usize = 0;
     var len: u32 = 0;
     var reading: FrameIterator = .{ .octets = octets };
-    // Bounded: a frame is a header of `header_len` octets at least.
+    // Bounded: a frame is a header of `header_len` bytes at least.
     for (0..octets.len / header_len + 1) |_| {
         const frame = reading.next() orelse break;
         const kind: Kind = switch (frame[type_offset]) {

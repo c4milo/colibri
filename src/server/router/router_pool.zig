@@ -38,15 +38,15 @@ const router_wrap = @import("router_wrap.zig");
 pub const Options = struct {
     /// The requests the router answers at once. One more gets 503.
     requests: u32 = constants.limits.router_requests_default,
-    /// Octets of each entry's response memory: the copies of its headers and trailers, and the
+    /// Bytes of each entry's response memory: the copies of its headers and trailers, and the
     /// bytes its body's writer writes. A program names it, 0 included, since the router cannot
     /// know the size of its responses (decision 163 ruling 9).
     response_bytes: usize,
-    /// Octets of each entry's request body memory: the bytes that a stream route's `on_data` left
+    /// Bytes of each entry's request body memory: the bytes that a stream route's `on_data` left
     /// unread or kept, and every byte of a function route's body. A body past it gets 413 (RFC
     /// 9110 §15.5.14). A program names it, 0 included, as it names `response_bytes`.
     body_bytes: usize,
-    /// Octets of each entry's copy of a request's header, for a function route whose request has a
+    /// Bytes of each entry's copy of a request's header, for a function route whose request has a
     /// body (decision 163 ruling 5). A program names it, 0 included, since the router cannot know
     /// the size of its requests.
     ///
@@ -56,11 +56,11 @@ pub const Options = struct {
     ///
     /// Above 0, the router copies the header of each request whose body is still to come. Over h2
     /// and h3 a GET may end in a later frame: an empty DATA frame with END_STREAM, or a FIN after
-    /// HEADERS. Such a GET takes a copy too. The copy holds the section's live lines: 8 octets of
+    /// HEADERS. Such a GET takes a copy too. The copy holds the section's live lines: 8 bytes of
     /// record for each line, and its name and value. Over h2 and h3 the lines hold the
     /// pseudo-header fields, and the copy holds no more: the method, the target, the scheme, the
     /// authority, the path and the query are those fields' values. A `:path` that starts with `?`
-    /// has the static "/" as its path, one octet more. Over h11 the copy holds the method and the
+    /// has the static "/" as its path, one byte more. Over h11 the copy holds the method and the
     /// target too, and each part that lies in neither the target nor a line, such as the scheme.
     /// A header past `header_bytes` gets 431 (RFC 6585 §5), with no call.
     header_bytes: usize,
@@ -145,7 +145,7 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
             return (TableOf{}).match(method, path, parameters);
         }
 
-        /// Octets of the router, which the program places.
+        /// Bytes of the router, which the program places.
         pub const memory_bytes = @sizeOf(Self);
 
         /// Starts the router in place, with each entry free (decision 158 ruling 1). It writes the

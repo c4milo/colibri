@@ -1,12 +1,12 @@
 //! The state of `spec/tla/server_deadlines`'s model, computed from the deadline trace run's
 //! endpoints after an action (https://github.com/c4milo/colibri/issues/86). Each variable is one the
-//! model names, in octets as the model counts them, and three more are colibri's own clocks, which
+//! model names, in bytes as the model counts them, and three more are colibri's own clocks, which
 //! TLC requires to run exactly when the model says they do.
 //!
 //! The windows, the credit gathered and the replies owed come from each endpoint's h2 connection.
 //! A stream's window keeps its last value once the stream's record is gone, as the model's does,
 //! and credit gathered on a stream whose DATA ended is dropped, as the model drops it. The frames
-//! in flight, and those colibri's output holds, are parsed out of the octets. What each message
+//! in flight, and those colibri's output holds, are parsed out of the bytes. What each message
 //! wrote and read comes from the calls each endpoint took and the events it reported
 //! (`deadline_trace_world.zig`).
 const std = @import("std");
@@ -26,7 +26,7 @@ pub const Frame = struct {
     kind: Kind = .data,
     /// The stream identifier, 0 for the connection.
     stream: u32 = 0,
-    /// Payload octets.
+    /// Payload bytes.
     len: u32 = 0,
     end: bool = false,
     /// A WINDOW_UPDATE's increment.
@@ -198,12 +198,12 @@ fn send_runs(connection: *const world_module.Connection, id: u64) bool {
     return false;
 }
 
-/// The frames `octets` holds, in order, the first `preface_len` octets counting as the preface.
+/// The frames `octets` holds, in order, the first `preface_len` bytes counting as the preface.
 fn frames_of(octets: []const u8, preface_len: usize) Error!Frames {
     var frames: Frames = .{};
     if (preface_len > 0) try push(&frames, .{ .kind = .preface });
     var reader = h2.core.Reader.init(octets[preface_len..]);
-    // Bounded: each pass reads a frame's header of nine octets at least.
+    // Bounded: each pass reads a frame's header of nine bytes at least.
     for (0..octets.len / h2.constants.protocol.frame_header_len + 1) |_| {
         const header = h2.frame.read_header(&reader) catch break;
         const payload = reader.take(header.length) catch unreachable;

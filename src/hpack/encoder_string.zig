@@ -12,8 +12,8 @@ const Writer = core.Writer;
 /// The H flag of a string literal: the highest bit of its prefix (RFC 7541 §5.2).
 const huffman_flag: u8 = 1 << (constants.protocol.string_prefix_bits - 1);
 
-/// Writes `octets` as a string literal, Huffman-coded when the code is shorter than the octets and
-/// raw otherwise. All of the octets are written, or none.
+/// Writes `octets` as a string literal, Huffman-coded when the code is shorter than the bytes and
+/// raw otherwise. All of the bytes are written, or none.
 pub fn write_shorter(output: *Writer, octets: []const u8) core.Writer.Error!void {
     const coded_len = wire.huffman.encoded_len(octets);
     if (coded_len >= octets.len) return wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, .raw);
@@ -23,7 +23,7 @@ pub fn write_shorter(output: *Writer, octets: []const u8) core.Writer.Error!void
     // prefix of the seven bits below the flag (§5.1), then the code.
     try wire.prefixed_integer.encode(constants.protocol.string_prefix_bits - 1, &cursor, huffman_flag, coded_len);
     try wire.huffman.encode(octets, &cursor);
-    // The literal is its length's octets and then the code.
+    // The literal is its length's bytes and then the code.
     assert(cursor.offset - output.offset > coded_len);
     output.* = cursor;
 }
@@ -37,22 +37,22 @@ fn write_by_two_measures(output: *Writer, octets: []const u8) core.Writer.Error!
     try wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, coding);
 }
 
-/// The longest string the tests vary, and the longest run of one octet: a run of a 5-bit code
-/// this long Huffman-codes to more than 127 octets, whose length takes two octets of a 7-bit
+/// The longest string the tests vary, and the longest run of one byte: a run of a 5-bit code
+/// this long Huffman-codes to more than 127 bytes, whose length takes two bytes of a 7-bit
 /// prefix (RFC 7541 §5.1).
 const varied_len_max = 40;
 const run_len_max = 220;
-/// The rooms the tests give a string past its raw literal's length: its length's octets, and one
-/// octet more.
+/// The rooms the tests give a string past its raw literal's length: its length's bytes, and one
+/// byte more.
 const rooms_past_string = 3;
 const room_max = run_len_max + rooms_past_string;
 /// What a buffer holds before a call.
 const untouched: u8 = 0xee;
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
 
 /// Fails, printing both outcomes, when `write_shorter` and the reference differ on `octets` with
-/// `room` octets of output: in whether they fail, or in the octets they leave written.
+/// `room` bytes of output: in whether they fail, or in the bytes they leave written.
 fn expect_same(octets: []const u8, room: usize) !void {
     var changed_buffer: [room_max]u8 = @splat(untouched);
     var reference_buffer: [room_max]u8 = @splat(untouched);
@@ -69,7 +69,7 @@ fn expect_same(octets: []const u8, room: usize) !void {
     return error.TestUnexpectedResult;
 }
 
-/// Compares on `octets` in each room from none to one octet past its raw literal.
+/// Compares on `octets` in each room from none to one byte past its raw literal.
 fn expect_same_in_every_room(octets: []const u8) !void {
     for (0..octets.len + rooms_past_string + 1) |room| try expect_same(octets, room);
 }
@@ -89,7 +89,7 @@ test "write_shorter writes what the reference writes for every string of up to t
 
 test "write_shorter writes what the reference writes for strings that mix code lengths, at every length" {
     var octets: [varied_len_max]u8 = undefined;
-    // Octets that step through the table by a stride, so that the strings mix short and long codes.
+    // Bytes that step through the table by a stride, so that the strings mix short and long codes.
     for ([_]usize{ 1, 7, 29, 131 }) |stride| {
         for (&octets, 0..) |*octet, index| octet.* = @truncate((index + 1) * stride);
         for (0..octets.len + 1) |len| try expect_same_in_every_room(octets[0..len]);

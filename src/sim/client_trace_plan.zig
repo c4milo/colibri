@@ -71,7 +71,7 @@ pub const Plan = struct {
     /// The instant each is made, and the instant it is cancelled, if it is.
     make_at_ns: [limits.requests_max]u64,
     cancel_at_ns: [limits.requests_max]?u64,
-    /// Octets of each request's content: none for a GET, some for a POST or a streamed PUT.
+    /// Bytes of each request's content: none for a GET, some for a POST or a streamed PUT.
     content_len: [limits.requests_max]u32,
     /// Whether the caller cancels a POST once its connection ended it and before the pool
     /// reported it, while its stream may still send the content (RFC 9000 §3.1).

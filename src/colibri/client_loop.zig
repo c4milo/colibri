@@ -45,10 +45,10 @@ pub const Family = enum(u1) { ipv4, ipv6 };
 /// (`datagram_socket.zig`).
 pub const Datagrams = datagram_socket.DatagramSockets(@typeInfo(Family).@"enum".fields.len);
 
-/// The octets of an IPv4 address (RFC 791 §3.1).
+/// The bytes of an IPv4 address (RFC 791 §3.1).
 const ipv4_len = @sizeOf(u32);
 
-/// The family of `address`: 4 octets are IPv4, and 16 are IPv6.
+/// The family of `address`: 4 bytes are IPv4, and 16 are IPv6.
 pub fn family_of(address: client.Address) Family {
     return if (address.len == ipv4_len) .ipv4 else .ipv6;
 }
@@ -183,7 +183,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     client_tcp.complete(run, index, kind, completion.result, now_ns);
 }
 
-/// Passes a `shutdown` to the pool once. A connection the shutdown ends owes its last octets, such
+/// Passes a `shutdown` to the pool once. A connection the shutdown ends owes its last bytes, such
 /// as h2's GOAWAY (RFC 9113 §6.8). The turn steps each running socket, because of a bug of the
 /// pool: after `shutdown`, an idle h2 connection never sends its GOAWAY. Its last `send_stream`
 /// wrote nothing and set `send_blocked`, and `shutdown` does not clear it, so the pool reports no

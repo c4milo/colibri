@@ -78,7 +78,7 @@ pub const HttpsRecord = files.pool.HttpsRecord;
 pub const Alternative = files.pool.Alternative;
 /// What a program passes `ConnectionPool.receive`, and what it returns.
 pub const Input = files.pool.Input;
-/// The octets a TCP socket read, with the connection whose socket read them (decision 125).
+/// The bytes a TCP socket read, with the connection whose socket read them (decision 125).
 pub const StreamBytes = files.pool.StreamBytes;
 pub const Datagram = files.pool.Datagram;
 pub const ReceiveResult = files.pool.ReceiveResult;
@@ -95,8 +95,8 @@ pub const Transport = files.pool.Transport;
 /// (decision 105). `ConnectionPool.phase` returns it, and the simulator's trace reads it. A program reads
 /// the events.
 pub const Phase = files.pool.Phase;
-/// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
-/// places: `ReceivePool(.{ .capacity = capacity })` for `capacity` octets, a whole number of
+/// The pool a QUIC connection holds the server's unread bytes in (decision 61), which the caller
+/// places: `ReceivePool(.{ .capacity = capacity })` for `capacity` bytes, a whole number of
 /// `quic.constants.limits.stream_receive_block_len` blocks, or the 1 MiB of `ReceivePool(.{})`.
 /// The capacity bounds every window the client advertises, and so how fast one connection
 /// receives.

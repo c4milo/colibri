@@ -90,7 +90,7 @@ pub fn observe_sent(connection: *QuicConnection, now_ns: u64) void {
 }
 
 /// Notes at `now_ns` whether colibri holds credit its client needs. Data credit stops the body
-/// meters, and no other credit does: a stream the client may open sends no octet of a body
+/// meters, and no other credit does: a stream the client may open sends no byte of a body
 /// (decision 130). Once any credit is out, the idle and head deadlines move by the time it was
 /// held.
 fn observe_credit(connection: *QuicConnection, now_ns: u64) void {

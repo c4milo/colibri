@@ -8,7 +8,7 @@
 //! connection of the run shares, and one TCP socket at a time (`pool_tcp.zig`). Each turn waits
 //! in Rotor's `tick` until an event arrives or the pool's next deadline passes, then reads the
 //! instant that tick read (decision 63), passes what arrived to the pool, and sends what it
-//! owes. A sent datagram's octets belong to Rotor until its send's event (Rotor's rule 3), so each
+//! owes. A sent datagram's bytes belong to Rotor until its send's event (Rotor's rule 3), so each
 //! is built in a slot of its own, and a datagram Rotor has no room for is one lost on the way,
 //! which RFC 9002 recovers.
 //!
@@ -155,11 +155,11 @@ fn pump(now_ns: u64) void {
 }
 
 /// Passes `first` to the pool and does what each event asks, until the pool consumes nothing
-/// and reports nothing. Returns the octets it consumed. A datagram is consumed whole.
+/// and reports nothing. Returns the bytes it consumed. A datagram is consumed whole.
 fn drain(first: Input, now_ns: u64) usize {
     var input = first;
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports one of the finitely many events.
+    // Bounded: each pass consumes a byte or reports one of the finitely many events.
     for (0..constants.wire_read_len + constants.requests_max * constants.steps_per_read_max) |_| {
         const received = pool.receive(input, now_ns);
         consumed += received.consumed;
@@ -173,7 +173,7 @@ fn drain(first: Input, now_ns: u64) usize {
     return consumed;
 }
 
-/// What is left of `input` once the pool consumed `consumed` octets of it.
+/// What is left of `input` once the pool consumed `consumed` bytes of it.
 fn rest_of(input: Input, consumed: usize) Input {
     return switch (input) {
         .none => .none,
@@ -239,7 +239,7 @@ fn send_datagrams(now_ns: u64) void {
 
 /// Writes what the pool's TCP connection owes into the socket's output.
 fn send_stream(now_ns: u64) void {
-    // Bounded: each pass writes an octet, or stops.
+    // Bounded: each pass writes a byte, or stops.
     for (0..constants.steps_per_read_max) |_| {
         if (!tcp.carrying()) return;
         const room = tcp.room();
@@ -252,7 +252,7 @@ fn send_stream(now_ns: u64) void {
 }
 
 /// A socket address as colibri names a peer's (decision 72), as `../quic/udp/udp_peer.zig`
-/// converts one: four octets for IPv4 and sixteen for IPv6, the port, and an IPv6 address's scope
+/// converts one: four bytes for IPv4 and sixteen for IPv6, the port, and an IPv6 address's scope
 /// id.
 fn peer_address(address: udp.Address) Address {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;

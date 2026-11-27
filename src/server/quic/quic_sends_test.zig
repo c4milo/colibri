@@ -25,7 +25,7 @@ const content: [windows * quota]u8 = @splat('r');
 const window_quota: u64 = quota;
 const window_small: u64 = 1_024;
 
-/// A server and a client connected, the client's streams starting with `stream_window` octets of
+/// A server and a client connected, the client's streams starting with `stream_window` bytes of
 /// credit and its connection with `connection_window`.
 fn connected(stream_window: u64, connection_window: u64) !void {
     support.client_stream_window = stream_window;
@@ -98,10 +98,10 @@ test "decision 110: a stream whose credit grows by the quota each window is not 
     const fetch = try answered_get();
     try support.pump(support.rounds_default);
     const first_end_ns = entry_of(fetch).meter.window_end_ns;
-    // The first window counted the octets the first credit covered.
+    // The first window counted the bytes the first credit covered.
     server_at(first_end_ns);
     try testing.expectEqual(null, cancelled_for(0));
-    // The client reads once, so its credit grows by one window's octets.
+    // The client reads once, so its credit grows by one window's bytes.
     try support.client_read();
     try support.pump(support.rounds_default);
     const second_end_ns = first_end_ns + constants.policy.rate_window_ns;
@@ -172,7 +172,7 @@ test "decision 110: a response its connection's credit holds waits on its peer b
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
     try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .bytes = &content, .end = false }));
     try support.pump(support.rounds_default);
-    // The client acknowledged every octet its connection's credit let through. The rest is
+    // The client acknowledged every byte its connection's credit let through. The rest is
     // within the stream's credit and waits on the connection's, which is the peer's to give.
     const outgoing = &connection.transport.streams.lookup(.{ .value = fetch.id }).live.outgoing;
     try testing.expectEqual(outgoing.framed_end, outgoing.acknowledged_len);
@@ -317,7 +317,7 @@ test "design §8 step 29d.19: a response its stream's credit holds is walked unt
     try testing.expect(marked(fetch));
     // The client reads all of it, so the response holds nothing its credit does not cover.
     // Each read grows the credit by the client's small window, so it takes many rounds. The
-    // record stays held while the last octets it sends wait for their acknowledgment.
+    // record stays held while the last bytes it sends wait for their acknowledgment.
     support.client_reads = true;
     for (0..support.rounds_paced * content.len / window_small) |_| {
         try support.pump(1);

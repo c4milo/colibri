@@ -35,9 +35,9 @@ pub const Event = enum {
     received_data,
     /// A STREAM frame carrying the FIN bit arrived, so the final size is known (§4.5).
     received_fin,
-    /// Every octet up to the final size has arrived.
+    /// Every byte up to the final size has arrived.
     all_data_received,
-    /// The application read every octet.
+    /// The application read every byte.
     application_read_all,
     /// A RESET_STREAM frame arrived (§3.2, §4.5).
     received_reset,
@@ -108,7 +108,7 @@ pub const Receiving = struct {
                 else => null,
             },
             // RFC 9000 §3.2: a RESET_STREAM in any state that has not finished ends the part.
-            // It is optional from "Data Recvd", where every octet already arrived.
+            // It is optional from "Data Recvd", where every byte already arrived.
             .received_reset => switch (receiving.state) {
                 .recv, .size_known, .data_recvd => .reset_recvd,
                 else => null,
@@ -148,7 +148,7 @@ pub const Receiving = struct {
             if (final_size != known) return error.FinalSizeChanged;
             return;
         }
-        // RFC 9000 §4.5: the final size accounts for every octet sent, so it cannot be below
+        // RFC 9000 §4.5: the final size accounts for every byte sent, so it cannot be below
         // what has already arrived.
         if (final_size < receiving.highest_offset) return error.FinalSizeChanged;
         receiving.final_size = final_size;
@@ -156,8 +156,8 @@ pub const Receiving = struct {
 
     /// Whether the endpoint still offers flow control credit. RFC 9000 §3.2: in "Size Known" it
     /// no longer needs to send MAX_STREAM_DATA frames.
-    /// Whether octets that arrive now are for the application: RFC 9000 §3.2 has "Recv" and
-    /// "Size Known" take STREAM frames, and every later state has the octets already or wants none.
+    /// Whether bytes that arrive now are for the application: RFC 9000 §3.2 has "Recv" and
+    /// "Size Known" take STREAM frames, and every later state has the bytes already or wants none.
     pub fn accepts_data(receiving: *const Receiving) bool {
         return receiving.state == .recv or receiving.state == .size_known;
     }

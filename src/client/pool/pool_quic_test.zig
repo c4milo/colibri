@@ -326,14 +326,14 @@ test "decision 125 ruling 8: a QUIC open still owed when set_destination comes g
     try testing.expectEqual(https_port, open.to.port);
 }
 
-/// The octets `start_quic` draws before the session's first draw: the grease value, then the two
+/// The bytes `start_quic` draws before the session's first draw: the grease value, then the two
 /// connection IDs.
 const grease_len: usize = @sizeOf(u64);
 const id_len: usize = constants.policy.quic_id_len;
 const start_draw_len: usize = grease_len + id_len + id_len;
 
-/// Requires `held` to be the next octets of `twin`, in the order decision 120 rules: the grease
-/// value, its least significant octet first, then the source ID, then the original destination ID.
+/// Requires `held` to be the next bytes of `twin`, in the order decision 120 rules: the grease
+/// value, its least significant byte first, then the source ID, then the original destination ID.
 fn expect_drawn(twin: *connection_support.Stream, held: quic_connection.Start) !void {
     var drawn: [start_draw_len]u8 = undefined;
     twin.random().bytes(&drawn);

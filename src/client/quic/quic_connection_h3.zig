@@ -1,12 +1,12 @@
 //! The h3 half of a QUIC client connection (decision 100): exchanges written as request streams
-//! through h3's send path, the streams' octets supplied to QUIC, and h3's events recorded in the
+//! through h3's send path, the streams' bytes supplied to QUIC, and h3's events recorded in the
 //! response whose stream they name (RFC 9114 §4.1).
 //!
 //! A request stream carries the HEADERS frame, then, when the request has content, one DATA frame
 //! for each piece, whose header the connection keeps with it (decision 79) and whose content is the
 //! piece's: the request's whole body, or each piece of a streamed one (decision 153). QUIC reads
 //! them by offset and may read them again until the stream closes (RFC 9000 §3.1), so an ended
-//! exchange holds its octets, and its `finished` event, until then.
+//! exchange holds its bytes, and its `finished` event, until then.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -59,7 +59,7 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     slot.stage = .sent;
     slot.holds_octets = true;
     if (!write_trailers(connection, slot, &writer, now_ns)) return true;
-    // The stream just opened, so its sending part takes octets (RFC 9000 §3.1).
+    // The stream just opened, so its sending part takes bytes (RFC 9000 §3.1).
     quic_streamed.supply_piece(connection, slot, now_ns) catch unreachable;
     return true;
 }
@@ -67,7 +67,7 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
 /// Writes the trailer section of `slot`'s request into its stream's frames, after the HEADERS
 /// frame, and the stream supplies it after the last piece (RFC 9114 §4.1, decision 152). The
 /// section is known at `request`, so it is encoded once with the head, and QUIC may read it again
-/// from the same octets (RFC 9000 §13.3). Returns false when the exchange ended invalid.
+/// from the same bytes (RFC 9000 §13.3). Returns false when the exchange ended invalid.
 fn write_trailers(connection: *QuicConnection, slot: *Slot, writer: *quic.core.Writer, now_ns: u64) bool {
     const stream = &connection.streams[connection.slots.index_of(slot)];
     stream.trailers_len = 0;
@@ -210,7 +210,7 @@ fn headers_first(connection: *QuicConnection, stream_id: u64) bool {
 
 /// Reads every event h3 has at `now_ns`, and records what each means for the exchange it names.
 pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
-    // Bounded: every event reads at least one octet the pool holds, or ends a stream.
+    // Bounded: every event reads at least one byte the pool holds, or ends a stream.
     for (0..constants.limits.h3_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             // RFC 9114 §8: h3 failed the connection, and QUIC owes the CONNECTION_CLOSE.
@@ -276,7 +276,7 @@ fn on_data(connection: *QuicConnection, data: h3.Connection.Data) void {
     response_write.append_body(slot, data.octets, connection.config.cpu_features) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
 
-/// Content of a streamed response, which h3 left in QUIC (RFC 9000 §4.1): its first octets, as
+/// Content of a streamed response, which h3 left in QUIC (RFC 9000 §4.1): its first bytes, as
 /// many as `Response.body` holds, are the next piece. h3 copies them from QUIC straight into
 /// `Response.body`, the one copy (decision 153 ruling 12). QUIC takes them when the caller releases
 /// the piece, and h3 reads nothing more of the stream until then (decision 153 ruling 7).
@@ -291,7 +291,7 @@ fn on_piece(connection: *QuicConnection, stream_id: u64, len: u64) void {
 }
 
 /// The caller gave back the piece of exchange `id` its `Response.body` held: QUIC takes its
-/// octets, which gives the server credit for them (RFC 9000 §4.1), and h3 reads the stream on.
+/// bytes, which gives the server credit for them (RFC 9000 §4.1), and h3 reads the stream on.
 pub fn release_body(connection: *QuicConnection, id: event.RequestId) void {
     // The pool releases only a piece the connection reported.
     const slot = connection.slots.of_id(id).?;
@@ -299,7 +299,7 @@ pub fn release_body(connection: *QuicConnection, id: event.RequestId) void {
     // A connection that ended holds no content for the piece.
     if (connection.stopped) return;
     // The exchange may have ended while the caller held the piece: RFC 9114 §5.2's GOAWAY refuses
-    // a stream that h3 still reads, so QUIC takes the piece's octets all the same. h3 takes
+    // a stream that h3 still reads, so QUIC takes the piece's bytes all the same. h3 takes
     // nothing of a stream that was reset or closed since.
     connection.h3.release_data(&connection.transport, slot.stream_id, len);
     connection.read_owed = true;
@@ -393,7 +393,7 @@ test "RFC 9114 §5.2: a GOAWAY refuses the streams at or past its ID and those n
     try testing.expect(connection.draining and connection.owed.draining);
 }
 
-/// Where the pieces of the tests' streamed responses land: two octets, so the server's content
+/// Where the pieces of the tests' streamed responses land: two bytes, so the server's content
 /// comes in more than one. Test-only.
 threadlocal var piece: [piece_len]u8 = undefined;
 const piece_len: usize = 2;
@@ -449,6 +449,6 @@ test "decision 153 ruling 12: h3 copies a streamed piece once, into `Response.bo
     try testing.expect(std.mem.allEqual(u8, &support.connection.body, untouched_octet));
 }
 
-/// The octet the connection's buffer is filled with, which a streamed piece may not change.
+/// The byte the connection's buffer is filled with, which a streamed piece may not change.
 /// Test-only.
 const untouched_octet: u8 = 0xa5;

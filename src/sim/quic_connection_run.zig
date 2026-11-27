@@ -243,7 +243,7 @@ const Run = struct {
         return quic_endpoint.network_ecn(sent.ecn);
     }
 
-    /// How many octets off the front of the datagram `sent` describes the run's adversary takes
+    /// How many bytes off the front of the datagram `sent` describes the run's adversary takes
     /// (`check.Adversary`): none, all of them, which drops it, or the packets before its 1-RTT one.
     fn adversary_cut_len(run: *const Run, side: Side, sent: *const quic.Connection.Sent) usize {
         switch (run.storage.adversary) {
@@ -259,7 +259,7 @@ const Run = struct {
         }
     }
 
-    /// The octets of the Initial and Handshake packets at the front of a client datagram, sent once
+    /// The bytes of the Initial and Handshake packets at the front of a client datagram, sent once
     /// the client's handshake completed, for the first `check.finished_cuts_max` such datagrams.
     fn client_finished_cut_len(run: *const Run, side: Side, sent: *const quic.Connection.Sent) usize {
         if (side != .client or run.result.adversary_dropped >= check.finished_cuts_max) return 0;

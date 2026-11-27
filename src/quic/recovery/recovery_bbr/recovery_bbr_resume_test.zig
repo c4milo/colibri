@@ -25,8 +25,8 @@ const start_ns: u64 = 1_000_000_000;
 const rtt_ns: u64 = 100_000_000;
 const waits: u64 = 7;
 const initial_packets: u64 = recovery_congestion.initial_window(datagram_len) / datagram_len;
-/// A saved window of 400,000 octets over 100 ms: a jump of 200,000, so a probing rate of
-/// 2,000,000 octets a second.
+/// A saved window of 400,000 bytes over 100 ms: a jump of 200,000, so a probing rate of
+/// 2,000,000 bytes a second.
 const saved_window_len: u64 = 400_000;
 const probing_rate: u64 = 2_000_000;
 const saved: recovery_resume.ResumeState = .{ .window_len = saved_window_len, .rtt_ns = rtt_ns, .saved_at_ns = start_ns };

@@ -146,7 +146,7 @@ fn client_state(state: *State, tracker: *const Tracker, scope: Scope, client: *c
     }
 }
 
-/// Inserts whose octets the client's QUIC framed at least once.
+/// Inserts whose bytes the client's QUIC framed at least once.
 fn inserts_framed(tracker: *const Tracker, client: *const Endpoint) u64 {
     const id = client.h3.local.encoder_id orelse return 0;
     const stream = h3_trace_tracker.live(&client.transport.connection, .{ .value = id }) orelse return 0;

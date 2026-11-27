@@ -377,7 +377,7 @@ test "decision 175: a hosted server draws its keys from the context its program 
 test "decision 150 ruling 9: a server given no source draws from the system" {
     try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .engine = .{ .cpu_features = .none(), .tls_buffer = &fixture.tls_buffer }, .unix_seconds = testdata.now_seconds }, &fixture.router, &fixture.context);
     const values = test_server.engine_config.tls.?;
-    // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
+    // Thirty-two bytes from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
     test_server.deinit();
 }

@@ -103,14 +103,14 @@ pub fn write_body(pool: anytype, id: RequestId, piece: []const u8, end: bool) po
     // Decision 153: only a streamed request's body goes in pieces.
     assert(entry.request.streamed.request);
     // RFC 9113 §6.9 and RFC 9000 §13.3: flow control may hold the piece back, and QUIC sends a
-    // lost octet again by its offset, so the pool reads the piece until its `body_taken`.
+    // lost byte again by its offset, so the pool reads the piece until its `body_taken`.
     if (entry.piece_held) return error.PieceHeld;
     // RFC 9112 §7.1, RFC 9113 §8.1 and RFC 9114 §4.1: nothing follows the end of the content.
     if (entry.body_ended) return error.BodyEnded;
     // RFC 9113 §8.7: the pool refused the exchange unprocessed, so no more of it goes out.
     if (entry.stage == .ended) return error.BodyStopped;
     const handed = entry.handed_len + piece.len;
-    // RFC 9110 §8.6: the octets of a body are the length it states, no more and no fewer.
+    // RFC 9110 §8.6: the bytes of a body are the length it states, no more and no fewer.
     if (entry.request.streamed.request_len) |stated| assert(handed <= stated and (!end or handed == stated));
     if (entry.stage == .carried) try pool_connection.write_body(pool, entry.carrier, entry.carried_id, piece, end);
     entry.piece = piece;
@@ -139,7 +139,7 @@ pub fn cancel(pool: anytype, id: RequestId, now_ns: u64) void {
 }
 
 pub fn receive(pool: anytype, input: Input, now_ns: u64) ReceiveResult {
-    // Decision 125: a TCP connection's `send` comes in a call that hands it no octets, once it read
+    // Decision 125: a TCP connection's `send` comes in a call that hands it no bytes, once it read
     // what the program held for it, as a program sends once it drained `receive`.
     const sends = input != .stream or input.stream.bytes.len == 0;
     if (report(pool, now_ns, sends)) |owed| return .{ .consumed = 0, .event = owed };

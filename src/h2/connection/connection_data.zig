@@ -5,7 +5,7 @@
 //! the two are not the same error: §6.9.1 makes the connection's a connection error of
 //! FLOW_CONTROL_ERROR and the stream's a stream error of the same code. Both windows count the
 //! whole payload, padding included (§6.1, §10.7), and both are released as soon as the frame is
-//! handed to the caller, because colibri holds no octet of it (design §4.1). A stream opened with
+//! handed to the caller, because colibri holds no byte of it (design §4.1). A stream opened with
 //! `hold_credit` is the one exception: its stream credit for the data waits for the caller's
 //! `release_stream` (`connection_data_release.zig`).
 //!
@@ -78,7 +78,7 @@ fn count_connection_window(target: *Connection, payload_len: u32) Error!void {
 }
 
 /// Counts the whole payload against the stream's receive window and releases it. A stream that
-/// holds its credit releases only `padding_len`, the octets around the data, which the caller
+/// holds its credit releases only `padding_len`, the bytes around the data, which the caller
 /// never sees. The event it returns is the stream's refusal, when the peer sent more than the
 /// window held.
 fn count_stream_window(target: *Connection, header: frame.Header, record: *Stream, padding_len: u32, now_ns: u64) Error!?Event {
@@ -100,7 +100,7 @@ fn count_stream_window(target: *Connection, header: frame.Header, record: *Strea
     return null;
 }
 
-/// Compares the octets received with the Content-Length the message declared, once the peer says
+/// Compares the bytes received with the Content-Length the message declared, once the peer says
 /// it has sent them all (RFC 9113 §8.1.1).
 fn check_content_length(
     target: *Connection,
@@ -157,7 +157,7 @@ test "DATA on an open stream is reported, and counted against both windows" {
     try testing.expectEqualStrings("test", event.data.payload);
     try testing.expectEqual(1, event.data.stream_id);
     try testing.expect(!event.data.end_stream);
-    // Every octet is handed to the caller at once, so nothing is held back (design §4.1).
+    // Every byte is handed to the caller at once, so nothing is held back (design §4.1).
     try testing.expectEqual(0, test_connection.receive_window.unreleased);
     try testing.expectEqual("test".len, test_connection.receive_window.released);
     const record = test_connection.streams.lookup(1).live;
@@ -209,7 +209,7 @@ test "http2/8.1.1: a content-length that differs from the DATA received is a str
     _ = try feed_post(1, "5");
     const refused = (try feed_data(1, "test", true)).?;
     try testing.expectEqual(constants.protocol.error_protocol_error, refused.stream_refused.error_code);
-    // The same request whose octets match is reported and ends the stream.
+    // The same request whose bytes match is reported and ends the stream.
     try start_server();
     _ = try feed_post(1, "4");
     const event = (try feed_data(1, "test", true)).?;
@@ -231,7 +231,7 @@ test "§5.1: DATA on a stream colibri reset still costs the connection window" {
 test "the padding of a DATA frame costs window and is not part of the payload (§6.1, §10.7)" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    // Pad Length 4, then "ab", then four padding octets.
+    // Pad Length 4, then "ab", then four padding bytes.
     const padded = try frame_bytes(test_input, constants.protocol.frame_type_data, constants.protocol.flag_padded, 1, "\x04ab\x00\x00\x00\x00");
     const event = (try feed(padded)).?;
     try testing.expectEqualStrings("ab", event.data.payload);

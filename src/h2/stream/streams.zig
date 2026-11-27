@@ -62,9 +62,9 @@ pub const Stream = struct {
     /// Whether the peer opened the stream: its identifier has the peer's parity (RFC 9113 §5.1.1).
     peer_initiated: bool = false,
     /// The content-length the message declared, which the connection compares with the DATA
-    /// octets received (RFC 9113 §8.1.1). This table only stores it.
+    /// bytes received (RFC 9113 §8.1.1). This table only stores it.
     content_length: ?u64 = null,
-    /// The DATA payload octets received on the stream, for the same comparison. This table only
+    /// The DATA payload bytes received on the stream, for the same comparison. This table only
     /// stores it.
     data_received_len: u64 = 0,
     /// The value of `Streams.sequence` when the stream closed. The lowest is the oldest.

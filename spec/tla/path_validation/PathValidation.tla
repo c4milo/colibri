@@ -7,7 +7,7 @@
 (*                                                                         *)
 (* The server moves on the first packet from the new address that is not *)
 (* probing, then challenges the new path within §8's allowance: three     *)
-(* octets out for each one in, counted here in packets. It sends another  *)
+(* bytes out for each one in, counted here in packets. It sends another  *)
 (* challenge each PTO while it has attempts and allowance left (§13.3),   *)
 (* and gives up when its §8.2.4 timer runs out, which on this path closes *)
 (* the connection: the old binding answers nothing (§9.3.2).              *)
@@ -33,7 +33,7 @@ CONSTANTS
     Attempts,           \* path_challenge_attempts
     WithholdAcks,       \* the server sends no ACK on the path until validated
     NoAckRepeat,        \* a challenge carries an ACK only when one is newly owed
-    FillWithData,       \* a challenge's packet takes every octet §8 allows
+    FillWithData,       \* a challenge's packet takes every byte §8 allows
     Window,             \* the client's congestion window, in packets
     ClientData,         \* packets the client uploads from the new address
     InitialAck,         \* the client's first packet there is an ACK alone

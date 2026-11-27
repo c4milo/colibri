@@ -36,7 +36,7 @@ pub const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
 
 /// RFC 9000 §7.3's Figure 8: C1 is the client's own, S1 the connection ID it first addressed and
-/// S2 the one the Retry carries. Fixed octets, because §5.1 wants them unpredictable and
+/// S2 the one the Retry carries. Fixed bytes, because §5.1 wants them unpredictable and
 /// invariant 5 forbids colibri a random number.
 const c1_octet: u8 = 0xc1;
 const s1_octet: u8 = 0x51;
@@ -46,7 +46,7 @@ pub const c1: [id_len]u8 = @splat(c1_octet);
 pub const s1: [id_len]u8 = @splat(s1_octet);
 pub const s2: [id_len]u8 = @splat(s2_octet);
 
-/// The Retry Token of §17.2.5, as octets nothing reads the value of.
+/// The Retry Token of §17.2.5, as bytes nothing reads the value of.
 const token_octet: u8 = 0x7c;
 const token_len: usize = 24;
 const test_token: [token_len]u8 = @splat(token_octet);
@@ -58,7 +58,7 @@ const datagram_len: usize = 512;
 var datagram: [datagram_len]u8 = undefined;
 /// Where a built packet goes, apart from the Retry `datagram` holds.
 pub var output: [datagram_len]u8 = undefined;
-/// More handshake octets than a packet can hold, so what bounds a payload is the room the header
+/// More handshake bytes than a packet can hold, so what bounds a payload is the room the header
 /// left rather than what the provider owes.
 const filler_octet: u8 = 0x6d;
 const filler: [datagram_len]u8 = @splat(filler_octet);
@@ -71,14 +71,14 @@ var seen_len: usize = 0;
 
 /// How long a token this suite writes stays valid, which RFC 9000 §8.1.4 makes "a short time".
 pub const token_lifetime_ns: u64 = 1_000_000_000;
-/// The first octet of this suite's Retry tokens, which tells them from any other (§8.1.1).
+/// The first byte of this suite's Retry tokens, which tells them from any other (§8.1.1).
 pub const retry_token_type: u8 = 0x01;
-/// Octets of a token before its connection IDs: the type, a checksum of the address it is bound
-/// to, and when it expires. Each ID then follows its one-octet length (decision 55).
+/// Bytes of a token before its connection IDs: the type, a checksum of the address it is bound
+/// to, and when it expires. Each ID then follows its one-byte length (decision 55).
 const token_head_len: usize = 1 + @sizeOf(u32) + @sizeOf(u64);
 
-/// Octets of the token this suite writes for `ids`.
-/// The most octets a token this suite writes can hold: two connection IDs of the longest length.
+/// Bytes of the token this suite writes for `ids`.
+/// The most bytes a token this suite writes can hold: two connection IDs of the longest length.
 pub const token_bytes_max: usize = token_head_len + (1 + crypto.constants.protocol.connection_id_len_max) + (1 + crypto.constants.protocol.connection_id_len_max);
 
 pub fn suite_token_len(ids: crypto.suite.RetryConnectionIds) usize {
@@ -87,7 +87,7 @@ pub fn suite_token_len(ids: crypto.suite.RetryConnectionIds) usize {
 const tag_len: usize = crypto.constants.protocol.retry_integrity_tag_len;
 
 /// A `crypto.Suite` that answers the Retry questions and nothing else. It holds no key: the tag
-/// and the token are checksums, which detect a changed octet and prove nothing else.
+/// and the token are checksums, which detect a changed byte and prove nothing else.
 pub const TagChecker = struct {
     /// Makes `retry_tag_write` refuse, as a suite written for clients alone would. Test-only.
     writes_tag: bool,
@@ -177,7 +177,7 @@ pub const TagChecker = struct {
 };
 
 /// RFC 9001 §5.8's tag, as four checksums of the pseudo-packet. Network byte order, so one host's
-/// octets are every host's (invariant 5).
+/// bytes are every host's (invariant 5).
 fn write_tag(pseudo_packet: []const u8, tag: *[tag_len]u8) void {
     const words = tag_len / @sizeOf(u32);
     for (0..words) |index| {
@@ -200,7 +200,7 @@ fn write_token(writer: *Writer, address: []const u8, ids: *const crypto.suite.Re
     try writer.write_bytes(ids.retry_source_slice());
 }
 
-/// A Retry token's rest, after its type octet. RFC 9000 §8.1.4 binds it to an address, so the
+/// A Retry token's rest, after its type byte. RFC 9000 §8.1.4 binds it to an address, so the
 /// checksum must match, and accepts it "only for a short time", read back rather than recomputed.
 fn read_token(reader: *core.Reader, address: []const u8, now_ns: u64) !crypto.suite.TokenCheck {
     const name = try reader.take_int_big(u32);
@@ -370,7 +370,7 @@ test "RFC 9000 §8.1.2: a token longer than colibri repeats is discarded" {
     const long_token: [constants.limits.token_len_max + 1]u8 = @splat(token_octet);
     const outcome = receive(try retry_packet(&s2, &long_token));
     try testing.expectEqual(retry.Discarded.token_too_long, outcome.discarded);
-    // One octet shorter is held, so the refusal is the storage and not the Retry.
+    // One byte shorter is held, so the refusal is the storage and not the Retry.
     const held: [constants.limits.token_len_max]u8 = @splat(token_octet);
     const taken = receive(try retry_packet(&s2, &held));
     try testing.expectEqualSlices(u8, &s2, taken.taken.destination);
@@ -413,7 +413,7 @@ test "RFC 9000 §17.2.2: the Token Length and Token are counted when the header 
     suite_holder.init();
     var provider_holder: build_test.Fake = .{ .owed = &filler, .owed_level = .initial };
     var scratch: packet_build.DefaultScratch = .{};
-    // A header sized without its Token leaves room for octets the packet cannot hold, so the
+    // A header sized without its Token leaves room for bytes the packet cannot hold, so the
     // payload overruns the output and the suite refuses to seal. Building at all is the check.
     const built = (try packet_build.build(
         &test_connection,
@@ -430,7 +430,7 @@ test "RFC 9000 §17.2.2: the Token Length and Token are counted when the header 
     try testing.expectEqualSlices(u8, &test_token, parsed.token);
 }
 
-/// The CRYPTO frame of a packet this file built, read back off the octets it wrote.
+/// The CRYPTO frame of a packet this file built, read back off the bytes it wrote.
 fn crypto_frame_of(built: packet_build.Built) !frame_module.Frame {
     const parsed = (try header.read(output[0..built.len], test_connection.identity.local_len())).long;
     // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. `RoundTrip`
@@ -467,7 +467,7 @@ test "RFC 9000 §17.2.5.3: the Initial after a Retry repeats the handshake messa
     try testing.expectEqual(0, before.offset);
     var sent: [token_len]u8 = undefined;
     @memcpy(&sent, before.data);
-    // The provider gave its octets up and owes nothing more, which is why colibri keeps them.
+    // The provider gave its bytes up and owes nothing more, which is why colibri keeps them.
     try testing.expectEqual(0, provider_holder.owed.len);
 
     _ = receive(try retry_packet(&s2, &test_token));
@@ -484,7 +484,7 @@ test "RFC 9000 §17.2.5.3: the Initial after a Retry repeats the handshake messa
 
 test "RFC 9000 §17.2.5.3: a Retry is discarded when the first flight was forgotten" {
     open_as(.client);
-    // A flight longer than the send window forgets the octets it already framed, which
+    // A flight longer than the send window forgets the bytes it already framed, which
     // `send_base` above zero is. colibri cannot repeat what it no longer holds.
     connection_module.crypto_at(&test_connection, .initial).send_base = 1;
     const outcome = receive(try retry_packet(&s2, &test_token));

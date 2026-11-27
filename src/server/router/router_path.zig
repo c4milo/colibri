@@ -1,5 +1,5 @@
 //! The one pass over a request's path that `match` makes before its walk (decision 122, design §8
-//! step 13h). It reads each octet of the path once (INV-32), decides each one through a table of
+//! step 13h). It reads each byte of the path once (INV-32), decides each one through a table of
 //! classes that the compiler builds, and records where the first segments end and which of them
 //! hold a "%". The walk then reads each segment's end from the record, so it searches for no "/"
 //! and no "%". A path that ends in "/" has an empty last segment, which the record holds too. The pass refuses what `router_match.zig`'s header, rules 3 to 7, refuses.
@@ -9,16 +9,16 @@ const constants = @import("../constants.zig");
 const router_pattern = @import("router_pattern.zig");
 const percent = @import("http").uri;
 
-/// The octet that ends a path and starts its query (RFC 3986 §3.3, §3.4).
+/// The byte that ends a path and starts its query (RFC 3986 §3.3, §3.4).
 const query_start = '?';
-/// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
+/// The byte that starts a percent-encoded byte (RFC 3986 §2.1).
 const percent_sign = '%';
 
-/// What one octet of a path is to the pass.
+/// What one byte of a path is to the pass.
 const Class = enum(u8) { pchar, percent, separator, query, refused };
 
-/// Each octet's class: RFC 3986 §3.3's `pchar` but "%", the "%" of a pct-encoded octet, the "/"
-/// between segments, the "?" that ends the path, and every other octet, which no route matches.
+/// Each byte's class: RFC 3986 §3.3's `pchar` but "%", the "%" of a pct-encoded byte, the "/"
+/// between segments, the "?" that ends the path, and every other byte, which no route matches.
 const classes: [std.math.maxInt(u8) + 1]Class = build: {
     var table: [std.math.maxInt(u8) + 1]Class = undefined;
     for (&table, 0..) |*class, octet| class.* = if (router_pattern.path_octets[octet]) .pchar else .refused;
@@ -29,7 +29,7 @@ const classes: [std.math.maxInt(u8) + 1]Class = build: {
 };
 
 comptime {
-    // The three octets with classes of their own are not pchars.
+    // The three bytes with classes of their own are not pchars.
     assert(!router_pattern.path_octets[percent_sign]);
     assert(!router_pattern.path_octets[router_pattern.separator]);
     assert(!router_pattern.path_octets[query_start]);
@@ -44,7 +44,7 @@ pub fn Segments(comptime capacity: usize) type {
     comptime assert(capacity > 0 and capacity <= @bitSizeOf(u64));
     return struct {
         path: []const u8 = router_pattern.root,
-        /// One past the last octet of each of the first `capacity` segments, in `path`.
+        /// One past the last byte of each of the first `capacity` segments, in `path`.
         ends: [capacity]u16 = undefined,
         /// Bit `i` is set when segment `i` holds a "%".
         encoded: u64 = 0,
@@ -57,7 +57,7 @@ pub fn Segments(comptime capacity: usize) type {
 /// no route.
 pub fn read(comptime capacity: usize, target: []const u8, segments: *Segments(capacity)) bool {
     segments.* = .{};
-    // INV-8: `path_len_max` bounds the octets that one match reads.
+    // INV-8: `path_len_max` bounds the bytes that one match reads.
     if (target.len > constants.limits.path_len_max) return false;
     // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
     // and a query gives the query alone (`Request.path`), so its path is the root.
@@ -133,7 +133,7 @@ fn all_dots(segment: []const u8) bool {
 /// Whether `segment` holds a "%" whose two hex digits name "/", "\\" or NUL.
 fn encodes_refused_octet(segment: []const u8) bool {
     var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded one.
+    // Bounded: each pass takes one byte of the segment, or three for an encoded one.
     while (index < segment.len) {
         const octet = percent.decoded_at(segment, index) orelse {
             index += 1;
@@ -149,7 +149,7 @@ fn encodes_refused_octet(segment: []const u8) bool {
 fn is_dot_segment(segment: []const u8) bool {
     var dots: usize = 0;
     var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded dot.
+    // Bounded: each pass takes one byte of the segment, or three for an encoded dot.
     while (index < segment.len) {
         if (segment[index] == '.') {
             index += 1;

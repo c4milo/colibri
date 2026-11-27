@@ -5,7 +5,7 @@
 //! Each endpoint is `h3_endpoint.zig`'s: step 9e's QUIC endpoint with the null provider and suite,
 //! and an h3 connection over it. Each seed draws both endpoints' QPACK settings and grease values
 //! and up to `h3_check_requests_max` exchanges (`h3_plan.zig`). The run passes when the client
-//! has read every response to its end, each field section and content octet as the plan has it,
+//! has read every response to its end, each field section and content byte as the plan has it,
 //! and the connection then settles within `h3_check_settle_steps_max` steps:
 //! - every request stream's slot is free again on both sides;
 //! - no field section waits on the QPACK dynamic table (RFC 9204 §2.2.1);
@@ -30,7 +30,7 @@ const constants = sim.constants;
 /// The digest of every seed's run, committed after both build modes agree on it.
 pub const census_crc32_expected: u32 = 0x1fbbe60e;
 pub const long_census_crc32_expected: u32 = 0x14ba7690;
-/// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets, the digest
+/// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their bytes, the digest
 /// of every record and the events read back. They change when an event or its fields change.
 pub const qlog_census_len_expected: u64 = 8_033_685;
 pub const qlog_census_crc32_expected: u32 = 0x786d2711;
@@ -63,7 +63,7 @@ pub const Storage = struct {
     /// Whether each endpoint writes a qlog of its QUIC and h3 events (decision 102), which must
     /// change nothing it sends.
     logged: bool,
-    /// Octets of each endpoint's log when the run logs, which a test shrinks to show that an
+    /// Bytes of each endpoint's log when the run logs, which a test shrinks to show that an
     /// event that does not fit is reported.
     log_len: usize,
     logs: [Side.count]quic.qlog.Log,
@@ -81,9 +81,9 @@ pub const Result = struct {
     content_len: u64 = 0,
     /// Entries each endpoint's QPACK encoder inserted (RFC 9204 §3.2).
     inserts: u64 = 0,
-    /// Octets of h3's own streams dropped once the peer acknowledged them (decision 78).
+    /// Bytes of h3's own streams dropped once the peer acknowledged them (decision 78).
     acknowledged_dropped: u64 = 0,
-    /// Octets of qlog both endpoints wrote, their digest, and the events the check of each record
+    /// Bytes of qlog both endpoints wrote, their digest, and the events the check of each record
     /// read back, which are zero unless the run logs.
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
@@ -99,7 +99,7 @@ pub const Census = struct {
     acknowledged_dropped: u64 = 0,
     dropped: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
-    /// Octets of qlog the endpoints wrote, the digest of every record, and the events read back,
+    /// Bytes of qlog the endpoints wrote, the digest of every record, and the events read back,
     /// which stay out of `crc32`, so a run with logs and one without must agree on it.
     qlog_len: u64 = 0,
     qlog_crc32: std.hash.Crc32 = .init(),
@@ -173,7 +173,7 @@ const Run = struct {
     now_ns: u64,
     digest: std.hash.Crc32,
     datagrams: u64 = 0,
-    /// The digest of every qlog record the run took, and their octets.
+    /// The digest of every qlog record the run took, and their bytes.
     qlog_digest: std.hash.Crc32,
     qlog_len: u64 = 0,
     /// Each endpoint's records read back so far.
@@ -312,7 +312,7 @@ test "h3 long check: long connections outgrow h3's own buffers, which drop what 
         std.debug.print("h3 long check: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    // Decision 78 ran: h3 dropped octets of its own streams once the peer acknowledged them.
+    // Decision 78 ran: h3 dropped bytes of its own streams once the peer acknowledged them.
     try testing.expect(census.acknowledged_dropped > 0);
     try testing.expect(census.dropped > 0);
     try testing.expectEqual(long_census_crc32_expected, census.crc32.final());
@@ -331,7 +331,7 @@ test "decision 102: the h3 check gives the same census when both endpoints write
             return failure;
         };
     }
-    // The digest folds in every datagram's octets, so the same digest is the same datagrams.
+    // The digest folds in every datagram's bytes, so the same digest is the same datagrams.
     try testing.expectEqual(census[0].crc32.final(), census[1].crc32.final());
     // A seed replays its logs byte for byte (invariant 5).
     try testing.expectEqual(qlog_census_len_expected, census[1].qlog_len);

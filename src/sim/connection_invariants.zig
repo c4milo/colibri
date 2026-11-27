@@ -16,7 +16,7 @@ pub const Violation = error{
     WatermarkDecreased,
     /// Invariant 13: the highest identifier the peer opened decreased.
     PeerOpenedIdentifierDecreased,
-    /// Invariant 14: the octets fed to the field-block slot exceeded what one HEADERS frame and
+    /// Invariant 14: the bytes fed to the field-block slot exceeded what one HEADERS frame and
     /// `continuation_count_max` CONTINUATION frames carry.
     FieldBlockTooLong,
     /// Invariant 15: a flow-control window went outside the range of a signed 31-bit quantity.
@@ -27,7 +27,7 @@ pub const Violation = error{
     GoawayReceivedLastIdIncreased,
 };
 
-/// Invariant 14's bound on the octets one field block feeds the slot: the opening frame and at
+/// Invariant 14's bound on the bytes one field block feeds the slot: the opening frame and at
 /// most `continuation_count_max` CONTINUATION frames, each at most `frame_size_max`.
 pub const field_block_octets_max: u64 =
     (h2_constants.limits.continuation_count_max + 1) * h2_constants.limits.frame_size_max;
@@ -50,7 +50,7 @@ pub const Invariants = struct {
     /// Reads all four invariants off `connection`, in the order the header gives.
     pub fn read(invariants: *Invariants, connection: *h2.Connection) ?Violation {
         if (invariants.read_identifiers(connection)) |broken| return broken;
-        // Invariant 14: the slot holds one block, whose octets are the opening frame's and those
+        // Invariant 14: the slot holds one block, whose bytes are the opening frame's and those
         // of the CONTINUATION frames the connection lets follow it.
         if (connection.block.octets_fed > field_block_octets_max) return error.FieldBlockTooLong;
         // Invariant 15: the connection's own two windows, then both windows of every stream.

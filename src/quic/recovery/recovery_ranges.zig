@@ -14,12 +14,12 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
 /// One STREAM frame's range after a packet's first, as `recovery_sent.Record` holds the first:
-/// the stream's 62-bit identifier (RFC 9000 §2.1), where the octets sat in it (§19.8), how many
+/// the stream's 62-bit identifier (RFC 9000 §2.1), where the bytes sat in it (§19.8), how many
 /// there were, and whether the frame carried the FIN.
 pub const Extra = struct {
     stream_id: u64,
     offset: u64,
-    /// Octets, which one packet bounds, so 16 bits carry them, as `Record.data_len`.
+    /// Bytes, which one packet bounds, so 16 bits carry them, as `Record.data_len`.
     len: u16,
     fin: bool,
 };
@@ -67,7 +67,7 @@ const testing = std.testing;
 /// The stream every range of these tests is on: the client's second bidirectional one. Test-only.
 const test_stream_id: u64 = 4;
 
-/// A range of `len` octets at `offset` on `test_stream_id`. Test-only.
+/// A range of `len` bytes at `offset` on `test_stream_id`. Test-only.
 fn extra_of(offset: u64, len: u16) Extra {
     return .{ .stream_id = test_stream_id, .offset = offset, .len = len, .fin = false };
 }

@@ -79,9 +79,9 @@ readonly load_cores=2,3
 readonly many_requests=20000
 readonly many_clients=16
 readonly many_streams=10
-# The bodies of the two POST inputs (design §8 step 50b), in octets. The small one arrives in the
+# The bodies of the two POST inputs (design §8 step 50b), in bytes. The small one arrives in the
 # receive of its header. The late one is the test server's `routes_body_bytes`: with many streams
-# at once it passes h2's first window of 65,535 octets (RFC 9113 §6.9.2), so it arrives later.
+# at once it passes h2's first window of 65,535 bytes (RFC 9113 §6.9.2), so it arrives later.
 readonly post_small_len=128
 readonly post_late_len=8192
 # The POST route the two inputs name: a route of the GitHub API's with no parameter.
@@ -352,7 +352,7 @@ measure() {  # measure <variant> <input> <round>
 }
 
 # Whose memset a server links: its own, which src/testing/memset.zig exports on Linux under Zig
-# 0.16, or compiler_rt's, which writes one octet at a time. nm's output is read whole, as h2load's is.
+# 0.16, or compiler_rt's, which writes one byte at a time. nm's output is read whole, as h2load's is.
 memset_of() {  # memset_of <server>
   local symbols
   symbols="$(nm "$1" 2>/dev/null)" || true

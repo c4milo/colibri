@@ -18,7 +18,7 @@ const chain_len: usize = 2;
 pub const Storage = struct {
     leaf: [constants.tls_der_len_max]u8,
     issuer: [constants.tls_der_len_max]u8,
-    /// The P-256 key the Go tool wrote as raw octets.
+    /// The P-256 key the Go tool wrote as raw bytes.
     key: tls.Key,
     cookie_key: [tls.constants.protocol.server_key_len]u8,
     /// The key the server seals its session tickets under, when the run gives it the time.
@@ -33,7 +33,7 @@ pub const Storage = struct {
 };
 
 /// The rooms an identity read from PEM takes (decision 147): the files, the chain's DER, and the
-/// key. A chain of two ML-DSA-87 certificates, the largest, is about 15,000 octets of DER.
+/// key. A chain of two ML-DSA-87 certificates, the largest, is about 15,000 bytes of DER.
 pub const PemStorage = struct {
     file: [pem_file_len_max]u8,
     der: [pem_file_len_max]u8,
@@ -67,8 +67,8 @@ pub fn add_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *Storag
 }
 
 pub const LoadError = error{
-    /// A key file is not the length ecdsa_secp256r1_sha256 fixes: a 32-octet scalar, or a
-    /// 64-octet point X||Y.
+    /// A key file is not the length ecdsa_secp256r1_sha256 fixes: a 32-byte scalar, or a
+    /// 64-byte point X||Y.
     KeyLengthWrong,
 };
 
@@ -86,7 +86,7 @@ pub fn issue_tickets(storage: *Storage, server: *tls.Server) void {
     server.ticket_key = &storage.ticket_key;
 }
 
-/// Reads the four parts of the identity `tls_identity.go` minted, each raw DER or raw octets, as
+/// Reads the four parts of the identity `tls_identity.go` minted, each raw DER or raw bytes, as
 /// the values of a server that offers `protocols` through ALPN.
 pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8) !tls.Server {
     storage.chain = .{
@@ -105,7 +105,7 @@ pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8
     };
 }
 
-/// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
+/// Reads a key file, which must fill `into` exactly: one byte more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
     var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);

@@ -23,7 +23,7 @@ def quantumPeriod : Nat := 1000000
 def quantumMax : Nat := 65536
 
 /-- `next_window`'s growth, before the floor and the caps. The Zig's saturating additions are
-written as additions: no window comes near 2^64 octets. -/
+written as additions: no window comes near 2^64 bytes. -/
 def grown (full : Bool) (window acked maxInflight delivered initial : Nat) : Nat :=
   if full then min (window + acked) maxInflight
   else if window < maxInflight ∨ delivered < initial then window + acked

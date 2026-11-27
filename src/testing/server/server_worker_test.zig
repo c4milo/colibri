@@ -66,7 +66,7 @@ fn staged(worker: *Worker, index: usize) []const u8 {
     return worker.sockets[index].outgoing;
 }
 
-/// The send of the socket at `index` takes `count` octets of what it was lent, as the final event
+/// The send of the socket at `index` takes `count` bytes of what it was lent, as the final event
 /// of a send that `arm` would have submitted. Test-only.
 fn send_took(worker: *Worker, index: usize, count: usize) void {
     server_worker.lend(worker, index);
@@ -92,7 +92,7 @@ test "a peer that closes first ends its connection, and its socket and its slot 
     try testing.expect(worker.session.engine.live[connection.slot]);
     // The turn that accepted the socket arms it, with its first receive.
     try testing.expect(worker.touched.isSet(index));
-    // A receive of no octets is the peer closing its side: the engine hears
+    // A receive of no bytes is the peer closing its side: the engine hears
     // `transport_closed`, reports the connection's `ended`, and frees its slot.
     handle(worker, &.{event_of(index, .receive, 0)}, null, constants.tick_ns);
     try testing.expect(worker.sockets[index].failed);
@@ -167,7 +167,7 @@ test "decision 176: a send that took part of what the engine lent sends the rest
     const index = accept(worker, 0);
     deliver(worker, index, get, constants.tick_ns);
     try testing.expectEqualStrings(response, staged(worker, index));
-    // The send takes ten octets. The rest moves to the front of the engine's output, and the
+    // The send takes ten bytes. The rest moves to the front of the engine's output, and the
     // socket's next send writes it.
     const taken_len = 10;
     send_took(worker, index, taken_len);
@@ -307,7 +307,7 @@ test "decision 160: a 405 before a body past the bound goes out whole, then the 
     try testing.expect(!socket.half_closing);
     send_took(worker, index, socket.outgoing.len);
     try testing.expect(socket.half_closing and !socket.closing);
-    // The peer's octets after the half-close are read and discarded, and nothing is sent.
+    // The peer's bytes after the half-close are read and discarded, and nothing is sent.
     deliver(worker, index, "more of the body", constants.tick_ns);
     try testing.expectEqual(0, socket.unread().len);
     try testing.expectEqual(0, socket.outgoing.len);
@@ -327,7 +327,7 @@ const turns_max: usize = 1000;
 const client_buffer_len = 256;
 const answer_len_max = 1024;
 
-/// One turn of the worker's loop at `now_ns`, an instant that the test names. Returns the octets
+/// One turn of the worker's loop at `now_ns`, an instant that the test names. Returns the bytes
 /// that the receives of the socket at `index` read in the turn. Test-only.
 fn turn_at(worker: *Worker, index: usize, now_ns: u64) !usize {
     server_worker.arm_accept(worker);
@@ -343,7 +343,7 @@ fn turn_at(worker: *Worker, index: usize, now_ns: u64) !usize {
 }
 
 /// What a test waits for in a worker's socket: the end of the shutdown of its write side, a
-/// receive that read octets, the end of its connection, or its own end. Test-only.
+/// receive that read bytes, the end of its connection, or its own end. Test-only.
 const Wait = enum { shut_down, read, ended, freed };
 
 /// Turns the worker's loop at `now_ns` until `wait` holds for the socket at `index`, and fails
@@ -406,7 +406,7 @@ test "decision 160: after the half-close the socket receives again, and the peer
     try testing.expect(std.mem.endsWith(u8, answer, "\r\n\r\n"));
     // RFC 9110 §10.1.1: the Content-Length is past the bound, so the 405 says that the server closes.
     try testing.expect(std.mem.indexOf(u8, answer, "\r\nConnection: close\r\n") != null);
-    // RFC 9112 §9.6: the client writes on, and the socket reads the octets and then receives again.
+    // RFC 9112 §9.6: the client writes on, and the socket reads the bytes and then receives again.
     try writer.interface.writeAll("more of the body");
     try writer.interface.flush();
     try turn_until(worker, index, .read, now_ns);

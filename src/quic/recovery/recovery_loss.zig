@@ -22,7 +22,7 @@ const Record = recovery_sent.Record;
 
 /// What one detection pass found (RFC 9002 Appendix A.10).
 pub const Detected = struct {
-    /// How many packets were declared lost, and the octets of the ones that were in flight.
+    /// How many packets were declared lost, and the bytes of the ones that were in flight.
     count: usize,
     in_flight_len: u64,
     /// RFC 9002 Appendix B.8's `sent_time_of_last_loss`: when the newest lost packet that was in
@@ -279,7 +279,7 @@ test "§7.2: a lost packet not in flight is counted but weighs nothing" {
     _ = test_table.remove_range(2, 2);
     const found = detect(&test_table, 2, test_long_after_ns, test_loss_delay_ns, null, &test_lost);
     try testing.expectEqual(2, found.count);
-    // RFC 9002 Appendix B.8: only the octets in flight come off, and the congestion event starts
+    // RFC 9002 Appendix B.8: only the bytes in flight come off, and the congestion event starts
     // from the newest loss that was in flight rather than from the newest loss.
     try testing.expectEqual(test_len, found.in_flight_len);
     try testing.expectEqual(eliciting(1).sent_at_ns, found.latest_sent_at_ns);

@@ -1,15 +1,15 @@
 //! The send deadlines of a server connection over QUIC (decision 110 as amended, design §8 step
 //! 20c), as `connection_sends.zig` keeps them over TCP.
 //!
-//! A QUIC peer takes a response's octets by acknowledging them, and lets them leave by the credit
-//! it gives the stream and the connection (RFC 9000 §4.1, §13.2). So the meters count the octets
+//! A QUIC peer takes a response's bytes by acknowledging them, and lets them leave by the credit
+//! it gives the stream and the connection (RFC 9000 §4.1, §13.2). So the meters count the bytes
 //! the peer acknowledged:
-//! - While any response holds octets the peer may take and has not acknowledged, the peer must
+//! - While any response holds bytes the peer may take and has not acknowledged, the peer must
 //!   acknowledge the minimum send rate over each window, across the responses. A peer that falls
 //!   short acknowledges too little, or holds the responses with the connection's credit, and the
 //!   connection closes with H3_EXCESSIVE_LOAD (RFC 9114 §10.5).
 //! - A response its stream's credit does not cover has a meter of its own, which counts what the
-//!   peer acknowledges of it. It runs only while no other response holds octets the peer may
+//!   peer acknowledges of it. It runs only while no other response holds bytes the peer may
 //!   take, since a peer that takes slowly holds every stream up and the connection's meter
 //!   judges that. A stream its credit holds under the rate is reset with H3_REQUEST_CANCELLED
 //!   (RFC 9114 §4.1.1), and the caller reads `cancelled`.
@@ -35,17 +35,17 @@ const Timeout = deadline.Timeout;
 
 /// One response, as `look` last found it.
 const Sending = struct {
-    /// The octets of the response the peer had acknowledged.
+    /// The bytes of the response the peer had acknowledged.
     acknowledged_len: u64 = 0,
-    /// Whether the response holds octets the peer may take and has not acknowledged.
+    /// Whether the response holds bytes the peer may take and has not acknowledged.
     busy: bool = false,
-    /// Whether the response holds octets its stream's credit does not cover.
+    /// Whether the response holds bytes its stream's credit does not cover.
     bound: bool = false,
     meter: rate.Meter = .{},
 };
 
 pub const Sends = struct {
-    /// What the peer acknowledged of the responses' octets.
+    /// What the peer acknowledged of the responses' bytes.
     meter: rate.Meter,
     /// The responses that are busy, and those that are bound.
     busy: u32,
@@ -81,7 +81,7 @@ pub const Sends = struct {
 
 const Entries = std.StaticBitSet(constants.limits.quic_requests_max);
 
-/// Notes where `record`'s response stands on `stream`: the octets the peer acknowledged since the
+/// Notes where `record`'s response stands on `stream`: the bytes the peer acknowledged since the
 /// last look, which arrived at the instant `fire` last moved the meters to, and whether the
 /// response waits on the peer or on its stream's credit.
 pub fn look(connection: *QuicConnection, record: *const Request, stream: *const quic.Stream) void {
@@ -96,7 +96,7 @@ pub fn look(connection: *QuicConnection, record: *const Request, stream: *const 
     entry.meter.count(newly);
     switch (stream.sending.state) {
         .ready, .send, .data_sent => {},
-        // RFC 9000 §3.1: the peer acknowledged every octet, or the stream was reset, and either
+        // RFC 9000 §3.1: the peer acknowledged every byte, or the stream was reset, and either
         // way the response holds nothing for the peer to take.
         .data_recvd, .reset_sent, .reset_recvd => return sends.set(index, false, false),
     }
@@ -104,7 +104,7 @@ pub fn look(connection: *QuicConnection, record: *const Request, stream: *const 
     const limit = stream.send_flow.limit;
     const allowed = @min(outgoing.supplied_end, limit);
     assert(outgoing.acknowledged_len <= allowed);
-    // RFC 9000 §4.5: a FIN spends no credit, so it leaves once every octet before it may.
+    // RFC 9000 §4.5: a FIN spends no credit, so it leaves once every byte before it may.
     const fin_waits = outgoing.finished and !outgoing.fin_acknowledged and outgoing.supplied_end <= limit;
     sends.set(index, outgoing.acknowledged_len < allowed or fin_waits, outgoing.supplied_end > limit);
 }

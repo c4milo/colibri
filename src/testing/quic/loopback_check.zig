@@ -5,7 +5,7 @@
 //! TLS 1.3 handshake through `tls.quic`'s `tls_provider.QuicProvider` and protects real packets
 //! through its `crypto.Suite`, with every key inside chapulin (decision 48). The client verifies
 //! the server's certificate chain, both select "hq-interop" by ALPN (RFC 9001 §8.1), and the
-//! server reads every octet of the client's stream.
+//! server reads every byte of the client's stream.
 //!
 //! What it does not prove is interoperability: both ends are colibri and both are chapulin, so a
 //! shared misreading of an RFC passes. `tools/interop.sh` is that check.
@@ -117,7 +117,7 @@ fn configure(asked: Arguments) !void {
     });
 }
 
-/// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
+/// Reads a key file, which must fill `into` exactly: one byte more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
     var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);

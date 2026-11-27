@@ -66,8 +66,8 @@ def cases() -> list[tuple[str, bytes]]:
 
 
 def repl_literal(octets: bytes) -> str:
-    """A payload as the REPL reads it: quoted, every octet but letters and digits as \\xHH, which
-    its unicode-escape decoding turns back into the octet and its lexer never splits."""
+    """A payload as the REPL reads it: quoted, every byte but letters and digits as \\xHH, which
+    its unicode-escape decoding turns back into the byte and its lexer never splits."""
     return "'" + "".join(chr(b) if chr(b).isalnum() and b < 128 else f"\\x{b:02x}" for b in octets) + "'"
 
 

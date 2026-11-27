@@ -1,5 +1,5 @@
 //! The hostile peers of the deadline check (`deadline_plan.zig`, decision 110). Each writes a script
-//! up front: its octets, cut into pieces, each with the instant it goes out. It reads what the
+//! up front: its bytes, cut into pieces, each with the instant it goes out. It reads what the
 //! server sends only to acknowledge an h2 SETTINGS frame and to learn how the server ended a
 //! request or the connection: with a 408 in h11, and in h2 with the status of a response, a
 //! RST_STREAM or a GOAWAY.
@@ -14,7 +14,7 @@ const Plan = plan_module.Plan;
 const Writer = h2.core.Writer;
 const constants = h2.constants;
 
-/// Octets of the script that go out at one instant.
+/// Bytes of the script that go out at one instant.
 pub const Piece = struct {
     at_ms: u64,
     start: u32,
@@ -37,11 +37,11 @@ const filler = "abcdefghijklmnopqrstuvwxyz0123456789";
 const h11_upload_head = "POST /upload HTTP/1.1\r\nHost: a.example\r\nContent-Length: " ++ upload_length ++ "\r\n\r\n";
 const upload_length = "1000000";
 
-/// The octets of a slow body's piece, the longest one included.
+/// The bytes of a slow body's piece, the longest one included.
 const body_filler: [body_piece_len_max]u8 = @splat('b');
 const body_piece_len_max: usize = limits.slow_body_rate_max * limits.hostile_gap_ms_max / limits.ms_per_s;
 
-/// The octets of the h11 status line of a 408 (RFC 9110 §15.5.9), which the check looks for.
+/// The bytes of the h11 status line of a 408 (RFC 9110 §15.5.9), which the check looks for.
 pub const h11_timeout_line = "HTTP/1.1 408 ";
 
 /// The streams a hostile h2 peer opens: its whole request or the one its slow body follows, and
@@ -49,14 +49,14 @@ pub const h11_timeout_line = "HTTP/1.1 408 ";
 const whole_stream_id: u32 = 1;
 const slow_stream_id: u32 = 3;
 
-/// The instant a peer's first octets go out.
+/// The instant a peer's first bytes go out.
 const start_ms: u64 = 0;
 
 /// How long after its opening an h2 peer starts a slow field block, so its acknowledgment of the
 /// server's SETTINGS goes out first: RFC 9113 §6.10 lets no other frame into a field block.
 const block_after_opening_ms: u64 = 1;
 
-/// The instant the first octet of a slow first head goes out: an h11 head starts the script, and
+/// The instant the first byte of a slow first head goes out: an h11 head starts the script, and
 /// an h2 field block follows the opening.
 pub fn slow_head_start_ms(protocol: plan_module.Protocol) u64 {
     return switch (protocol) {
@@ -72,7 +72,7 @@ pub const Hostile = struct {
     pieces_len: u32,
     /// The next piece to go out.
     next_piece: u32,
-    /// The octets of the server's output this peer has read as whole frames (h2).
+    /// The bytes of the server's output this peer has read as whole frames (h2).
     parsed: usize,
     /// SETTINGS frames of the server this peer has not acknowledged (RFC 9113 §6.5.3).
     acks_owed: u32,
@@ -168,7 +168,7 @@ pub const Hostile = struct {
         if (flags & constants.protocol.flag_end_headers == 0) return;
         const block = field_block(flags, payload) orelse return;
         var lines = hostile.decoder.block(block);
-        // Bounded: each line takes an octet of the block at least.
+        // Bounded: each line takes a byte of the block at least.
         for (0..block.len + 1) |_| {
             const line = (lines.next() catch return) orelse return;
             if (std.mem.eql(u8, line.name, ":status")) {
@@ -193,7 +193,7 @@ pub const Hostile = struct {
         return block;
     }
 
-    /// Writes the SETTINGS acknowledgments owed into `output`, and returns the octets written.
+    /// Writes the SETTINGS acknowledgments owed into `output`, and returns the bytes written.
     pub fn write_acks(hostile: *Hostile, output: []u8) Error!usize {
         var writer = Writer.init(output);
         // Bounded by the SETTINGS frames the server sent.
@@ -308,7 +308,7 @@ pub const Hostile = struct {
         }
     }
 
-    /// A WINDOW_UPDATE of one octet on the stream of its request every gap, from one gap after
+    /// A WINDOW_UPDATE of one byte on the stream of its request every gap, from one gap after
     /// the start until the horizon.
     fn add_window_updates(hostile: *Hostile, plan: *const Plan) Error!void {
         var frame_storage: [constants.protocol.frame_header_len + constants.protocol.window_update_len]u8 = undefined;
@@ -337,8 +337,8 @@ pub const Hostile = struct {
         }
     }
 
-    /// A body of `piece_len` octets every gap, from one gap after the start until the plan's body
-    /// stops: raw octets in h11, and a DATA frame on `stream_id` for each piece in h2.
+    /// A body of `piece_len` bytes every gap, from one gap after the start until the plan's body
+    /// stops: raw bytes in h11, and a DATA frame on `stream_id` for each piece in h2.
     fn add_body(hostile: *Hostile, plan: *const Plan, stream_id: ?u32) Error!void {
         assert(plan.piece_len <= body_piece_len_max);
         const piece = body_filler[0..plan.piece_len];
@@ -363,7 +363,7 @@ pub const Hostile = struct {
     fn add_slowly(hostile: *Hostile, first_ms: u64, plan: *const Plan, octets: []const u8) Error!void {
         var at_ms = first_ms;
         var offset: usize = 0;
-        // Bounded: each pass sends a piece of at least one octet.
+        // Bounded: each pass sends a piece of at least one byte.
         for (0..octets.len) |_| {
             if (offset == octets.len) return;
             const len = @min(plan.piece_len, octets.len - offset);
@@ -374,7 +374,7 @@ pub const Hostile = struct {
     }
 
     fn add(hostile: *Hostile, at_ms: u64, octets: []const u8) Error!void {
-        // A piece holds octets, and pieces go out in order.
+        // A piece holds bytes, and pieces go out in order.
         assert(octets.len > 0);
         assert(hostile.pieces_len == 0 or hostile.pieces[hostile.pieces_len - 1].at_ms <= at_ms);
         if (hostile.pieces_len == limits.pieces_max) return error.ScriptFull;
@@ -396,7 +396,7 @@ fn settings_of(plan: *const Plan) []const h2.frame.Setting {
     };
 }
 
-/// The octets each WINDOW_UPDATE of a peer that opens its window slowly adds.
+/// The bytes each WINDOW_UPDATE of a peer that opens its window slowly adds.
 const window_step: u32 = 1;
 
 /// A client's streams take odd identifiers, one after another (RFC 9113 §5.1.1).

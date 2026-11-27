@@ -1,10 +1,10 @@
 //! QUIC frames (RFC 9000 §19): what a packet's payload holds once its protection is removed.
 //! This is the frame layer of design §8 step 9, and it is the piece of that step that needs no
-//! key, no handshake and no connection state — a frame is read out of octets and written into
+//! key, no handshake and no connection state — a frame is read out of bytes and written into
 //! them, and what it means is the connection's business.
 //!
 //! Every frame begins with a type, which is a variable-length integer (RFC 9000 §12.4). The
-//! twenty types of Table 3 are one octet each, and this reader admits no other: §12.4 makes a
+//! twenty types of Table 3 are one byte each, and this reader admits no other: §12.4 makes a
 //! frame of unknown type a connection error of FRAME_ENCODING_ERROR, so an extension frame
 //! (§19.21) is refused here and not ignored.
 //!
@@ -14,7 +14,7 @@
 //! CONNECTION_CLOSE type's low bit picks between two readings. Each is read into a field of the
 //! frame rather than left in the type, so nothing downstream reads a bit out of a number.
 //!
-//! Every slice a frame carries points into the caller's octets and is valid until the caller
+//! Every slice a frame carries points into the caller's bytes and is valid until the caller
 //! reuses them (design §4.1). Nothing here allocates and nothing copies.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -42,7 +42,7 @@ pub const Crypto = frame_stream.Crypto;
 /// FRAME_ENCODING_ERROR, which `connection_error_code` gives; they are separate values so a
 /// trace and a test name which rule refused the frame.
 pub const Error = error{
-    /// The frame runs past the octets present.
+    /// The frame runs past the bytes present.
     Truncated,
     /// RFC 9000 §12.4: a frame of a type this version does not define.
     TypeUnknown,
@@ -54,7 +54,7 @@ pub const Error = error{
     TokenEmpty,
     /// RFC 9000 §19.11, §19.14: a stream limit above 2^60.
     StreamLimitTooLarge,
-    /// RFC 9000 §19.15: a connection ID shorter than 1 octet or longer than 20.
+    /// RFC 9000 §19.15: a connection ID shorter than 1 byte or longer than 20.
     ConnectionIdLengthInvalid,
     /// RFC 9000 §19.15: a Retire Prior To above the frame's own Sequence Number.
     RetirePriorToTooLarge,
@@ -88,7 +88,7 @@ pub const Directionality = enum { bidirectional, unidirectional };
 /// frame types.
 pub const CloseLayer = enum { transport, application };
 
-/// One frame. The payload of a packet is a sequence of these, read until the octets run out
+/// One frame. The payload of a packet is a sequence of these, read until the bytes run out
 /// (RFC 9000 §12.4).
 /// What RFC 9000 §13.3 asks of one frame's information when the packet carrying it is lost.
 pub const Repair = enum {
@@ -97,7 +97,7 @@ pub const Repair = enum {
     /// the next one, a connection close is resent by §10 rather than by loss detection, and a
     /// PATH_RESPONSE is "sent just once".
     none,
-    /// The same octets go out again, in a new frame under a new packet number (invariant 17).
+    /// The same bytes go out again, in a new frame under a new packet number (invariant 17).
     same_octets,
     /// The current value goes out again, which may differ from the one that was lost. §13.3 asks
     /// for care here: "the limit can increase frequently and cause an unnecessarily large number
@@ -109,7 +109,7 @@ pub const Repair = enum {
 };
 
 pub const Frame = union(enum) {
-    /// RFC 9000 §19.1: one octet of 0x00, and a run of them is still one frame to the reader.
+    /// RFC 9000 §19.1: one byte of 0x00, and a run of them is still one frame to the reader.
     padding: struct { len: usize },
     ping,
     ack: Ack,

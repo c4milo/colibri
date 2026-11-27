@@ -2,7 +2,7 @@
 //! boundaries, over a range of seeds, with invariants 13 to 16 read after every frame it accepts.
 //!
 //! `Subject` is the connection under the pipe's contract. `step` writes what the connection owes,
-//! hands it the octets the caller holds and reports what it consumed; `check` then reads the four
+//! hands it the bytes the caller holds and reports what it consumed; `check` then reads the four
 //! invariants off it. A broken one is a `Violation`, which ends the run and names the seed.
 //!
 //! Each seed draws a plan and its stream (`connection_stream.zig`), then runs it three times:
@@ -72,7 +72,7 @@ pub const Subject = struct {
     /// What invariants 13 to 16 are read through (`connection_invariants.zig`).
     invariants: connection_invariants.Invariants,
     /// Where the connection writes the frames it owes. The check reads the connection's state and
-    /// not the octets it sends, so the octets are written and dropped.
+    /// not the bytes it sends, so the bytes are written and dropped.
     output: [constants.connection_check_output_len_max]u8,
 
     /// Empties the connection and the values the invariants are compared against.
@@ -138,9 +138,9 @@ pub const Subject = struct {
         }
     }
 
-    /// Whether the octets held are less than the whole client connection preface, which RFC 9113
-    /// §3.4 makes 24 octets and not a frame. The connection reads whatever of it has arrived, so
-    /// the subject holds the octets until all of them are there and the run's records say the same
+    /// Whether the bytes held are less than the whole client connection preface, which RFC 9113
+    /// §3.4 makes 24 bytes and not a frame. The connection reads whatever of it has arrived, so
+    /// the subject holds the bytes until all of them are there and the run's records say the same
     /// thing however the stream was chunked (design §6.6).
     fn waits_for_preface(subject: *const Subject, held: []const u8) bool {
         if (subject.connection.preface_read_len == h2_constants.protocol.client_preface_len) return false;
@@ -171,7 +171,7 @@ fn rises(seen: ?u32, reached: ?u32) bool {
     return (reached orelse return false) > previous;
 }
 
-/// The octets the connection may owe at once: its own SETTINGS frame, the acknowledgments its
+/// The bytes the connection may owe at once: its own SETTINGS frame, the acknowledgments its
 /// queues hold, the connection window update, every stream reply and the GOAWAY
 /// (`connection_reply.zig`). The subject asks for no reset, so no stream's record owes a
 /// RST_STREAM (decision 113).

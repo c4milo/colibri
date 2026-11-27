@@ -2,7 +2,7 @@
 //!
 //! Zig 0.16's x86_64 backend, which builds Debug on x86_64 Linux, can place a global without the
 //! alignment its type gets from an aligned field. It placed `udp_run.memory`, a `udp.Memory`
-//! whose loop memory is declared `align(64)`, 16 octets past a multiple of 64. Rotor's io_uring
+//! whose loop memory is declared `align(64)`, 16 bytes past a multiple of 64. Rotor's io_uring
 //! loop then panicked on its first table, and every server check in CI failed with it. LLVM, which
 //! builds aarch64, places it right, so macOS never showed it. A global declared
 //! `var memory: Memory align(@alignOf(Memory))` is placed right by every backend.

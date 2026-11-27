@@ -1,10 +1,10 @@
-//! The stream octets lost in transit and not yet framed again (RFC 9000 §13.3). Part of design §8
+//! The stream bytes lost in transit and not yet framed again (RFC 9000 §13.3). Part of design §8
 //! step 9e.
 //!
 //! §13.3: "Application data sent in STREAM frames is retransmitted in new STREAM frames unless the
 //! endpoint has sent a RESET_STREAM for that stream." colibri sends again exactly what was lost
 //! ([decision 57](../../../docs/decisions.md)), so a lost packet's range comes here, and `send`
-//! frames the oldest range here before any new octets.
+//! frames the oldest range here before any new bytes.
 //!
 //! **Adjacent ranges of one stream merge.** A range split to fit a smaller packet (§13.3) lies
 //! next to its remainder, so losing the piece again while the remainder waits leaves one entry and
@@ -16,12 +16,12 @@ const constants = @import("../constants.zig");
 
 pub const Error = error{
     /// Every entry holds a range, and the new one lies next to none of its stream's. Nothing
-    /// changed; the connection cannot send the octets again, so it ends with INTERNAL_ERROR
+    /// changed; the connection cannot send the bytes again, so it ends with INTERNAL_ERROR
     /// (RFC 9000 §20.1).
     Full,
 };
 
-/// A run of one stream's octets, and the FIN when it ends the stream (RFC 9000 §19.8).
+/// A run of one stream's bytes, and the FIN when it ends the stream (RFC 9000 §19.8).
 pub const Range = struct {
     stream_id: u64,
     offset: u64,
@@ -47,7 +47,7 @@ pub const LostRanges = struct {
     /// Keeps a range the peer did not receive, joined to one of its stream's ranges it lies next
     /// to when there is one.
     pub fn add(lost: *LostRanges, range: Range) Error!void {
-        // A range carries octets or the FIN (RFC 9000 §19.8), or it is not a range.
+        // A range carries bytes or the FIN (RFC 9000 §19.8), or it is not a range.
         assert(range.len > 0 or range.fin);
         if (lost.merge(range)) return;
         if (lost.count == lost.entries.len) return Error.Full;
@@ -85,13 +85,13 @@ pub const LostRanges = struct {
         return lost.entries[lost.head];
     }
 
-    /// Takes the first `len` octets of the oldest range, and its FIN when `fin` is set, once a
+    /// Takes the first `len` bytes of the oldest range, and its FIN when `fin` is set, once a
     /// STREAM frame has carried them again. A range left with neither leaves the table.
     pub fn take_oldest(lost: *LostRanges, len: u64, fin: bool) void {
         assert(lost.count > 0);
         const held = &lost.entries[lost.head];
         assert(len <= held.len);
-        // The FIN goes out with the range's last octet or after it (RFC 9000 §4.5).
+        // The FIN goes out with the range's last byte or after it (RFC 9000 §4.5).
         assert(!fin or (held.fin and len == held.len));
         held.offset += len;
         held.len -= len;
@@ -99,7 +99,7 @@ pub const LostRanges = struct {
         if (held.len == 0 and !held.fin) lost.drop_oldest();
     }
 
-    /// The lowest offset a range of `stream_id` holds, or null when none is owed on it. Octets
+    /// The lowest offset a range of `stream_id` holds, or null when none is owed on it. Bytes
     /// there are not acknowledged, which decision 78's acknowledged end reads.
     pub fn lowest_offset(lost: *const LostRanges, stream_id: u64) ?u64 {
         var lowest: ?u64 = null;
@@ -130,7 +130,7 @@ fn slot_at(head: usize, from: usize) usize {
 const testing = std.testing;
 
 threadlocal var test_lost: LostRanges align(@alignOf(LostRanges)) = undefined;
-/// A packet's worth of octets, and two streams to tell apart. Test-only.
+/// A packet's worth of bytes, and two streams to tell apart. Test-only.
 const test_len: u64 = 1_000;
 const test_stream: u64 = 0;
 const test_other_stream: u64 = 4;
@@ -150,7 +150,7 @@ test "§13.3: the range lost longest ago is framed again first" {
     try testing.expectEqual(test_len / 2, test_lost.oldest().?.offset);
     test_lost.take_oldest(test_len / 2, false);
     try testing.expectEqual(test_other_stream, test_lost.oldest().?.stream_id);
-    // The FIN leaves with the last octet, and the range with it.
+    // The FIN leaves with the last byte, and the range with it.
     test_lost.take_oldest(test_len, true);
     try testing.expectEqual(0, test_lost.count);
 }
@@ -163,7 +163,7 @@ test "§13.3: a FIN lost on its own is kept until it goes out again" {
     try testing.expect(held.fin);
     test_lost.take_oldest(0, true);
     try testing.expectEqual(0, test_lost.count);
-    // A range whose octets go out in one frame and its FIN in another stays for the FIN.
+    // A range whose bytes go out in one frame and its FIN in another stays for the FIN.
     try test_lost.add(range_of(test_stream, 0, test_len, true));
     test_lost.take_oldest(test_len, false);
     try testing.expectEqual(1, test_lost.count);

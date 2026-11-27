@@ -13,7 +13,7 @@ const Exchange = support.Exchange;
 const ok: u16 = 200;
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response.
 const early_hints: u16 = 103;
-/// RFC 9113 §4.1: a frame's type follows its three octets of length.
+/// RFC 9113 §4.1: a frame's type follows its three bytes of length.
 const frame_type_at: usize = 3;
 const content_type = [_]h2.hpack.Field{.{ .name = "content-type", .value = "application/dns-message" }};
 
@@ -73,7 +73,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
 
 test "RFC 9113 §6.9: content past the stream's window goes out as the peer grants more" {
     try start();
-    // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window, so this content goes out
+    // RFC 9113 §6.9.2: a stream starts with 65,535 bytes of window, so this content goes out
     // whole only if the client reads the peer's WINDOW_UPDATE frames.
     const content_len = 3 * h2.constants.protocol.initial_window_size_initial;
     const content = bodies[1][0..content_len];
@@ -122,7 +122,7 @@ test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CA
     support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "llo", false)).written;
     try support.client_receive();
     try testing.expectEqual(.too_large, exchange.response.result);
-    // Decision 153 ruling 13: the first frame fits, and its octets stay in the caller's memory.
+    // Decision 153 ruling 13: the first frame fits, and its bytes stay in the caller's memory.
     try testing.expectEqualStrings("he", exchange.response.body[0..exchange.response.body_len]);
     support.peer_events_len = 0;
     try support.pump_h2();

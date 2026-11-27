@@ -40,7 +40,7 @@ pub const answer_gap_ms_max: u64 = 25_000;
 pub const content_len_max: u32 = 2_048;
 
 /// The content of an answer to a peer that reads slowly, or not at all: many times the credit its
-/// stream starts with, so the server's octets wait on the peer.
+/// stream starts with, so the server's bytes wait on the peer.
 pub const read_content_len_min: u32 = 98_304;
 pub const read_content_len_max: u32 = 163_840;
 
@@ -56,7 +56,7 @@ pub const read_gap_ms_max: u64 = 250;
 pub const read_rate_factor_min: u32 = 2;
 pub const read_rate_factor_max: u32 = 4;
 
-/// A hostile slow reader's rate in octets a second, so slow that its first window always falls
+/// A hostile slow reader's rate in bytes a second, so slow that its first window always falls
 /// short of the quota under the limits a plan draws.
 pub const slow_read_rate_min: u32 = 8;
 pub const slow_read_rate_max: u32 = 24;
@@ -69,7 +69,7 @@ pub const link_rate_factor_min: u32 = 4;
 pub const link_rate_factor_max: u32 = 8;
 pub const link_queue_len: u32 = 8;
 
-/// The octets of content an uploading peer's request carries at most.
+/// The bytes of content an uploading peer's request carries at most.
 pub const upload_len_max: u32 = 49_152;
 
 /// An honest upload's pace: a piece every gap, at two to four times the plan's minimum body rate.
@@ -78,7 +78,7 @@ pub const upload_gap_ms_max: u64 = 250;
 pub const upload_rate_factor_min: u32 = 2;
 pub const upload_rate_factor_max: u32 = 4;
 
-/// A slow body's rate in octets a second, so far below decision 110's minimum of 1,024 that its
+/// A slow body's rate in bytes a second, so far below decision 110's minimum of 1,024 that its
 /// first window, the grace period included, falls short of the quota under the limits a plan
 /// draws. Its request declares more content than ever arrives.
 pub const slow_body_rate_min: u32 = 16;
@@ -104,8 +104,8 @@ pub const second_body_after_ms: u64 = 1_000;
 pub const flood_batch_len_max: u32 = 4;
 pub const flood_gap_ms: u64 = 1;
 
-/// An honest peer whose request heads arrive late: all of a head but its last octet at once, and
-/// the last octet this long after, in milliseconds. Twice the longest is no more than the
+/// An honest peer whose request heads arrive late: all of a head but its last byte at once, and
+/// the last byte this long after, in milliseconds. Twice the longest is no more than the
 /// shortest limit a plan draws, so no deadline passes first.
 pub const late_head_ms_min: u64 = 500;
 pub const late_head_ms_max: u64 = 2_000;
@@ -113,7 +113,7 @@ pub const late_head_ms_max: u64 = 2_000;
 /// A long body's server keeps decision 110's default limits, and caps a body at a span a plan
 /// draws from `long_body_cap_ms_min` to `long_body_cap_ms_max`. The peer sends a piece every gap,
 /// at `long_body_rate_factor` times the minimum body rate, so every window holds its quota, and
-/// the cap passes before the `slow_body_len` octets its request declares have arrived.
+/// the cap passes before the `slow_body_len` bytes its request declares have arrived.
 pub const long_body_cap_ms_min: u64 = 25_000;
 pub const long_body_cap_ms_max: u64 = 30_000;
 pub const long_body_rate_factor: u32 = 2;
@@ -139,8 +139,8 @@ pub const short_limit_ms_min: u64 = 5_000;
 pub const short_rate_ms_min: u64 = 2_000;
 pub const short_rate_max: u32 = 2_048;
 
-/// The octets a window owes at its minimum rate, at least, in the limits a plan draws: past half
-/// a unit of 16,384 octets, which `Deadlines.validate_units` requires, and past the credit a
+/// The bytes a window owes at its minimum rate, at least, in the limits a plan draws: past half
+/// a unit of 16,384 bytes, which `Deadlines.validate_units` requires, and past the credit a
 /// reader's stream starts with, so a peer that gives no more falls short.
 pub const window_quota_min: u64 = 9_216;
 
@@ -153,7 +153,7 @@ pub const datagrams_per_pass_max: u32 = 256;
 /// The events the server reports in one pass at most.
 pub const events_per_pass_max: u32 = 4_096;
 
-/// Octets of a check's trace line, and of a trace: its first line, a line for each exchange, and
+/// Bytes of a check's trace line, and of a trace: its first line, a line for each exchange, and
 /// the line of its end.
 pub const line_len_max: u32 = 256;
 pub const trace_len_max: u32 = line_len_max * (honest_requests_max + trace_lines_besides_answers);

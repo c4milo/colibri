@@ -135,7 +135,7 @@ test "names the static table does not hold share chain 0, and each is compared" 
 }
 
 test "RFC 7541 §4.4: an evicted entry ends its chain, and an emptied table finds nothing" {
-    // Each entry takes 32 + 1 + 1 = 34 octets of the §4.1 accounting, so 100 octets hold two.
+    // Each entry takes 32 + 1 + 1 = 34 bytes of the §4.1 accounting, so 100 bytes hold two.
     test_table.init(100);
     test_chains.init();
     test_insert(0, "a", "1");

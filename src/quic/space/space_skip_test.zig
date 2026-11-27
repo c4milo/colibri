@@ -11,7 +11,7 @@ const testing = std.testing;
 
 var test_space: Space align(@alignOf(Space)) = undefined;
 
-/// A draw whose first two octets are 0 and 1, so the first skip comes after the fewest packets and
+/// A draw whose first two bytes are 0 and 1, so the first skip comes after the fewest packets and
 /// the second after one more. Test-only.
 const intervals: u64 = 0x0100;
 const first_interval: u64 = constants.policy.packet_number_skip_interval_min;
@@ -37,12 +37,12 @@ fn ack_of(smallest: u64, largest: u64) frame.Ack {
     };
 }
 
-/// The octets of one Gap and ACK Range Length pair, each a one-octet varint. Test-only.
+/// The bytes of one Gap and ACK Range Length pair, each a one-byte varint. Test-only.
 var pair: [pair_len]u8 = undefined;
 const pair_len: usize = 2;
 
 /// An ACK frame of two ranges with one number missing between them, `missing`. Each varint of the
-/// pair is one octet, so the lower range holds fewer than 64 numbers. Test-only.
+/// pair is one byte, so the lower range holds fewer than 64 numbers. Test-only.
 fn ack_around(smallest: u64, missing: u64, largest: u64) frame.Ack {
     // RFC 9000 §19.3.1: the gap is one less than the numbers missing, and a range's length is one
     // less than the numbers it holds.
@@ -62,7 +62,7 @@ test "RFC 9000 §21.4: a space skips one number after each interval, the interva
     // The number after the interval's last packet is skipped.
     try testing.expectEqual(first_interval, test_space.skips.?.skipped.?);
     try testing.expectEqual(first_interval + 1, try test_space.next_number());
-    // The next interval is one packet longer, from the draw's second octet.
+    // The next interval is one packet longer, from the draw's second byte.
     const next_skip = try send(second_interval - 1);
     try testing.expectEqual(first_interval + second_interval, next_skip);
     try testing.expectEqual(first_interval + second_interval + 1, test_space.skips.?.skipped.?);

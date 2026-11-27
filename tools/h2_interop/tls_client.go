@@ -26,7 +26,7 @@ import (
 	"os"
 )
 
-// What the client sends and expects back. The server echoes the octets it opened.
+// What the client sends and expects back. The server echoes the bytes it opened.
 var probe = []byte("colibri record phase\n")
 
 // The label, context and length of the exporter both ends print (RFC 9846 §7.5). They are

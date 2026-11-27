@@ -3,7 +3,7 @@
 # h2 server of §9 and require every case to pass but the ones named below. It runs in cleartext
 # twice: against the server with `--h2`, which speaks h2 alone with prior knowledge, and against
 # the server naming no version, which reads h2's connection preface from each connection's first
-# octets (decision 117). With --tls it runs over TLS as well (`h2spec -t -k`), through the server's
+# bytes (decision 117). With --tls it runs over TLS as well (`h2spec -t -k`), through the server's
 # record-mode chapulin (https://github.com/c4milo/colibri/issues/20). The TLS run also needs a Go
 # toolchain, which mints the identity the server presents.
 #
@@ -35,7 +35,7 @@ readonly skipped_cases=(
 )
 readonly skipped_reason="RFC 7540 §5.3.1, dropped by RFC 9113 §5.3.2"
 
-# The case the server naming no version does not pass in cleartext, and why. It sends octets that
+# The case the server naming no version does not pass in cleartext, and why. It sends bytes that
 # are not the connection preface, and RFC 9113 §3.3 has a server that speaks both versions tell an
 # h2 connection by its preface, so the server reads them as h11, which answers 400. RFC 9113 §3.4
 # lets a server omit the GOAWAY, "since an invalid preface indicates that the peer is not using

@@ -26,7 +26,7 @@ const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04
 const get_stream_1 = "\x00\x00\x03\x01\x05\x00\x00\x00\x01\x82\x87\x84";
 const get_stream_3 = "\x00\x00\x03\x01\x05\x00\x00\x00\x03\x82\x87\x84";
 
-/// A frame's Length is three octets, then its type, its flags and its stream (RFC 9113 §4.1).
+/// A frame's Length is three bytes, then its type, its flags and its stream (RFC 9113 §4.1).
 const length_len: usize = 3;
 const type_index: usize = length_len;
 const stream_index: usize = type_index + @sizeOf(u8) + @sizeOf(u8);

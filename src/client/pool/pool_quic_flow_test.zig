@@ -280,7 +280,7 @@ fn to_pool() !void {
     }
 }
 
-/// A second IPv4 host after the fixture's, its four octets alike. Test-only.
+/// A second IPv4 host after the fixture's, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
@@ -408,7 +408,7 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed after a HEADERS frame 
 /// which has 99 (RFC 9204 Appendix A): its type and length, a section prefix of no dynamic entry,
 /// and an indexed field line (RFC 9204 §4.5.2). Test-only.
 const undecodable_headers = "\x01\x04\x00\x00\xff\x40";
-/// The first octets of a HEADERS frame whose payload would be 16 octets long. Test-only.
+/// The first bytes of a HEADERS frame whose payload would be 16 bytes long. Test-only.
 const headers_start = "\x01\x10\x00";
 
 /// The server answers its first request with `octets` and leaves the stream open.

@@ -16,7 +16,7 @@ pub const Coding = http.content_coding.Coding;
 const Slot = slots_module.Slot;
 const FieldSection = http.FieldSection;
 
-/// Octets of the Accept-Encoding value the client writes at most: each coding it decodes, and a
+/// Bytes of the Accept-Encoding value the client writes at most: each coding it decodes, and a
 /// weight after each but the first.
 pub const offer_len_max: usize = 64;
 
@@ -194,7 +194,7 @@ fn give_back_deflate(slot: *Slot) void {
 /// The coding the client removes from a final response's content, or null for content it passes
 /// on as it arrived.
 fn decodable(slot: *const Slot, status: u16, section: *const FieldSection, first: u32) ?Coding {
-    // RFC 9110 §14.1.2: a 206's ranges count the coded octets, and part of a coded stream does
+    // RFC 9110 §14.1.2: a 206's ranges count the coded bytes, and part of a coded stream does
     // not decode alone.
     if (status == partial_content) return null;
     var named: ?Coding = null;
@@ -226,17 +226,17 @@ fn one_coding(value: []const u8) ?Coding {
 /// RFC 9110 §5.6.3: optional whitespace is spaces and horizontal tabs.
 const whitespace = " \t";
 
-/// Decodes the coded `octets` into the response's body, after the octets already there. A coding
+/// Decodes the coded `octets` into the response's body, after the bytes already there. A coding
 /// whose content holds more than one stream starts each with `cpu_features`.
 pub fn decode(slot: *Slot, octets: []const u8, cpu_features: h11.coding.CpuFeatures) Error!void {
     assert(active(slot));
     const response = slot.response;
     slot.coded_len += octets.len;
     var taken: usize = 0;
-    // The last octets of a stream, its checksum, decode to nothing, so they are fed with room for
-    // one octet that must stay unwritten.
+    // The last bytes of a stream, its checksum, decode to nothing, so they are fed with room for
+    // one byte that must stay unwritten.
     var spill: [1]u8 = undefined;
-    // Bounded: each pass takes an octet or writes one, and the body holds `body.len`.
+    // Bounded: each pass takes a byte or writes one, and the body holds `body.len`.
     for (0..octets.len + response.body.len + 1) |_| {
         if (taken == octets.len) return;
         const room = response.body[response.body_len..];

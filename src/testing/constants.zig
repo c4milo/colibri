@@ -5,15 +5,15 @@ const assert = std.debug.assert;
 const h2 = @import("h2");
 const h11 = @import("h11");
 
-/// Octets the server reads from a socket at once: one whole h2 frame, header included, so a
+/// Bytes the server reads from a socket at once: one whole h2 frame, header included, so a
 /// connection always makes progress on the largest frame colibri accepts (RFC 9113 §4.2).
 pub const read_buffer_len: u32 = h2.constants.protocol.frame_header_len + h2.constants.limits.frame_size_max;
 
-/// Octets the server writes at once: a whole field block cut into frames, and the DATA frame of a
+/// Bytes the server writes at once: a whole field block cut into frames, and the DATA frame of a
 /// response body after it.
 pub const write_buffer_len: u32 = h2.constants.limits.send_block_len_max + read_buffer_len;
 
-/// Octets a connection of the server reads from its socket at once. A cleartext connection reads
+/// Bytes a connection of the server reads from its socket at once. A cleartext connection reads
 /// an h2 frame, and a TLS connection a whole record, which is what chapulin opens (RFC 9846
 /// §5.1), so this is the larger of the two.
 pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls_provider.constants.protocol.record_write_len_min);
@@ -28,26 +28,26 @@ pub const tick_ns: u64 = 1_000_000;
 /// (decision 91). The HTTP Garden sends one coded request at a time on each connection.
 pub const h11_decoders_per_worker: u32 = 4;
 
-/// Octets a worker's h11 connection decodes into per call (decision 98). The echo copies what it
+/// Bytes a worker's h11 connection decodes into per call (decision 98). The echo copies what it
 /// gets at once, so a worker's connections share the buffer.
 pub const h11_decoded_len: u32 = 16384;
 
-/// Most octets of request content the server's `--echo` mode returns (`h11/h11_echo.zig`). A
+/// Most bytes of request content the server's `--echo` mode returns (`h11/h11_echo.zig`). A
 /// request with more is answered with 413 (RFC 9110 §15.5.14) and no echo.
 pub const echo_body_len_max: u32 = 16384;
 
-/// Octets of the JSON one echo writes: the method and the target, each at most a request line
+/// Bytes of the JSON one echo writes: the method and the target, each at most a request line
 /// long, the field lines, each name and value base64-encoded inside `["",""],`, the content, and
 /// the keys around them (`h11/h11_echo.zig`). Only modules that import h11 reach it, so its
 /// comptime asserts are in `h11/h11_echo.zig`.
 pub const echo_json_len_max: u32 = 2 * base64_len(h11.constants.limits.start_line_len_max) +
     base64_len(h11.core.constants.limits.field_section_size_max) + echo_json_line_len * h11.core.constants.limits.field_count_max +
     base64_len(echo_body_len_max) + echo_json_keys_len;
-/// The octets around one field line in the echo, `["",""],`, and around everything else.
+/// The bytes around one field line in the echo, `["",""],`, and around everything else.
 pub const echo_json_line_len: u32 = 8;
 pub const echo_json_keys_len: u32 = 128;
 
-/// Octets of the standard base64 encoding of `len` octets, which the HTTP Garden decodes.
+/// Bytes of the standard base64 encoding of `len` bytes, which the HTTP Garden decodes.
 fn base64_len(len: u32) u32 {
     return @intCast(std.base64.standard.Encoder.calcSize(len));
 }
@@ -80,7 +80,7 @@ pub const connections_per_worker_max: u32 = 32;
 /// Connections the kernel holds for a worker before it refuses one, which is listen's backlog.
 pub const kernel_backlog: u31 = 64;
 
-/// The width of a cache line on the hosts colibri is measured on: 64 octets on x86-64 and 128 on
+/// The width of a cache line on the hosts colibri is measured on: 64 bytes on x86-64 and 128 on
 /// Apple silicon. A worker is padded to a multiple of it, so no two workers write one line
 /// (CLAUDE.md, Performance).
 pub const cache_line_bytes: u32 = 128;
@@ -93,25 +93,25 @@ pub const cache_line_bytes: u32 = 128;
 pub const responses_owed_max: u32 = h2.constants.limits.concurrent_streams_max + 1;
 
 /// The comptime branches that building the `--routes github` route table takes: it reads 203
-/// routes of up to about 70 octets each (design §8 step 13f).
+/// routes of up to about 70 bytes each (design §8 step 13f).
 pub const routes_quota: u32 = 1_000_000;
 
 /// The requests one worker's router answers at once in the `--routes` mode. Step 13f's load holds
 /// one request on each of 64 connections, and the router answers 503 past this.
 pub const routes_requests_max: u32 = 1024;
 
-/// Octets of each request's response memory in the `--routes` mode: the copies of its header and
+/// Bytes of each request's response memory in the `--routes` mode: the copies of its header and
 /// its answer, `server_routes.answer_body`.
 pub const routes_response_bytes: usize = 128;
 
-/// Octets of each request's body memory in the `--routes` mode, which a POST route reads whole
+/// Bytes of each request's body memory in the `--routes` mode, which a POST route reads whole
 /// (design §8 step 50b). The judge's larger body is this long, so it arrives in more receives than
 /// its header.
 pub const routes_body_bytes: usize = 8192;
 
-/// Octets of each request's copy of its header in the `--routes` mode. A POST route takes the
+/// Bytes of each request's copy of its header in the `--routes` mode. A POST route takes the
 /// copy, because its body comes after the header (decision 163 ruling 5). h2load's POST header
-/// holds about 171 octets of live parts, so this leaves room for a larger header.
+/// holds about 171 bytes of live parts, so this leaves room for a larger header.
 pub const routes_header_bytes: usize = 1024;
 
 /// Most steps one session takes between two reads from the socket. A step that neither consumes
@@ -133,8 +133,8 @@ pub const response_status: u16 = 200;
 /// (RFC 9110 §8.6).
 pub const response_content_length = "8";
 
-/// The most octets of content `--body` gives every answer in place of `response_body`, and the
-/// octets it takes them from (design §8 step 13n). The judge's inputs with a large body ask for
+/// The most bytes of content `--body` gives every answer in place of `response_body`, and the
+/// bytes it takes them from (design §8 step 13n). The judge's inputs with a large body ask for
 /// 256 KiB.
 pub const answer_body_len_max: u32 = 1 << 20;
 pub const answer_body_octets: [answer_body_len_max]u8 = @splat('x');
@@ -143,17 +143,17 @@ pub const answer_body_octets: [answer_body_len_max]u8 = @splat('x');
 /// It bounds the plan the command line reads and the array the session holds.
 pub const requests_max: u32 = 16;
 
-/// Most octets of request content one exchange sends. It is past the 65,535-octet window a stream
+/// Most bytes of request content one exchange sends. It is past the 65,535-byte window a stream
 /// starts with (RFC 9113 §6.9.2) several times over, so a plan can make the peer's WINDOW_UPDATE
 /// frames the only way the content finishes.
 pub const request_content_len_max: u32 = 1 << 24;
 
-/// The period of the request content: octet `i` of it is `i % request_content_period`. A prime,
+/// The period of the request content: byte `i` of it is `i % request_content_period`. A prime,
 /// so no frame size, record size or window divides it, and content a peer reorders, drops or
-/// repeats does not echo back as the same octets.
+/// repeats does not echo back as the same bytes.
 pub const request_content_period: u32 = 251;
 
-/// Octets of a response's content the client keeps for each exchange, which `client` copies into
+/// Bytes of a response's content the client keeps for each exchange, which `client` copies into
 /// the exchange's memory: `tools/h2_interop.sh`'s `/large`, 1 MiB, whole.
 pub const response_content_len_max: u32 = 1 << 20;
 
@@ -206,33 +206,33 @@ comptime {
     assert(workers_max > 0 and connections_per_worker_max > 0 and kernel_backlog > 0);
     assert(cache_line_bytes > 0 and cache_line_bytes % @alignOf(u64) == 0);
     assert(response_body.len > 0);
-    // The declared length is the body's, or a peer would wait for octets that never come.
+    // The declared length is the body's, or a peer would wait for bytes that never come.
     assert(response_content_length.len == 1 and response_content_length[0] - '0' == response_body.len);
     // The `content-length` of the longest `--body` fits the digits the server writes it in.
     assert(std.math.pow(u64, port_radix, content_length_digits_max) > answer_body_len_max);
 }
 
 /// The largest DER the TLS checks read from one file: a certificate, a Subject Name or a
-/// SubjectPublicKeyInfo. An RSA-4096 certificate runs to about 1,400 octets and an RSA-4096 SPKI
-/// to about 550. The QUIC Interop Runner's amplification case pads its leaf with twenty 250-octet
-/// DNS names, to 5,514 octets, so this holds 8 KiB.
+/// SubjectPublicKeyInfo. An RSA-4096 certificate runs to about 1,400 bytes and an RSA-4096 SPKI
+/// to about 550. The QUIC Interop Runner's amplification case pads its leaf with twenty 250-byte
+/// DNS names, to 5,514 bytes, so this holds 8 KiB.
 pub const tls_der_len_max: usize = 8 * 1024;
 
-/// The octets one TLS check moves over its socket in a single pass: one record at most, which
+/// The bytes one TLS check moves over its socket in a single pass: one record at most, which
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
 pub const tls_record_buffer_len: usize = 18 * 1024;
 
-/// The most octets the server's handshake flight takes. chapulin writes a flight whole or fails
+/// The most bytes the server's handshake flight takes. chapulin writes a flight whole or fails
 /// the handshake (`srv_cfg.h`), so the server's output holds this much before a handshake step
 /// runs. It is the chain's two certificates, at most `tls_der_len_max` each, and the rest.
 pub const tls_flight_len_max: usize = 2 * tls_der_len_max + tls_flight_rest_len;
 
 /// The rest of the flight: ServerHello, the compatibility ChangeCipherSpec, EncryptedExtensions,
 /// CertificateVerify and Finished, and a header and tag around every record. The library's object
-/// seals up to 16,384 octets of plaintext per record (`TX_RECORD`, decision 97), so two 8 KiB
+/// seals up to 16,384 bytes of plaintext per record (`TX_RECORD`, decision 97), so two 8 KiB
 /// certificates take two records and their overhead. An ML-DSA-87 CertificateVerify carries a
-/// signature of 4,627 octets (RFC 9881 Appendix B, decision 147), and the other messages are a few
-/// hundred octets more.
+/// signature of 4,627 bytes (RFC 9881 Appendix B, decision 147), and the other messages are a few
+/// hundred bytes more.
 pub const tls_flight_rest_len: usize = 8 * 1024;
 
 /// The identities a test-only server presents at most: the Go tool's P-256 one, and an RSA and an
@@ -240,12 +240,12 @@ pub const tls_flight_rest_len: usize = 8 * 1024;
 pub const tls_identities_max: usize = 3;
 
 /// The longest PEM file of an identity read from PEM: an ML-DSA-87 chain's two certificates, about
-/// 7,500 octets of DER each, as base64 (RFC 7468 §2).
+/// 7,500 bytes of DER each, as base64 (RFC 7468 §2).
 pub const tls_pem_file_len_max: usize = 24 * 1024;
 
 /// The label, context and length both TLS checks export under (RFC 9846 §7.5). The Go peers in
 /// `tools/h2_interop/` export under the same three, and the scripts require the two values to
-/// match. The label is longer than the 12 octets TLS 1.3's own labels need, so a chapulin that
+/// match. The label is longer than the 12 bytes TLS 1.3's own labels need, so a chapulin that
 /// kept its default label bound would fail the run.
 pub const tls_exporter_label = "EXPORTER-colibri-check";
 pub const tls_exporter_context = "colibri";
@@ -260,24 +260,24 @@ pub const udp_operations_max: u32 = 64;
 /// sizing a group to the buffers in flight rather than to the memory there is.
 pub const udp_receive_buffers: u32 = 16;
 
-/// Octets of one receive buffer: rotor's prefix of 192, which holds the peer's address and the
+/// Bytes of one receive buffer: rotor's prefix of 192, which holds the peer's address and the
 /// control messages, and the datagram after it.
 pub const udp_buffer_bytes: u32 = 2048;
 
-/// Octets of one receive buffer of a socket that asks the kernel to coalesce datagrams (UDP_GRO):
+/// Bytes of one receive buffer of a socket that asks the kernel to coalesce datagrams (UDP_GRO):
 /// rotor's prefix of 192 and the largest UDP datagram, whose length field holds 16 bits (RFC 768),
 /// rounded up to the next KiB.
 pub const udp_coalesced_buffer_bytes: u32 = 66 * 1024;
 
 /// The largest send that the kernel cuts into segments (UDP_SEGMENT): an IPv4 datagram's 65,535
-/// octets less its 20-octet header and the 8-octet UDP header (RFC 791 §3.1, RFC 768).
+/// bytes less its 20-byte header and the 8-byte UDP header (RFC 791 §3.1, RFC 768).
 pub const udp_segmented_bytes_max: usize = 65_507;
 
 /// Segments in one segmented send: rotor's limit, which is Linux's.
 pub const udp_segments_max: usize = 64;
 
 /// Segmented sends the h3 server may have in flight to the kernel at once. Each holds
-/// `udp_segmented_bytes_max` octets, so the batches stay a few MiB.
+/// `udp_segmented_bytes_max` bytes, so the batches stay a few MiB.
 pub const udp_batches: usize = 16;
 
 /// The largest datagram an endpoint must receive whole: Ethernet's MTU, which the paths of
@@ -289,12 +289,12 @@ pub const udp_payload_len_min: u32 = 1500;
 pub const quic_peer_params_len_max: usize = 1024;
 
 /// The NSS key log the QUIC check writes to SSLKEYLOGFILE: four lines per endpoint, each a label
-/// of at most 31 octets, a 32-octet client random and a secret of at most 48 octets in hex, so
-/// 194 octets.
+/// of at most 31 bytes, a 32-byte client random and a secret of at most 48 bytes in hex, so
+/// 194 bytes.
 pub const quic_keylog_len: usize = 2048;
 
 /// The largest datagram the QUIC check moves between its two endpoints: RFC 9000 §14's 1,200
-/// octets plus the room a path of Ethernet's MTU leaves.
+/// bytes plus the room a path of Ethernet's MTU leaves.
 pub const quic_datagram_len_max: usize = udp_payload_len_min;
 
 /// Rounds the QUIC check runs before it calls the run stuck. A round moves every datagram each
@@ -343,7 +343,7 @@ pub const hq_requests_max: usize = 100;
 /// Paths one hq-interop client run fetches. The runner's multiplexing case asks for the most.
 pub const hq_paths_max: usize = 2048;
 
-/// Octets the hq-interop client reads from a stream at once, before it writes them to the file.
+/// Bytes the hq-interop client reads from a stream at once, before it writes them to the file.
 pub const hq_read_len: usize = 16 * 1024;
 
 /// The application error code of a stream the hq-interop server refuses. hq-interop defines no
@@ -383,9 +383,9 @@ pub const quic_connections_max: usize = 64;
 /// resumes nothing.
 pub const quic_resume_hosts_max: usize = 16;
 
-/// Octets of one UDP QUIC connection's qlog between two turns of the loop (decision 102). A turn
+/// Bytes of one UDP QUIC connection's qlog between two turns of the loop (decision 102). A turn
 /// logs the packets of at most `udp_operations_max` datagrams received and as many sent, a few
-/// hundred octets each, and the next turn writes them to the connection's file.
+/// hundred bytes each, and the next turn writes them to the connection's file.
 pub const quic_qlog_len: usize = 256 * 1024;
 
 /// How long a UDP QUIC server accepts a Retry token after minting it. RFC 9000 §8.1.4: "Servers
@@ -409,7 +409,7 @@ pub const quic_run_ticks_max: u64 = 1 << 32;
 /// The idle timeout each UDP QUIC endpoint advertises (RFC 9000 §10.1), in milliseconds.
 pub const quic_idle_timeout_ms: u64 = 30_000;
 
-/// Octets each connection of the UDP server's `h3` mode holds of a request's content before h3
+/// Bytes each connection of the UDP server's `h3` mode holds of a request's content before h3
 /// reads them (decision 61). h3spec, aioquic and the QUIC Interop Runner send small requests.
 pub const h3_receive_pool_len: usize = 65_536;
 

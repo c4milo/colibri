@@ -1,10 +1,10 @@
 //! A minimum rate over windows (decision 110): once started, each window of a fixed length must
-//! bring a quota of octets, and the first window takes a grace period more. A window that ends
+//! bring a quota of bytes, and the first window takes a grace period more. A window that ends
 //! short of its quota is the meter's verdict. colibri reads no clock, so the meter moves only when
 //! a caller hands it an instant.
 //!
 //! The windows follow one another: a window that brings its quota ends at its instant, and the
-//! next starts there with nothing counted. So a peer cannot bank octets from one window for the
+//! next starts there with nothing counted. So a peer cannot bank bytes from one window for the
 //! next.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -13,11 +13,11 @@ pub const Meter = struct {
     /// The instant the current window ends while the meter runs, and after a pause the end of the
     /// window it paused in.
     window_end_ns: u64 = 0,
-    /// The octets the current window has brought.
+    /// The bytes the current window has brought.
     octets: u64 = 0,
     /// `running_ns` while the meter runs. Otherwise the instant it paused at, or `no_window_ns`
     /// once it stopped or before it started: a start at the instant it paused takes back the
-    /// window it paused in, with its octets (decision 110 as amended on 2026-11-27).
+    /// window it paused in, with its bytes (decision 110 as amended on 2026-11-27).
     stopped_ns: u64 = no_window_ns,
 
     /// What `stopped_ns` holds while the meter runs, and while it holds no window to take back.
@@ -73,7 +73,7 @@ pub const Meter = struct {
     }
 
     /// Moves the meter to `now_ns`, and returns whether a window that ended by then fell short of
-    /// `quota`. A window ends at its instant, so octets that arrive then count in the next one.
+    /// `quota`. A window ends at its instant, so bytes that arrive then count in the next one.
     pub fn short(meter: *Meter, now_ns: u64, quota: u64, window_ns: u64) bool {
         assert(quota > 0 and window_ns > 0);
         if (!meter.running()) return false;
@@ -89,7 +89,7 @@ pub const Meter = struct {
 
 const testing = std.testing;
 
-/// The grace period, window and quota the tests use: 10 octets over each window of 5 ns, the
+/// The grace period, window and quota the tests use: 10 bytes over each window of 5 ns, the
 /// first 3 ns longer.
 const test_grace_ns: u64 = 3;
 const test_window_ns: u64 = 5;
@@ -114,7 +114,7 @@ test "decision 110: a window that brings its test_quota starts the next one with
     // A meter whose window holds its test_quota looks next at the end of the window after it.
     try testing.expectEqual(first_end_ns + test_window_ns, meter.check_ns(test_quota, test_window_ns).?);
     try testing.expect(!meter.short(first_end_ns, test_quota, test_window_ns));
-    // Octets that arrive at the first window's end count in the second.
+    // Bytes that arrive at the first window's end count in the second.
     meter.count(test_quota - 1);
     try testing.expect(meter.short(first_end_ns + test_window_ns, test_quota, test_window_ns));
 }
@@ -134,7 +134,7 @@ test "decision 110 as amended: a meter paused and started at one instant keeps i
     var meter: Meter = .{};
     meter.start(0, test_grace_ns, test_window_ns);
     meter.count(test_quota - 1);
-    // A pause that lasts no time: the window and its octets come back, with no new grace period.
+    // A pause that lasts no time: the window and its bytes come back, with no new grace period.
     meter.pause(test_grace_ns);
     meter.count(test_quota);
     try testing.expect(!meter.running());
@@ -167,9 +167,9 @@ test "decision 110: a stopped meter counts nothing and is never short" {
 const deadline = @import("deadline.zig");
 const constants = @import("constants.zig");
 
-/// One run of spec/lean's meter vectors: a meter started at `t0_ns` for `rate` octets a second
+/// One run of spec/lean's meter vectors: a meter started at `t0_ns` for `rate` bytes a second
 /// over windows of `window_ns`, the first `grace_ns` longer, and a peer that sends `peer_rate`
-/// octets a second from `peer_start_ns` in whole units of `unit` octets. Test-only.
+/// bytes a second from `peer_start_ns` in whole units of `unit` bytes. Test-only.
 const Run = struct {
     rate: u32,
     window_ns: u64,
@@ -181,7 +181,7 @@ const Run = struct {
     windows: u64,
 
     /// The instant unit `m` arrives, counting from 1: the first instant by which the peer has sent
-    /// its last octet.
+    /// its last byte.
     fn arrival_ns(run: *const Run, m: u64) u64 {
         const sent = @as(u128, m) * run.unit * constants.nanoseconds_per_second;
         return run.peer_start_ns + @as(u64, @intCast((sent + run.peer_rate - 1) / run.peer_rate));

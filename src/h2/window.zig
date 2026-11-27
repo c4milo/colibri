@@ -1,4 +1,4 @@
-//! The flow-control window of RFC 9113 §5.2 and §6.9: a credit counter in octets, kept once for
+//! The flow-control window of RFC 9113 §5.2 and §6.9: a credit counter in bytes, kept once for
 //! the connection and once per stream, in each direction (decision 13). The connection owns every
 //! window. Nothing in this file depends on streams or frames.
 //!
@@ -33,11 +33,11 @@ const available_min: i64 = -available_max;
 /// spend on DATA payloads (RFC 9113 §6.9.1). On the send side the peer advertised it; on the
 /// receive side colibri did, and `Receiver` wraps it.
 pub const Window = struct {
-    /// Octets the sender may still send. Negative after a reduction of the initial window that
+    /// Bytes the sender may still send. Negative after a reduction of the initial window that
     /// outran data already sent (RFC 9113 §6.9.2).
     available: i64,
 
-    /// A window holding `initial` octets of credit. `initial` is at most `window_max`: the
+    /// A window holding `initial` bytes of credit. `initial` is at most `window_max`: the
     /// settings codec refuses a larger SETTINGS_INITIAL_WINDOW_SIZE (RFC 9113 §6.5.2) before a
     /// window is made from it.
     pub fn init(initial: u32) Window {
@@ -52,7 +52,7 @@ pub const Window = struct {
         return window.available >= available_min and window.available <= available_max;
     }
 
-    /// The octets a flow-controlled frame may carry now: `available`, or 0 while the window is not
+    /// The bytes a flow-controlled frame may carry now: `available`, or 0 while the window is not
     /// positive.
     pub fn sendable(window: *const Window) u32 {
         assert(window.in_range());
@@ -62,7 +62,7 @@ pub const Window = struct {
         return @intCast(window.available);
     }
 
-    /// Subtracts a flow-controlled payload of `len` octets. On the send side colibri calls this
+    /// Subtracts a flow-controlled payload of `len` bytes. On the send side colibri calls this
     /// before sending, and `error.Exceeded` means the frame waits (RFC 9113 §6.9.1). On the
     /// receive side `Receiver.receive` calls it and names what `error.Exceeded` means there.
     ///
@@ -88,7 +88,7 @@ pub const Window = struct {
     pub fn add(window: *Window, increment: u32) error{Overflow}!void {
         assert(window.in_range());
         assert(increment >= 1 and increment <= constants.protocol.window_max);
-        // RFC 9113 §6.9.1: a sender MUST NOT allow a flow-control window to exceed 2^31-1 octets.
+        // RFC 9113 §6.9.1: a sender MUST NOT allow a flow-control window to exceed 2^31-1 bytes.
         if (window.available + increment > available_max) return error.Overflow;
         window.available += increment;
         assert(window.in_range());
@@ -120,11 +120,11 @@ pub fn initial_window_delta(old: u32, new: u32) i64 {
 }
 
 /// colibri's receive side of one window, connection or stream: the window it advertised to the
-/// peer, the octets received that the application has not yet consumed, and the credit the
+/// peer, the bytes received that the application has not yet consumed, and the credit the
 /// application freed that colibri has not yet sent back in a WINDOW_UPDATE. The connection owns
 /// one for the connection window and one per stream.
 ///
-/// The window is at least `window_update_threshold` octets, at `init` and after every adjustment
+/// The window is at least `window_update_threshold` bytes, at `init` and after every adjustment
 /// the connection makes to `window` when it lowers the initial window it advertises (RFC 9113
 /// §6.9.3). A smaller window could fill without the freed credit ever reaching the threshold, so
 /// no WINDOW_UPDATE would go out and the peer would stall at a zero window, because WINDOW_UPDATE
@@ -133,12 +133,12 @@ pub fn initial_window_delta(old: u32, new: u32) i64 {
 pub const Receiver = struct {
     /// The space the peer may still fill.
     window: Window,
-    /// Octets received and charged to the window that the application has not yet consumed.
+    /// Bytes received and charged to the window that the application has not yet consumed.
     unreleased: u32,
-    /// Octets the application consumed since the last WINDOW_UPDATE, not yet credited back.
+    /// Bytes the application consumed since the last WINDOW_UPDATE, not yet credited back.
     released: u32,
 
-    /// A receiver whose window holds `initial` octets and whose application has freed nothing.
+    /// A receiver whose window holds `initial` bytes and whose application has freed nothing.
     /// `initial` is at least `window_update_threshold`, as the type's comment explains.
     pub fn init(initial: u32) Receiver {
         assert(initial >= constants.policy.window_update_threshold);
@@ -152,7 +152,7 @@ pub const Receiver = struct {
     }
 
     /// Whether the window is within invariant 15's range and the three counts add up to the
-    /// initial window colibri currently advertises: every octet of that window is either still
+    /// initial window colibri currently advertises: every byte of that window is either still
     /// available, held by the application, or freed and waiting to be credited back, so the sum
     /// is within `[0, window_max]`.
     pub fn in_range(receiver: *const Receiver) bool {
@@ -176,7 +176,7 @@ pub const Receiver = struct {
         assert(receiver.in_range());
     }
 
-    /// The application consumed `len` octets, at most the `unreleased` octets it was given. The
+    /// The application consumed `len` bytes, at most the `unreleased` bytes it was given. The
     /// credit accumulates in `released` until it reaches `window_update_threshold`, then goes back
     /// into the window and comes back as the increment the connection must send in a
     /// WINDOW_UPDATE (RFC 9113 §6.9.1 advises against very small increments; the threshold is
@@ -200,7 +200,7 @@ pub const Receiver = struct {
         return increment;
     }
 
-    /// The application consumed `len` octets, as `release` counts them, but the credit stays in
+    /// The application consumed `len` bytes, as `release` counts them, but the credit stays in
     /// `released`, whatever its size, until a later `release` gives it back. The connection calls
     /// it when it has no room to queue the WINDOW_UPDATE now.
     pub fn release_later(receiver: *Receiver, len: u32) void {

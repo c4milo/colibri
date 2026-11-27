@@ -1,9 +1,9 @@
 //! The encoders a server codes response content with (decision 101, design §8 step 17e). They wait
 //! in a pool the caller places, and a response holds one only while its content is coded. Each
 //! slot holds an encoder of the level the caller chose at build time, because stdx's encoder is
-//! one type per level, and a ring of `encoder_ring_len` coded octets that the response sends from
+//! one type per level, and a ring of `encoder_ring_len` coded bytes that the response sends from
 //! (the owner's ruling of 2026-09-28): h11 and h2 copy from it, and h3 sends from it in place until
-//! the peer acknowledges the octets.
+//! the peer acknowledges the bytes.
 //!
 //! A connection holds the pool as `Encoders`, whatever its size and level: a pointer to the pool
 //! and the calls that reach its slots.
@@ -33,7 +33,7 @@ pub const Index = u16;
 /// The index that names no slot: the end of the free list.
 const no_slot: Index = std.math.maxInt(Index);
 
-/// A slot's ring of coded octets.
+/// A slot's ring of coded bytes.
 pub const Ring = coding_ring.Octets;
 
 /// A pool as a connection holds it, whatever its size and level.
@@ -61,7 +61,7 @@ pub const Encoders = struct {
         return encoders.vtable.encode(encoders.context, index, input, output, flush);
     }
 
-    /// Slot `index`'s ring, which its response writes coded octets into and sends from.
+    /// Slot `index`'s ring, which its response writes coded bytes into and sends from.
     pub fn ring(encoders: Encoders, index: Index) *Ring {
         return encoders.vtable.ring(encoders.context, index);
     }
@@ -103,7 +103,7 @@ pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
             coding: Coding,
             /// A `Gzip` or a `Zlib`, as `coding` names, which `take` starts in place. A union
             /// writes its whole payload to change its field, and ReleaseSafe writes 0xAA over an
-            /// `undefined` payload: 299,768 octets on each `take` (design §8 step 67).
+            /// `undefined` payload: 299,768 bytes on each `take` (design §8 step 67).
             encoder: [encoder_len]u8 align(encoder_alignment),
             ring: Ring,
         };
@@ -223,7 +223,7 @@ const test_decoded_len: usize = 4096;
 const test_text = "colibri codes content with stdx, and a client reads it back octet for octet. " ** test_text_repeats;
 const test_text_repeats: usize = 8;
 
-/// Codes `test_text` through slot `index` into its ring in one call, and returns the coded octets.
+/// Codes `test_text` through slot `index` into its ring in one call, and returns the coded bytes.
 fn code_all(encoders: Encoders, index: Index) ![]const u8 {
     const coded = encoders.ring(index);
     const progress = encoders.encode(index, test_text, coded, .finish);
@@ -268,13 +268,13 @@ test "decision 101: every slot taken leaves a response uncoded, and one given ba
 /// A pool of one slot at the default level, the one a server codes with. Test-only.
 const TestPoolDefault = EncoderPool(.{ .count = 1 });
 threadlocal var test_pool_default: TestPoolDefault align(@alignOf(TestPoolDefault)) = undefined;
-/// The octets the next test writes over a free slot's encoder before `take` starts it.
+/// The bytes the next test writes over a free slot's encoder before `take` starts it.
 const test_fills = [_]u8{ 0, std.math.maxInt(u8) };
 /// What each run of the next test coded, kept to compare.
 threadlocal var test_runs: [test_fills.len][test_decoded_len]u8 = undefined;
 
 /// Codes `test_text` in `coding` once after each of `test_fills` fills the encoder of the slot that
-/// `take` gives next, and requires the same coded octets each time.
+/// `take` gives next, and requires the same coded bytes each time.
 fn expect_fill_ignored(pool: anytype, coding: Coding) !void {
     pool.init();
     const encoders = pool.encoders();

@@ -4,7 +4,7 @@
 //!
 //! Each call of the connection that writes or reads a frame takes the instant (decision 102 as
 //! amended) and keeps it in `Connection.now_ns` while it runs, and these events carry it. A log
-//! reads the connection and never changes it: a SETTINGS frame is logged from its octets, read a
+//! reads the connection and never changes it: a SETTINGS frame is logged from its bytes, read a
 //! second time, and a HEADERS frame from the field section colibri encoded or decoded.
 const std = @import("std");
 const core = @import("core");
@@ -169,7 +169,7 @@ fn write_settings(text: *TextWriter, stream_id: u64, payload: []const u8) qlog.E
     try h3_event.begin_frame(text, stream_id, "settings");
     try h3_event.begin_settings(text);
     var reader = Reader.init(payload);
-    // Bounded by the payload: each setting takes two octets at least.
+    // Bounded by the payload: each setting takes two bytes at least.
     for (0..payload.len) |_| {
         if (reader.remaining_len() == 0) break;
         const identifier = (wire.varint.decode(&reader) catch break).value;

@@ -128,7 +128,7 @@ test "issue 97: a server read from its PEM files and a client read from its bund
     try testing.expect(support.client.provider().handshake_complete());
 }
 
-/// The DER room of the ML-DSA-87 chain: two certificates of about 7,500 octets each. Test-only.
+/// The DER room of the ML-DSA-87 chain: two certificates of about 7,500 bytes each. Test-only.
 const mldsa87_der_len: usize = constants.limits.certificate_chain_len_max * der_len;
 var mldsa87_der: [mldsa87_der_len]u8 = undefined;
 var mldsa87_certificates: [chain_len][]const u8 = undefined;
@@ -171,7 +171,7 @@ test "decision 147: a server holds one identity for each scheme, and chapulin's 
     try testing.expectError(error.IdentityUnfilled, support.server_config.init(.{ .identities = &.{.{ .chain = chain, .key = &unfilled }}, .cookie_key = &support.cookie_key, .crypto = support.crypto }));
 }
 
-/// The DER room of the RSA chain: two certificates of about 1,000 octets each. Test-only.
+/// The DER room of the RSA chain: two certificates of about 1,000 bytes each. Test-only.
 var rsa_der: [der_len]u8 = undefined;
 var rsa_certificates: [chain_len][]const u8 = undefined;
 
@@ -181,7 +181,7 @@ test "decision 147: an RSA key reads with its scheme and its modulus, and a leaf
     defer key.wipe();
     try pem.key(support.crypto, testdata.rsa_key_pem, chain[0], &key);
     try testing.expectEqual(.rsa_pss_rsae_sha256, key.scheme.?);
-    // RFC 8017 §A.1.1: the leaf's RSAPublicKey holds the modulus, 384 octets for RSA-3072.
+    // RFC 8017 §A.1.1: the leaf's RSAPublicKey holds the modulus, 384 bytes for RSA-3072.
     try testing.expect(std.mem.indexOf(u8, chain[0], key.public_key[0..rsa_modulus_len]) != null);
     // RFC 9846 §4.5.2: the P-256 leaf carries another key, so the file is refused.
     var refused: values.Key = .{};
@@ -189,7 +189,7 @@ test "decision 147: an RSA key reads with its scheme and its modulus, and a leaf
     try testing.expectEqual(null, refused.scheme);
 }
 
-/// Octets of the test RSA key's modulus: RSA-3072. Test-only.
+/// Bytes of the test RSA key's modulus: RSA-3072. Test-only.
 const rsa_modulus_len: usize = 384;
 
 test "decision 147: a server holds a P-256, an RSA and an ML-DSA-87 identity, and chapulin's check signs with each" {

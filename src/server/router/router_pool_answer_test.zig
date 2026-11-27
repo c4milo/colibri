@@ -33,7 +33,7 @@ const routes = .{
     },
 };
 
-/// A pool of two entries, so it has two slots for the answers that wait, and octets of each
+/// A pool of two entries, so it has two slots for the answers that wait, and bytes of each
 /// entry's response memory. Test-only.
 const requests = 2;
 const response_bytes = 64;

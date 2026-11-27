@@ -1,15 +1,15 @@
 //! The fuzz property of message.zig's three entry points, and the sweep that runs it over every
-//! input of up to two octets. It shows that no field section reaches an assertion (invariant 24),
+//! input of up to two bytes. It shows that no field section reaches an assertion (invariant 24),
 //! and that whatever an entry point accepts keeps the rules it checks. The property reads those
 //! rules again here, without `walk`, `check` or `http.content_length`.
 //!
-//! An input is a list of lines, one pick octet at a time:
+//! An input is a list of lines, one pick byte at a time:
 //!   - a pick below `fuzz_raw_value_pick` appends one line of `fuzz_lines`;
 //!   - a pick from `fuzz_raw_value_pick` to below `fuzz_raw_name_pick` ends the list with one line
-//!     whose name is a name of `fuzz_lines` and whose value is every remaining octet;
+//!     whose name is a name of `fuzz_lines` and whose value is every remaining byte;
 //!   - a pick at or above `fuzz_raw_name_pick` ends the list with one line whose name is every
-//!     remaining octet and whose value is a value of `fuzz_lines`.
-//! So arbitrary octets arrive in every name and every value check, after any sequence of lines
+//!     remaining byte and whose value is a value of `fuzz_lines`.
+//! So arbitrary bytes arrive in every name and every value check, after any sequence of lines
 //! the table holds. Everything in this file is test-only.
 const std = @import("std");
 const core = @import("core");
@@ -21,19 +21,19 @@ const Field = http.Field;
 const FieldSection = http.FieldSection;
 const Kind = message_lines.Kind;
 
-/// Most octets one fuzz input carries: room for a few table lines and a 20-digit content-length.
+/// Most bytes one fuzz input carries: room for a few table lines and a 20-digit content-length.
 const fuzz_input_len_max = 32;
 
-/// The first pick octet that ends the input with a raw value.
+/// The first pick byte that ends the input with a raw value.
 const fuzz_raw_value_pick = 0x80;
 
-/// The first pick octet that ends the input with a raw name.
+/// The first pick byte that ends the input with a raw name.
 const fuzz_raw_name_pick = 0xc0;
 
 /// The base the property reads a content-length member in, independent of `http.content_length`.
 const fuzz_decimal_radix = 10;
 
-/// Most members the property splits one content-length value into: one more than its octets, and
+/// Most members the property splits one content-length value into: one more than its bytes, and
 /// one more call to find the end.
 const fuzz_member_calls_max = fuzz_input_len_max + fuzz_member_calls_past_len;
 const fuzz_member_calls_past_len = 2;

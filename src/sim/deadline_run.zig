@@ -2,12 +2,12 @@
 //! TCP connection (design §8 step 21b.6), the application that answers its requests
 //! (`deadline_app.zig`), and the peer of the seed's plan, in simulated time. An honest peer is
 //! colibri's client, a pool with TCP alone in cleartext (step 21c). At each instant the
-//! run moves octets both ways until nothing moves, then goes to the next instant something is due:
+//! run moves bytes both ways until nothing moves, then goes to the next instant something is due:
 //! a piece the peer writes or reads, an answer of the application's, or a deadline of the
 //! server's. A run ends when the endpoint says to close the connection's socket, or at the horizon
 //! with it still open.
 //!
-//! The socket between them holds `socket_len` octets the peer has not read, so the server's
+//! The socket between them holds `socket_len` bytes the peer has not read, so the server's
 //! `send_stream` takes only what the peer's reading has made room for. Each pass reads, answers
 //! and sends in that order, so nothing is read between a write and its send.
 const std = @import("std");
@@ -32,7 +32,7 @@ const address_octet: u8 = 0x0a;
 const origin_port: u16 = 80;
 
 pub const Error = client.RequestError || client.StartError || server.StartError || peer_module.Error || app_module.Error || error{
-    /// The server failed the connection on octets an honest peer sent.
+    /// The server failed the connection on bytes an honest peer sent.
     ExchangeRefused,
     /// The run visited `instants_max` instants, or an instant did not settle.
     RunStalled,
@@ -78,7 +78,7 @@ pub const Record = struct {
     }
 };
 
-/// One direction's octets: written at the back, delivered to the reader, consumed from the front.
+/// One direction's bytes: written at the back, delivered to the reader, consumed from the front.
 const Stream = struct {
     octets: [limits.stream_len_max]u8,
     written: usize,
@@ -106,7 +106,7 @@ const Stream = struct {
         return stream.free()[0..@min(stream.free().len, limits.socket_len - unread)];
     }
 
-    /// Delivers up to `len` octets written and not yet delivered, and returns whether any moved.
+    /// Delivers up to `len` bytes written and not yet delivered, and returns whether any moved.
     fn deliver(stream: *Stream, len: usize) bool {
         const moved = @min(len, stream.written - stream.delivered);
         stream.delivered += moved;
@@ -120,7 +120,7 @@ pub const Storage = struct {
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     /// Whether the endpoint said to close the socket, whether the connection's linger had passed
-    /// by then, so it closed with octets still owed (decision 110), and how the connection ended.
+    /// by then, so it closed with bytes still owed (decision 110), and how the connection ended.
     closed: bool,
     lingered: bool,
     ended: ?server.Ended,
@@ -253,7 +253,7 @@ fn request_next(storage: *Storage) Error!void {
     storage.requests_made += 1;
 }
 
-/// The octets of each response's content: letters alone, so no content reads as a status line.
+/// The bytes of each response's content: letters alone, so no content reads as a status line.
 const content_letters = "abcdefghijklmnopqrstuvwxyz";
 
 /// The instant `ms` milliseconds into the run, from its base, in nanoseconds.
@@ -261,7 +261,7 @@ fn ns_of(plan: *const Plan, ms: u64) u64 {
     return (plan.base_ms + ms) * limits.ns_per_ms;
 }
 
-/// Moves octets both ways at `now_ms` until nothing moves, after the server's caller hands it the
+/// Moves bytes both ways at `now_ms` until nothing moves, after the server's caller hands it the
 /// instant, as it does whenever it wakes (decision 110).
 fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
     storage.endpoint.on_instant(ns_of(plan, now_ms));
@@ -270,7 +270,7 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
         moved = try server_read(storage, plan, now_ms) or moved;
         moved = try storage.record.app.answer(&storage.endpoint, plan, &storage.content, now_ms) or moved;
         moved = server_send(storage, plan, now_ms) or moved;
-        // A connection its linger closed dropped the octets it still owed: they never left.
+        // A connection its linger closed dropped the bytes it still owed: they never left.
         if (!storage.lingered) storage.record.app.note_drained(output_len(storage), plan, now_ms);
         moved = try peer_read(storage, plan, now_ms) or moved;
         if (!moved) return;
@@ -278,7 +278,7 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
     return error.RunStalled;
 }
 
-/// The peer writes what is due, and the octets it wrote are delivered as its pace allows.
+/// The peer writes what is due, and the bytes it wrote are delivered as its pace allows.
 pub fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_server;
     if (!plan.honest()) {
@@ -301,7 +301,7 @@ pub fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool 
     return stream.deliver(plan.piece_len);
 }
 
-/// The octets the connection's output holds: none once the endpoint closed it.
+/// The bytes the connection's output holds: none once the endpoint closed it.
 fn output_len(storage: *const Storage) usize {
     return storage.endpoint.tcp[storage.accepted.slot].output_len;
 }
@@ -310,11 +310,11 @@ fn output_len(storage: *const Storage) usize {
 fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_server;
     var moved = false;
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
         var received: server.ReceiveResult = undefined;
         storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, ns_of(plan, now_ms), &received);
-        // A hostile peer's octets may fail the connection; an honest peer's may not.
+        // A hostile peer's bytes may fail the connection; an honest peer's may not.
         if (plan.honest() and storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
         stream.consumed += received.consumed;
         moved = moved or received.consumed > 0;
@@ -374,7 +374,7 @@ fn read_socket(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
 }
 
 /// An honest peer reads what the socket still holds once the server has closed. The server
-/// closes after the last octet it wrote, so a peer that reads slowly still reads them all, and
+/// closes after the last byte it wrote, so a peer that reads slowly still reads them all, and
 /// the run counts the exchanges they finish. A hostile peer reads no more than it had.
 fn read_rest(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
     if (!plan.honest()) return;
@@ -393,7 +393,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         if (plan.protocol == .h2) storage.hostile.read_h2(stream.octets[0..stream.delivered], now_ms);
         return moved;
     }
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
         const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .bytes = stream.held() } }, ns_of(plan, now_ms));
         stream.consumed += received.consumed;

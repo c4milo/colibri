@@ -282,7 +282,7 @@ fn serve(worker: *Worker, now_ns: u64) void {
     }
 }
 
-/// Steps the session over the socket at `index`: its unread octets go in. A socket Rotor has
+/// Steps the session over the socket at `index`: its unread bytes go in. A socket Rotor has
 /// finished with, whose connection the engine has ended, frees its entry.
 fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     const socket = &worker.sockets[index];
@@ -295,13 +295,13 @@ fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     if (socket.stopped()) return;
     const stepped = worker.session.step(index, socket.unread(), now_ns);
     socket.consume(stepped.consumed);
-    // The engine closed the connection: the socket closes once its octets are out.
+    // The engine closed the connection: the socket closes once its bytes are out.
     if (worker.session.entries[index].closing) socket.closing = true;
-    // The engine closes in stages: the socket's write side closes once its octets are out.
+    // The engine closes in stages: the socket's write side closes once its bytes are out.
     if (worker.session.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Gives the socket at `index` what its connection owes, which the engine lends: the octets of an
+/// Gives the socket at `index` what its connection owes, which the engine lends: the bytes of an
 /// earlier gift and more, while the socket is open and has no send in flight (decision 176).
 pub fn lend(worker: *Worker, index: usize) void {
     const socket = &worker.sockets[index];

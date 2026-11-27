@@ -137,7 +137,7 @@ fn install(role: anytype, asked: crypto.Role, dcid: []const u8) suite_module.Ins
     role.session.initial_keys(dcid) catch return error.Unsupported;
 }
 
-/// RFC 9369 §4.1, which chapulin refuses twice, after the server's first CRYPTO octet, or to the
+/// RFC 9369 §4.1, which chapulin refuses twice, after the server's first CRYPTO byte, or to the
 /// version it already negotiated.
 fn switch_role(role: anytype, named: suite_module.Version) suite_module.SwitchError!void {
     if (comptime !@TypeOf(role.*).is_client) {
@@ -147,7 +147,7 @@ fn switch_role(role: anytype, named: suite_module.Version) suite_module.SwitchEr
         // RFC 9369 §4.1: a session chapulin has not started has no original version to leave.
         if (!role.state.started) return error.Refused;
         // RFC 9369 §4.1: chapulin refuses a second switch, one after the server's first CRYPTO
-        // octet, and one to the version already negotiated.
+        // byte, and one to the version already negotiated.
         role.session.switch_version(chapulin_version(named)) catch return error.Refused;
         assert(role.session.negotiated_version() == chapulin_version(named));
     }

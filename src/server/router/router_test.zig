@@ -95,7 +95,7 @@ const users_reversed = router(Route, .{
 
 test "RFC 9110 §15.5.6: a known path and another method give the Allow value, in any table order" {
     inline for (.{ users, users_reversed }) |table| {
-        // RFC 9110 §9.1's order, then the tokens by octets, joined by ", ".
+        // RFC 9110 §9.1's order, then the tokens by bytes, joined by ", ".
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "GET", "/users/me");
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "HEAD", "/users/me?x");
         // RFC 9110 §9.1: a HEAD request finds the GET route, so Allow lists HEAD after GET.
@@ -271,14 +271,14 @@ test "INV-8: a path of more than path_len_max octets matches nothing, its query 
 }
 
 /// The routes of the largest table that the tests build: each one has a pattern of
-/// `large_segments` segments of `large_segment_len` octets. The last route names PUT, and each
+/// `large_segments` segments of `large_segment_len` bytes. The last route names PUT, and each
 /// other route names GET.
 const large_routes = 256;
 const large_segments = 4;
 const large_segment_len = 15;
 const decimal_radix = 10;
 
-/// A segment of `large_segment_len` octets: "/s", then the route and the segment in decimal.
+/// A segment of `large_segment_len` bytes: "/s", then the route and the segment in decimal.
 fn large_segment(comptime index: usize, comptime segment: usize) [large_segment_len + 1]u8 {
     const prefix = "/s";
     var octets: [large_segment_len + 1]u8 = @splat('0');

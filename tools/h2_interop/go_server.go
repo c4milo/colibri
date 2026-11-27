@@ -24,7 +24,7 @@ import (
 	"strings"
 )
 
-// Octets /large answers with: sixteen times the 65,535-octet window a stream starts with
+// Bytes /large answers with: sixteen times the 65,535-byte window a stream starts with
 // (RFC 9113 §6.9.2), so the response finishes only if the client sends WINDOW_UPDATE frames.
 const largeLen = 1 << 20
 

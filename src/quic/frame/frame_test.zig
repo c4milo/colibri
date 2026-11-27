@@ -14,7 +14,7 @@ const Frame = frame.Frame;
 const testing = std.testing;
 
 /// Where a test writes a frame before reading it back, and how much room it has: past the
-/// longest frame these cases produce, which is a NEW_CONNECTION_ID with a 20-octet connection
+/// longest frame these cases produce, which is a NEW_CONNECTION_ID with a 20-byte connection
 /// ID. Test-only.
 const buffer_len = 512;
 var buffer: [buffer_len]u8 = @splat(0);
@@ -53,7 +53,7 @@ fn ack_frame(ecn: ?frame.EcnCounts) Frame {
     } };
 }
 
-/// Writes `value`, reads it back, and requires the octets and the frame to match. Test-only.
+/// Writes `value`, reads it back, and requires the bytes and the frame to match. Test-only.
 fn round_trip(value: Frame) !Frame {
     var writer = Writer.init(&buffer);
     try frame.write(&writer, value);
@@ -61,7 +61,7 @@ fn round_trip(value: Frame) !Frame {
     try testing.expect(octets.len > 0);
     var reader = Reader.init(octets);
     const read_back = try frame.read(&reader);
-    // Every octet of the frame was consumed, and no more.
+    // Every byte of the frame was consumed, and no more.
     try testing.expectEqual(octets.len, reader.offset);
     try testing.expectEqual(std.meta.activeTag(value), std.meta.activeTag(read_back));
     return read_back;
@@ -187,10 +187,10 @@ test "§19.8: the three flags of a STREAM type say what the frame carries" {
 }
 
 test "§19.8, §19.6: an offset and length past 2^62-1 together are refused" {
-    // RFC 9000 §16: 2^62-1 in eight octets is every bit set, and 2^62-2 is one less.
+    // RFC 9000 §16: 2^62-1 in eight bytes is every bit set, and 2^62-2 is one less.
     const offset_max = "\xff\xff\xff\xff\xff\xff\xff\xff";
     const offset_one_below = "\xff\xff\xff\xff\xff\xff\xff\xfe";
-    // Offset 2^62-2 with one octet of data reaches 2^62-1, which is the largest permitted.
+    // Offset 2^62-2 with one byte of data reaches 2^62-1, which is the largest permitted.
     _ = try read_octets("\x0e\x03" ++ offset_one_below ++ "\x01" ++ "x");
     try testing.expectError(error.StreamOffsetTooLarge, read_octets("\x0e\x03" ++ offset_max ++ "\x01" ++ "x"));
     // A CRYPTO frame shares the rule.

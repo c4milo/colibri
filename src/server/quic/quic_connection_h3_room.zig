@@ -9,7 +9,7 @@ const quic_connection_h3 = @import("quic_connection_h3.zig");
 const QuicConnection = quic_connection.QuicConnection;
 const Number = quic_connection.Number;
 
-/// Octets of a DATA frame's header at most: its type, one octet, and its length's variable-length
+/// Bytes of a DATA frame's header at most: its type, one byte, and its length's variable-length
 /// integer (RFC 9114 §7.1, RFC 9000 §16).
 const data_header_len_max: usize = 1 + h3.wire.constants.protocol.varint_len_max;
 
@@ -38,7 +38,7 @@ pub fn takes_any(connection: *QuicConnection, id: Number) bool {
 }
 
 /// Whether the response to request `id` takes its trailer section: a run for its frame, after a
-/// coded response's encoder wrote its last octets (RFC 9110 §6.5).
+/// coded response's encoder wrote its last bytes (RFC 9110 §6.5).
 pub fn takes_trailers(connection: *QuicConnection, id: Number) bool {
     const record = quic_connection_h3.live(connection, id) orelse return false;
     if (record.coded) |coded| {
@@ -47,7 +47,7 @@ pub fn takes_trailers(connection: *QuicConnection, id: Number) bool {
     return record.response.has_room();
 }
 
-/// Octets of the caller's that the response to request `id` still reads in place: those of an
+/// Bytes of the caller's that the response to request `id` still reads in place: those of an
 /// uncoded response that the peer has not acknowledged (RFC 9000 §3.1, design §8 step 46). A coded
 /// response's encoder copied them into its ring, and a request the connection no longer holds
 /// reads none.

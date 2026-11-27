@@ -1,6 +1,6 @@
 //! The table that finds a QUIC datagram's connection from its Destination Connection ID in one
 //! entry (decision 157, design §8 step 29d.17). Each connection ID the engine issues names its
-//! own entry with the low bits of its first two octets, so a lookup reads one entry and compares
+//! own entry with the low bits of its first two bytes, so a lookup reads one entry and compares
 //! one ID, whatever the number of connections. The table is exact: an ID that ended has no entry.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -25,7 +25,7 @@ pub fn entries_for(quic_connections: usize) usize {
     return std.math.ceilPowerOfTwoAssert(usize, wanted);
 }
 
-/// An ID's index uses its first two octets, so a table holds at most 65,536 entries.
+/// An ID's index uses its first two bytes, so a table holds at most 65,536 entries.
 const octet_bits = @bitSizeOf(u8);
 const index_bits_max = @bitSizeOf(u16);
 
@@ -127,14 +127,14 @@ pub const Routes = struct {
         routes.entries[index] = .{};
     }
 
-    /// The entry an ID names: the low bits of its first two octets, read in network order.
+    /// The entry an ID names: the low bits of its first two bytes, read in network order.
     fn index_of(routes: *const Routes, id: *const [id_len]u8) u32 {
         const bits = @as(u32, id[0]) << octet_bits | id[1];
         return bits & @as(u32, @intCast(routes.entries.len - 1));
     }
 };
 
-/// Writes `index` into the low bits of `id`'s first two octets, and keeps its other bits.
+/// Writes `index` into the low bits of `id`'s first two bytes, and keeps its other bits.
 fn write_index(id: *[id_len]u8, index: u32, mask: u32) void {
     assert(index & ~mask == 0);
     const bits = @as(u32, id[0]) << octet_bits | id[1];
@@ -183,7 +183,7 @@ test "decision 157: an ID's first two octets name its entry, and a lookup finds 
     var id: [id_len]u8 = undefined;
     routes.issue(1, same.random(), &id);
     try testing.expectEqual(1, routes.find(&id).?);
-    // The draw named the entry, so the octets stay as drawn.
+    // The draw named the entry, so the bytes stay as drawn.
     try testing.expectEqualSlices(u8, &@as([id_len]u8, @splat(0xa5)), &id);
     // §5.2: an ID no connection issued, or of another length, finds none.
     var other = id;

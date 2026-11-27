@@ -1,7 +1,7 @@
 //! The state of spec/tla/client_exchanges's model in a pool trace run (decision 105 as decision 125
 //! extends it): what the run logs after each instant, computed from the caller's record, the pool,
 //! its connections and the server's count of what it processed. The pool holds no QUIC, so no
-//! stream holds an exchange's octets, QUIC's phase stays "none", and nothing falls back or learns.
+//! stream holds an exchange's bytes, QUIC's phase stays "none", and nothing falls back or learns.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");

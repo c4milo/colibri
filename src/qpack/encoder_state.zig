@@ -19,7 +19,7 @@
 //! keep entries from being evicted. Sections on one stream are acknowledged oldest first
 //! (§2.2.2.1), which is why they are held in arrival order per stream.
 //!
-//! It reads no clock and holds no octets: every number here is the caller's own bookkeeping.
+//! It reads no clock and holds no bytes: every number here is the caller's own bookkeeping.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");

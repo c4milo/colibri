@@ -17,7 +17,7 @@
 (*   - the peer's and the network's: a frame arrives at colibri, which     *)
 (*     reads it, and the client reads, sends or opens a request;           *)
 (*   - the application's: it answers a request, and offers the content of  *)
-(*     the answer ProduceStep octets at a time.                            *)
+(*     the answer ProduceStep bytes at a time.                            *)
 (* A state in which colibri can take no step of its own is Quiescent, and  *)
 (* rule 2 is checked there: in any other state, colibri acts before any    *)
 (* time passes.                                                            *)
@@ -49,10 +49,10 @@
 (*     https://github.com/c4milo/colibri/issues/89), and now waits while   *)
 (*     colibri holds a WINDOW_UPDATE (upload_update_held).                 *)
 (*                                                                         *)
-(* The model counts octets as colibri does, so that a run of colibri's h2  *)
+(* The model counts bytes as colibri does, so that a run of colibri's h2  *)
 (* client and server can be checked against it state for state: each      *)
-(* frame is HeaderLen octets and its payload, colibri's output holds       *)
-(* OutputLen octets and each direction ChannelLen, and a DATA frame is as  *)
+(* frame is HeaderLen bytes and its payload, colibri's output holds       *)
+(* OutputLen bytes and each direction ChannelLen, and a DATA frame is as  *)
 (* long as the windows, the floor, FrameMax and the room allow, as         *)
 (* connection_send_window.zig's sendable has it. colibri owes the replies  *)
 (* as connection_reply.zig queues them: SETTINGS acknowledgments, one      *)
@@ -72,9 +72,9 @@ EXTENDS Integers, Sequences, FiniteSets
 
 CONSTANTS
     StreamCount,        \* the streams the client opens, one after another
-    RequestBody,        \* the octets of DATA each request carries
-    ResponseBody,       \* the octets of DATA each response carries
-    ProduceStep,        \* the octets the application offers write_body at once
+    RequestBody,        \* the bytes of DATA each request carries
+    ResponseBody,       \* the bytes of DATA each response carries
+    ProduceStep,        \* the bytes the application offers write_body at once
     ConnectionWindow,   \* the initial connection window, in both directions (§6.9.2)
     LocalWindow,        \* the SETTINGS_INITIAL_WINDOW_SIZE colibri advertises
     LocalThreshold,     \* the credit colibri gathers before it owes a WINDOW_UPDATE
@@ -82,14 +82,14 @@ CONSTANTS
     PeerThreshold,      \* the credit the client gathers before it sends a WINDOW_UPDATE
     Floor,              \* data_frame_len_min
     FrameMax,           \* the longest payload one DATA frame carries (§4.2)
-    HeaderLen,          \* the octets of a frame's header (§4.1)
-    SettingsLen,        \* the payload octets of colibri's SETTINGS
-    UpdateLen,          \* the payload octets of a WINDOW_UPDATE (§6.9)
-    PrefaceLen,         \* the octets of the client's preface and its SETTINGS (§3.4)
-    RequestHeadLen,     \* the payload octets of a request's HEADERS
-    ResponseHeadLen,    \* the payload octets of a response's HEADERS
-    OutputLen,          \* the octets colibri's output holds
-    ChannelLen,         \* the octets in flight toward one endpoint at once
+    HeaderLen,          \* the bytes of a frame's header (§4.1)
+    SettingsLen,        \* the payload bytes of colibri's SETTINGS
+    UpdateLen,          \* the payload bytes of a WINDOW_UPDATE (§6.9)
+    PrefaceLen,         \* the bytes of the client's preface and its SETTINGS (§3.4)
+    RequestHeadLen,     \* the payload bytes of a request's HEADERS
+    ResponseHeadLen,    \* the payload bytes of a response's HEADERS
+    OutputLen,          \* the bytes colibri's output holds
+    ChannelLen,         \* the bytes in flight toward one endpoint at once
     Pipelining,         \* whether the client opens a stream before it has read the last response
     MaximalUploads,     \* whether the client's DATA frames are as long as it can send
     IdleAfterOutput,    \* whether the idle deadline starts once the output is empty (6639950)
@@ -116,7 +116,7 @@ ASSUME /\ StreamCount \in Nat \ {0}
 Min(a, b) == IF a < b THEN a ELSE b
 
 (* One frame. Every frame carries every field, so any two compare: len is  *)
-(* its payload's octets, and value a WINDOW_UPDATE's increment. PREFACE is *)
+(* its payload's bytes, and value a WINDOW_UPDATE's increment. PREFACE is *)
 (* the client's connection preface and its SETTINGS, which are no one      *)
 (* frame.                                                                  *)
 Frame(type, stream, len, end, value) ==
@@ -138,8 +138,8 @@ VARIABLES
     \* colibri
     reqRead,            \* reqRead[s]: what colibri has read of request s
     resp,               \* resp[s]: what colibri has written of the response to s
-    respWritten,        \* respWritten[s]: the response's octets colibri has written
-    produced,           \* produced[s]: the response's octets the application has offered in all
+    respWritten,        \* respWritten[s]: the response's bytes colibri has written
+    produced,           \* produced[s]: the response's bytes the application has offered in all
     sendWindow,         \* sendWindow[s]: colibri's credit on s, which the client advertised
     sendConnection,     \* colibri's credit on the connection
     released,           \* released[s]: credit colibri gathered on s and does not owe yet
@@ -157,7 +157,7 @@ VARIABLES
     toServer,           \* the frames the client sent, which have not arrived at colibri
     \* the client
     cliReq,             \* cliReq[s]: what the client has sent of request s
-    cliSent,            \* cliSent[s]: the request's octets the client has sent
+    cliSent,            \* cliSent[s]: the request's bytes the client has sent
     cliWindow,          \* cliWindow[s]: the client's credit on s, which colibri advertised
     cliConnection,      \* the client's credit on the connection
     cliResp,            \* cliResp[s]: what the client has read of the response to s
@@ -239,7 +239,7 @@ ObserveIdle ==
 BodyWaits(s) == reqRead[s] = "head"
 BodiesWait == \E s \in StreamIds : BodyWaits(s)
 
-(* The octets write_body has offered on s that colibri has not taken.      *)
+(* The bytes write_body has offered on s that colibri has not taken.      *)
 Ready(s) == produced[s] - respWritten[s]
 
 Window(s) == Min(sendWindow[s], sendConnection)
@@ -396,7 +396,7 @@ Respond(s) ==
        /\ UNCHANGED client
        /\ ObserveIdle
 
-(* It offers write_body ProduceStep more octets of the response, or what   *)
+(* It offers write_body ProduceStep more bytes of the response, or what   *)
 (* is left.                                                                *)
 Produce(s) ==
     /\ resp[s] = "head" /\ produced[s] < ResponseBody
@@ -582,7 +582,7 @@ BodyWaitsOnPeer ==
             ~(\/ cliWindow[s] <= 0 /\ UpdateHeld(s)
               \/ cliConnection <= 0 /\ UpdateHeld(Connection))
 
-(* The octets of DATA on s, or on every stream, the client has not read.  *)
+(* The bytes of DATA on s, or on every stream, the client has not read.  *)
 RECURSIVE UnreadOf(_, _)
 UnreadOf(frames, streams) ==
     IF frames = <<>> THEN 0

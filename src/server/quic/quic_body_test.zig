@@ -47,7 +47,7 @@ fn post_holding() !*support.Fetch {
     return fetch;
 }
 
-/// The client sends `fetch`'s content up to its first `len` octets.
+/// The client sends `fetch`'s content up to its first `len` bytes.
 fn send_content(fetch: *const support.Fetch, len: usize) !void {
     try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + len, false);
 }
@@ -116,7 +116,7 @@ test "decision 110: a body that brings its quota each window is not cut, and one
     try support.pump(rounds_few);
     server_at(first_end_ns + constants.policy.rate_window_ns);
     try testing.expectEqual(null, cancelled_for(0));
-    // The third window brings one octet less than it owes.
+    // The third window brings one byte less than it owes.
     try send_content(fetch, 3 * quota - 1);
     try support.pump(rounds_few);
     const third_end_ns = first_end_ns + 2 * constants.policy.rate_window_ns;
@@ -206,7 +206,7 @@ test "RFC 9114 §4.1: a body that falls short after its response ended is stoppe
     const fetch = try post_holding();
     const at_ns = since_ns(fetch) + first_window_ns;
     server_at(at_ns - 1);
-    // The response's octets have not left when the deadline passes.
+    // The response's bytes have not left when the deadline passes.
     try connection.respond(fetch.id, .{ .status = ok, .end = true });
     server_at(at_ns);
     try testing.expectEqual(0, connection.bodies.waiting);
@@ -329,7 +329,7 @@ test "decision 101: a coded response whose request a body deadline ends gives it
 
 test "decision 110 as amended: a body rate an honest peer can fall short of is refused at start" {
     try support.start();
-    // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
+    // Twice 819 bytes a second over a window of 10 s is under a unit of 16,384 bytes.
     support.config.timeouts.body_rate_min = unit_bound_rate - 1;
     try testing.expectError(error.TimeoutInvalid, support.connect());
     try support.start();

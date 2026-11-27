@@ -149,7 +149,7 @@ test "decision 101: content past the ring waits, `send` moves the coded octets o
     // The ring holds less than the content coded, so the first call takes part of it.
     var taken = try connection.write_body(1, .{ .bytes = content, .end = true });
     try testing.expect(taken > 0 and taken < content.len);
-    // With the output and the ring full, a call takes nothing until `send` moves octets out.
+    // With the output and the ring full, a call takes nothing until `send` moves bytes out.
     const blocked = for (0..writes_until_full_max) |_| {
         taken += connection.write_body(1, .{ .bytes = content[taken..], .end = true }) catch |failure| {
             try testing.expectEqual(error.Blocked, failure);
@@ -158,7 +158,7 @@ test "decision 101: content past the ring waits, `send` moves the coded octets o
     } else false;
     try testing.expect(blocked);
     var sent_len: usize = 0;
-    // Bounded: each round's `send` moves coded octets out, which lets the encoder go on.
+    // Bounded: each round's `send` moves coded bytes out, which lets the encoder go on.
     for (0..support.coded_len_max) |_| {
         sent_len += connection.send(test_sent[sent_len..], support.now_ns);
         if (taken == content.len and support.pool.free_count() == encoders_all) break;
@@ -176,7 +176,7 @@ test "decision 101: content past the ring waits, `send` moves the coded octets o
 /// next codes into the room that left.
 const writes_until_full_max: usize = 4;
 
-/// With the content of request `id`'s coded response ended and its last coded octets still in
+/// With the content of request `id`'s coded response ended and its last coded bytes still in
 /// the ring, neither content nor a trailer section follows (RFC 9110 §6.4.1, §6.5).
 fn expect_ended(id: u64) !void {
     try testing.expect(support.pool.free_count() < encoders_all);
@@ -223,7 +223,7 @@ test "RFC 9110 §6.5: a trailer section waits for the coded octets the ring hold
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try testing.expectError(error.Blocked, connection.write_trailers(1, &trailer));
     var sent_len: usize = 0;
-    // Bounded: each round's `send` moves coded octets out, until the trailer section goes.
+    // Bounded: each round's `send` moves coded bytes out, until the trailer section goes.
     const written = for (0..support.coded_len_max) |_| {
         sent_len += connection.send(test_sent[sent_len..], support.now_ns);
         connection.write_trailers(1, &trailer) catch |failure| {

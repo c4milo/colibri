@@ -100,7 +100,7 @@ fn server_stream(id: StreamId) *stream_module.Stream {
     return send_test.server.streams.lookup(id).live;
 }
 
-/// The client opens a stream and sends its first packet of octets, which the server takes.
+/// The client opens a stream and sends its first packet of bytes, which the server takes.
 fn one_packet_sent(body: *Body) !struct { id: StreamId, framed: u64 } {
     const id = try send_test.open_supplied(send_test.long_body_len, true);
     const first = (try send_as(&send_test.client, body)).?;
@@ -119,7 +119,7 @@ test "RFC 9000 §19.4: a reset stream sends RESET_STREAM with what was framed as
     try stream_send.reset(&send_test.client, sent.id, reset_code);
     try testing.expectEqual(.reset_sent, client_stream(sent.id).sending.state);
     // "After sending a RESET_STREAM, an endpoint ceases transmission and retransmission of STREAM
-    // frames": the next packet carries the reset and none of the remaining octets.
+    // frames": the next packet carries the reset and none of the remaining bytes.
     const reset = (try send_as(&send_test.client, &body)).?;
     try testing.expectEqual(recovery_sent.Carries.none, reset.packets[0].carries);
     try testing.expect(reset.packets[0].ack_eliciting);
@@ -127,7 +127,7 @@ test "RFC 9000 §19.4: a reset stream sends RESET_STREAM with what was framed as
     const held = (try find(try deliver(reset, &send_test.server, &read), .reset_stream)).reset_stream;
     try testing.expectEqual(sent.id.value, held.stream_id);
     try testing.expectEqual(reset_code, held.error_code);
-    // RFC 9000 §4.5: the final size is every octet sent, which the peer's receiving part checks.
+    // RFC 9000 §4.5: the final size is every byte sent, which the peer's receiving part checks.
     try testing.expectEqual(sent.framed, held.final_size);
     try testing.expectEqual(.reset_recvd, server_stream(sent.id).receiving.state);
     try testing.expectEqual(null, try send_as(&send_test.client, &body));

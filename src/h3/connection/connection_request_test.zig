@@ -126,7 +126,7 @@ test "§4.1.2: a malformed request refuses its stream with H3_MESSAGE_ERROR, and
     try testing.expectEqual(constants.protocol.error_message_error, refused.reset_error_code);
     try testing.expect(refused.stop_sending.owed);
     try testing.expectEqual(constants.protocol.error_message_error, refused.stop_error_code);
-    // Octets the client sends before it hears of the refusal are taken and dropped, so the
+    // Bytes the client sends before it hears of the refusal are taken and dropped, so the
     // server's stream finishes, and the connection goes on with the next request.
     try client.send_raw(id, "more", true);
     try exchange();

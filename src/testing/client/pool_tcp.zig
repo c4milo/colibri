@@ -2,7 +2,7 @@
 //! and closed when the pool asks. `client_loop.zig`'s plain modes hold one for each pool of a
 //! run, and `pool_loop.zig`'s pool mode one beside its UDP flow, each on its own Rotor loop.
 //!
-//! A receive writes into `received`, and its octets are appended to `input` when its event
+//! A receive writes into `received`, and its bytes are appended to `input` when its event
 //! arrives, because the pool moves what is left of `input` and Rotor owns a receive's buffer
 //! until its final event. At most one receive and one send are in flight. A socket the pool asks
 //! to close sends what it owes first, and an open drops what the last socket read. An open the
@@ -52,7 +52,7 @@ pub const Socket = struct {
     /// The peer, which the connect in flight reads until its event (Rotor's rule 3).
     address: rotor.Address,
     received: [constants.wire_read_len]u8,
-    /// Over TLS its octets are records, and `input` and `output` hold them as they cross the
+    /// Over TLS its bytes are records, and `input` and `output` hold them as they cross the
     /// socket, so each holds a whole record.
     input: [constants.wire_read_len]u8,
     input_len: usize,
@@ -61,7 +61,7 @@ pub const Socket = struct {
     output_sent: usize,
     receiving: bool,
     sending: bool,
-    /// The pool asked for the close. The socket closes once its octets are sent, and the pool
+    /// The pool asked for the close. The socket closes once its bytes are sent, and the pool
     /// hears nothing more of it.
     close_asked: bool,
     /// An open the pool asked for while the last socket was still closing.
@@ -143,7 +143,7 @@ pub const Socket = struct {
         return .connected;
     }
 
-    /// Appends what a receive read to the input. A receive of no octets is the peer closing its
+    /// Appends what a receive read to the input. A receive of no bytes is the peer closing its
     /// side.
     fn on_received(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.receiving = false;
@@ -156,7 +156,7 @@ pub const Socket = struct {
         return .none;
     }
 
-    /// Counts what a send took. Every octet gone and no send in flight, the buffer starts again
+    /// Counts what a send took. Every byte gone and no send in flight, the buffer starts again
     /// at its front, and a socket the pool is done with closes.
     fn on_sent(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.sending = false;
@@ -208,12 +208,12 @@ pub const Socket = struct {
         return socket.state == .open and !socket.close_asked;
     }
 
-    /// The octets read and not yet consumed.
+    /// The bytes read and not yet consumed.
     pub fn unread(socket: *Socket) []u8 {
         return socket.input[0..socket.input_len];
     }
 
-    /// Drops the `consumed` octets the pool took, moving what is left to the front.
+    /// Drops the `consumed` bytes the pool took, moving what is left to the front.
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         const rest = socket.input_len - consumed;

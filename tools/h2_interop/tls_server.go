@@ -27,7 +27,7 @@ import (
 )
 
 // The modulus size of both keys. RFC 9846 admits more, and chapulin's default RSA bound is 384
-// octets, so 2048 bits stays inside it.
+// bytes, so 2048 bits stays inside it.
 const modulusBits = 2048
 
 // How long the two certificates are valid. Long enough that a run never straddles the edge.

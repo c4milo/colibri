@@ -59,7 +59,7 @@ const scheme_https = "https";
 /// The `:path` of a request in asterisk form (RFC 9113 §8.3.1, RFC 9114 §4.3.1).
 const path_asterisk = "*";
 
-/// The octet between the host and the port of a CONNECT target (RFC 9110 §9.3.6).
+/// The byte between the host and the port of a CONNECT target (RFC 9110 §9.3.6).
 const port_separator = ':';
 
 /// The delimiter that ends the userinfo subcomponent of an authority (RFC 9110 §4.2.4).

@@ -16,7 +16,7 @@ const testing = std.testing;
 const App = stream.App;
 const Holder = stream.Holder;
 
-/// Octets of the entry's response memory, and of the response: sixteen times as many. Test-only.
+/// Bytes of the entry's response memory, and of the response: sixteen times as many. Test-only.
 const response_bytes = 128;
 const stream_turns = 16;
 const stream_len = stream_turns * response_bytes;
@@ -24,15 +24,15 @@ const stream_len = stream_turns * response_bytes;
 /// one that divides it, so the writer fills its region exactly.
 const message_len_odd = 24;
 const message_len_even = 32;
-/// Octets of the response memory of a route that flushes each small message, and the messages it
-/// writes, of 7 to 128 octets each (the owner's ruling of 2026-11-09).
+/// Bytes of the response memory of a route that flushes each small message, and the messages it
+/// writes, of 7 to 128 bytes each (the owner's ruling of 2026-11-09).
 const long_response_bytes = 8192;
 const long_messages = stream.messages_max;
 /// The messages of a route that flushes each one through an engine that holds every run, and
-/// octets of each. They leave room for the trailer section after them in the memory.
+/// bytes of each. They leave room for the trailer section after them in the memory.
 const short_messages = 20;
 const short_message_len = 5;
-/// The acknowledgments a test gives at most before the response ends: two for each octet.
+/// The acknowledgments a test gives at most before the response ends: two for each byte.
 const acknowledgments_per_octet = 2;
 const internal_server_error: http.Status = .internal_server_error;
 
@@ -80,11 +80,11 @@ fn FixtureOf(comptime PoolOf: type) type {
             return &fixture.pool.entries[0].response;
         }
 
-        /// Acknowledges all of the oldest run but its last octet, then that octet, with a
+        /// Acknowledges all of the oldest run but its last byte, then that byte, with a
         /// `writable` after each, as an h3 peer's late acknowledgments free runs, until the
         /// response ends.
         fn acknowledge_late(fixture: *Self) !void {
-            // Bounded: each pass acknowledges one octet at least, or the response ended.
+            // Bounded: each pass acknowledges one byte at least, or the response ended.
             for (0..acknowledgments_per_octet * fixture.app.stream_len) |_| {
                 if (fixture.holder.ended) return;
                 const oldest = fixture.holder.oldest_len();
@@ -128,7 +128,7 @@ test "design §8 step 46: over an engine that holds runs, writes wait for late a
         .holder = .{ .holds = true },
     };
     fixture.start();
-    // The memory holds five messages and three octets more: the sixth fits nowhere, so it is
+    // The memory holds five messages and three bytes more: the sixth fits nowhere, so it is
     // not written, and the response waits for the engine to release a run.
     try testing.expectEqual(5 * message_len_odd, fixture.holder.taken);
     try testing.expectEqual(1, fixture.app.failed_writes);
@@ -162,7 +162,7 @@ test "design §8 step 46: the router calls next only when the writer has room" {
 
 test "design §8 step 46: a route writes after a write that failed, and its response still ends" {
     // The sixth message finds no room, so the response asks the engine for a `writable` at a
-    // release. The route then writes one octet, which fits, and flushes it. The engine takes that
+    // release. The route then writes one byte, which fits, and flushes it. The engine takes that
     // run whole, which ends the wait it held, so the response asks again.
     var fixture: Fixture = .{
         .app = .{ .stream_len = stream_len, .message_len = message_len_odd, .flush = true, .octet_after_failure = true },
@@ -193,7 +193,7 @@ test "design §8 step 46: the test engine ends a wait at a write it takes whole,
 test "design §8 step 46: a route flushes 1,000 small messages while the engine holds runs" {
     // The owner's ruling of 2026-11-09: the response has a slot for each of sixteen runs, and the
     // engine holds eight until late acknowledgments. A flush past the sixteenth run adds its
-    // octets to the newest run, so no flush fails and the request is not cancelled.
+    // bytes to the newest run, so no flush fails and the request is not cancelled.
     var fixture: FixtureOf(LongPool) = .{
         .app = .{ .stream_len = stream.varied_stream_len(long_messages), .message_len = stream.message_len_max, .varied = true, .flush = true },
         .holder = .{ .holds = true },

@@ -79,7 +79,7 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) bool {
 /// Writes the next event of the connection in `slot` that a request of its table owns into the
 /// engine's `event`, and returns whether one came.
 fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table: *QuicTable, now_ns: u64) bool {
-    // Bounded: every event reads an octet the pool holds, or ends a request.
+    // Bounded: every event reads a byte the pool holds, or ends a request.
     for (0..constants.limits.quic_events_per_read_max) |_| {
         const received = connection.receive(now_ns) catch {
             state.failed[slot] = true;
@@ -153,7 +153,7 @@ pub fn takes(state: *State, slot: u32, entry: *const Entry) bool {
         .content => quic_connection_h3_room.takes_content(connection, entry.number),
         .trailers => quic_connection_h3_room.takes_trailers(connection, entry.number),
         .empty => quic_connection_h3_room.takes_any(connection, entry.number),
-        // Design §8 step 46: the peer acknowledged some of the octets held when the wait began.
+        // Design §8 step 46: the peer acknowledged some of the bytes held when the wait began.
         .release => quic_connection_h3_room.held_len(connection, entry.number) < entry.waiting_len,
     };
 }

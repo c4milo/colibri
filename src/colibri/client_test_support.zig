@@ -42,7 +42,7 @@ const body_len = stream_len;
 /// The connections the test server holds, and the router's room for each response.
 const connections = 4;
 pub const response_bytes = 256;
-/// The octets of each message of `/stream`, and the prime its octets count modulo.
+/// The bytes of each message of `/stream`, and the prime its bytes count modulo.
 const message_len = 100;
 const pattern_period = 251;
 /// RFC 9110 §15.3.1: 200 (OK), and §15.6.1: 500 (Internal Server Error).
@@ -70,7 +70,7 @@ const routes = .{
 /// The room of a request's body that `/echo` takes.
 pub const request_body_bytes = 64;
 /// The room of the copy of a request's header that `/echo` takes (decision 163 ruling 5). The
-/// copy of the client's POST header takes less than 192 octets, with its pseudo-header fields over
+/// copy of the client's POST header takes less than 192 bytes, with its pseudo-header fields over
 /// h2 and h3.
 pub const request_header_bytes = 512;
 const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = request_body_bytes, .header_bytes = request_header_bytes });
@@ -103,7 +103,7 @@ fn greet_and_close(_: *void, _: *server.RequestContext, _: *const server.Request
     try response.end();
 }
 
-/// Writes `stream_len` octets through `body()`, one message at a time, each flushed: many times
+/// Writes `stream_len` bytes through `body()`, one message at a time, each flushed: many times
 /// the router's room for the response (design §8 step 46). A message that does not fit is
 /// written again in the next call.
 const Stream = struct {
@@ -128,7 +128,7 @@ const Stream = struct {
     }
 };
 
-/// The octet at `offset` of `/stream`'s response.
+/// The byte at `offset` of `/stream`'s response.
 fn stream_octet(offset: usize) u8 {
     return @intCast(offset % pattern_period);
 }

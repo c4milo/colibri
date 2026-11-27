@@ -4,7 +4,7 @@
 //!   - an absolute-path and query, which RFC 9112 §3.2.1's origin-form is (RFC 9110 §4.1);
 //!   - an absolute-URI, which RFC 9112 §3.2.2's absolute-form is.
 //!
-//! Each function answers whether the octets match the rule and nothing more. None decodes a
+//! Each function answers whether the bytes match the rule and nothing more. None decodes a
 //! percent-encoding or normalizes a URI: colibri normalizes none, which is why RFC 9113 §8.3.1's
 //! SHOULD is refused (decision 51). The protocol module names the error a mismatch carries.
 const std = @import("std");
@@ -13,7 +13,7 @@ const core = @import("core");
 
 const Reader = core.Reader;
 
-/// The octets of `pct-encoded = "%" HEXDIG HEXDIG` after its "%" (RFC 3986 §2.1).
+/// The bytes of `pct-encoded = "%" HEXDIG HEXDIG` after its "%" (RFC 3986 §2.1).
 const pct_digits_len = 2;
 
 /// Most HEXDIG in `h16 = 1*4HEXDIG` (RFC 3986 §3.2.2).
@@ -39,7 +39,7 @@ fn is_sub_delim(octet: u8) bool {
     return std.mem.indexOfScalar(u8, "!$&'()*+,;=", octet) != null;
 }
 
-/// What a run of octets other than a percent-encoding may hold.
+/// What a run of bytes other than a percent-encoding may hold.
 const Class = enum {
     /// `reg-name = *( unreserved / pct-encoded / sub-delims )` (RFC 3986 §3.2.2).
     reg_name,
@@ -62,8 +62,8 @@ fn in_class(class: Class, octet: u8) bool {
     };
 }
 
-/// Each class's octets as a table with one entry for each octet value, built at comptime from
-/// `in_class`, so `matches` tests an octet with one load.
+/// Each class's bytes as a table with one entry for each byte value, built at comptime from
+/// `in_class`, so `matches` tests a byte with one load.
 const class_tables = tables: {
     @setEvalBranchQuota(class_count * octet_values * table_branches_per_octet);
     var tables: [class_count][octet_values]bool = undefined;
@@ -74,11 +74,11 @@ const class_tables = tables: {
 };
 const class_count = @typeInfo(Class).@"enum".fields.len;
 const octet_values = std.math.maxInt(u8) + 1;
-/// The comptime branches `in_class` takes for one octet, with room to spare.
+/// The comptime branches `in_class` takes for one byte, with room to spare.
 const table_branches_per_octet = 64;
 
-/// True when every octet of `octets` is of `class` or starts a `pct-encoded` of `"%" HEXDIG
-/// HEXDIG` (RFC 3986 §2.1). The common case, octets of the class alone, is one pass over the
+/// True when every byte of `octets` is of `class` or starts a `pct-encoded` of `"%" HEXDIG
+/// HEXDIG` (RFC 3986 §2.1). The common case, bytes of the class alone, is one pass over the
 /// slice.
 fn matches(class: Class, octets: []const u8) bool {
     const table = &class_tables[@intFromEnum(class)];
@@ -88,11 +88,11 @@ fn matches(class: Class, octets: []const u8) bool {
     return true;
 }
 
-/// `matches` for octets that hold one outside the class: a "%" that may start a `pct-encoded`, or
-/// an octet the class refuses.
+/// `matches` for bytes that hold one outside the class: a "%" that may start a `pct-encoded`, or
+/// a byte the class refuses.
 fn matches_encoded(class: Class, octets: []const u8) bool {
     var reader = Reader.init(octets);
-    // Bounded: each pass consumes at least one octet.
+    // Bounded: each pass consumes at least one byte.
     for (0..octets.len) |_| {
         const octet = reader.take_byte() catch return true;
         if (octet != '%') {
@@ -122,7 +122,7 @@ pub fn is_host(octets: []const u8) bool {
     return matches(.reg_name, octets);
 }
 
-/// The octets around an IP-literal (RFC 3986 §3.2.2).
+/// The bytes around an IP-literal (RFC 3986 §3.2.2).
 const literal_open = "[";
 const literal_close = "]";
 
@@ -178,7 +178,7 @@ fn is_ipv6(octets: []const u8) bool {
 fn count_groups(octets: []const u8, ipv4_last: bool) ?u32 {
     var groups: u32 = 0;
     var pieces = std.mem.splitScalar(u8, octets, ':');
-    // Bounded: a run of n octets holds at most n + 1 pieces.
+    // Bounded: a run of n bytes holds at most n + 1 pieces.
     for (0..octets.len + 1) |_| {
         const piece = pieces.next() orelse return groups;
         const ipv4_allowed = ipv4_last and pieces.peek() == null;
@@ -318,7 +318,7 @@ test "RFC 3986 §3.2.2: a reg-name host takes unreserved, sub-delims and percent
 }
 
 test "RFC 3986 §2: each class's table holds exactly the octets its rule allows" {
-    // Bounded: four classes of 256 octets.
+    // Bounded: four classes of 256 bytes.
     for (0..class_count) |class_index| {
         const class: Class = @enumFromInt(class_index);
         for (0..octet_values) |value| {

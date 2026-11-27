@@ -75,8 +75,8 @@ pub fn write(connection: *QuicConnection, record: *Request, stream: *const Strea
     assert(!record.continue_owed);
 }
 
-/// Whether h3 has taken every octet of `stream` below its final size (RFC 9000 §4.5): the stream
-/// ended with the request's head, or every octet of its content has been read.
+/// Whether h3 has taken every byte of `stream` below its final size (RFC 9000 §4.5): the stream
+/// ended with the request's head, or every byte of its content has been read.
 fn read_to_end(stream: *const Stream) bool {
     const final_size = stream.receiving.final_size orelse return false;
     assert(stream.receive_flow.consumed <= final_size);

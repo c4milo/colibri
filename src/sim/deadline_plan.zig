@@ -2,7 +2,7 @@
 //! peer behaves, the server's limits, and when the application answers each request it reads.
 //!
 //! The peers are decision 110's slow and hostile ones, with honest ones beside them that no
-//! deadline may end: a peer that makes its exchanges at once, one whose octets arrive in small
+//! deadline may end: a peer that makes its exchanges at once, one whose bytes arrive in small
 //! pieces over a few seconds, one that uploads content at twice decision 110's minimum body rate
 //! or more, and one that reads long responses at twice its minimum send rate or more.
 const std = @import("std");
@@ -19,17 +19,17 @@ pub const Protocol = enum { h11, h2 };
 pub const Peer = enum {
     /// colibri's client: makes its exchanges at once, reads every response, then sends nothing.
     honest,
-    /// colibri's client, its octets delivered in small pieces a short gap apart, so its requests
+    /// colibri's client, its bytes delivered in small pieces a short gap apart, so its requests
     /// take seconds to arrive and none takes half the head deadline.
     slow_honest,
     /// colibri's client, making its exchanges one at a time with content in each request, its
-    /// octets delivered at two to four times decision 110's minimum body rate. A client that
+    /// bytes delivered at two to four times decision 110's minimum body rate. A client that
     /// uploads on several h2 streams at once shares its link between them, so each stream here
     /// has the whole link.
     upload,
     /// Opens the connection and sends nothing.
     silent,
-    /// Sends its first request head in pieces too slow for any deadline: an h11 head a few octets
+    /// Sends its first request head in pieces too slow for any deadline: an h11 head a few bytes
     /// at a time, or an h2 field block in CONTINUATION frames.
     slow_head,
     /// Makes one exchange, then sends its next request head as `slow_head` does.
@@ -51,7 +51,7 @@ pub const Peer = enum {
     reads_nothing,
     /// Makes a request and reads its long answer at a small fraction of the minimum send rate.
     reads_slowly,
-    /// h2 alone: makes a request with a stream window of 0, which it opens an octet each gap. In
+    /// h2 alone: makes a request with a stream window of 0, which it opens a byte each gap. In
     /// h11 it reads nothing.
     opens_window_slowly,
     /// h2 alone: makes a request with the largest stream window, and never opens the connection's
@@ -74,14 +74,14 @@ pub const Plan = struct {
     requests_count: u8,
     /// The gap between two pieces, or two PINGs, in milliseconds.
     gap_ms: u64,
-    /// The octets in one piece.
+    /// The bytes in one piece.
     piece_len: u32,
     /// The content each request of an uploading peer carries.
     upload_len: [limits.requests_max]u32,
-    /// How a peer that reads slowly reads: a piece of `read_len` octets every `read_gap_ms`.
+    /// How a peer that reads slowly reads: a piece of `read_len` bytes every `read_gap_ms`.
     read_gap_ms: u64,
     read_len: u32,
-    /// The rate a slow body arrives at, in octets a second.
+    /// The rate a slow body arrives at, in bytes a second.
     body_rate: u32,
     /// How long the application takes to answer each request, from the instant its body ended.
     answer_delay_ms: [limits.requests_max]u64,
@@ -106,7 +106,7 @@ pub const Plan = struct {
         return plan.peer == .reads_nothing;
     }
 
-    /// Whether the peer's octets arrive a piece at a time.
+    /// Whether the peer's bytes arrive a piece at a time.
     pub fn paced(plan: *const Plan) bool {
         return plan.peer == .slow_honest or plan.peer == .upload;
     }
@@ -188,7 +188,7 @@ fn long_body_deadlines(random: *Random, protocol: Protocol) server.Timeouts {
     return deadlines;
 }
 
-/// The shortest window over which twice `rate` octets a second bring a whole unit of a body.
+/// The shortest window over which twice `rate` bytes a second bring a whole unit of a body.
 fn unit_window_ns(rate: u32) u64 {
     const unit_ns = server.constants.policy.body_unit_len * server.constants.nanoseconds_per_second;
     const rate_twice = server.constants.policy.honest_rate_factor * rate;

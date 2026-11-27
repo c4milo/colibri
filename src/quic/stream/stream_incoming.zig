@@ -1,10 +1,10 @@
-//! The octets a peer sent on its streams, held until the application reads them (decision 61).
+//! The bytes a peer sent on its streams, held until the application reads them (decision 61).
 //! Part of design §8 step 9e.
 //!
-//! One pool per connection holds every stream's unread octets, in blocks of `block_len`. A block
+//! One pool per connection holds every stream's unread bytes, in blocks of `block_len`. A block
 //! belongs to one stream and one run of `block_len` offsets in it. Frames arrive in any order and
-//! the same octets may arrive again (RFC 9000 §2.2), so a block marks which of its octets have
-//! arrived. The application reads from the lowest offset it has not read, up to the first octet
+//! the same bytes may arrive again (RFC 9000 §2.2), so a block marks which of its bytes have
+//! arrived. The application reads from the lowest offset it has not read, up to the first byte
 //! that has not arrived, and a block it has read to the end goes back to the pool.
 //!
 //! **How a block is found.** The pool finds a stream's block by its number through an index of
@@ -13,10 +13,10 @@
 //! spans fewer numbers than there are buckets, so a chain holds at most one block of each stream.
 //! Finding a block therefore takes at most one probe for each stream that holds blocks. A list
 //! walked from the stream's first block took one for each block of the stream: up to 1,026 for a
-//! window of 1 MiB, which a peer reaches with frames of one octet (RFC 9000 §21.7).
+//! window of 1 MiB, which a peer reaches with frames of one byte (RFC 9000 §21.7).
 //!
 //! **Why one pool is enough.** RFC 9000 §4.1's connection limit bounds the sum of every stream's
-//! highest offset, and what the application read comes off the same sum, so the octets between
+//! highest offset, and what the application read comes off the same sum, so the bytes between
 //! each stream's read offset and its highest offset never pass the connection window. Decision 61
 //! caps that window at the pool's capacity. A stream's span may start and end inside a block, so
 //! the pool holds two blocks per stream beyond its capacity, and a peer inside its limits never
@@ -48,13 +48,13 @@ pub const Error = error{
 
 /// One block of the pool.
 pub const Block = struct {
-    /// The stream it holds octets of, by its 62-bit identifier (RFC 9000 §2.1).
+    /// The stream it holds bytes of, by its 62-bit identifier (RFC 9000 §2.1).
     stream_id: u64,
-    /// Which run of `block_len` offsets it holds: its first octet is at `number * block_len`.
+    /// Which run of `block_len` offsets it holds: its first byte is at `number * block_len`.
     number: u64,
     /// The next block of its bucket's chain, or the next free block.
     next: Index,
-    /// Which of its octets have arrived.
+    /// Which of its bytes have arrived.
     present: std.StaticBitSet(block_len),
 };
 
@@ -65,12 +65,12 @@ pub const Header = struct {
 
 /// The sizes of a `Pool` (decision 158 ruling 3). Each field has a default.
 pub const PoolOptions = struct {
-    /// The octets the pool holds, a multiple of `block_len`. Decision 61 makes
+    /// The bytes the pool holds, a multiple of `block_len`. Decision 61 makes
     /// `receive_pool_len_default` the default.
     capacity: usize = constants.limits.receive_pool_len_default,
 };
 
-/// A pool of `options.capacity` octets, which is the most every stream of one connection may
+/// A pool of `options.capacity` bytes, which is the most every stream of one connection may
 /// hold unread at once, and so the connection's and each stream's window cap (decision 61). The
 /// caller places it (decision 35).
 pub fn Pool(comptime options: PoolOptions) type {
@@ -130,7 +130,7 @@ pub const Storage = struct {
         unreachable;
     }
 
-    /// Takes a free block for `number` of `stream_id`, with none of its octets arrived, and puts it
+    /// Takes a free block for `number` of `stream_id`, with none of its bytes arrived, and puts it
     /// first in its bucket's chain.
     fn add(storage: Storage, stream_id: u64, number: u64) Error!Index {
         const index = storage.header.free_head;
@@ -164,7 +164,7 @@ pub const Storage = struct {
     }
 };
 
-/// One stream's unread octets: how many blocks of the pool hold them.
+/// One stream's unread bytes: how many blocks of the pool hold them.
 pub const Incoming = struct {
     held: u32 = 0,
 
@@ -172,8 +172,8 @@ pub const Incoming = struct {
         return incoming.held == 0;
     }
 
-    /// Keeps `data`, which a STREAM frame carried at `offset`. Octets below `read_offset` were
-    /// read already, and octets that arrived before are written again with the same values
+    /// Keeps `data`, which a STREAM frame carried at `offset`. Bytes below `read_offset` were
+    /// read already, and bytes that arrived before are written again with the same values
     /// (RFC 9000 §2.2: "The data at a given offset MUST NOT change").
     pub fn write(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, offset: u64, data: []const u8) Error!void {
         const end = offset + data.len;
@@ -205,7 +205,7 @@ pub const Incoming = struct {
         return index;
     }
 
-    /// Copies the octets from `read_offset` up to the first that has not arrived into `output`,
+    /// Copies the bytes from `read_offset` up to the first that has not arrived into `output`,
     /// as many as fit, and returns how many. A block read to its end goes back to the pool.
     pub fn read(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, output: []u8) usize {
         var at = read_offset;
@@ -225,9 +225,9 @@ pub const Incoming = struct {
         return written;
     }
 
-    /// Copies the octets from `read_offset` up to the first that has not arrived into `output`,
+    /// Copies the bytes from `read_offset` up to the first that has not arrived into `output`,
     /// as many as fit, and returns how many. Unlike `read`, it gives no block back, so the same
-    /// octets are there to copy or read again.
+    /// bytes are there to copy or read again.
     pub fn peek(incoming: *const Incoming, storage: Storage, stream_id: u64, read_offset: u64, output: []u8) usize {
         _ = incoming;
         var at = read_offset;
@@ -248,16 +248,16 @@ pub const Incoming = struct {
         return written;
     }
 
-    /// Drops `len` octets from `read_offset`, as reading them would, without copying them. Every
-    /// one of them has arrived: the caller drops only octets it has seen. No walk of the blocks
+    /// Drops `len` bytes from `read_offset`, as reading them would, without copying them. Every
+    /// one of them has arrived: the caller drops only bytes it has seen. No walk of the blocks
     /// proves it here (design §8 step 29d.12, the owner's ruling of 2026-11-05): the caller's
-    /// `flow.Receiver.consume` asserts that the octets lie below the highest one that arrived, and
+    /// `flow.Receiver.consume` asserts that the bytes lie below the highest one that arrived, and
     /// each whole block dropped below must be found.
     pub fn discard(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, len: u64) void {
         const end = read_offset + len;
         assert(end >= read_offset);
         var number = read_offset / block_len;
-        // Bounded by the blocks the octets span. A block goes back once every octet in it lies
+        // Bounded by the blocks the bytes span. A block goes back once every byte in it lies
         // below `end`.
         for (0..len / block_len + span_edges) |_| {
             if ((number + 1) * block_len > end) return;
@@ -267,7 +267,7 @@ pub const Incoming = struct {
         }
     }
 
-    /// The offset of the first octet at or above `read_offset` that has not arrived.
+    /// The offset of the first byte at or above `read_offset` that has not arrived.
     pub fn contiguous_end(incoming: *const Incoming, storage: Storage, stream_id: u64, read_offset: u64) u64 {
         _ = incoming;
         var at = read_offset;
@@ -277,7 +277,7 @@ pub const Incoming = struct {
             const within: usize = @intCast(at % block_len);
             const run = present_run(&storage.blocks[index], within, block_len - within);
             at += run;
-            // A run that stops short of the block's end leaves `at` inside it, at the octet that
+            // A run that stops short of the block's end leaves `at` inside it, at the byte that
             // has not arrived.
             if (within + run < block_len) break;
         }
@@ -306,7 +306,7 @@ pub const Incoming = struct {
     }
 };
 
-/// How many octets from `within` have arrived, up to `limit`.
+/// How many bytes from `within` have arrived, up to `limit`.
 fn present_run(block: *const Block, within: usize, limit: usize) usize {
     assert(within <= block_len);
     return bit_runs.first_unset(&block.present, within, @min(within + limit, block_len)) - within;

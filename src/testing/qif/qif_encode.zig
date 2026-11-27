@@ -1,7 +1,7 @@
 //! The encode tool of design §9: a QIF text in, a file in the "QPACK Offline Interop" format out,
 //! written by colibri's encoder (decision 76).
 //!
-//! Each header set is a section on the next request stream, from 1. Its encoder stream octets go
+//! Each header set is a section on the next request stream, from 1. Its encoder stream bytes go
 //! in a block ahead of its section, so a decoder that reads the file in order never blocks. In the
 //! format's immediate acknowledgment mode the encoder hears, after each section, what a decoder
 //! that received everything would send: the Section Acknowledgment and an Insert Count Increment

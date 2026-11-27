@@ -9,7 +9,7 @@
 (* limited acknowledgments, losses and persistent congestion that the     *)
 (* bounds allow.                                                          *)
 (*                                                                         *)
-(* The arithmetic in octets is spec/lean/Colibri/Quic/NewReno.lean's,     *)
+(* The arithmetic in bytes is spec/lean/Colibri/Quic/NewReno.lean's,     *)
 (* which proves one acknowledgment of at most a window adds at most one   *)
 (* datagram. Here the carry makes that hold over any sequence.            *)
 (***************************************************************************)

@@ -4,7 +4,7 @@ import Colibri.Wire.Varint
 # The packet number (RFC 9000 §17.1, Appendix A.2 and A.3)
 
 A packet number is 0 to 2^62 - 1 (§12.3), and a header carries its 1 to 4 least significant
-octets. The sender picks how many from the largest number the peer has acknowledged (Appendix
+bytes. The sender picks how many from the largest number the peer has acknowledged (Appendix
 A.2), and the receiver rebuilds the rest from the largest number it has processed (Appendix A.3).
 These definitions follow `encode` in `src/quic/packet/packet_number.zig` and `decode` in
 `src/crypto/packet_number.zig` over natural numbers; the theorems are about them
@@ -13,13 +13,13 @@ These definitions follow `encode` in `src/quic/packet/packet_number.zig` and `de
 What is proved:
 - `encode_range` and `encode_shortest`: the length `encode` picks represents more than twice the
   range of unacknowledged numbers, as §17.1 requires, and no shorter length does.
-- `encode_none`: `encode` refuses exactly when four octets do not represent twice that range.
+- `encode_none`: `encode` refuses exactly when four bytes do not represent twice that range.
 - `decode_closest`: `decode` rebuilds every number within half a window of the one expected.
 - `decode_encode`: a receiver that has processed at least what the sender saw acknowledged, and no
   number at or past the one sent, rebuilds the number `encode` truncated.
 - `decode_bound` and `decode_field`: whatever field arrives, `decode` gives a packet number, and
-  that number ends in the octets the field carried.
-- `field_read_write`: the field's octets, most significant first, read back to its value.
+  that number ends in the bytes the field carried.
+- `field_read_write`: the field's bytes, most significant first, read back to its value.
 -/
 
 namespace Colibri.Quic.PacketNumber
@@ -29,7 +29,7 @@ open Colibri.Wire.Varint (digits fromDigits fromDigits_digits)
 /-- §12.3: the largest packet number. `packet_number_max` in `constants.zig`. -/
 def numberMax : Nat := 2 ^ 62 - 1
 
-/-- §17.1: the count of values `len` octets carry. `window_of` in `packet_number.zig`. -/
+/-- §17.1: the count of values `len` bytes carry. `window_of` in `packet_number.zig`. -/
 def window (len : Nat) : Nat := 256 ^ len
 
 /-- Appendix A.2: the numbers the peer has not acknowledged, up to `full`. Before any
@@ -39,7 +39,7 @@ def unacknowledged (full : Nat) : Option Nat → Nat
   | none => full + 1
 
 /-- Appendix A.2: the Packet Number field for `full`, as its value and its length: the shortest
-of 1 to 4 octets whose window exceeds twice the unacknowledged range, or `none` when four octets
+of 1 to 4 bytes whose window exceeds twice the unacknowledged range, or `none` when four bytes
 do not. `encode` in `src/quic/packet/packet_number.zig`. -/
 def encode (full : Nat) (acked : Option Nat) : Option (Nat × Nat) :=
   let range := 2 * unacknowledged full acked
@@ -55,7 +55,7 @@ def expected : Option Nat → Nat
   | none => 0
 
 /-- Appendix A.3: the packet number closest to the one expected whose `len` least significant
-octets are `value`, kept within 0 and `numberMax`. `decode` in `src/crypto/packet_number.zig`,
+bytes are `value`, kept within 0 and `numberMax`. `decode` in `src/crypto/packet_number.zig`,
 which builds `candidate` with a mask where this divides. -/
 def decode (largest : Option Nat) (value len : Nat) : Nat :=
   let w := window len
@@ -67,7 +67,7 @@ def decode (largest : Option Nat) (value len : Nat) : Nat :=
   else if candidate > e + half ∧ candidate ≥ w then candidate - w
   else candidate
 
-/-- §17.1: the Packet Number field's octets, most significant first. `write` in
+/-- §17.1: the Packet Number field's bytes, most significant first. `write` in
 `src/quic/packet/packet_number.zig`. -/
 def field (value len : Nat) : List Nat := digits len value
 
@@ -80,7 +80,7 @@ theorem unacknowledged_eq (full : Nat) (acked : Option Nat)
   | none => rfl
   | some a => have := hacked a rfl; simp only [unacknowledged, expected]; omega
 
-/-- §17.1: the length `encode` picks is 1 to 4 octets, carries the low octets of `full`, and
+/-- §17.1: the length `encode` picks is 1 to 4 bytes, carries the low bytes of `full`, and
 represents more than twice the unacknowledged range. -/
 theorem encode_range (full : Nat) (acked : Option Nat) (value len : Nat)
     (h : encode full acked = some (value, len)) :
@@ -119,7 +119,7 @@ theorem encode_shortest (full : Nat) (acked : Option Nat) (value len shorter : N
           have := hw 3 (by omega); omega
         · simp at h
 
-/-- §17.1: `encode` refuses exactly when four octets do not represent twice the range. -/
+/-- §17.1: `encode` refuses exactly when four bytes do not represent twice the range. -/
 theorem encode_none (full : Nat) (acked : Option Nat) :
     encode full acked = none ↔ window 4 ≤ 2 * unacknowledged full acked := by
   simp only [encode]
@@ -165,7 +165,7 @@ theorem decode_bound (largest : Option Nat) (value len : Nat) (hlen : 1 ≤ len 
   rcases window_cases len hlen with hw | hw | hw | hw <;> rw [hw] at hvalue ⊢ <;>
     split <;> (try split) <;> (try split) <;> omega
 
-/-- §17.1: the number `decode` gives ends in the octets the field carried. -/
+/-- §17.1: the number `decode` gives ends in the bytes the field carried. -/
 theorem decode_field (largest : Option Nat) (value len : Nat) (hlen : 1 ≤ len ∧ len ≤ 4)
     (hlargest : ∀ l, largest = some l → l ≤ numberMax) (hvalue : value < window len) :
     decode largest value len % window len = value := by
@@ -195,7 +195,7 @@ theorem decode_encode (full : Nat) (acked largest : Option Nat) (value len : Nat
     rcases window_cases len ⟨hlen, hlen4⟩ with hw | hw | hw | hw <;> rw [hw]
   exact decode_closest largest len full ⟨hlen, hlen4⟩ hlargest hfull (by omega) (by omega)
 
-/-- §17.1: the field's octets, most significant first, read back to its value. -/
+/-- §17.1: the field's bytes, most significant first, read back to its value. -/
 theorem field_read_write (value len : Nat) (hvalue : value < window len) :
     fromDigits (field value len) 0 = value := by
   simp only [field, fromDigits_digits, Nat.zero_mul, Nat.zero_add]

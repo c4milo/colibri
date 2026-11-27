@@ -18,7 +18,7 @@ pub const root = @embedFile("identity.ca.der");
 /// The CA's Subject Name and SubjectPublicKeyInfo, as DER: what a client's anchor holds.
 pub const root_name = @embedFile("identity.name");
 pub const root_spki = @embedFile("identity.spki");
-/// The leaf's P-256 key pair as chapulin reads it: the 32-octet private scalar, and the
+/// The leaf's P-256 key pair as chapulin reads it: the 32-byte private scalar, and the
 /// uncompressed point X||Y without its 0x04 prefix.
 pub const private_key = @embedFile("identity.priv");
 pub const public_key = @embedFile("identity.pub");

@@ -2,7 +2,7 @@
 //!
 //! A packet's record keeps its first STREAM frame's range in place, and the ring holds the ones
 //! after it (`recovery_ranges.zig`). This file reads both, so the files that acknowledge, lose and
-//! measure stream octets see every range a packet carried, in the order it carried them.
+//! measure stream bytes see every range a packet carried, in the order it carried them.
 const std = @import("std");
 const assert = std.debug.assert;
 const recovery_sent = @import("../../recovery/recovery_sent.zig");
@@ -45,7 +45,7 @@ fn first(record: Record) ?Range {
         .stream_fin => true,
         .none, .crypto => return null,
     };
-    // A range carries octets or the FIN (RFC 9000 §19.8); a STREAM frame with neither is not
+    // A range carries bytes or the FIN (RFC 9000 §19.8); a STREAM frame with neither is not
     // one colibri writes.
     assert(record.data_len > 0 or fin);
     return .{ .stream_id = record.stream_id, .offset = record.data_offset, .len = record.data_len, .fin = fin };

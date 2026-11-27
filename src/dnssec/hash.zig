@@ -30,7 +30,7 @@ pub const Hash = struct {
     /// `algorithm` names.
     pub fn init(algorithm: Algorithm, key: []const u8, signature: []const u8) Error!Hash {
         assert(algorithm_file.available);
-        // RFC 8080 §3 and §4: an Ed25519 key is 32 octets and its signature 64, which chapulin
+        // RFC 8080 §3 and §4: an Ed25519 key is 32 bytes and its signature 64, which chapulin
         // checks here.
         const state = chapulin.dnssec.Hash.init(algorithm_file.chapulin_of(algorithm), key, signature) catch return error.InvalidEncoding;
         return .{ .state = state };
@@ -48,7 +48,7 @@ pub const Hash = struct {
         hash.state.update(bytes);
     }
 
-    /// Writes the digest into `out` and returns it: 20, 32, 48 or 64 octets. The state is wiped,
+    /// Writes the digest into `out` and returns it: 20, 32, 48 or 64 bytes. The state is wiped,
     /// so the hash takes nothing more.
     pub fn final(hash: *Hash, out: *[protocol.digest_len_max]u8) []const u8 {
         const written = hash.state.final(out);

@@ -76,7 +76,7 @@ pub const Result = struct {
     handshake_ns: u64 = 0,
     /// How many times the server's path moved to its client's new address (RFC 9000 §9.3).
     migrations: u64 = 0,
-    /// Octets of qlog both endpoints wrote, their digest, and the events the check of each record
+    /// Bytes of qlog both endpoints wrote, their digest, and the events the check of each record
     /// read back, which are zero unless the run logs.
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
@@ -113,7 +113,7 @@ pub const Census = struct {
     /// the server switched from version 1 (decision 111).
     version_2_seeds: u64 = 0,
     switched_seeds: u64 = 0,
-    /// Octets of qlog the endpoints wrote, the digest of every record, and the events read back,
+    /// Bytes of qlog the endpoints wrote, the digest of every record, and the events read back,
     /// which are zero unless the run logs. They stay out of `crc32`, so a run with logs and one
     /// without must agree on it.
     qlog_len: u64 = 0,
@@ -189,13 +189,13 @@ pub const Fault = enum {
     /// The client's history already holds the number of its first Initial, so its first datagram
     /// repeats one, which the read of invariant 17 on every datagram must report.
     number_reused,
-    /// The client supplies its stream's first octet changed, which the server's read must report
+    /// The client supplies its stream's first byte changed, which the server's read must report
     /// (decision 61).
     wrong_octet,
     /// The network carries every datagram Not-ECT, as a path that clears the ECN field does,
     /// which RFC 9000 §13.4.2.1's validation must catch.
     ecn_cleared,
-    /// Each endpoint's qlog holds the fewest octets `qlog.Log` takes, so a step's events do not
+    /// Each endpoint's qlog holds the fewest bytes `qlog.Log` takes, so a step's events do not
     /// fit, which the run must report rather than take the records short.
     qlog_overflow,
 };
@@ -207,7 +207,7 @@ pub const Storage = struct {
     /// The congestion controller both endpoints run (decision 136).
     controller: quic.CongestionController,
     /// RFC 9959's saved set the client, the sender of the stream, starts from, or null
-    /// (decision 149). With one, the client sends `resume_transfer_len` octets.
+    /// (decision 149). With one, the client sends `resume_transfer_len` bytes.
     resumed_from: ?quic.ResumeState,
     endpoints: [sim.network.Endpoint.count]quic_endpoint.Endpoint,
     histories: [sim.network.Endpoint.count]quic_invariants.History,
@@ -223,7 +223,7 @@ pub const Storage = struct {
     record_storage: [constants.quic_qlog_len]u8,
 };
 
-/// The octets the client sends when it resumes from a saved set: several windows, so the jump of
+/// The bytes the client sends when it resumes from a saved set: several windows, so the jump of
 /// RFC 9959 §3.3 has data to send.
 pub const resume_transfer_len: u64 = 262_144;
 
@@ -377,7 +377,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     try std.testing.expectError(Violation.KeysUnavailable, run_check(&fault_storage, 1, &census, &failed_seed));
     fault_storage.fault = .number_reused;
     try std.testing.expectError(Violation.PacketNumberReused, run_check(&fault_storage, 1, &census, &failed_seed));
-    // The server reads the client's stream and checks every octet it reads.
+    // The server reads the client's stream and checks every byte it reads.
     fault_storage.fault = .wrong_octet;
     try std.testing.expectError(Violation.ConnectionError, run_check(&fault_storage, 1, &census, &failed_seed));
     try std.testing.expectEqual(error.TransferOctetWrong, fault_storage.failure.?);

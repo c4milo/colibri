@@ -127,7 +127,7 @@ test "decision 127: each segment is percent-decoded after the split, and a stray
     try testing.expectEqualStrings("%zz%4", parameters.get("id").?);
     // A literal compares with the decoded segment.
     try testing.expectEqual(.literal, files.match("GET", "/files/a%2Ab", &parameters).found);
-    // A segment with no "%" is the path's own octets, with no copy.
+    // A segment with no "%" is the path's own bytes, with no copy.
     const path: []const u8 = "/users/42";
     _ = posts.match("GET", path, &parameters);
     try testing.expectEqual(path.ptr + "/users/".len, parameters.get("id").?.ptr);
@@ -145,7 +145,7 @@ test "decision 122 ruling 6: the wildcard matches one segment or more, the rest 
     // RFC 3986 §3.3: the rest of the path ends at the first "?".
     try testing.expectEqual(.wildcard, files.match("GET", "/files/a/b?c/d", &parameters).found);
     try testing.expectEqualStrings("a/b", parameters.get("*").?);
-    // A segment that holds "*" and other octets is a literal, and the literal wins.
+    // A segment that holds "*" and other bytes is a literal, and the literal wins.
     try testing.expectEqual(.literal, files.match("GET", "/files/a*b", &parameters).found);
     try testing.expectEqual(0, parameters.count);
     try testing.expectEqual(.wildcard, files.match("GET", "/files/axb", &parameters).found);
@@ -165,7 +165,7 @@ test "RFC 3986 §7.3: a segment that encodes a slash, a backslash or NUL matches
     inline for (.{ "/files/a%2F..%2Fb", "/files/a/%2F", "/files/a/b%5C", "/files/%00/b" }) |refused| {
         try expect_not_found(files, "GET", refused);
     }
-    // The walk decodes once, so "%252F" is the three octets "%2F" and matches.
+    // The walk decodes once, so "%252F" is the three bytes "%2F" and matches.
     var parameters: PathParameters = .{};
     try testing.expectEqual(.user, posts.match("GET", "/users/%252F", &parameters).found);
     try testing.expectEqualStrings("%2F", parameters.get("id").?);

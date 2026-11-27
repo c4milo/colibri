@@ -1,14 +1,14 @@
 //! What one seed of the h2 stall check (https://github.com/c4milo/colibri/issues/85) runs: the
-//! octets each direction of the transport holds, the streams the client opens, each message's body,
+//! bytes each direction of the transport holds, the streams the client opens, each message's body,
 //! and how much one endpoint's turn reads and writes.
 //!
 //! A seed is random or aligned:
 //!   - random: bodies of any length up to `body_len_max`, sent in chunks of any size;
-//!   - aligned: every body goes in two parts. The first part is one octet short of the credit a
+//!   - aligned: every body goes in two parts. The first part is one byte short of the credit a
 //!     receiver gathers before it owes a WINDOW_UPDATE on a stream (`window.Receiver`), and neither
-//!     endpoint sends a second part before it has sent every first part. The first octets of the
+//!     endpoint sends a second part before it has sent every first part. The first bytes of the
 //!     second parts then owe the receiver one WINDOW_UPDATE on each stream, and there are more
-//!     streams than h2's reply queue holds. The second parts go in chunks of a few octets, so they
+//!     streams than h2's reply queue holds. The second parts go in chunks of a few bytes, so they
 //!     reach many streams while the transport is still filling.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -24,23 +24,23 @@ pub const Shape = enum { random, aligned };
 /// Which endpoints write what their connection owes before their own frames: both, one, or neither.
 pub const Order = enum { owed_first, mixed, frames_first };
 
-/// Octets of an aligned body's first part: one short of h2's WINDOW_UPDATE threshold.
+/// Bytes of an aligned body's first part: one short of h2's WINDOW_UPDATE threshold.
 pub const aligned_first_len: u32 = h2.constants.policy.window_update_threshold - 1;
 
 pub const Plan = struct {
     shape: Shape,
-    /// Octets each direction of the transport holds: one of `limits.capacities`.
+    /// Bytes each direction of the transport holds: one of `limits.capacities`.
     capacity: u32,
     /// Streams the client opens: identifiers 1, 3, 5 and on (RFC 9113 §5.1.1).
     streams: u32,
-    /// Each stream's request and response body, in octets. Index 0 is stream 1, and the entries
+    /// Each stream's request and response body, in bytes. Index 0 is stream 1, and the entries
     /// past `streams` are 0.
     request_len: [limits.streams_max]u32,
     response_len: [limits.streams_max]u32,
-    /// Octets of each body's first part: `aligned_first_len` in an aligned seed, and 0 in a random
+    /// Bytes of each body's first part: `aligned_first_len` in an aligned seed, and 0 in a random
     /// one, whose bodies go in one part.
     first_len: u32,
-    /// Octets a write call puts in a DATA frame at most, in a random seed's bodies and an aligned
+    /// Bytes a write call puts in a DATA frame at most, in a random seed's bodies and an aligned
     /// seed's second parts. An aligned seed's first parts go in frames as large as the room allows.
     chunk_len: u32,
     /// Write calls, and frames read, one endpoint's turn makes at most.
@@ -77,7 +77,7 @@ pub const Plan = struct {
         return .mixed;
     }
 
-    /// The octets of a body of `body_len` octets that its sender sends before any second part: the
+    /// The bytes of a body of `body_len` bytes that its sender sends before any second part: the
     /// first part in an aligned seed, and the whole body in a random one.
     pub fn first_part_len(plan: *const Plan, body_len: u32) u32 {
         return if (plan.shape == .aligned) @min(plan.first_len, body_len) else body_len;
@@ -97,7 +97,7 @@ pub const Plan = struct {
         plan.streams = @intCast(random.between(limits.aligned_streams_min, limits.streams_max));
         plan.first_len = aligned_first_len;
         plan.chunk_len = @intCast(random.between(1, limits.aligned_chunk_len_max));
-        // Each second part is at least one octet, which owes the receiver its WINDOW_UPDATE.
+        // Each second part is at least one byte, which owes the receiver its WINDOW_UPDATE.
         for (0..plan.streams) |index| {
             plan.request_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.policy.window_update_threshold)));
             plan.response_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.policy.window_update_threshold)));

@@ -1,6 +1,6 @@
 //! What the server's tests share: the connection they drive, the buffers it reads and writes, and
 //! for the TLS tests a colibri client over the test identity of `src/testing/testdata/`. The
-//! session sources are SplitMix64 from a seed, so every run draws the same octets. Test-only.
+//! session sources are SplitMix64 from a seed, so every run draws the same bytes. Test-only.
 const std = @import("std");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
@@ -142,10 +142,10 @@ pub var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 pub var zlib_decoder: zlib.Decoder align(@alignOf(zlib.Decoder)) = undefined;
 pub var decoded: [coded_len_max]u8 = undefined;
 
-/// Content deflate cannot shrink, several rings long, so its coded octets pass the ring's end.
+/// Content deflate cannot shrink, several rings long, so its coded bytes pass the ring's end.
 pub var incompressible: [incompressible_len]u8 = undefined;
 pub const incompressible_len: usize = incompressible_rings * server_constants.limits.encoder_ring_len;
-/// The most octets a coding test sends or decodes: the content and a ring more.
+/// The most bytes a coding test sends or decodes: the content and a ring more.
 pub const coded_len_max: usize = (incompressible_rings + 1) * server_constants.limits.encoder_ring_len;
 const incompressible_rings: usize = 3;
 
@@ -289,7 +289,7 @@ pub fn run_handshake() !void {
     return error.TestUnexpectedResult;
 }
 
-/// Drops the first `consumed` octets of what the client has not read.
+/// Drops the first `consumed` bytes of what the client has not read.
 pub fn take_to_client(consumed: usize) void {
     @memmove(to_client[0 .. to_client_len - consumed], to_client[consumed..to_client_len]);
     to_client_len -= consumed;
@@ -301,7 +301,7 @@ pub fn seal_all(offset: usize, plaintext: []const u8) !usize {
     const provider = client.provider();
     var sealed_len: usize = offset;
     var taken: usize = 0;
-    // Bounded: each record takes at least one octet of plaintext.
+    // Bounded: each record takes at least one byte of plaintext.
     for (0..plaintext.len) |_| {
         if (taken == plaintext.len) break;
         const sealed = try provider.encrypt_record(plaintext[taken..], input[sealed_len..]);

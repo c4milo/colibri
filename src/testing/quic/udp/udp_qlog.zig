@@ -19,10 +19,10 @@ const Role = quic.connection.Role;
 /// connection writes its HTTP/3 events into its QUIC connection's log.
 const event_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.http3_event_schema };
 
-/// Hex digits one octet takes.
+/// Hex digits one byte takes.
 const hex_digits_per_octet: usize = 2;
 
-/// Octets of the longest file name: a slash, the longest connection ID in hex, an underscore, the
+/// Bytes of the longest file name: a slash, the longest connection ID in hex, an underscore, the
 /// longer vantage point and the extension.
 const file_name_len_max = "/".len + hex_digits_per_octet * quic.constants.protocol.connection_id_len_max + "_server.sqlog".len;
 

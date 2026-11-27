@@ -1,7 +1,7 @@
 //! One QUIC packet, framed and sealed into a slice of the caller's datagram buffer.
 //!
 //! **It builds a packet, not a datagram.** RFC 9000 §12.2's coalescing, §14.1's expansion to
-//! 1,200 octets and §8's anti-amplification limit are all about a datagram, and none of them is
+//! 1,200 bytes and §8's anti-amplification limit are all about a datagram, and none of them is
 //! here; the piece that assembles a datagram calls this once per packet. Nothing here tells
 //! RFC 9002's recovery anything either: it reports what it built, and `connection_send` records
 //! it (decision 59).
@@ -15,7 +15,7 @@
 //! against the budget that leaves, and the header is written once with the true value.
 //!
 //! **A tiny packet widens its packet number rather than padding.** RFC 9001 §5.4.2 wants the
-//! packet number and payload to reach four octets together so header protection has a sample.
+//! packet number and payload to reach four bytes together so header protection has a sample.
 //! [Decision 54](../../../docs/decisions.md) meets that by widening, because RFC 9002 §2 counts
 //! a packet carrying PADDING as in flight and a bare PING should not cost congestion window.
 const std = @import("std");
@@ -58,7 +58,7 @@ pub fn Scratch(comptime capacity: usize) type {
         header: [constants.limits.packet_header_len_max]u8 = undefined,
         payload: [capacity]u8 = undefined,
 
-        /// How many octets of frames a packet built with this scratch can hold.
+        /// How many bytes of frames a packet built with this scratch can hold.
         pub const payload_len_max: usize = capacity;
     };
 }
@@ -73,7 +73,7 @@ pub const Error = error{
     /// RFC 9000 §12.3: this space has used every packet number, and §12.3 has the connection
     /// close rather than reuse one (invariant 17).
     PacketNumbersExhausted,
-    /// The handshake failed while its octets were being written.
+    /// The handshake failed while its bytes were being written.
     Crypto,
     /// RFC 9001 §6.6: the keys have protected as many packets as the AEAD's confidentiality limit
     /// permits and no key update could free them, so the connection stops.
@@ -100,14 +100,14 @@ pub fn connection_error_code(failure: Error) ?u64 {
 pub const Built = struct {
     level: Level,
     packet_number: u64,
-    /// Octets of `output` the packet occupies.
+    /// Bytes of `output` the packet occupies.
     len: usize,
     /// RFC 9002 §2: whether the peer must acknowledge it.
     ack_eliciting: bool,
     /// RFC 9002 §2, via `recovery_sent.counts_in_flight`.
     in_flight: bool,
-    /// RFC 9000 §13.3: the CRYPTO or STREAM octets this packet carried, which the caller puts in
-    /// the `recovery_sent.Record` it keeps, so a loss can say which octets to send again.
+    /// RFC 9000 §13.3: the CRYPTO or STREAM bytes this packet carried, which the caller puts in
+    /// the `recovery_sent.Record` it keeps, so a loss can say which bytes to send again.
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
@@ -119,7 +119,7 @@ pub const Built = struct {
 
 /// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
 /// `seal`, because the AEAD covers the payload and nothing may be appended after: so a datagram
-/// that must reach 1,200 octets plans its packets first, learns which is last, and seals then.
+/// that must reach 1,200 bytes plans its packets first, learns which is last, and seals then.
 pub const Planned = struct {
     level: Level,
     number: u64,
@@ -127,7 +127,7 @@ pub const Planned = struct {
     payload_len: usize,
     ack_eliciting: bool,
     shape: Shape,
-    /// Octets of PADDING added to reach RFC 9000 §14.1's size, which RFC 9002 §2 makes the packet
+    /// Bytes of PADDING added to reach RFC 9000 §14.1's size, which RFC 9002 §2 makes the packet
     /// count in flight whether or not anything in it elicits an acknowledgment.
     padding_len: usize = 0,
     /// Whether this packet carries a CONNECTION_CLOSE frame (RFC 9000 §10.2.3), which is what
@@ -137,14 +137,14 @@ pub const Planned = struct {
     /// update on the first packet under the new keys that acknowledges the one that started it.
     carries_ack: bool = false,
     /// The PATH_CHALLENGE this packet carries, or null when it carries none (RFC 9000 §8.2.1).
-    /// The datagram's length decides whether the path MTU is validated, so the octets travel this
+    /// The datagram's length decides whether the path MTU is validated, so the bytes travel this
     /// far and `Path.on_challenge_sent` takes them once the datagram exists.
     path_challenge: ?[constants.protocol.path_challenge_len]u8 = null,
     /// Whether this packet carries a PATH_RESPONSE (RFC 9000 §8.2.2), which §8.2.2 expands the
     /// datagram for just as §8.2.1 does for a challenge.
     carries_path_response: bool = false,
-    /// RFC 9000 §13.3: which octets this packet carries and where they sit in their flow, which
-    /// the caller records so a lost packet can say which octets to send again.
+    /// RFC 9000 §13.3: which bytes this packet carries and where they sit in their flow, which
+    /// the caller records so a lost packet can say which bytes to send again.
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
@@ -240,11 +240,11 @@ pub fn build(
 
 /// What the header costs before its payload, and what that leaves for frames.
 pub const Shape = struct {
-    /// Octets the Length field is written in, fixed before the payload exists (RFC 9000 §16).
+    /// Bytes the Length field is written in, fixed before the payload exists (RFC 9000 §16).
     length_len: u8,
-    /// Octets of the header, which is everything before the payload (RFC 9000 §17.2, §17.3).
+    /// Bytes of the header, which is everything before the payload (RFC 9000 §17.2, §17.3).
     header_len: usize,
-    /// Octets of frames this packet may carry.
+    /// Bytes of frames this packet may carry.
     room: usize,
 };
 
@@ -260,21 +260,21 @@ fn shape_of(connection: *Connection, level: Level, packet_number_len: u8, output
     const length_len = if (level == .application) 0 else wire.varint.encoded_len_minimal(largest_length);
     const header = fixed + length_len;
     if (output_len <= header + constants.protocol.aead_tag_len) return Error.NoSpaceLeft;
-    // RFC 9001 §5.4.2: the number and payload reach four octets, which a tiny packet meets by
+    // RFC 9001 §5.4.2: the number and payload reach four bytes, which a tiny packet meets by
     // widening its number (decision 54), so the room holds that much whatever is framed.
     const sampled_len = header - packet_number_len + constants.protocol.protected_len_min + constants.protocol.aead_tag_len;
     if (output_len < sampled_len) return Error.NoSpaceLeft;
     return .{ .length_len = length_len, .header_len = header, .room = output_len - header - constants.protocol.aead_tag_len };
 }
 
-/// The header's octets other than its Length field (RFC 9000 §17.2, §17.3).
+/// The header's bytes other than its Length field (RFC 9000 §17.2, §17.3).
 fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8) usize {
     const identity = &connection.identity;
     // RFC 9000 §17.3: a short header is byte 0, the Destination Connection ID and the number.
     if (level == .application) return 1 + short_destination(connection).len + packet_number_len;
     const destination = identity.destination().len;
     const source = identity.source().len;
-    // §17.2: byte 0, the Version, both connection IDs with their length octets, and the number.
+    // §17.2: byte 0, the Version, both connection IDs with their length bytes, and the number.
     var len: usize = 1 + @sizeOf(u32) + 1 + destination + 1 + source + packet_number_len;
     // §17.2.2: an Initial packet alone carries a Token Length and a Token, which §8.1.2 makes
     // the Retry token once one has arrived and a zero-length field until then.
@@ -289,7 +289,7 @@ fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8
 /// at least 4 bytes longer than the sample". Decision 54 reaches that by widening the number.
 ///
 /// It is public so its rule can be checked directly: no frame this file writes today produces a
-/// payload under four octets, because the shortest CRYPTO frame is four and an ACK is longer, so
+/// payload under four bytes, because the shortest CRYPTO frame is four and an ACK is longer, so
 /// nothing reaches it through `build` until the send path writes a bare PING.
 pub fn widen_for_sample(number: u64, truncated: packet_number.Truncated, payload_len: usize) packet_number.Truncated {
     if (payload_len >= constants.protocol.protected_len_min) return truncated;
@@ -298,19 +298,19 @@ pub fn widen_for_sample(number: u64, truncated: packet_number.Truncated, payload
     assert(needed <= constants.protocol.packet_number_len_max);
     // RFC 9000 §17.1 permits any width that represents the range, so a wider one is always
     // legal: the peer reads the width from byte 0 and recovers the same number. The value is the
-    // number's low octets, which is what `Truncated` holds and `needed` never exceeds.
+    // number's low bytes, which is what `Truncated` holds and `needed` never exceeds.
     return .{ .value = @truncate(number), .len = needed };
 }
 
 /// The Packet Number field a planned packet is sealed with. RFC 9001 §5.4.2, decision 54: the
-/// packet number and payload must reach four octets so header protection has a sample, and a
+/// packet number and payload must reach four bytes so header protection has a sample, and a
 /// short packet widens the number to get there. PADDING counts toward the four, so the widening
 /// is decided over the payload the datagram's expansion left.
 pub fn sealed_truncated(planned: Planned) packet_number.Truncated {
     return widen_for_sample(planned.number, planned.truncated, planned.payload_len + planned.padding_len);
 }
 
-/// Octets the widening adds to a planned packet's header, which `Shape.header_len` leaves out.
+/// Bytes the widening adds to a planned packet's header, which `Shape.header_len` leaves out.
 pub fn widening_len(planned: Planned) usize {
     return sealed_truncated(planned).len - planned.truncated.len;
 }
@@ -326,7 +326,7 @@ const Pending = struct {
 };
 
 /// Writes the header and asks the suite to protect a planned packet (RFC 9001 §5.3, §5.4).
-/// `padding_len` octets of PADDING were added to `payload` by the caller before this.
+/// `padding_len` bytes of PADDING were added to `payload` by the caller before this.
 pub fn seal_planned(
     connection: *Connection,
     suite: crypto.Suite,

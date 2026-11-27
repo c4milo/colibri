@@ -26,7 +26,7 @@ const body_len: usize = 1024;
 
 /// RFC 9110 §4.2.1: the port of an "http" origin whose URI names none.
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -64,7 +64,7 @@ fn streamed_put() Exchange {
 /// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing,
 /// starts the connection an `open` event asks for, and keeps the events.
 fn collect() !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
@@ -103,7 +103,7 @@ fn peer_read() !void {
     read_len = 0;
     read_requests = 0;
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.to_peer_len + support.events_max) |_| {
         const received = try support.peer_h11.receive(support.to_peer[consumed..support.to_peer_len], &.{});
         consumed += received.consumed;
@@ -219,7 +219,7 @@ test "decision 153 ruling 3: a streamed request refused after a take ends closed
     try testing.expectEqual(1, count(.open));
 }
 
-/// Rounds of moving octets both ways that start an h2 connection.
+/// Rounds of moving bytes both ways that start an h2 connection.
 const rounds: usize = 4;
 
 /// Where each piece of a streamed response lands. Test-only.
@@ -227,7 +227,7 @@ var piece: [piece_len]u8 = undefined;
 const piece_len: usize = 4;
 const alphabet = "abcdefghijklmnopqrstuvwxyz";
 
-/// A streamed GET, whose response comes in pieces of four octets.
+/// A streamed GET, whose response comes in pieces of four bytes.
 fn streamed_get() Exchange {
     return .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &piece } };
 }

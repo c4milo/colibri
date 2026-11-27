@@ -1,7 +1,7 @@
 //! The tests of decision 110's send deadlines in a server connection over TCP
 //! (`connection_sends.zig`): a peer that takes too little of what the connection holds for it, or
 //! in h2 opens a stream's window too slowly, is cut at its window's end, and a connection that has
-//! ended closes once its last octets are out or its linger passes.
+//! ended closes once its last bytes are out or its linger passes.
 const std = @import("std");
 const h2 = @import("h2");
 const http = @import("http");
@@ -22,23 +22,23 @@ const grace_ns = server_constants.policy.rate_grace_ns;
 const window_ns = server_constants.policy.rate_window_ns;
 const linger_ns = server_constants.policy.close_linger_ns;
 const first_end_ns = early_ns + grace_ns + window_ns;
-/// The octets each window owes at the default send rate.
+/// The bytes each window owes at the default send rate.
 const quota: usize = server_constants.policy.send_rate_min * (window_ns / server_constants.nanoseconds_per_second);
 
 const whole_request = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
 const head_begun = "GET / HT";
-/// An answer longer than the octets the tests' peer takes at once, and the status it carries: 200
+/// An answer longer than the bytes the tests' peer takes at once, and the status it carries: 200
 /// (OK), RFC 9110 §15.3.1.
 const content: [answer_len]u8 = @splat('a');
 const answer_len: usize = answer_windows * quota;
 /// The windows of quota an answer holds: past the two a test's peer takes in full.
 const answer_windows: usize = 3;
 const ok_status: http.Status = .ok;
-/// The octets a test's peer takes in one `send`.
+/// The bytes a test's peer takes in one `send`.
 const taken_len: usize = 64;
 
 /// Answers the h11 request `receive_at` read with `content`, and has the peer take `taken_len`
-/// octets of it at `early_ns`, so the rest waits in the output.
+/// bytes of it at `early_ns`, so the rest waits in the output.
 fn answer_slowly() !void {
     const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
@@ -46,7 +46,7 @@ fn answer_slowly() !void {
     try testing.expectEqual(taken_len, connection.send(support.output[0..taken_len], early_ns));
 }
 
-/// The peer takes `len` octets at `now_ns`.
+/// The peer takes `len` bytes at `now_ns`.
 fn take(len: usize, now_ns: u64) usize {
     return connection.send(support.output[0..len], now_ns);
 }
@@ -125,7 +125,7 @@ test "decision 110: with no send rate and no linger, a connection waits on its p
     try testing.expectEqual(null, connection.close_reason());
 }
 
-/// An h2 connection whose client asked for streams with a window of `stream_window` octets, and
+/// An h2 connection whose client asked for streams with a window of `stream_window` bytes, and
 /// a request on stream 1 whose answer began and whose content, once the window is spent, waits on
 /// it.
 fn answer_blocked(stream_window: u32) !void {
@@ -134,7 +134,7 @@ fn answer_blocked(stream_window: u32) !void {
 }
 
 /// At `now_ns`, the client of a started h2 connection asks for streams with a window of
-/// `stream_window` octets. Then the answer to its request on stream 1 waits on the window.
+/// `stream_window` bytes. Then the answer to its request on stream 1 waits on the window.
 fn block_first(stream_window: u32, now_ns: u64) !void {
     var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
@@ -250,7 +250,7 @@ test "decision 110: a stream a send deadline ends owes one cancelled, not a seco
     try testing.expect(try nothing_owed(first_end_ns + window_ns));
 }
 
-/// A WINDOW_UPDATE frame for `stream_id` adding `increment` octets.
+/// A WINDOW_UPDATE frame for `stream_id` adding `increment` bytes.
 fn window_update(stream_id: u32, increment: u32) ![h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 {
     var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
@@ -265,8 +265,8 @@ test "decision 110: a stream whose window opens a floor at a time, at the rate, 
     try answer_blocked(0);
     _ = send_at(early_ns);
     var written: usize = 0;
-    // A floor a second: the quota each window, the first window's octets counted in it, and the
-    // octets at its end in the next.
+    // A floor a second: the quota each window, the first window's bytes counted in it, and the
+    // bytes at its end in the next.
     const windows_len = (grace_ns + 2 * window_ns) / second_ns;
     for (1..windows_len) |k| {
         const now_ns = early_ns + k * second_ns;
@@ -283,7 +283,7 @@ test "decision 110: a stream whose window lets a write through is held no more" 
     try answer_blocked(0);
     _ = send_at(early_ns);
     _ = try receive_at(&(try window_update(1, answer_len)), early_ns + 1);
-    // One frame's octets go out, and the caller writes no more for a while.
+    // One frame's bytes go out, and the caller writes no more for a while.
     const frame_octets = content[0..h2.constants.protocol.max_frame_size_initial];
     try testing.expectEqual(frame_octets.len, try connection.write_body(1, .{ .bytes = frame_octets, .end = false }));
     _ = send_at(early_ns + 1);

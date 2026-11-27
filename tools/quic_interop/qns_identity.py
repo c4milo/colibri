@@ -4,12 +4,12 @@
 
 The runner writes PEM (its certs.sh): cert.pem holds the end-entity certificate and the
 intermediates above it, ca.pem the root, and priv.key the end-entity's P-256 key in SEC 1 form.
-The endpoint reads raw octets, the form tools/h2_interop/tls_identity.go writes, because chapulin
+The endpoint reads raw bytes, the form tools/h2_interop/tls_identity.go writes, because chapulin
 parses no container:
 
     <prefix>.chain.<i>.der  each certificate of cert.pem, the end-entity first
-    <prefix>.priv           the 32-octet private scalar
-    <prefix>.pub            the 64-octet public point X||Y
+    <prefix>.priv           the 32-byte private scalar
+    <prefix>.pub            the 64-byte public point X||Y
     <prefix>.name           the root's Subject Name DER, which a Web PKI client trusts
     <prefix>.spki           the root's SubjectPublicKeyInfo DER, likewise
     <prefix>.pin            the SHA-256 of the end-entity's SubjectPublicKeyInfo DER, which the

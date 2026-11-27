@@ -52,7 +52,7 @@ pub const Client = struct {
     /// How many paths have a stream, and how many have arrived whole.
     opened: usize,
     finished_count: usize,
-    /// Octets of every response's content, which the endpoint reports.
+    /// Bytes of every response's content, which the endpoint reports.
     received_len: u64,
     body: [constants.hq_read_len]u8,
     section: FieldSection,
@@ -89,7 +89,7 @@ pub const Client = struct {
             client.started = true;
         }
         try client.send_requests(transport, now_ns);
-        // Bounded: every event reads at least one frame or content octet the server sent.
+        // Bounded: every event reads at least one frame or content byte the server sent.
         for (0..constants.hq_read_len) |_| {
             const event = try client.connection.receive(transport, &client.body, now_ns) orelse return;
             try client.on_event(event);

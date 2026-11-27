@@ -2,7 +2,7 @@
 //! (RFC 9112 §3.2, RFC 9110 §7.2), over a request line and field section `message` already read.
 //! The grammar of each form and of Host is RFC 3986's, which `http.uri` checks.
 //!
-//! Which form a target takes follows from its first octet and the method:
+//! Which form a target takes follows from its first byte and the method:
 //!   - CONNECT takes the authority-form alone (§3.2.3), and no other method takes it;
 //!   - a target of "*" is the asterisk-form, which OPTIONS alone takes (§3.2.4);
 //!   - a target starting with "/" is the origin-form (§3.2.1);

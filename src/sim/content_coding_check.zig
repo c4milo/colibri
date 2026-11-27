@@ -4,11 +4,11 @@
 //!   1. the two runs in pieces must write the same trace and draw the same values (invariant 5);
 //!   2. the whole run must write that trace too: neither a split nor what the server takes on each
 //!      write changes what arrives;
-//!   3. each exchange must end as decision 101's rules say, each body must arrive octet for octet,
+//!   3. each exchange must end as decision 101's rules say, each body must arrive byte for byte,
 //!      and every encoder and decoder must be back in its pool.
 //!
 //! The census hashes the traces of the first runs of seeds `[0, check_seeds_default)` with CRC-32,
-//! and the octets their clients wrote, and the test requires the two digests committed below, in
+//! and the bytes their clients wrote, and the test requires the two digests committed below, in
 //! Debug and in ReleaseSafe alike.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -29,7 +29,7 @@ pub const check_name = "content-coding";
 
 /// The CRC-32 of the first runs' traces of seeds `[0, check_seeds_default)`, concatenated in seed
 /// order, and of the seeds' `Result.wire`. A change to the plan, to what the modules deliver or to
-/// the trace format changes the first, and one to an octet the client writes changes the second.
+/// the trace format changes the first, and one to a byte the client writes changes the second.
 /// Each is committed with its new value once the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0x69460a6e;
 pub const census_wire_crc32_expected: u32 = 0xc8625587;
@@ -59,7 +59,7 @@ pub const Storage = struct {
     zlib_decoder: zlib.Decoder,
 };
 
-/// Octets of one seed's trace: its first line, and a line for each exchange.
+/// Bytes of one seed's trace: its first line, and a line for each exchange.
 const trace_len_max: usize = line_len_max * (limits.requests_max + 1);
 const line_len_max: usize = 128;
 
@@ -69,7 +69,7 @@ const pieces_mark: u64 = 0x7069_6563_6573_2121;
 pub const Result = struct {
     trace: []const u8,
     requests: u32,
-    /// The CRC-32 of every octet the client wrote to the server in the first run.
+    /// The CRC-32 of every byte the client wrote to the server in the first run.
     wire: u32,
 };
 
@@ -82,7 +82,7 @@ pub const Census = struct {
     too_large: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
-    /// The CRC-32 of each seed's `Result.wire`, least significant octet first, in seed order.
+    /// The CRC-32 of each seed's `Result.wire`, least significant byte first, in seed order.
     wire_crc32: std.hash.Crc32 = .init(),
 };
 
@@ -102,7 +102,7 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     try verify(storage, &plan, seed);
     // Invariant 5: one seed replays byte for byte, in its trace and in what its client wrote.
     if (again.draws != first_draws or wire != wire_of(storage) or !same_trace(storage)) return error.ReplayDiverged;
-    // The whole run's octets are not compared: a split may change when the client writes a
+    // The whole run's bytes are not compared: a split may change when the client writes a
     // WINDOW_UPDATE.
     try content_coding_run.run(&storage.run, &plan, seed, null);
     try verify(storage, &plan, seed);
@@ -110,7 +110,7 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     return .{ .trace = storage.first[0..storage.first_len], .requests = plan.requests_count, .wire = wire };
 }
 
-/// The CRC-32 of every octet the last run's client wrote to the server.
+/// The CRC-32 of every byte the last run's client wrote to the server.
 fn wire_of(storage: *const Storage) u32 {
     return std.hash.Crc32.hash(storage.run.to_server.octets[0..storage.run.to_server.written]);
 }

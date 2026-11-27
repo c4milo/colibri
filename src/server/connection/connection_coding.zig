@@ -2,7 +2,7 @@
 //! `Config.codings` and `Config.encoders` set, the connection keeps what each request's
 //! Accept-Encoding accepts as the request arrives, and writes each final response the caller marks
 //! `codable` as `coding_rules.plan` says: its fields rewritten, and its content coded through an
-//! encoder of the pool. h11 and h2 copy the coded octets out of the encoder's ring as they copy the
+//! encoder of the pool. h11 and h2 copy the coded bytes out of the encoder's ring as they copy the
 //! caller's, and `send` copies what the ring still holds after the caller's last call, then ends
 //! the content once the encoder has finished.
 //!
@@ -142,8 +142,8 @@ fn keep_or_release(connection: *Connection, entry: *Entry, end: bool) void {
     release(connection, entry);
 }
 
-/// Writes content of the response to request `id`: the caller's octets, or for a coded response
-/// as many as the encoder's ring takes, coded. Returns the octets taken.
+/// Writes content of the response to request `id`: the caller's bytes, or for a coded response
+/// as many as the encoder's ring takes, coded. Returns the bytes taken.
 pub fn write_body(connection: *Connection, id: Number, content: event.ResponseBody) SendError!usize {
     const entry = connection.coding.find(id) orelse return write_content(connection, id, content.bytes, content.end);
     if (entry.dropping) return drop_content(connection, entry, content);
@@ -163,7 +163,7 @@ pub fn write_body(connection: *Connection, id: Number, content: event.ResponseBo
 }
 
 /// Takes the content of an h2 response to HEAD and writes none of it. The end goes out as a DATA
-/// frame with no octet and END_STREAM, and the entry goes with it.
+/// frame with no byte and END_STREAM, and the entry goes with it.
 fn drop_content(connection: *Connection, entry: *Entry, content: event.ResponseBody) SendError!usize {
     assert(entry.dropping and entry.coded == null);
     // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. RFC 9113 §8.1.1:
@@ -174,7 +174,7 @@ fn drop_content(connection: *Connection, entry: *Entry, content: event.ResponseB
     return content.bytes.len;
 }
 
-/// Ends the response to request `id` with a trailer section, after every coded octet.
+/// Ends the response to request `id` with a trailer section, after every coded byte.
 pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     const entry = connection.coding.find(id) orelse return write_trailer_section(connection, id, fields);
     if (entry.dropping) {
@@ -188,7 +188,7 @@ pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field
     coded.finishing = true;
     coded.trailers = true;
     try advance(connection, entry);
-    // RFC 9110 §6.5: the trailer section follows the content, so it waits for the coded octets
+    // RFC 9110 §6.5: the trailer section follows the content, so it waits for the coded bytes
     // the ring still holds: `send`, `receive`, then call again.
     if (!coded.finished or coded.ring.held() > 0) return error.Blocked;
     try write_trailer_section(connection, id, fields);
@@ -216,9 +216,9 @@ pub fn coded_of(connection: *Connection, id: Number) ?*const Coded {
     return if (entry.coded) |*coded| coded else null;
 }
 
-/// Whether `drain` would write octets now: a coded response whose ring holds octets the protocol
+/// Whether `drain` would write bytes now: a coded response whose ring holds bytes the protocol
 /// takes, h11 at once and h2 as far as the stream's windows allow (RFC 9113 §6.9.1), or one whose
-/// encoder has its last octets to write. The output is empty when the engine asks.
+/// encoder has its last bytes to write. The output is empty when the engine asks.
 pub fn ring_owed(connection: *Connection) bool {
     const table = &connection.coding;
     // RFC 9113 §5.4.1, RFC 9112 §9.6: a connection that failed or was stopped sends no more
@@ -230,16 +230,16 @@ pub fn ring_owed(connection: *Connection) bool {
     return false;
 }
 
-/// Whether `drain` would write octets of `entry`'s coded response now.
+/// Whether `drain` would write bytes of `entry`'s coded response now.
 fn entry_owed(connection: *Connection, entry: *const Entry) bool {
     const coded = if (entry.coded) |*coded| coded else return false;
     const held = coded.ring.oldest(connection.config.encoders.?.ring(coded.slot));
-    // An encoder whose content ended writes its last octets at the next `drain`.
+    // An encoder whose content ended writes its last bytes at the next `drain`.
     if (held.len == 0) return coded.finishing and !coded.finished;
     return takes_content(connection, entry.id, held.len);
 }
 
-/// Whether the protocol takes content of request `id` now, of `len` octets the ring holds.
+/// Whether the protocol takes content of request `id` now, of `len` bytes the ring holds.
 fn takes_content(connection: *Connection, id: Number, len: usize) bool {
     return switch (connection.session) {
         // h11 frames a chunk of what the output holds, and the output is empty.
@@ -275,12 +275,12 @@ fn copy_out(connection: *Connection, entry: *Entry) SendError!bool {
         if (last) return true;
     }
     // gzip and zlib end with a trailer (RFC 1952 §2.3, RFC 1950 §2.2), which the encoder writes in
-    // the call that finishes, so the end always goes out with the last octets the ring held.
+    // the call that finishes, so the end always goes out with the last bytes the ring held.
     assert(!ends_with(coded, 0));
     return false;
 }
 
-/// Whether the response's end goes out with `len` octets that are all the ring holds.
+/// Whether the response's end goes out with `len` bytes that are all the ring holds.
 fn ends_with(coded: *const Coded, len: usize) bool {
     return coded.finished and !coded.trailers and len == coded.ring.held();
 }

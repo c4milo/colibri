@@ -1,9 +1,9 @@
-//! The QPACK input check of design §8 step 11: hostile octets for each of the three inputs colibri
+//! The QPACK input check of design §8 step 11: hostile bytes for each of the three inputs colibri
 //! reads from a peer, drawn from one seed. It stands where the fuzzer would: Zig 0.16.0 cannot
-//! build its fuzz mode (design §8 step 1), and `core.fuzz.sweep` covers only inputs of two octets.
+//! build its fuzz mode (design §8 step 1), and `core.fuzz.sweep` covers only inputs of two bytes.
 //!
 //! Each input starts from what colibri's own encoder writes for a planned section, so it reaches
-//! past the first octet, and then takes up to `qpack_input_check_edits_max` edits: an octet
+//! past the first byte, and then takes up to `qpack_input_check_edits_max` edits: a byte
 //! changed, inserted or removed, or the end cut off. It goes to one of:
 //! - the decoder's `read_section`, after the encoder stream the section was written with;
 //! - the decoder's `read_encoder_stream`;
@@ -86,7 +86,7 @@ fn run_once(storage: *Storage, random: *Random, outcomes: []Outcome) void {
 }
 
 /// Writes planned section `index` with a fresh encoder, edits one of its outputs, and hands the
-/// edited octets to `target`.
+/// edited bytes to `target`.
 fn one_input(storage: *Storage, random: *Random, index: u32, target: Target) Outcome {
     const written = encode(storage, index);
     const base = switch (target) {

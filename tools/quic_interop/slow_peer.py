@@ -11,7 +11,7 @@ must end each within a second after its deadline's instant, and not before it:
              H3_NO_ERROR.
   half_head  fetches a file, then sends half of a request's HEADERS frame. That stream gets a 408
              at the head deadline, 10 s after it opened, and the connection serves a later fetch.
-  slow_body  sends a request's head and three octets of its content. It gets a 408 when the
+  slow_body  sends a request's head and three bytes of its content. It gets a 408 when the
              body's first window ends, 20 s after the head.
   deaf       asks for a large file and acknowledges nothing of the response. Its connection
              closes with H3_EXCESSIVE_LOAD when the first window ends, 20 s after the request.
@@ -65,7 +65,7 @@ def read_varint(data, at):
 
 
 def carries_goaway(data):
-    """Whether a unidirectional stream's octets are a control stream that holds a GOAWAY frame."""
+    """Whether a unidirectional stream's bytes are a control stream that holds a GOAWAY frame."""
     kind = read_varint(data, 0)
     if kind is None or kind[0] != CONTROL_STREAM:
         return False

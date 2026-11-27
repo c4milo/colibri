@@ -1,5 +1,5 @@
 //! The contract between the driver of a `colibri.Server` or a `colibri.Client` and its host
-//! (decision 159). The driver holds the sockets' octets, the engine or the pool, and the
+//! (decision 159). The driver holds the sockets' bytes, the engine or the pool, and the
 //! program's handler. It does no I/O, reads no clock and imports no Rotor. Each turn it writes
 //! the operations that it needs into storage that the host owns, and the host gives back one
 //! completion for each. The host calls the driver again at the instant that `Wait` names.

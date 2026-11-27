@@ -58,7 +58,7 @@ const tag_octet: u8 = 0x11;
 const tag: [crypto.constants.protocol.aead_tag_len]u8 = @splat(tag_octet);
 /// A version other than 1, which a Version Negotiation packet can list alone (RFC 9000 §6.2).
 const other_version: u32 = 0xff00_001d;
-/// The seven bits of a Version Negotiation packet's first octet RFC 8999 §6 leaves free.
+/// The seven bits of a Version Negotiation packet's first byte RFC 8999 §6 leaves free.
 const unused_bits: u7 = 0x2a;
 
 fn parameters() Parameters {
@@ -105,7 +105,7 @@ fn receive(connection: *Connection, len: usize) datagram_module.Error!datagram_m
 test "RFC 9000 §8.1: every datagram counts toward the limit, even one nothing in opens" {
     open_pair(&.{.handshake});
     const received_before = server.path.received;
-    // Octets whose first says a short header of a connection ID nothing issued, so nothing opens.
+    // Bytes whose first says a short header of a connection ID nothing issued, so nothing opens.
     const garbage_len: usize = 50;
     @memset(datagram[0..garbage_len], 0);
     const received = try receive(&server, garbage_len);
@@ -237,7 +237,7 @@ test "decision 62: a Handshake packet behind the Initial that made its keys open
     send.owe_probes(&client, .handshake, 1);
     const sent = try send_from(&client);
     try testing.expectEqual(2, sent.count);
-    // RFC 9001 §4.1.4: the server has no Handshake keys until TLS has read the Initial's octets.
+    // RFC 9001 §4.1.4: the server has no Handshake keys until TLS has read the Initial's bytes.
     recorder = .{ .makes_available = .handshake, .suite = &suite_holder };
     const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
     try testing.expectEqual(2, received.processed);

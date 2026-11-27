@@ -6,7 +6,7 @@
 //!
 //! A method is checked in this order (invariant 7):
 //!   1. not empty, or `error.MethodEmpty` (a token is one or more tchar, RFC 9110 §5.6.2);
-//!   2. every octet a tchar, or `error.MethodNotToken` (RFC 9110 §9.1).
+//!   2. every byte a tchar, or `error.MethodNotToken` (RFC 9110 §9.1).
 const std = @import("std");
 const core = @import("core");
 const field = @import("field.zig");
@@ -82,7 +82,7 @@ test "a method that is not a token is refused" {
     try testing.expectError(error.MethodNotToken, validate("G\x00T"));
 }
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 32;
 
 fn fuzz_validate(_: void, smith: *testing.Smith) anyerror!void {

@@ -126,7 +126,7 @@ test "decision 110: the idle deadline starts once the last response's octets are
     const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
     _ = try connection.write_body(id, .{ .bytes = "a response the peer reads slowly", .end = true });
-    // The peer's socket takes a few octets, and the rest wait in the output: only the send
+    // The peer's socket takes a few bytes, and the rest wait in the output: only the send
     // deadline runs.
     try testing.expect(connection.send(support.output[0..partial_len], early_ns) == partial_len);
     const rate_first_end_ns = early_ns + server_constants.policy.rate_grace_ns + server_constants.policy.rate_window_ns;
@@ -135,7 +135,7 @@ test "decision 110: the idle deadline starts once the last response's octets are
     try testing.expectEqual(early_ns + 1 + idle_ns, connection.deadline_ns().?);
 }
 
-/// A status with content, 200 (OK), RFC 9110 §15.3.1, and the octets of a send that takes part of
+/// A status with content, 200 (OK), RFC 9110 §15.3.1, and the bytes of a send that takes part of
 /// a response.
 const ok_status: http.Status = .ok;
 const partial_len: usize = 10;
@@ -239,18 +239,18 @@ test "decision 110: a limit shortened after a call passes at that call's instant
 }
 
 test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
-    // Twice 819 octets a second over the default 10 s window is 16,380 octets, under a unit of
+    // Twice 819 bytes a second over the default 10 s window is 16,380 bytes, under a unit of
     // 16,384 (spec/lean/Colibri/Server/RateMeter.lean), and twice 820 is over it.
     try support.start_cleartext(.h2);
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
     try connection.set_timeouts(.{ .body_rate_min = 820 });
     support.config = .{ .cpu_features = .none(), .protocols = support.only(.h2), .timeouts = .{ .body_rate_min = 819 } };
     try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, 0, 0));
-    // Decision 117: a connection in cleartext that may speak both chooses by its first octets,
+    // Decision 117: a connection in cleartext that may speak both chooses by its first bytes,
     // which may choose h2, so it refuses the rate as well.
     support.config = .{ .cpu_features = .none(), .timeouts = .{ .body_rate_min = 819 } };
     try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, null, 0, 0));
-    // h11 in cleartext reads a body octet by octet, so any rate stands.
+    // h11 in cleartext reads a body byte by byte, so any rate stands.
     try support.start_cleartext(.h11);
     try connection.set_timeouts(.{ .body_rate_min = 819 });
     // Over TLS a body arrives a record at a time, whichever protocol ALPN picks.

@@ -32,7 +32,7 @@ pub const Error = error{
     TargetInvalid,
     /// A status that is not three digits from 100 to 599 (RFC 9110 §15).
     StatusInvalid,
-    /// A reason phrase holding an octet other than HTAB, SP, VCHAR or obs-text (RFC 9112 §4).
+    /// A reason phrase holding a byte other than HTAB, SP, VCHAR or obs-text (RFC 9112 §4).
     ReasonInvalid,
     /// A field name that is not a token (RFC 9110 §5.1).
     FieldNameInvalid,
@@ -50,7 +50,7 @@ pub const Error = error{
 const version = "HTTP/1.1";
 
 /// `method SP request-target SP HTTP-version CRLF`, the field lines and the empty line
-/// (RFC 9112 §2.1, §3). Returns the octets written.
+/// (RFC 9112 §2.1, §3). Returns the bytes written.
 pub fn write_request_head(output: []u8, method: []const u8, target: []const u8, fields: []const Field) Error!usize {
     var checked: Checked = .{};
     checked.add(fields);
@@ -85,7 +85,7 @@ pub fn write_request_head_checked(output: []u8, method: []const u8, target: []co
 
 /// `HTTP-version SP status-code SP [ reason-phrase ] CRLF`, the field lines and the empty line
 /// (RFC 9112 §2.1, §4). The SP after the status is written even when `reason` is empty, as §4
-/// requires. Returns the octets written.
+/// requires. Returns the bytes written.
 pub fn write_response_head(output: []u8, status: u16, reason: []const u8, fields: []const Field) Error!usize {
     var checked: Checked = .{};
     checked.add(fields);

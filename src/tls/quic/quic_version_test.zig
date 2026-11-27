@@ -50,7 +50,7 @@ test "decision 111: a server's chooser picks version 2 once, and its own paramet
     try testing.expectEqual(1, asked.calls);
     try testing.expect(asked.client_parameters_matched);
     // RFC 9369 §4.1: the client switches at the server's first long header in version 2, before it
-    // reads the server's CRYPTO octets.
+    // reads the server's CRYPTO bytes.
     try client.suite().vtable.switch_version(client.suite().context, .v2);
     for (0..rounds_max) |_| {
         try support.move(server.provider(), client.provider());

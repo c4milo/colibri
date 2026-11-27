@@ -6,9 +6,9 @@ const quic = @import("quic");
 const h3 = @import("h3");
 const constants = @import("constants.zig");
 
-/// Octets of each connection ID the QUIC client chooses: its own Source Connection ID and the
+/// Bytes of each connection ID the QUIC client chooses: its own Source Connection ID and the
 /// Destination Connection ID of its first Initial (RFC 9000 §7.2), which RFC 9000 §7.2 asks to be
-/// at least 8 octets of unpredictable value.
+/// at least 8 bytes of unpredictable value.
 pub const quic_id_len: usize = 8;
 
 /// The idle timeout the QUIC client advertises unless the caller names another (RFC 9000 §10.1),

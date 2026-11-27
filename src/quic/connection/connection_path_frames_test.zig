@@ -80,7 +80,7 @@ fn run(list: []const Frame) frames.Error!frames.Report {
 test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
     open_as(.client);
     const report = try run(&.{.{ .new_token = .{ .token = &server_token } }});
-    // The octets point into the packet, which the caller owns: colibri keeps no state outside
+    // The bytes point into the packet, which the caller owns: colibri keeps no state outside
     // one connection, so a client that wants the token for a later one copies it.
     try testing.expectEqualSlices(u8, &server_token, report.owed.new_token.?);
 
@@ -98,7 +98,7 @@ test "RFC 9000 §8.2.2: a PATH_CHALLENGE leaves a response owed" {
     open_as(.client);
     _ = try run(&.{.{ .path_challenge = .{ .data = &challenge_data } }});
     // "An endpoint MUST respond by echoing the data contained in the PATH_CHALLENGE frame in a
-    // PATH_RESPONSE frame", so the exact octets are what the connection remembers.
+    // PATH_RESPONSE frame", so the exact bytes are what the connection remembers.
     try testing.expectEqualSlices(u8, &challenge_data, &test_connection.path.response_owed.?);
 
     // "An endpoint MUST NOT send more than one PATH_RESPONSE frame in response to one
@@ -128,7 +128,7 @@ test "RFC 9000 §8.2.3: a PATH_RESPONSE validates the path its challenge went ou
 test "RFC 9000 §8.2.3: a PATH_RESPONSE to a small datagram leaves the path MTU unvalidated" {
     open_as(.client);
     test_connection.path.init(.unvalidated);
-    // One octet short of §8.2.1's expansion, which is what the anti-amplification limit forces.
+    // One byte short of §8.2.1's expansion, which is what the anti-amplification limit forces.
     test_connection.path.on_challenge_sent(challenge_data, small_len, test_now_ns, test_now_ns);
     _ = try run(&.{.{ .path_response = .{ .data = &challenge_data } }});
     // "the path is validated but not the path MTU ... the endpoint MUST initiate another path
@@ -143,7 +143,7 @@ test "RFC 9000 §8.2.3: a PATH_RESPONSE carrying other octets validates nothing"
     test_connection.path.init(.unvalidated);
     test_connection.path.on_challenge_sent(challenge_data, expanded_len, test_now_ns, test_now_ns);
     // "Path validation succeeds when a PATH_RESPONSE frame is received that contains the data
-    // that was sent in a previous PATH_CHALLENGE frame", and these are not those octets.
+    // that was sent in a previous PATH_CHALLENGE frame", and these are not those bytes.
     _ = try run(&.{.{ .path_response = .{ .data = &other_challenge } }});
     try testing.expectEqual(.challenging, test_connection.path.state());
 }

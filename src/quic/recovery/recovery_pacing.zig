@@ -5,8 +5,8 @@
 //! path did not ask for and a queue somewhere has to hold. §7.7 requires a sender to either pace
 //! or bound its bursts, and colibri paces.
 //!
-//! It is the leaky bucket §7.7 names. The bucket holds octets, fills at a rate, and a packet may
-//! go out when the bucket holds its octets. Under CUBIC the rate is §7.7's: the congestion window
+//! It is the leaky bucket §7.7 names. The bucket holds bytes, fills at a rate, and a packet may
+//! go out when the bucket holds its bytes. Under CUBIC the rate is §7.7's: the congestion window
 //! spread over a round trip, times a factor a little above one so a moving round trip does not
 //! leave the window underused, and the bucket holds the initial congestion window. Under BBRv3
 //! the rate is BBR's pacing rate and the bucket holds its send quantum (draft-ietf-ccwg-bbr-06
@@ -22,9 +22,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
-/// The rate: `period_len` octets each `period_ns`, times `numerator / denominator`. Under CUBIC
+/// The rate: `period_len` bytes each `period_ns`, times `numerator / denominator`. Under CUBIC
 /// it is the congestion window over the smoothed round trip, times §7.7's `N`. Under BBRv3 it is
-/// the pacing rate in octets a second, over a second, times 1.
+/// the pacing rate in bytes a second, over a second, times 1.
 pub const Rate = struct {
     period_len: u64,
     /// 0 before any round trip sample, when the bucket refills at once.
@@ -37,7 +37,7 @@ pub const Rate = struct {
 };
 
 pub const Pacer = struct {
-    /// The octets the bucket holds, which a packet spends when it goes out.
+    /// The bytes the bucket holds, which a packet spends when it goes out.
     credit_len: u64,
     /// When the bucket was last brought up to date, or null before anything has been sent.
     filled_at_ns: ?u64,
@@ -59,25 +59,25 @@ pub const Pacer = struct {
         assert(now_ns >= filled_at_ns);
         const earned = earned_len(now_ns - filled_at_ns, rate);
         const held = @min(rate.burst_len, pacer.credit_len +| earned);
-        // The mark moves by what the octets actually counted cost, not to `now_ns`, so the
-        // fraction of an octet the division drops stays owed and refilling often earns what
+        // The mark moves by what the bytes actually counted cost, not to `now_ns`, so the
+        // fraction of a byte the division drops stays owed and refilling often earns what
         // refilling once would. A full bucket has nothing owed, so its mark moves the whole way.
         pacer.filled_at_ns = if (held == rate.burst_len) now_ns else filled_at_ns +| cost_ns(earned, rate);
         pacer.credit_len = held;
     }
 
-    /// Whether a packet of `sent_len` octets may go out now (RFC 9002 §7.7). The caller has
+    /// Whether a packet of `sent_len` bytes may go out now (RFC 9002 §7.7). The caller has
     /// already refilled the bucket at this instant.
     pub fn may_send(pacer: *const Pacer, sent_len: u64) bool {
         return pacer.credit_len >= sent_len;
     }
 
-    /// Spends the octets of a packet that has gone out.
+    /// Spends the bytes of a packet that has gone out.
     pub fn on_sent(pacer: *Pacer, sent_len: u64) void {
         pacer.credit_len -|= sent_len;
     }
 
-    /// When a packet of `sent_len` octets will be able to go out, or null when it already can.
+    /// When a packet of `sent_len` bytes will be able to go out, or null when it already can.
     /// RFC 9002 §7.8: a sender held here is pacing limited rather than application limited, so
     /// what it is waiting for is not a reason to hold the congestion window back.
     pub fn next_send_at_ns(pacer: *const Pacer, sent_len: u64, rate: Rate) ?u64 {
@@ -87,7 +87,7 @@ pub const Pacer = struct {
     }
 };
 
-/// The octets the rate earns over `elapsed_ns`: under CUBIC, `N * congestion_window * elapsed /
+/// The bytes the rate earns over `elapsed_ns`: under CUBIC, `N * congestion_window * elapsed /
 /// smoothed_rtt` (RFC 9002 §7.7). It is computed in 128 bits and brought back down, because the
 /// window times an elapsed time in nanoseconds passes what 64 bits hold on an ordinary path.
 fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
@@ -98,7 +98,7 @@ fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
     return @intCast(@min(scaled / divisor, rate.burst_len));
 }
 
-/// How long the rate takes to earn `wanted_len` octets, which is `earned_len` inverted. `round`
+/// How long the rate takes to earn `wanted_len` bytes, which is `earned_len` inverted. `round`
 /// says which way the division goes: a wait rounds up, so it is never short enough to send
 /// early, and time already spent rounds down, so nothing is charged twice.
 fn inverted_ns(wanted_len: u64, rate: Rate, round: Round) u64 {
@@ -111,13 +111,13 @@ fn inverted_ns(wanted_len: u64, rate: Rate, round: Round) u64 {
 
 const Round = enum { up, down };
 
-/// How long the rate takes to earn `wanted_len` octets, rounded up.
+/// How long the rate takes to earn `wanted_len` bytes, rounded up.
 fn wait_ns(wanted_len: u64, rate: Rate) u64 {
     assert(wanted_len > 0);
     return inverted_ns(wanted_len, rate, .up);
 }
 
-/// How much of the elapsed time `earned` octets account for, rounded down.
+/// How much of the elapsed time `earned` bytes account for, rounded down.
 fn cost_ns(earned: u64, rate: Rate) u64 {
     return inverted_ns(earned, rate, .down);
 }
@@ -218,8 +218,8 @@ test "§7.7: the wait for a packet is when the rate will have earned it" {
     try testing.expect(!tight.may_send(test_datagram_len));
     tight.refill(waited, test_rate);
     try testing.expect(tight.may_send(test_datagram_len));
-    // A size the rate does not divide evenly shows the rounding: one octet past a datagram
-    // costs 8,006,667 ns, and at 8,006,666 the bucket is one octet short.
+    // A size the rate does not divide evenly shows the rounding: one byte past a datagram
+    // costs 8,006,667 ns, and at 8,006,666 the bucket is one byte short.
     test_pacer.init(test_rate);
     test_pacer.refill(test_now_ns, test_rate);
     test_pacer.on_sent(test_window_len);
@@ -247,7 +247,7 @@ test "§7.7: a path with no estimate yet paces nothing" {
 
 test "§7.7: refilling often earns what refilling once earns" {
     // The rate is a division, and a division over many small steps drops a fraction at every
-    // one. The mark moves by what the octets counted actually cost, so the fraction stays owed
+    // one. The mark moves by what the bytes counted actually cost, so the fraction stays owed
     // and the two paths arrive at the same credit.
     test_pacer.init(test_rate);
     test_pacer.refill(test_now_ns, test_rate);

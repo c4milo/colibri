@@ -24,13 +24,13 @@ pub const max_age_default_seconds: u32 = 86_400;
 /// The field's name, lowercase as h2 sends every name (RFC 9113 §8.2).
 pub const field_name = "alt-svc";
 
-/// Octets of the longest value `Advert` writes: the widest port and "ma".
+/// Bytes of the longest value `Advert` writes: the widest port and "ma".
 pub const value_len_max = "h3=\":65535\"; ma=4294967295".len;
 
 /// The value a connection advertises with, written once when the connection starts.
 pub const Advert = struct {
     storage: [value_len_max]u8,
-    /// Octets of the value, or 0 for a connection that advertises nothing.
+    /// Bytes of the value, or 0 for a connection that advertises nothing.
     len: u8,
     /// h2: the ALTSVC frame is written. RFC 7838 §3: "A single ALTSVC frame can be sent for a
     /// connection; a new frame is not needed for every request."

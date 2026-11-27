@@ -19,14 +19,14 @@ pub const Error = error{
 };
 
 /// A request the application read: when its body ended, when the application answered it, the
-/// octets of its content the server took, and when the last of them left the server's output.
+/// bytes of its content the server took, and when the last of them left the server's output.
 pub const Answer = struct {
     id: server.RequestId,
     read_ms: u64,
     body_end_ms: ?u64,
     answered_ms: ?u64,
     /// Whether the server's output once had no room for the answer's head. The application then
-    /// writes it when the peer has taken octets, and no instant of its own is due for it.
+    /// writes it when the peer has taken bytes, and no instant of its own is due for it.
     waited_for_room: bool,
     content_sent: u32,
     drained_ms: ?u64,
@@ -99,7 +99,7 @@ pub const Application = struct {
     }
 
     /// Notes when each answer whose content the server took whole has left its output, which
-    /// holds `output_len` octets: the instant the idle deadline counts from (decision 110).
+    /// holds `output_len` bytes: the instant the idle deadline counts from (decision 110).
     pub fn note_drained(app: *Application, output_len: usize, plan: *const Plan, now_ms: u64) void {
         if (output_len > 0) return;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
@@ -136,7 +136,7 @@ fn write_answer(endpoint: *Engine, plan: *const Plan, pending: *Answer, content:
         endpoint.respond(pending.id, .{ .status = @enumFromInt(answer_status), .end = content.len == 0 }) catch |failure| {
             if (failure != error.NoSpaceLeft) return give_up(plan, pending, content, now_ms);
             // `SendError.NoSpaceLeft`: the output has no room for the head, and the caller writes
-            // it again once the peer has taken octets.
+            // it again once the peer has taken bytes.
             pending.waited_for_room = true;
             return false;
         };

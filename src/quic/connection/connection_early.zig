@@ -17,13 +17,13 @@ const receive_module = @import("connection_receive.zig");
 const Connection = connection_module.Connection;
 const Ecn = receive_module.Datagram.Ecn;
 
-/// The packets kept, and their octets, which the connection owns (decision 35).
+/// The packets kept, and their bytes, which the connection owns (decision 35).
 pub const EarlyPackets = struct {
-    /// The protected octets of the kept packets, one after another.
+    /// The protected bytes of the kept packets, one after another.
     octets: [constants.limits.early_packet_octets_max]u8,
     /// Each kept packet, in the order it arrived.
     packets: [constants.limits.early_packets_max]Kept,
-    /// How many entries of `packets` hold a packet, and how many octets of `octets` they use.
+    /// How many entries of `packets` hold a packet, and how many bytes of `octets` they use.
     count: u8,
     octets_len: u16,
     /// Kept packets opened over the connection's life. The simulator's check reads it, and nothing
@@ -42,7 +42,7 @@ pub const EarlyPackets = struct {
         ecn: Ecn,
     };
 
-    /// No packet kept. The octets and the entries are left unwritten, since nothing reads past
+    /// No packet kept. The bytes and the entries are left unwritten, since nothing reads past
     /// `count` and `octets_len`.
     pub fn init(early: *EarlyPackets) void {
         early.count = 0;
@@ -64,7 +64,7 @@ pub const EarlyPackets = struct {
         return true;
     }
 
-    /// The octets of the kept packet at `index`, which `crypto.Suite.open` unprotects in place.
+    /// The bytes of the kept packet at `index`, which `crypto.Suite.open` unprotects in place.
     pub fn octets_of(early: *EarlyPackets, index: usize) []u8 {
         assert(index < early.count);
         const kept = early.packets[index];

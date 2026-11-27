@@ -18,7 +18,7 @@ const internal = @import("connection_internal.zig");
 const Connection = connection_module.Connection;
 const Number = event.Number;
 
-/// Whether `send` would write an octet now: what `send` writes, asked without writing it, in the
+/// Whether `send` would write a byte now: what `send` writes, asked without writing it, in the
 /// order `send` writes it.
 pub fn should_send(connection: *Connection) bool {
     // Decision 176: records a lent output sealed, and a send left, go out first.
@@ -31,7 +31,7 @@ pub fn should_send(connection: *Connection) bool {
     if (record_failed(connection)) return handshake_owed(connection);
     // RFC 9110 §10.1.1: the 100 a request expects is in the output already, because the engine
     // asks after a `receive`, which writes it.
-    // Decision 176: octets a lend gave the socket are no debt of a new `send`.
+    // Decision 176: bytes a lend gave the socket are no debt of a new `send`.
     if (connection_output.unlent_len(connection) > 0) return true;
     if (protocol_pending(connection)) return true;
     if (connection_coding.ring_owed(connection)) return true;
@@ -46,10 +46,10 @@ pub fn reads_no_input(connection: *const Connection) bool {
     return connection.session == .h11 and connection.session.h11.phase == .closed;
 }
 
-/// Whether a `receive` with no octets can report an event or change the connection beyond its
+/// Whether a `receive` with no bytes can report an event or change the connection beyond its
 /// deadlines (design §8 step 56). The engine polls a connection after each call that may have
 /// changed it, and most such polls find nothing. Each source of an event that `receive_event`
-/// reads without octets says true here. Only an open h11 connection in cleartext can say false;
+/// reads without bytes says true here. Only an open h11 connection in cleartext can say false;
 /// every other connection reads as before.
 pub fn reads_with_no_input(connection: *const Connection) bool {
     // h2, a connection with no protocol yet, and TLS's records and plaintext read from what
@@ -62,19 +62,19 @@ pub fn reads_with_no_input(connection: *const Connection) bool {
     return h11_reads_with_no_input(connection, &connection.session.h11);
 }
 
-/// `reads_with_no_input` for h11 in cleartext, whose `receive` reads only the octets it is given.
+/// `reads_with_no_input` for h11 in cleartext, whose `receive` reads only the bytes it is given.
 /// With none, a head, a body, a discarded body and a tunnel read nothing: a body's decoder takes
-/// only the octets of the call, and gives back what it could not decode, which then waits unread.
+/// only the bytes of the call, and gives back what it could not decode, which then waits unread.
 fn h11_reads_with_no_input(connection: *const Connection, session: *const h11.Connection) bool {
     // Decision 110: h2 alone ends a request on a body or send deadline and owes its `cancelled`
     // (`connection_bodies.cancel_stream`, `connection_sends.cancel_stream`).
     assert(connection.bodies.cancelled_len == 0);
-    // A cleartext connection names h11 once its first octets chose it, and a closed one reads
+    // A cleartext connection names h11 once its first bytes chose it, and a closed one reads
     // nothing past the 100 and the `done` that the caller tested.
     assert(connection.phase == .open or connection.phase == .closed);
-    // Decision 119 as amended: while octets wait unread, a call with none reads nothing.
+    // Decision 119 as amended: while bytes wait unread, a call with none reads nothing.
     if (connection.unread_len > 0) return false;
-    // The `end` of a body h11 read whole is owed with no octet.
+    // The `end` of a body h11 read whole is owed with no byte.
     return session.end_owed;
 }
 
@@ -93,7 +93,7 @@ pub fn record_failed(connection: *const Connection) bool {
     };
 }
 
-/// Whether the TLS provider owes handshake octets: the alert of a failure (RFC 9846 §6). The
+/// Whether the TLS provider owes handshake bytes: the alert of a failure (RFC 9846 §6). The
 /// provider writes the answer to a KeyUpdate only in front of the next record of data (RFC 9846
 /// §4.7.3).
 fn handshake_owed(connection: *const Connection) bool {
@@ -104,7 +104,7 @@ fn handshake_owed(connection: *const Connection) bool {
     };
 }
 
-/// Whether the protocol owes octets `send` writes on its own: h2's preface and replies, or h11's
+/// Whether the protocol owes bytes `send` writes on its own: h2's preface and replies, or h11's
 /// error response.
 fn protocol_pending(connection: *const Connection) bool {
     return switch (connection.session) {
@@ -120,7 +120,7 @@ pub fn takes_empty(connection: *const Connection) bool {
     return connection.output_len == 0;
 }
 
-/// Whether the response to request `id` takes more of the `waiting_len` octets of content its
+/// Whether the response to request `id` takes more of the `waiting_len` bytes of content its
 /// program waits to write: room in a coded response's ring, a chunk's room in h11's output, or
 /// what h2's windows let a DATA frame carry (RFC 9113 §6.9.1, decision 110's floor).
 pub fn takes_content(connection: *Connection, id: Number, waiting_len: usize) bool {
@@ -141,7 +141,7 @@ pub fn takes_content(connection: *Connection, id: Number, waiting_len: usize) bo
 }
 
 /// Whether the response to request `id` takes its trailer section: an empty output, after a coded
-/// response's ring wrote its last octets (RFC 9110 §6.5).
+/// response's ring wrote its last bytes (RFC 9110 §6.5).
 pub fn takes_trailers(connection: *Connection, id: Number) bool {
     const coded = connection_coding.coded_of(connection, id) orelse return takes_empty(connection);
     return coded.finished and coded.ring.held() == 0;

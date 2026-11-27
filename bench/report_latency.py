@@ -25,7 +25,7 @@ took at p50, p99 and its longest, how long the server waited for its core once w
 its longest, and how long it slept before a run, at p50 and p99. A <rate>.pcap holds the heads of
 the packets of both directions for part of the load, and a <rate>.port the server's port. From
 them the report gives the server's TCP segments with data for each response, at the rate oha
-reached, and the octets of data in each. It also gives the turns of each connection: the time the
+reached, and the bytes of data in each. It also gives the turns of each connection: the time the
 server took to answer a segment of requests, and the time the client took to send the next one.
 A <rate>.counts holds what `perf stat` counted of the server for a part of the load, with the
 time it counted for. From it the report gives the server's instructions, cycles and system calls
@@ -264,7 +264,7 @@ US = 1_000_000
 
 
 def read_packets(data):
-    """[(time, source port, destination port, octets of data)] of the IPv4 TCP packets of a pcap,
+    """[(time, source port, destination port, bytes of data)] of the IPv4 TCP packets of a pcap,
     or None for a file that is not one. Each length comes from the IP and TCP headers, so a
     capture of the heads alone serves."""
     if len(data) < PCAP_FILE_HEADER_LEN or struct.unpack("<I", data[:4])[0] != PCAP_MAGIC:
@@ -317,7 +317,7 @@ def read_turns(packets, port):
 
 
 def read_capture(data, port=None):
-    """The server's segments with data a second and their octets of data each, from a pcap, with
+    """The server's segments with data a second and their bytes of data each, from a pcap, with
     the turns of each connection when `port` names the server's port. None for fewer than two of
     the server's segments. With no port, every segment with data is the server's."""
     packets = read_packets(data)
@@ -351,7 +351,7 @@ def read_captures(scratch):
 
 
 def capture_cells(captures, runs, key):
-    """The segments a response and the octets a segment of `key`, as medians, or dashes."""
+    """The segments a response and the bytes a segment of `key`, as medians, or dashes."""
     rounds = captures.get(key)
     if not rounds:
         return ["—", "—"]
@@ -609,7 +609,7 @@ def test_waits(scratch):
         delays = [0.0] * 100 + [0.5 * round_]
         path = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.waits")
         path.write_text(timehist_lines([0.2] * 101, delays, runs))
-        # 11 segments of 120 octets of data 0.01 s apart: 100 a second, one for every eight
+        # 11 segments of 120 bytes of data 0.01 s apart: 100 a second, one for every eight
         # responses at 800 req/s. The warm-up's segments come ten times as often.
         pcap = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.pcap")
         step = 0.001 if warm else 0.01
@@ -689,7 +689,7 @@ def count_lines(scale, seconds):
 
 
 def pcap_bytes(packets):
-    """A pcap on Ethernet of IPv4 TCP packets, each (time, source port, destination port, octets
+    """A pcap on Ethernet of IPv4 TCP packets, each (time, source port, destination port, bytes
     of data), holding the heads alone."""
     data = struct.pack("<IHHiIII", PCAP_MAGIC, 2, 4, 0, 0, 96, 1)
     for at, source, destination, payload in packets:
@@ -702,7 +702,7 @@ def pcap_bytes(packets):
 
 
 def capture_bytes(count, step, payload):
-    """A pcap of `count` segments of the server with `payload` octets of data each, `step` seconds
+    """A pcap of `count` segments of the server with `payload` bytes of data each, `step` seconds
     apart."""
     return pcap_bytes([(100 + index * step, TEST_PORT, TEST_CLIENT, payload) for index in range(count)])
 

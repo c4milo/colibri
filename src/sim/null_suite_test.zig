@@ -33,15 +33,15 @@ const Pair = struct {
     }
 };
 
-/// RFC 9001 Appendix A.2's client Initial header, with its 4-octet packet number of 2, and a
-/// short header over a 4-octet connection ID with a 2-octet packet number. Test-only.
+/// RFC 9001 Appendix A.2's client Initial header, with its 4-byte packet number of 2, and a
+/// short header over a 4-byte connection ID with a 2-byte packet number. Test-only.
 const initial_header = "\xc3\x00\x00\x00\x01\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x44\x9e\x00\x00\x00\x02";
 const short_header = "\x41\xaa\xbb\xcc\xdd\x9b\x32";
 const short_header_phase_1 = "\x45\xaa\xbb\xcc\xdd\x9b\x33";
 const sample_dcid = "\x83\x94\xc8\xf0\x3e\x51\x57\x08";
 const payload = "\x06\x00\x40\xf1\x01\x00\x00\xed\x03\x03\xeb\xf8\xfa\x56\xf1\x29\x39\xb9\x58\x4a";
 
-/// Octets of the Packet Number field in each header above, the number the short one carries, and
+/// Bytes of the Packet Number field in each header above, the number the short one carries, and
 /// the room the tests seal into. Test-only.
 const initial_packet_number = 2;
 const initial_packet_number_len = 4;
@@ -142,7 +142,7 @@ test "RFC 9369 §3.3, §4.1: a packet sealed under one version's keys opens unde
     try testing.expectError(error.Discarded, open_initial(&pair.server, try seal_initial(&pair.client, .v1), .v2));
     try testing.expectEqual(1, pair.client.keys_unavailable);
     try testing.expectEqual(1, pair.server.keys_unavailable);
-    // A client that holds the Handshake keys has read the server's CRYPTO octets, and switches no
+    // A client that holds the Handshake keys has read the server's CRYPTO bytes, and switches no
     // more (RFC 9369 §4.1).
     var late: Pair = .{};
     try late.init(sample_dcid);
@@ -175,7 +175,7 @@ test "§5.5: a packet too short for the sample, or with any octet changed, is di
     try pair.init(sample_dcid);
     pair.install(.application);
     const whole = (try seal_short(&pair.client, short_header, 0x9b32)).len;
-    // RFC 9001 §5.4.2: four octets past the Packet Number field, then sixteen of sample.
+    // RFC 9001 §5.4.2: four bytes past the Packet Number field, then sixteen of sample.
     const shortest = short_header.len - 2 + sample_offset + sample_len;
     try testing.expectError(error.Discarded, open_short(&pair.server, sealed[0 .. shortest - 1], null, null));
     for (0..whole) |index| {
@@ -194,7 +194,7 @@ test "Appendix A.3: the packet number is recovered from the largest one processe
     pair.install(.application);
     const packet = try seal_short(&pair.client, short_header, 0xa82f9b32);
     try testing.expectEqual(0xa82f9b32, (try open_short(&pair.server, packet, 0xa82f30ea, 0)).packet_number);
-    // The same octets against another history are another number, which the tag refuses.
+    // The same bytes against another history are another number, which the tag refuses.
     const again = try seal_short(&pair.client, short_header, 0xa82f9b32);
     try testing.expectError(error.Discarded, open_short(&pair.server, again, 0x10, 0));
 }

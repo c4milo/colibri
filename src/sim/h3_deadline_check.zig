@@ -4,7 +4,7 @@
 //!   1. the two runs must write the same trace (invariant 5);
 //!   2. an honest peer's exchanges must each end with a whole response, however long the
 //!      application takes to answer or to write the second half of an answer, though the last
-//!      octet of a head comes seconds after the rest, though the peer uploads or reads at only
+//!      byte of a head comes seconds after the rest, though the peer uploads or reads at only
 //!      twice the minimum rate, and though its link carries only four times the minimum send
 //!      rate and drops datagrams;
 //!   3. every run must end as decision 110 says, at its instant under the plan's limits:

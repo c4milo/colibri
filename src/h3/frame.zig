@@ -5,7 +5,7 @@
 //! content and arrives over many packets: a reader that wanted the whole frame in one buffer
 //! would put the body's size in colibri's memory bound, which decision 35 forbids.
 //!
-//! **A short read is not a protocol error.** `Truncated` means the octets have not all arrived
+//! **A short read is not a protocol error.** `Truncated` means the bytes have not all arrived
 //! and the caller should read more; every other error is a connection error and names the code
 //! §8.1 gives it. Telling the two apart is the whole point of reading the header on its own.
 //!
@@ -22,7 +22,7 @@ const Reader = core.Reader;
 const varint = wire.varint;
 
 pub const Error = core.Reader.Error || error{
-    /// RFC 9114 §8.1's H3_FRAME_ERROR: a payload with octets after the fields its type defines,
+    /// RFC 9114 §8.1's H3_FRAME_ERROR: a payload with bytes after the fields its type defines,
     /// or one that ended before them.
     FrameError,
     /// §8.1's H3_FRAME_UNEXPECTED: a frame that is not permitted on the stream it arrived on, or
@@ -51,7 +51,7 @@ pub const Header = struct {
     /// The type as it was on the wire. An unknown type is kept rather than rejected, because
     /// §9 requires an endpoint to ignore one it does not know.
     frame_type: u64,
-    /// The payload's length in octets.
+    /// The payload's length in bytes.
     length: u64,
 
     /// Whether this type carries a payload colibri reads whole (RFC 9114 §7.2). DATA and
@@ -108,8 +108,8 @@ pub const PushPromise = struct {
     field_section: []const u8,
 };
 
-/// Reads a whole payload of `length` octets for `frame_type` (RFC 9114 §7.2). `payload` holds
-/// exactly the frame's octets: §7.1 makes anything left over, and anything missing, H3_FRAME_ERROR.
+/// Reads a whole payload of `length` bytes for `frame_type` (RFC 9114 §7.2). `payload` holds
+/// exactly the frame's bytes: §7.1 makes anything left over, and anything missing, H3_FRAME_ERROR.
 pub fn read_payload(frame_type: u64, payload: []const u8) Error!Payload {
     var reader = Reader.init(payload);
     const found = try read_payload_at(frame_type, &reader);
@@ -183,7 +183,7 @@ pub const Reserved = struct {
 /// Reads a SETTINGS payload (RFC 9114 §7.2.4).
 fn read_settings(reader: *Reader) Error!Settings {
     var found: Settings = .{};
-    // Bounded: every pair consumes at least two octets of a payload the caller already holds.
+    // Bounded: every pair consumes at least two bytes of a payload the caller already holds.
     while (reader.remaining_len() > 0) {
         const identifier = (varint.decode(reader) catch return Error.FrameError).value;
         const value = (varint.decode(reader) catch return Error.FrameError).value;
@@ -217,19 +217,19 @@ fn apply(found: *Settings, identifier: u64, value: u64) Error!void {
 const testing = std.testing;
 
 test "§7.1: a header is two varints, and a short one consumes nothing" {
-    // Type 0x01 (HEADERS) and length 0x0a, both in one octet each.
+    // Type 0x01 (HEADERS) and length 0x0a, both in one byte each.
     var reader = Reader.init(&.{ 0x01, 0x0a });
     const header = try read_header(&reader);
     try testing.expectEqual(constants.protocol.frame_headers, header.frame_type);
     try testing.expectEqual(10, header.length);
     try testing.expectEqual(0, reader.remaining_len());
     try testing.expect(header.is_streamed());
-    // A two-octet varint length: 0x4100 is 0x100.
+    // A two-byte varint length: 0x4100 is 0x100.
     var wide = Reader.init(&.{ 0x00, 0x41, 0x00 });
     const long = try read_header(&wide);
     try testing.expectEqual(constants.protocol.frame_data, long.frame_type);
     try testing.expectEqual(0x100, long.length);
-    // §7.1: a header whose octets have not all arrived is not a protocol error. Nothing is
+    // §7.1: a header whose bytes have not all arrived is not a protocol error. Nothing is
     // consumed, so the caller reads more and asks again.
     var short = Reader.init(&.{0x00});
     try testing.expectError(error.Truncated, read_header(&short));
@@ -287,7 +287,7 @@ test "§7.2.3, §7.2.6, §7.2.7: a one-integer payload must be exactly that" {
     try testing.expectEqual(7, (try read_payload(constants.protocol.frame_cancel_push, &.{0x07})).cancel_push);
     try testing.expectEqual(7, (try read_payload(constants.protocol.frame_goaway, &.{0x07})).goaway);
     try testing.expectEqual(0x100, (try read_payload(constants.protocol.frame_max_push_id, &.{ 0x41, 0x00 })).max_push_id);
-    // §7.1: octets after the fields the type defines are H3_FRAME_ERROR.
+    // §7.1: bytes after the fields the type defines are H3_FRAME_ERROR.
     try testing.expectError(Error.FrameError, read_payload(constants.protocol.frame_goaway, &.{ 0x07, 0x00 }));
     // And a payload that ends before them is the same error, not a short read: the caller
     // already holds the whole frame, so there is nothing more to wait for.

@@ -1,5 +1,5 @@
 //! The tests that hold `huffman_decode.zig`'s decoder to `huffman.decode_by_bits`: for each input
-//! and each room, both return the same error, or both write the same octets. Neither writes past
+//! and each room, both return the same error, or both write the same bytes. Neither writes past
 //! the writer's buffer.
 const std = @import("std");
 const core = @import("core");
@@ -14,10 +14,10 @@ const testing = std.testing;
 /// Room for what the longest input decodes to, and a room too small for most. Test-only.
 const room_max: usize = 64;
 const room_small: usize = 2;
-/// What the octets past the writer's buffer hold before a decode, and after it. Test-only.
+/// What the bytes past the writer's buffer hold before a decode, and after it. Test-only.
 const untouched: u8 = 0xee;
 
-/// Decodes `encoded` both ways into `room` octets, and requires the same result. Test-only.
+/// Decodes `encoded` both ways into `room` bytes, and requires the same result. Test-only.
 fn expect_same(encoded: []const u8, room: usize) !void {
     var by_bits: [room_max]u8 = undefined;
     var by_window: [room_max + 1]u8 = @splat(untouched);
@@ -36,7 +36,7 @@ fn expect_same(encoded: []const u8, room: usize) !void {
     for (by_window[room..]) |octet| try testing.expectEqual(untouched, octet);
 }
 
-/// Decodes `encoded` into each room from none to one octet past what `decode` asks for, so each
+/// Decodes `encoded` into each room from none to one byte past what `decode` asks for, so each
 /// input runs both of its paths. Test-only.
 fn expect_same_in_each_room(encoded: []const u8) !void {
     const room_asked = huffman.decoded_len_max(encoded.len) + 1;
@@ -55,7 +55,7 @@ test "decision 11: the decoder decodes every input of one and two octets as the 
     }
 }
 
-/// Inputs of up to `long_len_max` octets from a fixed sequence, and the encodings of strings, which
+/// Inputs of up to `long_len_max` bytes from a fixed sequence, and the encodings of strings, which
 /// reach the end with valid padding. Test-only.
 const long_inputs: usize = 4096;
 const long_len_max: usize = 24;
@@ -81,14 +81,14 @@ test "decision 11: the decoder decodes longer inputs, and encoded strings, as th
 }
 
 /// The symbol whose code fills the bits before EOS: one of the shortest, five bits, so 0 to 7 of
-/// them start EOS at every bit of an octet. Test-only.
+/// them start EOS at every bit of a byte. Test-only.
 const filler: u8 = '0';
 const fillers_max: usize = @bitSizeOf(u8) - 1;
 
 test "RFC 7541 §5.2: EOS inside the data is found at every bit it can start at" {
     comptime std.debug.assert(table.codes[filler].bit_count == constants.protocol.huffman_code_bits_min);
     for (0..fillers_max + 1) |fillers| {
-        // The fillers, then EOS, then ones to the end of the octet: the bits a peer could send.
+        // The fillers, then EOS, then ones to the end of the byte: the bits a peer could send.
         var bits: u128 = 0;
         var bit_count: u7 = 0;
         for (0..fillers) |_| {

@@ -6,10 +6,10 @@
 //! is a header line and one line per case, fields separated by one space:
 //!
 //!     colibri-golden-manifest version=1 format=<format> cases=<count>
-//!     <name> len=<octets> crc32=0x<8 hex digits> verdict=<accept|error name> <parameters>
+//!     <name> len=<bytes> crc32=0x<8 hex digits> verdict=<accept|error name> <parameters>
 //!
 //! The parameters name the construction and its inputs as `key=value` pairs, with `text` written as
-//! hex octets, so a line states everything the case was built from.
+//! hex bytes, so a line states everything the case was built from.
 const std = @import("std");
 const assert = std.debug.assert;
 pub const core = @import("core");
@@ -33,7 +33,7 @@ const string_prefix_bits_min = wire.constants.protocol.string_prefix_bits_min;
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
 pub const DecodeError = core.Reader.Error || wire.string_literal.DecodeError || hpack.Decoder.Error ||
     quic.packet.header.Error || corpus_receive.Error || corpus_h11.Error || error{
-    /// The decoder succeeded without consuming every octet of the case.
+    /// The decoder succeeded without consuming every byte of the case.
     TrailingOctets,
 };
 
@@ -65,7 +65,7 @@ pub fn find(format: Format, name: []const u8) *const Case {
     unreachable;
 }
 
-/// Writes the octets `case` is built from.
+/// Writes the bytes `case` is built from.
 pub fn build(format: Format, case: *const Case, output: *Writer) core.Writer.Error!void {
     switch (case.construction) {
         .literal => |octets| try output.write_bytes(octets),
@@ -107,7 +107,7 @@ pub fn build(format: Format, case: *const Case, output: *Writer) core.Writer.Err
 /// The decoder every hpack case runs in, placed outside any stack frame and reset per case.
 var hpack_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 
-/// Decodes `octets` as one value of `case`'s format, and requires every octet consumed.
+/// Decodes `octets` as one value of `case`'s format, and requires every byte consumed.
 pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError!void {
     const prefix_size = case.prefix_size;
     if (format == .hpack) return decode_hpack(case.capacity, octets);
@@ -143,7 +143,7 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
 fn decode_hpack(capacity: u32, octets: []const u8) DecodeError!void {
     hpack_decoder.init(capacity);
     var block = hpack_decoder.block(octets);
-    // A block of n octets holds at most n representations, and one more call finds the end.
+    // A block of n bytes holds at most n representations, and one more call finds the end.
     for (0..octets.len + 1) |_| {
         if (try block.next() == null) return;
     }
@@ -161,7 +161,7 @@ fn decode_quic_invariant(octets: []const u8) DecodeError!void {
 /// the datagram is consumed when the last packet ends where the datagram does.
 fn decode_quic_packets(connection_id_len: u8, octets: []const u8) DecodeError!void {
     var offset: usize = 0;
-    // Each packet takes at least one octet, so the datagram ends first.
+    // Each packet takes at least one byte, so the datagram ends first.
     for (0..octets.len + 1) |_| {
         if (offset == octets.len) return;
         offset += switch (try quic.packet.header.read(octets[offset..], connection_id_len)) {

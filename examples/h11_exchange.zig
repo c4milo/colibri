@@ -5,7 +5,7 @@
 //! a time and answers each before it reads the next (decision 92). Both run over `link.zig`, which
 //! stands where a program's sockets would be.
 //!
-//! The program checks what arrived: the server must hold the upload octet for octet, and the
+//! The program checks what arrived: the server must hold the upload byte for byte, and the
 //! client must see 200 with the greeting, then 201. Anything else exits with an error, which is how
 //! `zig build examples` and CI know the example still works.
 //!
@@ -18,7 +18,7 @@ const link_module = @import("link.zig");
 const Connection = h11.Connection;
 const Link = link_module.Link;
 
-/// The octets one side writes before it sends them, at most.
+/// The bytes one side writes before it sends them, at most.
 const output_len = 4096;
 
 /// The requests the client sends, and so the responses it waits for.
@@ -34,7 +34,7 @@ const upload = "an upload the client sends from its own buffer\n";
 /// The statuses the client must see, in the order it sent the requests.
 const statuses_expected = [exchanges]u16{ 200, 201 };
 
-/// The resources the server knows. A request's target points into the octets the server read,
+/// The resources the server knows. A request's target points into the bytes the server read,
 /// which move once it consumes them, so the server keeps which resource it is answering instead.
 const Resource = enum { greeting, upload, unknown };
 
@@ -53,7 +53,7 @@ const Received = struct {
 pub const Error = error{
     /// The exchange did not end within `receive_calls_max` calls.
     ExchangeUnfinished,
-    /// A side received more octets than the exchange sends.
+    /// A side received more bytes than the exchange sends.
     TooMuchArrived,
     /// What arrived is not what was sent.
     ExchangeWrong,
@@ -214,7 +214,7 @@ fn read_body(data: []const u8) Error!void {
     received.body_len += data.len;
 }
 
-/// Every octet each side received is the octet the other sent.
+/// Every byte each side received is the byte the other sent.
 fn check() Error!void {
     const stored_right = std.mem.eql(u8, received.stored[0..received.stored_len], upload);
     const statuses_right = std.mem.eql(u16, received.statuses[0..received.statuses_len], &statuses_expected);

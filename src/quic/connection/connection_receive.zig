@@ -1,6 +1,6 @@
 //! One UDP datagram, walked into the packets RFC 9000 §12.2 coalesced into it.
 //!
-//! The caller read the octets and owns them. This file separates the datagram into packets,
+//! The caller read the bytes and owns them. This file separates the datagram into packets,
 //! decides which encryption level each belongs to, and hands each one to the caller's
 //! `crypto.Suite` to open. What a packet's frames mean is `connection_frames.zig`'s.
 //!
@@ -33,7 +33,7 @@ const Suite = crypto.Suite;
 
 /// What arrived, which is the caller's to describe because colibri owns no socket.
 pub const Datagram = struct {
-    /// The octets, which `crypto.Suite.open` unprotects in place, so they are writable.
+    /// The bytes, which `crypto.Suite.open` unprotects in place, so they are writable.
     octets: []u8,
     /// The instant it arrived (non-negotiable 3).
     now_ns: u64,
@@ -124,7 +124,7 @@ pub const Opened = struct {
 /// between two packets and this file does not own it.
 pub const Walk = struct {
     datagram: Datagram,
-    /// Octets of `datagram.octets` already walked past.
+    /// Bytes of `datagram.octets` already walked past.
     consumed: usize,
     /// The Destination Connection ID of the first packet, which §12.2 makes every later packet
     /// of the datagram match.
@@ -142,7 +142,7 @@ pub const Walk = struct {
         };
     }
 
-    /// Whether any octets are left to walk.
+    /// Whether any bytes are left to walk.
     pub fn finished(walk: *const Walk) bool {
         return walk.consumed >= walk.datagram.octets.len or
             walk.packets >= constants.limits.coalesced_packets_max;

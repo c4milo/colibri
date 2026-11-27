@@ -16,10 +16,10 @@ const engine = &support.engine;
 /// RFC 9110 §15.5.6: 405 (Method Not Allowed), as a router answers a method a route lacks.
 const method_not_allowed: http.Status = .method_not_allowed;
 
-/// The head of a POST whose body is one octet past the bound, so the server closes in stages.
+/// The head of a POST whose body is one byte past the bound, so the server closes in stages.
 const past_bound_head = std.fmt.comptimePrint("POST /a HTTP/1.1\r\nHost: h\r\nContent-Length: {d}\r\n\r\n", .{server_constants.limits.discard_len_max + 1});
 
-/// Octets of the body the client keeps sending while it waits for the answer.
+/// Bytes of the body the client keeps sending while it waits for the answer.
 const body_part_len: usize = 4096;
 const body_part: [body_part_len]u8 = @splat('x');
 
@@ -69,7 +69,7 @@ test "decision 160: a read with no octets at the bound of a staged close reports
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
     try answer_early(handle, false);
     try testing.expectEqual(null, support.nth(.close, 0));
-    // Design §8 step 57: the bound passes, and the program reads with no octets and calls no
+    // Design §8 step 57: the bound passes, and the program reads with no bytes and calls no
     // `on_instant`. The read passes the bound, so the engine reports `close`.
     support.instant_ns += server_constants.limits.half_close_ns;
     _ = support.give(handle, "");
@@ -90,7 +90,7 @@ test "decision 160: a peer that closes after half_close ends the connection, wit
 test "decision 160 ruling 5 as amended: a chunked body gets the close option and the staged close at once" {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
-    // A chunk of 5 octets, far under the bound: no head knows where a chunked body ends.
+    // A chunk of 5 bytes, far under the bound: no head knows where a chunked body ends.
     _ = support.give(handle, "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n");
     const request = support.nth(.request, 0).?;
     try engine.respond(support.id_of(handle, request.number), .{ .status = method_not_allowed, .end = true });
@@ -137,8 +137,8 @@ fn take_response_alone(handle: anytype) !void {
     try testing.expectEqual(null, support.nth(.half_close, 0));
 }
 
-/// The octets a TLS 1.3 record adds to its plaintext: its header, its content type and its AEAD
-/// tag, 16 octets for each suite colibri offers (RFC 9846 §5.2).
+/// The bytes a TLS 1.3 record adds to its plaintext: its header, its content type and its AEAD
+/// tag, 16 bytes for each suite colibri offers (RFC 9846 §5.2).
 const record_overhead_len: usize = tls_provider.constants.protocol.record_header_len + content_type_len + aead_tag_len;
 const content_type_len: usize = 1;
 const aead_tag_len: usize = 16;
@@ -158,7 +158,7 @@ test "decision 160: half_close waits until the program took the response, and ov
             try support.start_client(&tcp_support.protocols_h11);
             try testing.expect(try support.handshake(handle));
         }
-        // The program does not take the octets at its `send`, as one whose socket is full.
+        // The program does not take the bytes at its `send`, as one whose socket is full.
         support.flushing = false;
         try answer_early(handle, sealed);
         try testing.expectEqual(null, support.nth(.half_close, 0));

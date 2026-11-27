@@ -1,5 +1,5 @@
 //! The tests of the `done` event (decision 103): a response's request is done after the call that
-//! wrote its last octet, once, and `receive` reports it before it reads anything more.
+//! wrote its last byte, once, and `receive` reports it before it reads anything more.
 const std = @import("std");
 const h2 = @import("h2");
 const http = @import("http");
@@ -52,7 +52,7 @@ test "decision 103: content the output took in part owes no done until its last 
     _ = try support.receive_copy(try h2_support.request_frame(1, "/", true));
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
-    // Room for a DATA frame's header and three octets of its payload.
+    // Room for a DATA frame's header and three bytes of its payload.
     const room: usize = h2.constants.protocol.frame_header_len + 3;
     connection.output_len = support.server_constants.limits.output_len - room;
     try testing.expectEqual(3, try connection.write_body(1, .{ .bytes = "hello", .end = true }));

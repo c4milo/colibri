@@ -3,7 +3,7 @@
 //!
 //! Every failure here is RFC 9204 §6's QPACK_ENCODER_STREAM_ERROR, a connection error: the table
 //! the encoder describes and the one the decoder holds would no longer agree. An instruction cut
-//! short is not a failure. It stays unread, and the caller presents it again with more octets,
+//! short is not a failure. It stays unread, and the caller presents it again with more bytes,
 //! up to `encoder_instruction_len_max` (decision 74).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -20,7 +20,7 @@ const Error = Decoder.Error;
 
 /// Applies every whole instruction in `reader`, and leaves a partial one unread.
 pub fn read(decoder: *Decoder, reader: *Reader) Error!void {
-    // Bounded by the octets the caller gave, since every instruction consumes at least one.
+    // Bounded by the bytes the caller gave, since every instruction consumes at least one.
     while (reader.remaining_len() > 0) {
         var strings = Writer.init(&decoder.scratch);
         const held = instruction.read_encoder(reader, &strings) catch |failure| switch (failure) {
@@ -53,7 +53,7 @@ fn apply(decoder: *Decoder, held: instruction.Encoder, strings: *Writer) Error!v
             // RFC 9204 §2.2.3: a reference in an encoder instruction to an entry already
             // evicted is QPACK_ENCODER_STREAM_ERROR, and one never inserted names nothing.
             const entry = table.get_relative_to_insertion(relative) orelse return Error.EncoderStreamError;
-            // §3.2.2: the insert may evict the entry it copies, so its octets move out first.
+            // §3.2.2: the insert may evict the entry it copies, so its bytes move out first.
             const name = copy(strings, entry.name) catch return Error.EncoderStreamError;
             const value = copy(strings, entry.value) catch return Error.EncoderStreamError;
             try insert_entry(decoder, name, value);
@@ -91,8 +91,8 @@ fn copy(strings: *Writer, octets: []const u8) core.Writer.Error![]const u8 {
 
 const testing = std.testing;
 
-/// A table that holds two entries of a one-octet name and a one-octet value, each §3.2.1's
-/// 32-octet overhead and two octets. Test-only.
+/// A table that holds two entries of a one-byte name and a one-byte value, each §3.2.1's
+/// 32-byte overhead and two bytes. Test-only.
 const small_entries: u64 = 2;
 const small_line_len: u64 = 2;
 const small_capacity: u64 = small_entries * (constants.protocol.entry_overhead_len + small_line_len);
@@ -102,14 +102,14 @@ threadlocal var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
 /// Room for the tests' encoded instructions. Test-only.
 const test_room: usize = 256;
 
-/// Reads `octets` as encoder stream octets, and returns how many stayed unread. Test-only.
+/// Reads `octets` as encoder stream bytes, and returns how many stayed unread. Test-only.
 fn feed(octets: []const u8) Error!usize {
     var reader = Reader.init(octets);
     try read(&test_decoder, &reader);
     return reader.remaining_len();
 }
 
-/// A decoder that permits a table of `capacity` octets, with the table set to all of it.
+/// A decoder that permits a table of `capacity` bytes, with the table set to all of it.
 /// Test-only.
 fn use_capacity(capacity: u64) !void {
     test_decoder.init(.{ .max_table_capacity = capacity });
@@ -174,7 +174,7 @@ test "§3.2.2: an insert that evicts the entry it names still copies its name" {
 }
 
 test "§3.2.2: copying the only entry of a full table evicts it first and still copies it" {
-    // A table that holds one entry of a one-octet name and value.
+    // A table that holds one entry of a one-byte name and value.
     try use_capacity(constants.protocol.entry_overhead_len + small_line_len);
     try testing.expectEqual(0, try feed(&.{ 0x41, 'a', 0x01, 'x' }));
     // A Duplicate of relative 0, then a name reference to it: each evicts the entry it copies.
@@ -196,13 +196,13 @@ test "§3.2.2: an entry larger than the capacity is an encoder stream error" {
 
 test "decision 74: a partial instruction stays unread, and one too long to wait for is refused" {
     try use_capacity(220);
-    // An Insert with Literal Name whose value has not arrived: all five octets stay unread.
+    // An Insert with Literal Name whose value has not arrived: all five bytes stay unread.
     try testing.expectEqual(5, try feed(&.{ 0x41, 'a', 0x03, 'x', 'y' }));
     try testing.expectEqual(0, test_decoder.table.insert_count());
     // RFC 9204 §7.4: an instruction the limit cannot hold is refused once the limit's worth of
-    // octets has arrived without it completing.
+    // bytes has arrived without it completing.
     var octets: [constants.limits.encoder_instruction_len_max]u8 = @splat('x');
-    // A literal name of 16,385 octets: 0x5f fills the 5-bit prefix with 31, and 0xe2 0x7f add
+    // A literal name of 16,385 bytes: 0x5f fills the 5-bit prefix with 31, and 0xe2 0x7f add
     // 98 and 127 * 128.
     octets[0] = 0x5f;
     octets[1] = 0xe2;
@@ -213,7 +213,7 @@ test "decision 74: a partial instruction stays unread, and one too long to wait 
 
 test "a string that is not valid Huffman is an encoder stream error" {
     try use_capacity(220);
-    // An Insert with Literal Name, Huffman flag set, one octet of all ones: RFC 7541 §5.2 refuses
+    // An Insert with Literal Name, Huffman flag set, one byte of all ones: RFC 7541 §5.2 refuses
     // padding longer than seven bits.
     try testing.expectError(Error.EncoderStreamError, feed(&.{ 0x61, 0xff, 0x01, 'x' }));
 }

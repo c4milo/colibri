@@ -1,6 +1,6 @@
 //! Content codings on a server connection over QUIC (decision 101, design §8 step 17e). A coded
-//! response's octets are its encoder's: h3 frames each run the encoder writes into the slot's ring
-//! as DATA, and QUIC reads the run in place, as it reads a caller's octets, until the peer
+//! response's bytes are its encoder's: h3 frames each run the encoder writes into the slot's ring
+//! as DATA, and QUIC reads the run in place, as it reads a caller's bytes, until the peer
 //! acknowledges it and the ring frees it (the owner's ruling of 2026-09-28). The content ends once
 //! the encoder has finished, which `go_on` continues as acknowledgments free the ring.
 const std = @import("std");
@@ -34,13 +34,13 @@ pub fn plan_head(connection: *QuicConnection, record: *const Request, response: 
 const final_min: u16 = 200;
 
 /// Codes `content` into the ring and frames each run the encoder writes as DATA. Returns the
-/// octets taken.
+/// bytes taken.
 pub fn write_body(connection: *QuicConnection, record: *Request, content: event.ResponseBody) SendError!usize {
     const coded = &record.coded.?;
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
     if (coded.finishing) return error.SectionOutOfOrder;
     var consumed: usize = 0;
-    // The room ends at the ring's end or at its oldest octet held, so two steps fill it.
+    // The room ends at the ring's end or at its oldest byte held, so two steps fill it.
     for (0..coding_response.steps_max) |_| {
         if (consumed == content.bytes.len) break;
         consumed += step(connection, record, content.bytes[consumed..]) orelse break;
@@ -50,14 +50,14 @@ pub fn write_body(connection: *QuicConnection, record: *Request, content: event.
         finish(connection, record);
     }
     try quic_connection_h3.supply(connection, record, ends(record));
-    // RFC 9000 §3.1: the ring's octets stay until the peer acknowledges them, so a full ring, or a
+    // RFC 9000 §3.1: the ring's bytes stay until the peer acknowledges them, so a full ring, or a
     // response holding its most runs, takes nothing more until then.
     if (consumed == 0 and content.bytes.len > 0) return error.Blocked;
     return consumed;
 }
 
 /// Ends a coded response's content before its trailer section, or returns `error.Blocked` while
-/// the encoder's last octets wait for room.
+/// the encoder's last bytes wait for room.
 pub fn end_before_trailers(connection: *QuicConnection, record: *Request) SendError!void {
     const coded = &record.coded.?;
     // RFC 9110 §6.5: a trailer section follows the content, and content that ended has none.
@@ -67,25 +67,25 @@ pub fn end_before_trailers(connection: *QuicConnection, record: *Request) SendEr
     finish(connection, record);
     try quic_connection_h3.supply(connection, record, false);
     // RFC 9110 §6.5: the trailer section follows the content, so it waits for the encoder's last
-    // octets: `receive`, then call again.
+    // bytes: `receive`, then call again.
     if (!coded.finished) return error.Blocked;
 }
 
-/// Goes on with a coded response whose content ended, once acknowledgments freed octets of its
-/// ring: codes its last octets, and ends the stream once the encoder has finished.
+/// Goes on with a coded response whose content ended, once acknowledgments freed bytes of its
+/// ring: codes its last bytes, and ends the stream once the encoder has finished.
 pub fn go_on(connection: *QuicConnection, record: *Request) void {
     const coded = if (record.coded) |*coded| coded else return;
     if (!coded.finishing or record.finished) return;
     const end_before = record.response.end;
     if (!coded.finished) finish(connection, record);
     if (record.response.end == end_before and !ends(record)) return;
-    // RFC 9000 §3.5: a stream the peer stopped takes no more octets, and `settle` reports its
+    // RFC 9000 §3.5: a stream the peer stopped takes no more bytes, and `settle` reports its
     // reset.
     quic_connection_h3.supply(connection, record, ends(record)) catch {};
 }
 
 /// Gives back the encoder of `record`'s coded response, which QUIC reads no more: the peer
-/// acknowledged every octet, the stream was reset, or the connection stopped.
+/// acknowledged every byte, the stream was reset, or the connection stopped.
 pub fn give_back(connection: *QuicConnection, record: *Request) void {
     const coded = record.coded orelse return;
     connection.config.encoders.?.give_back(coded.slot);
@@ -118,14 +118,14 @@ fn finish(connection: *QuicConnection, record: *Request) void {
     }
 }
 
-/// One step of the encoder into the ring's room, its output framed as DATA. Returns the octets of
+/// One step of the encoder into the ring's room, its output framed as DATA. Returns the bytes of
 /// `input` taken, or null when the ring or the response's runs have no room.
 fn step(connection: *QuicConnection, record: *Request, input: []const u8) ?usize {
     const coded = &record.coded.?;
     const encoders = connection.config.encoders.?;
     const pieces = &record.response;
-    // RFC 9000 §3.1: the octets stay until the peer acknowledges them, and a DATA frame takes two
-    // runs: its header, which the response keeps, and the coded octets, which stay in the ring.
+    // RFC 9000 §3.1: the bytes stay until the peer acknowledges them, and a DATA frame takes two
+    // runs: its header, which the response keeps, and the coded bytes, which stay in the ring.
     if (pieces.runs_len + data_runs > pieces.runs.len) return null;
     // h3 writes a head only with room for its longest frame, which counts `field_line_overhead`
     // for each line, and a coded head has three lines at least: `:status`, Content-Encoding and
@@ -144,7 +144,7 @@ const data_runs: usize = 2;
 /// The lines every coded head carries: `:status`, Content-Encoding and Vary.
 const coded_head_lines: usize = 3;
 
-/// Octets of a DATA frame's header at most: its type, one octet, and its length's variable-length
+/// Bytes of a DATA frame's header at most: its type, one byte, and its length's variable-length
 /// integer (RFC 9114 §7.1, RFC 9000 §16).
 const data_header_len_max: usize = 1 + h3.wire.constants.protocol.varint_len_max;
 

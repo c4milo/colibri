@@ -44,7 +44,7 @@ pub const Error = error{
     TooManyEvents,
 };
 
-/// Octets in flight one way between two connections.
+/// Bytes in flight one way between two connections.
 pub const Pipe = struct {
     octets: [limits.pipe_len]u8 = undefined,
     len: usize = 0,
@@ -170,7 +170,7 @@ pub const World = struct {
         world.cancelled[index] = true;
     }
 
-    /// The pool reads what each socket holds, then reports what it owes with no octets.
+    /// The pool reads what each socket holds, then reports what it owes with no bytes.
     fn client_turn(world: *World, observer: anytype) !void {
         for (world.sockets[0..world.plan.slots]) |*socket| {
             if (socket.connected and socket.to_client.len > 0) {
@@ -231,7 +231,7 @@ pub const World = struct {
     /// Writes what the pool's connection owes, until a write leaves room.
     fn client_send(world: *World, connection: client.ConnectionHandle) Error!void {
         const socket = &world.sockets[connection.slot];
-        // Bounded: each pass writes an octet or leaves room.
+        // Bounded: each pass writes a byte or leaves room.
         for (0..limits.pipe_len + 1) |_| {
             const room = socket.to_server.room();
             const written = world.pool.send_stream(connection, room, now_ns);
@@ -250,7 +250,7 @@ pub const World = struct {
         socket.* = .{ .opens = socket.opens };
     }
 
-    /// The endpoint reads what each socket holds, then reports what it owes with no octets.
+    /// The endpoint reads what each socket holds, then reports what it owes with no bytes.
     fn server_turn(world: *World, observer: anytype) !void {
         for (world.sockets[0..world.plan.slots]) |*socket| {
             if (!socket.connected or socket.server_closed or socket.to_server.len == 0) continue;
@@ -303,7 +303,7 @@ pub const World = struct {
 
     fn server_send(world: *World, connection: server.ConnectionHandle) Error!void {
         const socket = world.socket_of(connection) orelse return;
-        // Bounded: each pass writes an octet or leaves room.
+        // Bounded: each pass writes a byte or leaves room.
         for (0..limits.pipe_len + 1) |_| {
             const room = socket.to_client.room();
             const written = world.endpoint.send_stream(connection, room, now_ns);
@@ -328,7 +328,7 @@ pub const World = struct {
     }
 };
 
-/// Octets of a request's path: "/" and its index.
+/// Bytes of a request's path: "/" and its index.
 const path_len: usize = 4;
 
 /// The exchange a request's path "/<index>" names.

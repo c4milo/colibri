@@ -6,7 +6,7 @@
 //! content. Lines repeat across exchanges on purpose: names come from a pool that mixes
 //! static-table names with names the static table lacks, and values from a few the seed draws, so
 //! a table the peer allows is used. Some responses have an interim response before them, and some
-//! messages trailers after their content. Content octets are a function of the exchange, the
+//! messages trailers after their content. Content bytes are a function of the exchange, the
 //! direction and the offset, so the receiver checks each one without a copy of what was sent.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -19,7 +19,7 @@ const constants = sim.constants;
 /// Names the regular lines use: some the static table holds, some it does not.
 const names = [_][]const u8{ "content-type", "cache-control", "user-agent", "accept", "x-a", "x-b", "cookie" };
 
-/// The octets a drawn value is made of.
+/// The bytes a drawn value is made of.
 const value_alphabet = "abcdefghijklmnopqrstuvwxyz0123456789-";
 
 /// The status codes a final response draws from, and the interim one (RFC 9110 §15).
@@ -52,7 +52,7 @@ pub const Exchange = struct {
     interim: bool,
 };
 
-/// Which way a message travels, which content octets depend on.
+/// Which way a message travels, which content bytes depend on.
 pub const Direction = enum(u1) { request, response };
 
 /// How large a seed's plan may be: the normal check's, or the long check's.
@@ -123,13 +123,13 @@ fn draw_settings(random: *Random) h3.qpack.Decoder.Settings {
     };
 }
 
-/// How a content octet is chosen from its offset, exchange and direction, so an octet read at the
+/// How a content byte is chosen from its offset, exchange and direction, so a byte read at the
 /// wrong offset or on the wrong stream shows.
 const octet_stride: u64 = 7;
 const octet_seed: u64 = 0x2b;
 const exchange_stride: u64 = 2;
 
-/// The content octet of exchange `index`'s message going `direction` at `offset`.
+/// The content byte of exchange `index`'s message going `direction` at `offset`.
 pub fn content_octet(index: u32, direction: Direction, offset: u64) u8 {
     return @truncate(offset *% octet_stride +% octet_seed +% index *% exchange_stride +% @intFromEnum(direction));
 }

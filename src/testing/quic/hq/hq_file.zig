@@ -14,7 +14,7 @@ const check_file = @import("../../tls/check_file.zig");
 pub const Descriptor = std.c.fd_t;
 pub const none: Descriptor = -1;
 
-/// A file opened for reading, and its length in octets.
+/// A file opened for reading, and its length in bytes.
 pub const Opened = struct {
     descriptor: Descriptor,
     len: u64,
@@ -64,7 +64,7 @@ pub fn create(directory: []const u8, path: []const u8) ?Descriptor {
     return descriptor;
 }
 
-/// Reads up to `output.len` octets at `offset`, and answers how many it read.
+/// Reads up to `output.len` bytes at `offset`, and answers how many it read.
 pub fn read_at(descriptor: Descriptor, offset: u64, output: []u8) usize {
     assert(descriptor != none);
     const read = std.c.pread(descriptor, output.ptr, output.len, @intCast(offset));
@@ -76,7 +76,7 @@ pub fn read_at(descriptor: Descriptor, offset: u64, output: []u8) usize {
 pub fn write_all(descriptor: Descriptor, octets: []const u8) bool {
     assert(descriptor != none);
     var written: usize = 0;
-    // Bounded: each pass writes at least one octet or ends the loop.
+    // Bounded: each pass writes at least one byte or ends the loop.
     while (written < octets.len) {
         const count = std.c.write(descriptor, octets[written..].ptr, octets.len - written);
         if (count <= 0) return false;
@@ -90,7 +90,7 @@ pub fn close(descriptor: Descriptor) void {
     _ = std.c.close(descriptor);
 }
 
-/// Maps the `len` octets of the file `descriptor` names, read-only, or answers null when the
+/// Maps the `len` bytes of the file `descriptor` names, read-only, or answers null when the
 /// system refuses. The mapping outlives the descriptor, until `unmap`, and the kernel reads each
 /// page in when it is first touched.
 pub fn map_read(descriptor: Descriptor, len: u64) ?[]const u8 {

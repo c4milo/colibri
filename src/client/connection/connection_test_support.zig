@@ -1,7 +1,7 @@
 //! What the client's tests share: the connection they drive, the exchanges it carries, and a peer
 //! in the same process that answers it: h2's or h11's server side in cleartext, and over TLS a
 //! `tls.record.Server` over the test identity of `src/testing/testdata/`. The session sources are
-//! SplitMix64 from a seed, so every run draws the same octets. Test-only.
+//! SplitMix64 from a seed, so every run draws the same bytes. Test-only.
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -77,11 +77,11 @@ pub const protocols_h2 = [_][]const u8{"h2"};
 
 /// Room for everything one test's connection sends, and for what its peer sends.
 pub const buffer_len: usize = 262_144;
-/// Events one test collects at most, and rounds of moving octets it takes at most.
+/// Events one test collects at most, and rounds of moving bytes it takes at most.
 pub const events_max: usize = 64;
 const rounds_max: usize = 64;
 
-/// The connection the tests drive, its configuration, and the octets in flight each way, outside
+/// The connection the tests drive, its configuration, and the bytes in flight each way, outside
 /// any stack frame.
 pub var connection: Connection align(@alignOf(Connection)) = undefined;
 pub var config: Config align(@alignOf(Config)) = .{ .cpu_features = .none(), .authority = authority };
@@ -190,7 +190,7 @@ pub fn client_send() void {
 /// Reads what the peer sent until the client consumes nothing and reports nothing, and keeps the
 /// events.
 pub fn client_receive() !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..buffer_len + events_max) |_| {
         const received = connection.receive(to_client[0..to_client_len], now_ns);
         @memmove(to_client[0 .. to_client_len - received.consumed], to_client[received.consumed..to_client_len]);
@@ -264,11 +264,11 @@ pub fn peer_setting(id: u16, value: u32) !void {
     to_client_len += frame.written().len;
 }
 
-/// Rounds `pump_h2` moves octets both ways: enough for a preface, its acknowledgment, a request
+/// Rounds `pump_h2` moves bytes both ways: enough for a preface, its acknowledgment, a request
 /// and its answer, and the window updates of a large content.
 const pump_rounds: usize = 8;
 
-/// Moves octets both ways a few rounds, over an h2 peer that answers nothing by itself.
+/// Moves bytes both ways a few rounds, over an h2 peer that answers nothing by itself.
 pub fn pump_h2() !void {
     for (0..pump_rounds) |_| {
         client_send();

@@ -1,10 +1,10 @@
 //! A record's tokens, gathered and handed to stdx's `TextWriter` many at a call (`write_items`,
-//! stdx's decision 33), which writes the same octets as a call per token, faster (decision 102 as
+//! stdx's decision 33), which writes the same bytes as a call per token, faster (decision 102 as
 //! amended). It has `TextWriter`'s calls, so the event writers name it as they named that.
 //!
-//! **Every octet is copied as it is added.** A name's, a string's or a hex string's octets go into
-//! the batch's own buffer, so a writer may pass octets that die when it returns, such as a string
-//! it formatted on its stack. Octets longer than the buffer are written at once instead, after what
+//! **Every byte is copied as it is added.** A name's, a string's or a hex string's bytes go into
+//! the batch's own buffer, so a writer may pass bytes that die when it returns, such as a string
+//! it formatted on its stack. Bytes longer than the buffer are written at once instead, after what
 //! was gathered before them.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,7 +21,7 @@ pub const Batch = struct {
     text: json.TextWriter,
     items: [constants.limits.batch_items_max]Item,
     len: usize,
-    /// The copies of the gathered items' octets, `octets_len` of them.
+    /// The copies of the gathered items' bytes, `octets_len` of them.
     octets: [constants.limits.batch_octets_len]u8,
     octets_len: usize,
 
@@ -92,14 +92,14 @@ pub const Batch = struct {
         batch.octets_len = 0;
     }
 
-    /// Gathers a token that takes no octets, first writing the items when every one is taken.
+    /// Gathers a token that takes no bytes, first writing the items when every one is taken.
     fn add(batch: *Batch, token: Token) Error!void {
         if (batch.len == batch.items.len) try batch.flush();
         batch.items[batch.len] = .{ .token = token };
         batch.len += 1;
     }
 
-    /// Gathers a token with a copy of `octets`. Octets longer than the buffer are written at once,
+    /// Gathers a token with a copy of `octets`. Bytes longer than the buffer are written at once,
     /// after the items gathered before them, while the caller still holds them.
     fn add_octets(batch: *Batch, token: Token, octets: []const u8) Error!void {
         if (octets.len > batch.octets.len) {
@@ -124,7 +124,7 @@ const test_output_len: usize = 8192;
 /// A string long enough that the members' copies fill the batch's buffer more than once. Test-only.
 const test_value = "a string long enough to fill the buffer";
 
-/// A record written one token a call, which a batch must match octet for octet. Test-only.
+/// A record written one token a call, which a batch must match byte for byte. Test-only.
 fn one_token_a_call(output: []u8, count: usize) ![]const u8 {
     var text = json.TextWriter.init(output, .sequence, CpuFeatures.none());
     try text.begin_object();
@@ -166,7 +166,7 @@ fn batched(output: []u8, count: usize) ![]const u8 {
 test "a batch writes what a call per token writes, across more items than one write takes" {
     var expected_output: [test_output_len]u8 = undefined;
     var output: [test_output_len]u8 = undefined;
-    // Six tokens a member, and more copied octets than the buffer holds, so the batch writes in
+    // Six tokens a member, and more copied bytes than the buffer holds, so the batch writes in
     // several calls, when its items run out and when its buffer does.
     const count = constants.limits.batch_items_max;
     comptime std.debug.assert(count * test_value.len > constants.limits.batch_octets_len);
@@ -179,7 +179,7 @@ fn add_formatted(batch: *Batch, value: u32) !void {
     try batch.string(std.fmt.bufPrint(&digits, "{d}", .{value}) catch unreachable);
 }
 
-/// Writes over the stack the last call left, so octets a batch pointed at would read wrong.
+/// Writes over the stack the last call left, so bytes a batch pointed at would read wrong.
 fn scribble() u8 {
     var junk: [constants.limits.batch_octets_len]u8 = undefined;
     @memset(&junk, 'x');

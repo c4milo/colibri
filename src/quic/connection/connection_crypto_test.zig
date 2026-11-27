@@ -18,7 +18,7 @@ const Parameters = transport_parameters.Parameters;
 var test_connection: Connection align(@alignOf(Connection)) = undefined;
 const test_now_ns: u64 = 1_000_000;
 
-/// RFC 9000 §7.3's C1 and S1 as fixed octets: §5.1 wants a connection ID unpredictable and
+/// RFC 9000 §7.3's C1 and S1 as fixed bytes: §5.1 wants a connection ID unpredictable and
 /// invariant 5 forbids colibri a random number, so a test states them rather than drawing them.
 const local_id_octet: u8 = 0xc1;
 const original_id_octet: u8 = 0x51;
@@ -41,11 +41,11 @@ fn authentic_parameters() Parameters {
     peer.original_destination_connection_id = transport_parameters.ConnectionId.init(&original_id);
     return peer;
 }
-/// Octets a test writes a CRYPTO frame into. Larger than any payload below.
+/// Bytes a test writes a CRYPTO frame into. Larger than any payload below.
 const test_output_len: usize = 512;
 var test_output: [test_output_len]u8 = undefined;
 
-/// Octets the fake provider remembers of what it was handed. Larger than any test hands it.
+/// Bytes the fake provider remembers of what it was handed. Larger than any test hands it.
 const fake_taken_len: usize = 64;
 
 /// The connection-level window the tests grant, large enough that no test is bounded by it.
@@ -357,11 +357,11 @@ test "each failure carries the code RFC 9000 §20.1 gives it" {
 }
 
 /// A frame's Offset is a variable-length integer, so how wide it is depends on the number. These
-/// sizes make the receiving mark need two octets and the sending one need a single octet, which
+/// sizes make the receiving mark need two bytes and the sending one need a single byte, which
 /// is what separates the two numbers when one is used for the other (RFC 9000 §16, §19.6).
 const wide_offset_len: usize = 4096;
 const narrow_output_len: usize = 100;
-/// 100 octets less a CRYPTO frame's type, its Offset of 0 and a two-octet Length.
+/// 100 bytes less a CRYPTO frame's type, its Offset of 0 and a two-byte Length.
 const exact_payload_len: usize = 96;
 const owed_octet: u8 = 0x7a;
 const received_octet: u8 = 0x2b;
@@ -380,7 +380,7 @@ test "RFC 9000 §19.6: the room a frame leaves is measured from the offset it wi
     try testing.expectEqual(0, stream.sent_len);
 
     // The provider owes exactly what fits once the type, an Offset of 0 and the Length are paid
-    // for. Reserving room for the receiving mark instead would cost one octet more and refuse it.
+    // for. Reserving room for the receiving mark instead would cost one byte more and refuse it.
     var fake: Fake = .{ .owed = &exact_payload, .owed_level = .handshake };
     var output: [narrow_output_len]u8 = undefined;
     const written = try connection_crypto.write_crypto(

@@ -7,8 +7,8 @@
 //! The caller loops over `receive`, as it does for a TCP connection, until it returns no event,
 //! after each datagram the engine passed. It answers each request by its id, the stream's, with
 //! `respond`, `write_body` and `write_trailers`. `write_body` copies nothing: QUIC reads the
-//! caller's octets in place as often as it sends them, so they stay the caller's until the request
-//! is `done`, once the peer has acknowledged every octet of the response (RFC 9000 §3.1), or
+//! caller's bytes in place as often as it sends them, so they stay the caller's until the request
+//! is `done`, once the peer has acknowledged every byte of the response (RFC 9000 §3.1), or
 //! `cancelled` (decision 103). The frames around them are the connection's (decision 79).
 //!
 //! `QuicConnection`'s functions are the calls the engine passes on from a program. What else the
@@ -42,7 +42,7 @@ pub const Field = connection_module.Field;
 pub const Error = connection_module.Error;
 pub const SendError = connection_module.SendError;
 pub const PeerAddress = quic.PeerAddress;
-/// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
+/// Where a QUIC connection's received bytes wait until h3 reads them (decision 61): the storage
 /// of a `quic.ReceivePool` the caller places.
 pub const ReceiveStorage = quic.ReceiveStorage;
 
@@ -236,10 +236,10 @@ pub const QuicConnection = struct {
     }
 
     /// Takes `content.octets` whole as the next content of the response to request `id`, and ends
-    /// the content with `end`. Nothing is copied: the octets stay the caller's until the request
-    /// is `done` or `cancelled`. A coded response instead takes as many octets as its encoder's
+    /// the content with `end`. Nothing is copied: the bytes stay the caller's until the request
+    /// is `done` or `cancelled`. A coded response instead takes as many bytes as its encoder's
     /// ring has room for, and returns them, coded, to the caller at once (decision 101).
-    /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
+    /// `error.Blocked` says the response holds as many runs, or its ring as many bytes, as it can
     /// until the peer acknowledges some: `receive`, then call again.
     pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
         return quic_connection_h3.write_body(connection, id, content);
@@ -251,7 +251,7 @@ pub const QuicConnection = struct {
     }
 
     /// Ends request `id` before its response is whole: its stream is reset with
-    /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the caller's octets, and
+    /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the caller's bytes, and
     /// nothing more is reported of it.
     pub fn cancel(connection: *QuicConnection, id: Number) void {
         quic_connection_h3.cancel(connection, id);

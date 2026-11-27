@@ -1,9 +1,9 @@
-//! The receive path of the connection, split off `connection.zig` for length: the octets the
+//! The receive path of the connection, split off `connection.zig` for length: the bytes the
 //! caller read become at most one frame, and that frame becomes at most one event (decision 39).
 //!
 //! `receive` checks in this order (invariant 7):
 //!   1. the connection has not already failed, and the replies have room for what a frame may owe;
-//!   2. at a server, the 24 octets of the client connection preface (RFC 9113 §3.4);
+//!   2. at a server, the 24 bytes of the client connection preface (RFC 9113 §3.4);
 //!   3. a whole frame header, and a Length at or below what colibri advertised, or a connection
 //!      error of FRAME_SIZE_ERROR (§4.2), which is decided before the payload is waited for;
 //!   4. the whole payload is in the slice, or nothing is consumed, and at a server a HEADERS frame,
@@ -16,7 +16,7 @@
 //!      in `connection_stream.zig` for the rest.
 //!
 //! A frame is consumed whole whatever it meant, so the caller's next call starts at a frame
-//! boundary, and a connection error consumes it too: the octets are read and the GOAWAY is queued.
+//! boundary, and a connection error consumes it too: the bytes are read and the GOAWAY is queued.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -68,7 +68,7 @@ fn waits_for_slot(target: *const Connection, header: frame.Header) bool {
     return target.streams.open_waits_for_write();
 }
 
-/// The octets of the client connection preface this call consumed, at a server that has not read
+/// The bytes of the client connection preface this call consumed, at a server that has not read
 /// it yet, or null once it is read (RFC 9113 §3.4). The preface is not a frame and takes calls of
 /// its own: it may be cut anywhere, so what arrives is matched, consumed and remembered, and the
 /// call after the one that completes it reads the first frame.
@@ -159,7 +159,7 @@ test "a server reads the client preface, in pieces, and refuses the first octet 
     try testing.expectEqual(half, test_connection.preface_read_len);
     try testing.expectEqual(null, try feed(constants.protocol.client_preface[half..]));
     try testing.expectEqual(constants.protocol.client_preface_len, test_connection.preface_read_len);
-    // RFC 9113 §3.4: a preface that is not those octets ends the connection.
+    // RFC 9113 §3.4: a preface that is not those bytes ends the connection.
     test_connection.init(.{ .role = .server });
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive("PRI * HTTP/3.0\r\n", 0));
     try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);

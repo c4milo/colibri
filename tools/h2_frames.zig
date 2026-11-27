@@ -11,13 +11,13 @@
 //! `frame` naming the header fields and the payload fields the codec must produce, or an `error`
 //! list of codes, one of which the codec must attach. For each case the tool reads the header
 //! with `frame.read_header` and the rest with `frame.parse`. A wire whose Length is above
-//! `frame_size_max`, or that has fewer octets than its Length declares, is refused by the tool
+//! `frame_size_max`, or that has fewer bytes than its Length declares, is refused by the tool
 //! itself with FRAME_SIZE_ERROR, the way a connection refuses such a frame before parsing it
 //! (RFC 9113 §4.2). Every other refusal is `frame.verdict` on the parse error.
 //!
 //! A normal case is also written back with the codec's writer and parsed again, and the fields
-//! must be equal. When the case carries no padding the octets must be the same too; a padded
-//! case's octets differ, because the corpus's padding octets are not zero and colibri writes zeros
+//! must be equal. When the case carries no padding the bytes must be the same too; a padded
+//! case's bytes differ, because the corpus's padding bytes are not zero and colibri writes zeros
 //! (RFC 9113 §6.1).
 //!
 //! This tool is developer tooling: it allocates and reads the filesystem, which the library never
@@ -40,7 +40,7 @@ const ObjectMap = std.json.ObjectMap;
 /// The largest case file the tool reads.
 const case_bytes_max = 1 << 20;
 
-/// The longest wire a case holds, in octets, and the longest frame the tool writes back: the
+/// The longest wire a case holds, in bytes, and the longest frame the tool writes back: the
 /// header and the largest payload colibri accepts.
 const wire_len_max = constants.protocol.frame_header_len + constants.limits.frame_size_max;
 
@@ -58,7 +58,7 @@ const Failure = error{
     ErrorExpected,
     /// An error case was refused with a code the case does not list.
     CodeNotListed,
-    /// An unpadded normal case written back gave different octets.
+    /// An unpadded normal case written back gave different bytes.
     RoundTripDiffers,
 };
 
@@ -167,7 +167,7 @@ fn decode(wire: []const u8) !Outcome {
     const header = frame.read_header(&reader) catch return error.CaseMalformed;
     const rest = reader.take_rest();
     // RFC 9113 §4.2: a connection refuses a frame whose Length exceeds SETTINGS_MAX_FRAME_SIZE
-    // with FRAME_SIZE_ERROR before it reads the payload, and a wire with fewer octets than its
+    // with FRAME_SIZE_ERROR before it reads the payload, and a wire with fewer bytes than its
     // Length declares is the corpus's frame too small for its mandatory data, the same error.
     if (header.length > constants.limits.frame_size_max or rest.len < header.length) {
         return .{ .refused = .{ .kind = .connection, .code = constants.protocol.error_frame_size_error } };
@@ -219,7 +219,7 @@ fn run_normal_case(wire: []const u8, expected: ObjectMap, counts: *Counts) !void
     counts.round_trips += 1;
 }
 
-/// Whether the case carries padding octets, which colibri writes back as zeros (RFC 9113 §6.1).
+/// Whether the case carries padding bytes, which colibri writes back as zeros (RFC 9113 §6.1).
 fn is_padded(fields: ObjectMap) bool {
     const padding = fields.get("padding") orelse return false;
     return padding == .string and padding.string.len != 0;
@@ -312,8 +312,8 @@ fn expect_payload(payload: frame.Payload, fields: ObjectMap) !void {
 }
 
 /// The priority fields, listed as null when the frame carries none. The corpus lists the weight
-/// as the octet plus one, the way the deprecated scheme read it (RFC 9113 §5.3.2 keeps the field
-/// and drops the arithmetic); colibri keeps the octet.
+/// as the byte plus one, the way the deprecated scheme read it (RFC 9113 §5.3.2 keeps the field
+/// and drops the arithmetic); colibri keeps the byte.
 fn expect_priority(fields: ObjectMap, priority: ?frame.Priority) !void {
     const dependency = fields.get("stream_dependency") orelse return error.CaseMalformed;
     if (dependency == .null) {

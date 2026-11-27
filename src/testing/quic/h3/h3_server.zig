@@ -101,7 +101,7 @@ pub const Server = struct {
             server.connection.start(transport, now_ns) catch return server.note_failure();
             server.started = true;
         }
-        // Bounded: every event reads at least one frame or content octet the client sent, and
+        // Bounded: every event reads at least one frame or content byte the client sent, and
         // one datagram carries a bounded number of them.
         for (0..constants.hq_read_len) |_| {
             const event = server.connection.receive(transport, &server.body, now_ns) catch return server.note_failure();
@@ -228,8 +228,8 @@ const content_length_digits_max: usize = 20;
 
 const vtable: quic.StreamProvider.VTable = .{ .read = read_response };
 
-/// A response's octets from `offset`: its kept frames, then its content, as many as fit. Every
-/// call at one offset answers the same octets, which RFC 9000 §2.2 asks of a retransmission.
+/// A response's bytes from `offset`: its kept frames, then its content, as many as fit. Every
+/// call at one offset answers the same bytes, which RFC 9000 §2.2 asks of a retransmission.
 fn read_response(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const server: *Server = @ptrCast(@alignCast(context));
     const response = server.find(stream_id) orelse return 0;

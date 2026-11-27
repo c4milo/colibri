@@ -336,11 +336,11 @@ pub const Space = struct {
 const gap_step: u64 = 2;
 
 /// The packet numbers a space skips (RFC 9000 §21.4). The intervals between skips are the eight
-/// octets of one value the caller drew from its source at start (invariant 5), each added to
+/// bytes of one value the caller drew from its source at start (invariant 5), each added to
 /// `packet_number_skip_interval_min`, taken in turn.
 pub const Skips = struct {
     intervals: u64,
-    /// The octet of `intervals` the next interval comes from.
+    /// The byte of `intervals` the next interval comes from.
     turn: u3,
     /// The packets to send before the next skip.
     countdown: u16,

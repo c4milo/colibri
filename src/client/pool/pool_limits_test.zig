@@ -1,5 +1,5 @@
 //! The tests of the three limits a program sizes its buffers and bounds its loops by (decision
-//! 123, `constants.zig`): the input from which `receive` takes octets, the output into which
+//! 123, `constants.zig`): the input from which `receive` takes bytes, the output into which
 //! `send_stream` writes a whole TLS record, and the events `receive` reports with no input. Each
 //! test drives a pool to the worst case that a test can make. The peers are h11's and h2's
 //! server sides and the TLS server of `connection_tls_test_support.zig`, in the same process.
@@ -23,7 +23,7 @@ var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 
 /// The content of a response or a request: two DATA frames of the largest size colibri advertises
 /// (RFC 9113 §4.2). The second frame, or the second record, does not fit beside the first in
-/// `stream_input_len_min` octets.
+/// `stream_input_len_min` bytes.
 const frames_count: usize = 2;
 const content_len: usize = frames_count * h2.constants.limits.frame_size_max;
 const content_octet: u8 = 'c';
@@ -38,7 +38,7 @@ const ok: u16 = 200;
 /// RFC 9110 §4.2.1 and §4.2.2: the ports of an "http" and an "https" origin whose URI names none.
 const http_port: u16 = 80;
 const https_port: u16 = 443;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -49,9 +49,9 @@ fn get() Exchange {
 }
 
 /// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing,
-/// with `.none` once no octet is left. Starts the TCP connection an `open` event asks for.
+/// with `.none` once no byte is left. Starts the TCP connection an `open` event asks for.
 fn collect(pool: anytype) !void {
-    // Bounded: each pass takes an octet or reports an event, and both are finite.
+    // Bounded: each pass takes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
@@ -65,13 +65,13 @@ fn collect(pool: anytype) !void {
     return error.TestUnexpectedResult;
 }
 
-/// Drops the first `consumed` octets the peer sent, which the pool took.
+/// Drops the first `consumed` bytes the peer sent, which the pool took.
 fn take(consumed: usize) void {
     @memmove(support.to_client[0 .. support.to_client_len - consumed], support.to_client[consumed..support.to_client_len]);
     support.to_client_len -= consumed;
 }
 
-/// A response head of `h11.constants.limits.head_len_max` octets with no content. The whitespace before
+/// A response head of `h11.constants.limits.head_len_max` bytes with no content. The whitespace before
 /// its last field value fills it: RFC 9112 §5 lets OWS stand there, and RFC 9110 §5.6.3 lets OWS
 /// hold any number of SP.
 fn head_at_limit() []u8 {
@@ -84,7 +84,7 @@ fn head_at_limit() []u8 {
 }
 
 /// The h2 peer writes `content` on stream 1 into `out`, in frames of the largest size the client
-/// advertised (RFC 9113 §4.2), the last with END_STREAM. Returns the octets written.
+/// advertised (RFC 9113 §4.2), the last with END_STREAM. Returns the bytes written.
 fn peer_write_content(out: []u8) !usize {
     var written: usize = 0;
     var sent_len: usize = 0;
@@ -99,7 +99,7 @@ fn peer_write_content(out: []u8) !usize {
 }
 
 /// The TLS server seals `plaintext` for the client: first one record of the most plaintext a record
-/// carries (RFC 9846 §5.1), then the rest. Returns the octets of that first record.
+/// carries (RFC 9846 §5.1), then the rest. Returns the bytes of that first record.
 fn seal_largest_first(plaintext: []const u8) !usize {
     const largest = tls_provider.constants.protocol.record_plaintext_len_max;
     const provider = tls_support.server.provider();
@@ -205,12 +205,12 @@ fn Tests(comptime Pool: type) type {
             send();
             const whole = head_at_limit();
             try testing.expectEqual(h11.constants.limits.head_len_max, whole.len);
-            // The program holds the head and, past it, octets of the next response.
+            // The program holds the head and, past it, bytes of the next response.
             @memcpy(support.to_client[0..whole.len], whole);
             @memcpy(support.to_client[whole.len..][0..whole.len], whole);
             support.to_client_len = whole.len * 2;
-            // RFC 9112 §2.1: h11 reads the head again from its first octet until the head ends, so
-            // one octet less of it takes nothing.
+            // RFC 9112 §2.1: h11 reads the head again from its first byte until the head ends, so
+            // one byte less of it takes nothing.
             const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. whole.len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
@@ -225,7 +225,7 @@ fn Tests(comptime Pool: type) type {
             var exchange = get();
             try start_cleartext(.h2, &exchange);
             support.peer_events_len = 0;
-            // In cleartext, one octet of output takes one octet of what h2 wrote.
+            // In cleartext, one byte of output takes one byte of what h2 wrote.
             try testing.expectEqual(1, pool.send_stream(pool_support.connection_of(&pool, .tcp), support.to_peer[0..1], support.now_ns));
             support.to_peer_len = 1;
             send();
@@ -239,7 +239,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(0, support.to_client_len);
             // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
             support.to_client_len = try peer_write_content(&support.to_client);
-            // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
+            // RFC 9113 §4.1: h2 takes whole frames, so one byte less of the first takes nothing.
             const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. constants.limits.frame_len_max - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
@@ -290,7 +290,7 @@ fn Tests(comptime Pool: type) type {
             written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, false);
             written += try peer_write_content(out[written..]);
             const record_len = try seal_largest_first(out[0..written]);
-            // RFC 9846 §5.2: the connection opens whole records, so one octet less of the first
+            // RFC 9846 §5.2: the connection opens whole records, so one byte less of the first
             // takes nothing.
             const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0 .. record_len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);

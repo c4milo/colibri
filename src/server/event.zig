@@ -1,6 +1,6 @@
 //! What `receive` reports, the same for h11, h2 and h3 (decision 100): a request's head, its
 //! content, its trailer section, its end by cancellation, or that its response is done; and, from
-//! the engine (decision 119), that a response can take more, that a TCP connection owes octets or
+//! the engine (decision 119), that a response can take more, that a TCP connection owes bytes or
 //! is to be closed, in stages or at once (decision 160), that a connection ended, or that every
 //! connection did. Every slice points into
 //! storage the connection or the caller holds, and stays valid until the engine's next call that
@@ -62,8 +62,8 @@ pub const ResponseHeader = struct {
     end: bool,
     /// Whether the server may code the content in a coding the request accepts (decision 101),
     /// when its configuration names codings. Only the caller knows whether the content mixes a
-    /// secret with octets a peer chose, which compression must not do (RFC 9113 §10.6), or
-    /// carries a field computed over the uncoded octets, such as a digest of them. A coded
+    /// secret with bytes a peer chose, which compression must not do (RFC 9113 §10.6), or
+    /// carries a field computed over the uncoded bytes, such as a digest of them. A coded
     /// response gains Content-Encoding and loses Content-Length, and a strong ETag becomes weak.
     codable: bool = false,
     /// What the program does with the rest of the request's body, when this final head goes out
@@ -77,12 +77,12 @@ pub const ResponseHeader = struct {
         discard,
         /// The program keeps reading it, so the head says nothing on account of the body. When
         /// the response then ends before the body, the server reads a rest that ends within
-        /// `discard_len_max` octets, and else closes the connection.
+        /// `discard_len_max` bytes, and else closes the connection.
         keep_reading,
     } = .discard,
 };
 
-/// Octets of a response's content, which `write_body` writes, and whether the content ends with
+/// Bytes of a response's content, which `write_body` writes, and whether the content ends with
 /// them.
 pub const ResponseBody = struct {
     bytes: []const u8,
@@ -131,7 +131,7 @@ pub const Headers = struct {
 
 comptime {
     // Each layer of the engine passes an `Event` on by value, and a request's event holds a
-    // `Headers`. A pointer to the lines keeps it at 16 octets, where a `Slice` would take 40.
+    // `Headers`. A pointer to the lines keeps it at 16 bytes, where a `Slice` would take 40.
     if (@sizeOf(usize) == 8) assert(@sizeOf(Headers) == 16);
 }
 
@@ -202,7 +202,7 @@ pub const BodyReaders = struct {
     }
 };
 
-/// A reader with no bytes, whose every read gives `error.EndOfStream` or 0 octets. std's `ending`
+/// A reader with no bytes, whose every read gives `error.EndOfStream` or 0 bytes. std's `ending`
 /// is a constant, and a read such as `readSliceShort` or `discardRemaining` writes its `seek`. On
 /// Linux, the loader of a program that links dynamically makes that constant's memory read-only.
 /// So each connection holds a copy of this one.
@@ -236,7 +236,7 @@ fn fail_rebase(_: *std.Io.Reader, _: usize) std.Io.Reader.RebaseError!void {
     return error.ReadFailed;
 }
 
-/// Octets of a request's content, and whether they end it. The last `body` of a request may carry
+/// Bytes of a request's content, and whether they end it. The last `body` of a request may carry
 /// none. `user_data` is the word the program set at the request's head (decision 119).
 pub const RequestBody = struct {
     id: RequestId,
@@ -275,16 +275,16 @@ pub const CancelReason = union(enum) {
     program,
 };
 
-/// The response to a request is whole, and the server reads none of the caller's octets for it
+/// The response to a request is whole, and the server reads none of the caller's bytes for it
 /// again, so the caller may reuse the memory its body came from (decision 103). h11 and h2 report
-/// it after the call that wrote the response's last octet, and h3 once the peer acknowledged
-/// every octet of it. A request cancelled first gets none.
+/// it after the call that wrote the response's last byte, and h3 once the peer acknowledged
+/// every byte of it. A request cancelled first gets none.
 pub const Done = struct {
     id: RequestId,
     user_data: usize = 0,
 };
 
-/// A response whose last write took fewer octets than it was given, or found no room, can take
+/// A response whose last write took fewer bytes than it was given, or found no room, can take
 /// more (decision 119).
 pub const Writable = struct {
     id: RequestId,
@@ -348,7 +348,7 @@ pub const Event = union(enum) {
     finished: Finished,
     /// A response can take more (decision 119).
     writable: Writable,
-    /// A TCP connection owes octets: the program calls `send_stream` for it (decision 119).
+    /// A TCP connection owes bytes: the program calls `send_stream` for it (decision 119).
     send: ConnectionHandle,
     /// The program closes only the write side of this TCP connection's socket, and passes on what
     /// the socket reads, which colibri discards (RFC 9112 §9.6, decision 160). A `close` follows,

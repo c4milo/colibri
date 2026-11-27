@@ -1,6 +1,6 @@
 //! The TLS server the client's tests run a connection or a pool against: a `tls.record.Server`
 //! over the test identity of `connection_test_support.zig`, its configuration and the client's,
-//! the handshake between the two, and the records the server opens and seals. The octets in
+//! the handshake between the two, and the records the server opens and seals. The bytes in
 //! flight are the ones of `connection_test_support.zig`. Test-only.
 const std = @import("std");
 const tls = @import("tls");
@@ -10,17 +10,17 @@ const support = @import("connection_test_support.zig");
 pub var server: tls.record.Server align(@alignOf(tls.record.Server)) = undefined;
 pub var server_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 pub var client_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-/// The protocol's octets the server opened and has not read, and the ones it writes to seal.
+/// The protocol's bytes the server opened and has not read, and the ones it writes to seal.
 pub var peer_plain: [support.buffer_len]u8 = undefined;
 pub var peer_plain_len: usize = 0;
 pub var peer_out: [support.buffer_len]u8 = undefined;
 
 /// Rounds a handshake in memory takes at most.
 const handshake_rounds_max: usize = 8;
-/// The octets a forged record carries after its header: room for a content type and a 16-octet
+/// The bytes a forged record carries after its header: room for a content type and a 16-byte
 /// tag.
 const forged_octets_len: usize = 32;
-/// Octets that are no record chapulin will open: an application_data header over octets no key
+/// Bytes that are no record chapulin will open: an application_data header over bytes no key
 /// sealed (RFC 9846 §5.2).
 pub const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" ** forged_octets_len;
 
@@ -93,7 +93,7 @@ pub fn server_flight() ?bool {
     return progress.complete;
 }
 
-/// Drops the first `consumed` octets the client sent, which the server has read.
+/// Drops the first `consumed` bytes the client sent, which the server has read.
 pub fn take_to_peer(consumed: usize) void {
     @memmove(support.to_peer[0 .. support.to_peer_len - consumed], support.to_peer[consumed..support.to_peer_len]);
     support.to_peer_len -= consumed;

@@ -31,7 +31,7 @@ const Fake = struct {
     alert_held: ?tls_provider.AlertReport = null,
     /// The plaintext the next `decrypt_record` writes. Test-only.
     body: []const u8 = "",
-    /// The handshake octets the provider owes, which `handshake_write` hands over whole once.
+    /// The handshake bytes the provider owes, which `handshake_write` hands over whole once.
     /// Test-only.
     owed: []const u8 = "",
     /// The error that the next `decrypt_record` returns, or null. The provider then owes
@@ -43,7 +43,7 @@ const Fake = struct {
     seals: u32 = 0,
     closes: u32 = 0,
 
-    /// A sealed alert record's length in octets, as a provider owes one. Test-only.
+    /// A sealed alert record's length in bytes, as a provider owes one. Test-only.
     const refusal_alert = "a sealed alert, 24 octets";
 
     fn alpn(context: *const anyopaque) ?[]const u8 {
@@ -180,7 +180,7 @@ test "application data reaches the caller's buffer, and a cleartext connection h
 }
 
 test "RFC 9846 §4.7.3: a record without data yields nothing, and colibri asks for nothing owed" {
-    // The provider says it owes octets, and no failure happened: the answer to a KeyUpdate is the
+    // The provider says it owes bytes, and no failure happened: the answer to a KeyUpdate is the
     // provider's, which `encrypt_record` writes.
     var state: Fake = .{ .content = .without_data, .body = "ignored", .owed = "stray" };
     const target = try attached(.client, &state);

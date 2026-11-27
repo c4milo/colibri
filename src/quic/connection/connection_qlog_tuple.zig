@@ -15,7 +15,7 @@ const PeerAddress = @import("../peer_address.zig").PeerAddress;
 const Log = qlog.Log;
 const quic_event = qlog.quic_event;
 
-/// The octets of an IPv4 address (RFC 791 §3.1) and of an IPv6 one (RFC 4291 §2).
+/// The bytes of an IPv4 address (RFC 791 §3.1) and of an IPv6 one (RFC 4291 §2).
 const ipv4_len: usize = 4;
 const ipv6_len: usize = 16;
 
@@ -62,8 +62,8 @@ const Known = struct {
     tuple: u32,
 };
 
-/// Quic-events §8.5's half of a tuple for the peer's `address`: its octets and its port, under
-/// IPv4 or IPv6 by the octets' length. An address of another length, which a caller may name for a
+/// Quic-events §8.5's half of a tuple for the peer's `address`: its bytes and its port, under
+/// IPv4 or IPv6 by the bytes' length. An address of another length, which a caller may name for a
 /// network of its own, gives none.
 fn remote_of(address: *const PeerAddress) ?quic_event.TupleEndpointInfo {
     const octets: quic_event.Hex = .{ .octets = address.octets[0..address.len] };

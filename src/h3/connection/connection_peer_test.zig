@@ -1,6 +1,6 @@
 //! The tests of `connection_peer.zig` and `connection_local.zig`: the peer's unidirectional
 //! streams (RFC 9114 §6.2), its control stream (§6.2.1, §7.2) and QPACK's streams (RFC 9204
-//! §4.2), each rule broken by a peer that writes raw octets. The harness is `connection_test.zig`'s.
+//! §4.2), each rule broken by a peer that writes raw bytes. The harness is `connection_test.zig`'s.
 const std = @import("std");
 const core = @import("core");
 const quic = @import("quic");
@@ -116,7 +116,7 @@ test "§7.2.4.1: an HTTP/2 setting is H3_SETTINGS_ERROR" {
 }
 
 test "§10.5: a control frame longer than colibri holds is H3_EXCESSIVE_LOAD" {
-    // A GOAWAY whose Length, 0x5000 in four octets, is past the connection's scratch.
+    // A GOAWAY whose Length, 0x5000 in four bytes, is past the connection's scratch.
     try expect_control_failure(&.{ constants.protocol.frame_goaway, 0x80, 0x00, 0x50, 0x00 }, constants.protocol.error_excessive_load);
 }
 
@@ -135,7 +135,7 @@ test "§6.2.1: a peer that stops colibri's control stream has closed it" {
     }
 }
 
-/// Octets that fill a buffer. Test-only.
+/// Bytes that fill a buffer. Test-only.
 var filler: [constants.limits.control_buffer_len]u8 = @splat(0);
 
 test "§6.2: a unidirectional stream that ends before its type is tolerated, and forgotten" {
@@ -149,7 +149,7 @@ test "§6.2: a unidirectional stream that ends before its type is tolerated, and
 test "§7.2.4.1: colibri's SETTINGS carry a reserved setting drawn from the grease value" {
     harness.pair_unstarted(.{ .role = .client, .grease = 5 }, .{ .role = .server });
     try client.h3.start(&client.transport, harness.test_now_ns);
-    // Identifier 0x1f * 5 + 0x21 = 0xbc, a two-octet varint, and the value 5.
+    // Identifier 0x1f * 5 + 0x21 = 0xbc, a two-byte varint, and the value 5.
     const control = &client.h3.local.control;
     try testing.expect(std.mem.indexOf(u8, control.octets[0..control.len], &.{ 0x40, 0xbc, 0x05 }) != null);
 }
@@ -165,7 +165,7 @@ test "§7.2.7: a MAX_PUSH_ID that falls is H3_ID_ERROR at a server" {
 test "§7.2.7: a MAX_PUSH_ID at a client is H3_FRAME_UNEXPECTED" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const id = server.h3.local.control_id.?;
-    // The server's control stream octets are h3's, so the raw frame goes into its buffer.
+    // The server's control stream bytes are h3's, so the raw frame goes into its buffer.
     try server.h3.local.control.write(&.{ constants.protocol.frame_max_push_id, 0x01, 0x00 });
     try quic.Connection.supply(&server.transport, .{ .value = id }, server.h3.local.control.end_offset(), false);
     try exchange();
@@ -203,7 +203,7 @@ test "§9: a frame of unknown type on the control stream is skipped" {
 
 test "§6.2: a stream of unknown type is stopped with H3_STREAM_CREATION_ERROR, and means nothing" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
-    // §6.2.3's reserved stream type 0x21, and a few octets.
+    // §6.2.3's reserved stream type 0x21, and a few bytes.
     const id = try client_stream(&.{ 0x21, 'x', 'y' }, false);
     try exchange();
     try testing.expectEqual(null, try next(server));

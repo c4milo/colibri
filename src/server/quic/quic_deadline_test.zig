@@ -119,7 +119,7 @@ test "decision 110: a deadline that passed fires at the next receive, with no ca
 test "decision 110: a program changes one connection's limits, null turns one off, and what a start refuses is refused" {
     try connected(constants.policy.idle_timeout_ns);
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .idle_ns = 0 }));
-    // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
+    // Twice 819 bytes a second over a window of 10 s is under a unit of 16,384 bytes.
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = unit_bound_rate - 1 }));
     try testing.expectEqual(constants.policy.first_request_timeout_ns, connection.timeouts.first_request_ns.?);
     try connection.set_timeouts(.{ .first_request_ns = null });

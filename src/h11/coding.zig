@@ -1,8 +1,8 @@
 //! The `gzip` and `deflate` transfer codings (RFC 9112 §7.2), which stdx decodes (decisions 90
-//! and 91). A decoder holds a window of 32,768 octets (RFC 1951 §2), so a connection keeps none:
+//! and 91). A decoder holds a window of 32,768 bytes (RFC 1951 §2), so a connection keeps none:
 //! decoders wait in a pool the caller places, and a connection takes one only while a message
 //! carries a compression coding, and gives it back when the message ends (decision 91). The
-//! decoded octets go into the buffer the caller passes to `receive` (decision 98).
+//! decoded bytes go into the buffer the caller passes to `receive` (decision 98).
 //!
 //! `deflate` is the zlib format of RFC 1950, as RFC 9110 §8.4.1.2 defines it, and `gzip` the
 //! format of RFC 1952 (§8.4.1.3). A gzip body may hold several members, each checked, one after
@@ -28,7 +28,7 @@ pub const Error = error{
     CodingCorrupt,
     /// The coded body uses a valid feature stdx refuses (decision 91).
     CodingFeatureRefused,
-    /// Octets follow the end of the coded stream inside the body (decision 91).
+    /// Bytes follow the end of the coded stream inside the body (decision 91).
     CodingTrailing,
     /// Every decoder of the pool is taken (decision 91).
     DecodersExhausted,
@@ -45,7 +45,7 @@ pub const Slot = struct {
     next: Index,
     /// A `gzip.Decoder` or a `zlib.Decoder`, as the coding of the message that holds the slot
     /// names, which `begin_stream` starts in place. A union writes its whole payload to change
-    /// its field, and ReleaseSafe writes 0xAA over an `undefined` payload: 44,312 octets on each
+    /// its field, and ReleaseSafe writes 0xAA over an `undefined` payload: 44,312 bytes on each
     /// stream (design §8 step 69).
     decoder: [decoder_len]u8 align(decoder_alignment),
 };
@@ -180,18 +180,18 @@ pub const Decoding = struct {
         begin_stream(decoding, storage, cpu_features);
     }
 
-    /// Decodes as much of the coded octets `input` into `output` as both allow. The next member
+    /// Decodes as much of the coded bytes `input` into `output` as both allow. The next member
     /// of a gzip body starts with `cpu_features`, the connection's, as the first one did.
     pub fn decode(decoding: *Decoding, storage: Storage, input: []const u8, output: []u8, cpu_features: CpuFeatures) Error!Progress {
         assert(decoding.active() and decoding.slot != no_slot);
         assert(input.len > 0 and output.len > 0);
         if (decoding.stream_ended) {
-            // RFC 1952 §2.2: a gzip body is a series of members, so octets after one start the
-            // next, whose header check refuses octets that are not one.
+            // RFC 1952 §2.2: a gzip body is a series of members, so bytes after one start the
+            // next, whose header check refuses bytes that are not one.
             if (decoding.coding == .gzip) {
                 begin_stream(decoding, storage, cpu_features);
             } else {
-                // RFC 9110 §8.4.1.2: deflate is one zlib stream (RFC 1950), so octets after it
+                // RFC 9110 §8.4.1.2: deflate is one zlib stream (RFC 1950), so bytes after it
                 // inside the body belong to no coding, which decision 91 refuses as malformed.
                 return error.CodingTrailing;
             }
@@ -235,7 +235,7 @@ pub const Decoding = struct {
     }
 };
 
-/// Octets of one call: coded ones taken, and decoded ones written.
+/// Bytes of one call: coded ones taken, and decoded ones written.
 pub const Progress = struct {
     consumed: usize,
     written: usize,
@@ -276,7 +276,7 @@ const test_text = "colibri decodes gzip and deflate transfer codings. " ** test_
 const test_room = test_text.len * test_room_factor + test_room_margin;
 const test_room_factor = 2;
 const test_room_margin = 64;
-/// RFC 1952 §2.3: a member ends with CRC32 and ISIZE, four octets each, so its CRC32 starts this
+/// RFC 1952 §2.3: a member ends with CRC32 and ISIZE, four bytes each, so its CRC32 starts this
 /// far from its end. Test-only.
 const crc32_offset_from_end = 8;
 
@@ -294,7 +294,7 @@ fn zlib_of(text: []const u8, output: []u8) ![]u8 {
 fn decode_in_pieces(decoding: *Decoding, storage: Storage, coded: []const u8, piece_len: usize, output: []u8) !usize {
     var taken: usize = 0;
     var written: usize = 0;
-    // Bounded: every pass takes or writes at least one octet.
+    // Bounded: every pass takes or writes at least one byte.
     for (0..coded.len + output.len + 1) |_| {
         if (taken == coded.len) return written;
         const piece = coded[taken..@min(coded.len, taken + piece_len)];
@@ -459,9 +459,9 @@ test "decision 169: a decoder runs on the CPU features of the connection that st
     }
 }
 
-/// The octets the next test writes over a free slot's decoder before a message takes it.
+/// The bytes the next test writes over a free slot's decoder before a message takes it.
 const test_fills = [_]u8{ 0, std.math.maxInt(u8) };
-/// The octets of each piece the next test decodes: fewer than a gzip header's 10 (RFC 1952
+/// The bytes of each piece the next test decodes: fewer than a gzip header's 10 (RFC 1952
 /// §2.3), so the header spans pieces.
 const test_piece_len: usize = 7;
 

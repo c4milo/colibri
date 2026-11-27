@@ -2,7 +2,7 @@
 //! frame of a packet it logs, passing plain values, so this module knows no type of `quic`'s.
 //!
 //! Each writer writes one member of a `frames` array: an object whose `frame_type` is the
-//! draft's name for the frame. A peer's octets are written as hexstrings (decision 102), and a
+//! draft's name for the frame. A peer's bytes are written as hexstrings (decision 102), and a
 //! token's contents are not written at all: main schema §14.1 lists tokens among the data at
 //! risk, and quic-events §8.9 leaves every field of a token optional.
 const std = @import("std");
@@ -195,7 +195,7 @@ pub fn path_response(text: *TextWriter, data: []const u8) Error!void {
 }
 
 /// §8.13.20. A transport error is named by its code, and an application error, whose names
-/// `quic` does not know, is "unknown" with the code. The reason is a peer's octets, so it is
+/// `quic` does not know, is "unknown" with the code. The reason is a peer's bytes, so it is
 /// `reason_bytes` and never `reason` (decision 102).
 pub fn connection_close(text: *TextWriter, space: ErrorSpace, error_code: u64, frame_type: ?u64, reason: []const u8) Error!void {
     try begin(text, "connection_close");

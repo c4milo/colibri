@@ -1,14 +1,14 @@
 //! What the client trace run's pool sends, split from `client_trace_world.zig` because a
 //! hand-written source file stays at or under 500 lines (CLAUDE.md). Each datagram goes to the
 //! network, and each TCP segment to the link. Both go into the run's wire checksum, which the
-//! census pins, so a change to an octet the pool sends changes it (decision 175).
+//! census pins, so a change to a byte the pool sends changes it (decision 175).
 const sim = @import("sim");
 const world_module = @import("client_trace_world.zig");
 
 const limits = sim.constants.client_trace;
 const World = world_module.World;
 
-/// Hands the network each datagram the pool owes and the link the TCP octets it owes, and adds
+/// Hands the network each datagram the pool owes and the link the TCP bytes it owes, and adds
 /// both to `world.wire`. Returns whether anything moved.
 pub fn pool_sends(world: *World) world_module.Error!bool {
     var moved = false;

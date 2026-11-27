@@ -1,5 +1,5 @@
 //! The QUIC provider the connection tests share (`packet_build_test.zig` re-exports it): a
-//! provider that owes `owed` octets at `owed_level` and nothing anywhere else, and that fails its
+//! provider that owes `owed` bytes at `owed_level` and nothing anywhere else, and that fails its
 //! handshake when a test asks it to. It performs no cryptography.
 const core = @import("core");
 const tls_provider = @import("tls_provider");

@@ -8,7 +8,7 @@ const protocol = @import("constants_protocol.zig");
 /// nothing, so the bound is colibri's and the caller owns the storage (decision 35).
 pub const dynamic_table_capacity_max: u32 = 16_384;
 
-/// How many entries that many octets can hold. §3.2.1's smallest entry is 32 octets, so the
+/// How many entries that many bytes can hold. §3.2.1's smallest entry is 32 bytes, so the
 /// count follows the capacity and is not a second limit to keep in step.
 pub const dynamic_table_entries_max: u32 = dynamic_table_capacity_max / @as(u32, @intCast(protocol.entry_overhead_len));
 
@@ -20,7 +20,7 @@ pub const outstanding_sections_max: usize = 64;
 
 /// The most streams the decoder holds as blocked (RFC 9204 §2.1.2), and so the most it may
 /// advertise as `SETTINGS_QPACK_BLOCKED_STREAMS` (§5). Decision 74: the decoder keeps each one's
-/// stream ID and Required Insert Count, and the caller keeps its octets.
+/// stream ID and Required Insert Count, and the caller keeps its bytes.
 pub const blocked_streams_max: u64 = 100;
 
 /// Section Acknowledgments and Stream Cancellations the decoder may owe before the caller writes
@@ -29,11 +29,11 @@ pub const blocked_streams_max: u64 = 100;
 pub const decoder_instructions_owed_max: usize = 64;
 
 /// The longest encoder instruction the decoder waits for (decision 74), which is also the most
-/// encoder stream octets a caller must hold. An instruction whose entry fits the largest table
+/// encoder stream bytes a caller must hold. An instruction whose entry fits the largest table
 /// fits here when its strings are sent raw; RFC 9204 §7.4 lets a decoder refuse a longer one.
 pub const encoder_instruction_len_max: usize = dynamic_table_capacity_max;
 
-/// Most octets one fuzzed input holds: a field section, or encoder or decoder stream octets.
+/// Most bytes one fuzzed input holds: a field section, or encoder or decoder stream bytes.
 /// Test-only.
 pub const fuzz_input_len_max: u32 = 64;
 

@@ -1,6 +1,6 @@
 //! The decode step of the field-block slot, split off field_block.zig for length: one call runs
 //! hpack's block reader over a fragment where it lies, or over the buffer that finishes a line the
-//! last fragment cut, measures and stores or discards each line, and the octets the reader could
+//! last fragment cut, measures and stores or discards each line, and the bytes the reader could
 //! not finish are copied into the buffer (decision 40 as amended, design §8 step 61a).
 //! field_block.zig's header lists the slot's check order, and the tests of the decoding refusals are
 //! here, beside the code that refuses.
@@ -13,7 +13,7 @@
 //! equivalent to a single frame).
 //!
 //! A section that refuses a line does not stop the decoding: `too_large` is set, every later
-//! octet still goes through the decoder, and its lines are discarded, so the dynamic table stays
+//! byte still goes through the decoder, and its lines are discarded, so the dynamic table stays
 //! synchronized with the peer's (invariant 10, RFC 9113 §10.5.1).
 //!
 //! The lines are stored without validation, which departs from `FieldSection.append`'s documented
@@ -40,10 +40,10 @@ comptime {
     assert(hpack.constants.limits.value_len_max <= core.constants.limits.field_value_len_max);
 }
 
-/// The longest run of octets one call decodes: a fragment, or the buffer.
+/// The longest run of bytes one call decodes: a fragment, or the buffer.
 const decoded_len_max = @max(constants.limits.frame_size_max, constants.limits.field_block_buffer_len);
 
-/// Decodes every whole representation of `octets`, the block's octets after those decoded so far,
+/// Decodes every whole representation of `octets`, the block's bytes after those decoded so far,
 /// counts them as decoded, and returns how many they were.
 pub fn decode_slice(block: *FieldBlock, decoder: *hpack.Decoder, octets: []const u8) Error!usize {
     assert(block.is_in_progress());
@@ -51,7 +51,7 @@ pub fn decode_slice(block: *FieldBlock, decoder: *hpack.Decoder, octets: []const
     var walk = decoder.block(octets);
     walk.fields = block.lines_decoded;
     walk.updates = block.size_updates;
-    // A run of n octets holds at most n representations, and one more call finds the end.
+    // A run of n bytes holds at most n representations, and one more call finds the end.
     for (0..decoded_len_max + 1) |_| {
         const line = walk.next() catch |failure| {
             if (failure == error.Truncated) break;
@@ -62,7 +62,7 @@ pub fn decode_slice(block: *FieldBlock, decoder: *hpack.Decoder, octets: []const
         const field_line = line orelse break;
         field_block_limit.record_line_end(block, block.octets_decoded + walk.consumed_len());
         store(block, field_line);
-    } else unreachable; // Each line takes at least one octet, so the buffer ends first.
+    } else unreachable; // Each line takes at least one byte, so the buffer ends first.
     block.lines_decoded = walk.fields;
     block.size_updates = walk.updates;
     assert(walk.consumed_len() <= octets.len);
@@ -74,7 +74,7 @@ pub fn decode_slice(block: *FieldBlock, decoder: *hpack.Decoder, octets: []const
 /// last fragment cut, then the rest of the fragment where it lies.
 const runs_max = 2;
 
-/// Decodes `fragment`. If the last fragment cut a line, the fragment's first octets are appended to
+/// Decodes `fragment`. If the last fragment cut a line, the fragment's first bytes are appended to
 /// it, at most up to `representation_len_max`, and the buffer is decoded first. The rest of the
 /// fragment is decoded where it lies, and the line it cuts is copied into the buffer. One call
 /// site of `decode_slice` serves both runs, so the compiler keeps one copy of the decoding loop.
@@ -88,9 +88,9 @@ pub fn decode_fragment(block: *FieldBlock, decoder: *hpack.Decoder, fragment: []
         const consumed = try decode_slice(block, decoder, octets);
         if (!in_buffer) return keep(block, octets[consumed..]);
         if (consumed == 0) {
-            // RFC 7541 §7.4: the cut line's octets fed so far are past the longest line accepted.
+            // RFC 7541 §7.4: the cut line's bytes fed so far are past the longest line accepted.
             if (taken < fragment.len) return error.RepresentationTooLong;
-            // The line is still cut, and the buffer keeps every octet of the fragment with it.
+            // The line is still cut, and the buffer keeps every byte of the fragment with it.
             assert(block.octets_decoded + block.buffer_len == block.octets_fed);
             return;
         }
@@ -113,7 +113,7 @@ pub fn keep(block: *FieldBlock, tail: []const u8) void {
     assert(block.buffer_len == 0);
     assert(tail.len <= constants.limits.frame_size_max);
     block.append(tail);
-    // Invariant 10: every octet fed was consumed by the decoder or is kept for the next fragment.
+    // Invariant 10: every byte fed was consumed by the decoder or is kept for the next fragment.
     assert(block.octets_decoded + block.buffer_len == block.octets_fed);
 }
 
@@ -178,7 +178,7 @@ test "one literal cut twice, in its name and in its value, decodes once whole an
 /// index past both tables in an indexed field and in a literal's name (hpack/2.3.3/1, /2), a size
 /// update after a field line (hpack/4.2/1), one above the limit (hpack/6.3/1), a third one, a
 /// name past the length limit, the three Huffman refusals (hpack/5.2/1 to /3), an index encoded in
-/// more octets than `integer_len_max`, and an index past `integer_value_max` (RFC 7541 §5.1).
+/// more bytes than `integer_len_max`, and an index past `integer_value_max` (RFC 7541 §5.1).
 const refused_blocks = [_][]const u8{
     "\x80",
     "\xbe",
@@ -285,18 +285,18 @@ threadlocal var whole_section: @TypeOf(support.test_block.section) align(@alignO
 threadlocal var whole_lines: u32 = 0;
 threadlocal var whole_table_len: u32 = 0;
 const cut_block_len_max = 4096;
-/// A value of printable octets, some of which Huffman codes in more octets than they take raw.
+/// A value of printable bytes, some of which Huffman codes in more bytes than they take raw.
 /// Test-only.
 const mixed_len = 2000;
 /// The step between the cuts of the test that cuts a block in three. Test-only.
 const cut_step = 53;
-/// The stride that spreads `mixed_len` octets over the printable ones, and the length of the
+/// The stride that spreads `mixed_len` bytes over the printable ones, and the length of the
 /// literal the block inserts and then names by index. Test-only.
 const mixed_stride = 7;
 const literal_len = 300;
 
 /// Writes the block the cut tests feed: indexed and literal lines, Huffman-coded and raw strings, a
-/// value of `mixed_len` octets, and a line that names the dynamic table. Test-only.
+/// value of `mixed_len` bytes, and a line that names the dynamic table. Test-only.
 fn write_cut_block(output: *Writer) ![]const u8 {
     var mixed: [mixed_len]u8 = undefined;
     for (&mixed, 0..) |*octet, index| octet.* = @intCast(' ' + (index * mixed_stride) % ('~' - ' '));

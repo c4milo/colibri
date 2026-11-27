@@ -19,7 +19,7 @@
 //! **No version-1 rule reaches either decision.** RFC 9000 §17.2.1: "Version-specific rules for
 //! the connection ID therefore MUST NOT influence a decision about whether to send a Version
 //! Negotiation packet." So `answer` reads the datagram through `invariant.read_long`, which
-//! cannot apply one, and a connection ID of 255 octets is echoed although version 1 stops at 20.
+//! cannot apply one, and a connection ID of 255 bytes is echoed although version 1 stops at 20.
 //!
 //! **colibri speaks versions 1 and 2** (decision 108), which are compatible with each other (RFC
 //! 9369 §4), so a server lists both and a client moves between them without a Version Negotiation
@@ -53,7 +53,7 @@ pub const Versions = struct {
     /// opens (RFC 9369 §4.1). It is the original version until a client learns another.
     negotiated: Version,
     /// Whether the negotiated version is fixed. A server's is from the start. A client's is once it
-    /// switched, or read a CRYPTO octet from the server, which RFC 9369 §4.1 says "indicates that
+    /// switched, or read a CRYPTO byte from the server, which RFC 9369 §4.1 says "indicates that
     /// the negotiated version is equal to the original version".
     settled: bool,
     /// The version a server switches a client to when the client lists it (decision 111), or null
@@ -128,7 +128,7 @@ pub fn switch_to(connection: *Connection, suite: crypto.Suite, version: Version)
     connection.versions.settled = true;
 }
 
-/// A client read a CRYPTO octet from the server: RFC 9369 §4.1 fixes the negotiated version, and
+/// A client read a CRYPTO byte from the server: RFC 9369 §4.1 fixes the negotiated version, and
 /// the suite refuses any switch after it.
 pub fn settle(connection: *Connection) void {
     if (connection.role == .client) connection.versions.settled = true;
@@ -138,7 +138,7 @@ pub fn settle(connection: *Connection) void {
 /// switches to when the client lists it, version 2 unless its options name none, and otherwise the
 /// client's original version. A TLS stack asks once, when the client's transport parameters have
 /// arrived and before anything is sent. The connection moves to the version, and `own_parameters`,
-/// the octets this server's session sends, are written again so their Chosen Version names it
+/// the bytes this server's session sends, are written again so their Chosen Version names it
 /// (RFC 9368 §3).
 pub fn choose(connection: *Connection, client_parameters: []const u8, own_parameters: []u8) Version {
     assert(connection.role == .server);
@@ -157,7 +157,7 @@ pub fn choose(connection: *Connection, client_parameters: []const u8, own_parame
     local.version_information.?.chosen_version = @intFromEnum(target);
     var writer = core.Writer.init(own_parameters);
     transport_parameters.write(&writer, local, .server) catch unreachable;
-    // Only the four octets of the Chosen Version changed, so the octets are as long as before.
+    // Only the four bytes of the Chosen Version changed, so the bytes are as long as before.
     assert(writer.written().len == own_parameters.len);
     return target;
 }
@@ -212,7 +212,7 @@ pub const Silence = enum {
     not_a_server,
     /// RFC 8999 §6: "Packets with a short header do not trigger version negotiation."
     short_header,
-    /// The datagram's first octets are not a long header at all.
+    /// The datagram's first bytes are not a long header at all.
     unreadable,
     /// RFC 9000 §6.1: "An endpoint MUST NOT send a Version Negotiation packet in response to
     /// receiving a Version Negotiation packet."
@@ -227,7 +227,7 @@ pub const Silence = enum {
 pub const Answer = union(enum) {
     /// No packet is owed, for this reason.
     none: Silence,
-    /// The octets of `output` the Version Negotiation packet occupies. RFC 9000 §17.2.1 makes it
+    /// The bytes of `output` the Version Negotiation packet occupies. RFC 9000 §17.2.1 makes it
     /// a whole datagram of its own: it carries no Length field, so nothing may follow it.
     written: usize,
 };
@@ -253,7 +253,7 @@ pub fn answer(role: Role, datagram: []const u8, output: []u8) Answer {
     // RFC 9000 §5.2.2: "If a server receives a packet that indicates an unsupported version and
     // if the packet is large enough to initiate a new connection for any supported version, the
     // server SHOULD send a Version Negotiation packet". §14.1 puts version 1's size at 1200
-    // octets, and §5.2.2 makes a smaller datagram one to drop: "Servers MUST drop smaller
+    // bytes, and §5.2.2 makes a smaller datagram one to drop: "Servers MUST drop smaller
     // packets that specify unsupported versions."
     if (datagram.len < constants.protocol.datagram_len_min) return .{ .none = .datagram_too_small };
     return .{ .written = write(received, output) };
@@ -262,7 +262,7 @@ pub fn answer(role: Role, datagram: []const u8, output: []u8) Answer {
 /// Writes the packet, having decided one is owed.
 fn write(received: invariant.Long, output: []u8) usize {
     // The caller's buffer holds the packet §17.2.1 makes a whole datagram. Its length is known
-    // before a single octet is written, so a short buffer is the caller's mistake and not the
+    // before a single byte is written, so a short buffer is the caller's mistake and not the
     // peer's doing.
     assert(output.len >= invariant.version_negotiation_len(received, supported_versions.len));
     var writer = Writer.init(output);

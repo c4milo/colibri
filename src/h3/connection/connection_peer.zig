@@ -4,7 +4,7 @@
 //!
 //! A stream the peer opens waits in a slot until its type arrives. The three critical streams then
 //! run for the connection, and closing any of them is H3_CLOSED_CRITICAL_STREAM. Every read copies
-//! the octets out of `quic` and takes only what was used (decision 80), so an instruction or frame
+//! the bytes out of `quic` and takes only what was used (decision 80), so an instruction or frame
 //! cut short stays in `quic` until the rest arrives.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -41,7 +41,7 @@ pub const Peer = struct {
     next_index: u64,
     /// Whether the control stream's first frame, SETTINGS, arrived (RFC 9114 §6.2.1).
     settings_received: bool,
-    /// Octets of an unknown control frame's payload still to skip (§9).
+    /// Bytes of an unknown control frame's payload still to skip (§9).
     control_skip: u64,
 
     pub fn init(peer: *Peer) void {
@@ -118,7 +118,7 @@ fn read_type(connection: *Connection, transport: *QuicConnection, slot: *?Slot) 
     try take(connection, transport, id, kind);
 }
 
-/// Takes the octets the peek copied, and frees the slot once the stream has ended.
+/// Takes the bytes the peek copied, and frees the slot once the stream has ended.
 fn discard(transport: *QuicConnection, slot: *?Slot, peeked: quic.Connection.StreamRead) void {
     const id: StreamId = .{ .value = slot.*.?.id };
     _ = quic.Connection.consume(transport, id, peeked.len) catch unreachable;

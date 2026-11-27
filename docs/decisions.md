@@ -145,8 +145,8 @@ and is re-argued, not edited.
 
    The header-protection member is a mask function and not a block cipher on purpose. RFC 9001
    §5.4.3 makes it AES in Electronic Codebook mode under a 128- or 256-bit key, and §5.4.4 makes
-   it the **raw ChaCha20 function** over a 4-octet counter and a 12-octet nonce taken from the
-   sample, encrypting five zero octets. Those are not the same primitive and neither is an AEAD
+   it the **raw ChaCha20 function** over a 4-byte counter and a 12-byte nonce taken from the
+   sample, encrypting five zero bytes. Those are not the same primitive and neither is an AEAD
    call, so a vtable exposing one ECB block could not protect a ChaCha20 connection at all. The
    mask function is the smallest member that covers both.
 
@@ -251,7 +251,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     bits. **The third does not, and a decoder written as though it did rejects legal input.** A run
     of thirty ones can be produced by adjacent long codes with no EOS present: Appendix B's symbol
     204 is 27 bits ending in five ones and symbol 22 is 30 bits beginning with twenty-nine, so the
-    two-octet string `0xCC 0x16` encodes to a run of thirty-four ones containing no EOS. EOS must
+    two-byte string `0xCC 0x16` encodes to a run of thirty-four ones containing no EOS. EOS must
     therefore be detected at a symbol boundary inside the decode loop, never by scanning for a run.
 
     **Correction to a premise:** the prefixed integer codec is shared too. RFC 9204 §4.1.1 says "The
@@ -362,7 +362,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     §10.1.4 makes TE a list, and RFC 9110 §5.6.1.2 requires a recipient to accept empty members and
     whitespace around the commas. "trailers" is an ABNF quoted string, which matches in any case
     (RFC 7405 §2.1). So the core accepts "Trailers", "trailers," and "trailers, TRAILERS", and
-    nothing with another member. The rejected alternative was comparing the exact octets. It refuses
+    nothing with another member. The rejected alternative was comparing the exact bytes. It refuses
     values the grammar admits, and a refusal there reports the peer's request as malformed when the
     fault is colibri's.
 
@@ -382,7 +382,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     specific rule. h3 trims exactly that whitespace with `field.trim_empty_member_whitespace` and
     refuses any that remains. Two alternatives lost. Refusing every such value in h3 would break
     §5.6.1.2's MUST. Trimming all edge whitespace in h3 would give the two protocols different
-    verdicts for octets no conformant sender produces. What remains is refused with
+    verdicts for bytes no conformant sender produces. What remains is refused with
     `H3_MESSAGE_ERROR`, the code RFC 9114 §8.1 defines for a malformed message, applied here by
     colibri's classification rather than an RFC 9114 rule. A conformant intermediary that forwards
     such a value unchanged is refused too, though only the value's first sender broke the grammar.
@@ -426,9 +426,9 @@ middleware, was reversed by decision 127 and stays here as a record.
     7540's priority signalling but deliberately keeps the frame syntax and some of its mandatory
     handling for interoperability, so colibri still owes all of: accept `PRIORITY` (0x02) in every
     stream state including idle and closed; a stream error of `FRAME_SIZE_ERROR` when its length is
-    not exactly 5 octets; a connection error of `PROTOCOL_ERROR` when its stream identifier is 0x00;
-    and skipping exactly 5 octets when `HEADERS` carries the PRIORITY flag 0x20, or the HPACK block
-    starts at the wrong offset. Skipping the wrong number of octets is the bug this entry exists to
+    not exactly 5 bytes; a connection error of `PROTOCOL_ERROR` when its stream identifier is 0x00;
+    and skipping exactly 5 bytes when `HEADERS` carries the PRIORITY flag 0x20, or the HPACK block
+    starts at the wrong offset. Skipping the wrong number of bytes is the bug this entry exists to
     prevent.
 
     RFC 9218 is optional: §1 says servers "can ignore client priority signals and still successfully
@@ -483,8 +483,8 @@ middleware, was reversed by decision 127 and stays here as a record.
       address are intentional migrations, and then requires path validation on *any* detected change
       to a peer's address unless already validated. NAT rebinding is not active migration and is not
       refusable. So colibri still implements the whole of §8.2 and the migration rules that depend
-      on it: `PATH_CHALLENGE` and `PATH_RESPONSE` with the 8-octet echo (§19.17, §19.18), the
-      one-response-per-challenge rule and the 1200-octet datagram expansion (§8.2.2), the
+      on it: `PATH_CHALLENGE` and `PATH_RESPONSE` with the 8-byte echo (§19.17, §19.18), the
+      one-response-per-challenge rule and the 1200-byte datagram expansion (§8.2.2), the
       anti-amplification limit (§8), the revert-to-last-validated-address rule on failure with a
       silent close when no such address is held (§9.3.2), the challenge to the previously active
       path on an apparent migration (§9.3.3), and the congestion and RTT reset on confirming a new
@@ -611,9 +611,9 @@ middleware, was reversed by decision 127 and stays here as a record.
     **not** what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key,
     nonce and plaintext, so a real suite replays just as deterministically. What it buys is that
     the simulator needs no crypto dependency and costs no cipher time. It must therefore be
-    **size-faithful, not an identity function** — it appends a 16-octet tag and returns a 5-octet
+    **size-faithful, not an identity function** — it appends a 16-byte tag and returns a 5-byte
     mask exactly as a real suite would — because RFC 9001 §5.3's expansion feeds §5.4.2's sample
-    offset, the Length varint, RFC 9000 §14.1's 1200-octet minimum and the anti-amplification
+    offset, the Length varint, RFC 9000 §14.1's 1200-byte minimum and the anti-amplification
     count. A null suite that shortened packets would produce packet sizes QUIC never produces.
 
 ## Performance
@@ -736,7 +736,7 @@ Entry 35 was ruled after entries 1 to 34 were numbered, so it takes the next num
     size part of its memory from a count that the caller sets at run time. `client.Pool` is the
     first such type: the caller sets its count of TCP connections in the options that `init`
     takes. The owner ruled the count at run time on 2026-10-17.
-    - The type has a pure function `memory_bytes(options)`, which returns the octets that those
+    - The type has a pure function `memory_bytes(options)`, which returns the bytes that those
       options need. A caller can call it at comptime to size a static array, or at run time to
       size memory that it maps.
     - `init` takes that memory and asserts its length and its alignment. The memory belongs to
@@ -823,7 +823,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 ## The h2 connection
 
 39. **The connection consumes one frame per call and returns what it produced.** Design §4.1 has the
-    caller hand colibri the octets it read and learn how many were consumed. `receive` takes a slice
+    caller hand colibri the bytes it read and learn how many were consumed. `receive` takes a slice
     and an instant, consumes at most one whole frame, and returns the count consumed and at most one
     event: a field section, a data payload, a stream reset, a GOAWAY, an acknowledged PING or
     SETTINGS. A count of 0 means the slice holds no whole frame yet, or the queued replies must be
@@ -853,7 +853,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       alone doing so still stalls over 2 and 3.
     - The transport holds at least 16 KiB each way, which every socket's buffers exceed.
     - Decision 110's send-rate deadline, on by default, ends a server stalled this way, because
-      its output holds octets the peer does not take.
+      its output holds bytes the peer does not take.
 
     The alternatives refused:
     - Record the transport alone. A server that writes its own frames first could still stall
@@ -875,7 +875,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     caller.
 
     The alternative lost is reassembling the whole block before decoding, which needs storage of
-    `continuation_count_max` times `frame_size_max` octets per connection, 512 KiB at the limits,
+    `continuation_count_max` times `frame_size_max` bytes per connection, 512 KiB at the limits,
     for a block that decodes to at most `field_section_size_max`. Cost: a representation that
     spans two fragments is read twice, once to find it cut and once whole. Gain: the slot is one
     representation plus one frame, invariant 14's byte count is a counter rather than a buffer,
@@ -884,9 +884,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     **Amended by the owner on 2026-11-18, for design §8 step 61a**
     ([#137](https://github.com/c4milo/colibri/issues/137)). Each fragment is decoded where the
-    connection holds it, and only the representation it cuts is copied, with the octets of the
+    connection holds it, and only the representation it cuts is copied, with the bytes of the
     next fragment that finish it. So the slot is one representation, `representation_len_max`
-    octets, and no longer one representation plus one frame: 16,384 octets less a connection,
+    bytes, and no longer one representation plus one frame: 16,384 bytes less a connection,
     and no copy of a block that arrives whole. The design above stands: the block is still
     decoded fragment by fragment, a cut representation is still read twice, and the reader is
     still all-or-nothing per representation. A reader that resumes inside a representation would
@@ -962,7 +962,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     TLS_AES_128_CCM_8_SHA256 by name for its 64-bit tag, so h2 and h3 admit the same set.
 
     RFC 9113 §9.2 makes TLS 1.2 the floor. Admitting 1.3 alone is stricter than the floor and so
-    inside it; a peer that offers less is refused before any HTTP/2 octet moves, and §7's
+    inside it; a peer that offers less is refused before any HTTP/2 byte moves, and §7's
     INADEQUATE_SECURITY names the class.
 
     The alternative lost is honouring §9.2 as written: admit TLS 1.2 and refuse the suites
@@ -982,11 +982,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     commit, its `connect` included.
 
     The ruling decides what the client can link today. chapulin's TLS client reads its socket
-    through a callback that must return octets or fail: `io.c` turns any result of 0 or less into
+    through a callback that must return bytes or fail: `io.c` turns any result of 0 or less into
     `CH_EIO` and the session is dead, so there is no way to say "nothing yet". Under a loop that
     never blocks it cannot run. The client therefore speaks cleartext h2 with prior knowledge
-    (RFC 9113 §3.3), which carries the same h2 octets, and TLS joins through `tls.Provider` when
-    chapulin offers a record mode that takes octets in and returns octets, the third h2 item of
+    (RFC 9113 §3.3), which carries the same h2 bytes, and TLS joins through `tls.Provider` when
+    chapulin offers a record mode that takes bytes in and returns bytes, the third h2 item of
     [docs/chapulin.md](chapulin.md). chapulin's server role is headers and fail-closed stubs
     today, and its design names the same blocking callbacks, so the request applies to it before
     it is written.
@@ -1242,7 +1242,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     to the whole pool. `quic.Connection` computes the cap from the stream's own starting window,
     so `quic` needs no value from the client or the server.
 
-    The reserve is a count of starting windows, and not a count of octets. The reserve that a
+    The reserve is a count of starting windows, and not a count of bytes. The reserve that a
     stream leaves is by definition its own starting window, so the code reads the count and
     multiplies. A program that sets a larger window thus keeps a larger reserve, and needs no
     second setting that could disagree with the window.
@@ -1251,14 +1251,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     went out only after half the connection's window was consumed since the last one
     (`flow_credit_fraction`), so the other streams could get no credit at all while a stream was
     held at its cap. Now a connection with a receive pool also owes MAX_DATA when the credit left
-    to the peer is below its floor, and the application consumed one octet or more since the
+    to the peer is below its floor, and the application consumed one byte or more since the
     last MAX_DATA (RFC 9000 §4.2 leaves the time to the receiver). The floor is the part of the
     pool that a stream of its largest starting window leaves free at its cap: one starting
     window in a pool of two windows or more. A stream that can fill the pool leaves none, so a
-    floor there would cost a frame for each octet and keep nothing free. The new limit is still
-    the octets consumed plus the window, so it never passes the pool (RFC 9000 §4.1). The
+    floor there would cost a frame for each byte and keep nothing free. The new limit is still
+    the bytes consumed plus the window, so it never passes the pool (RFC 9000 §4.1). The
     guarantee is this: while a piece is held, the other streams together can keep the floor's
-    octets in the pool, and each octet they consume gives one octet of credit back. A connection with no pool caps no window and keeps no reserve, so the rule does
+    bytes in the pool, and each byte they consume gives one byte of credit back. A connection with no pool caps no window and keeps no reserve, so the rule does
     not apply to it. A survey of 19 implementations' published defaults supports the reserve:
     HAProxy, which sizes windows from fixed buffers, keeps 10% of the connection from one stream.
     Three alternatives lost:
@@ -1342,7 +1342,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     value that starts or ends with SP or HTAB is malformed in h2, which RFC 9113 §8.2.1 states in
     a MUST of its own. RFC 9114 states no such rule: the word HTAB does not appear in it, and the
     nearest sentence, §10.3's "Any request or response that contains a character not permitted in
-    a field value MUST be treated as malformed", is about which octets appear and not about where
+    a field value MUST be treated as malformed", is about which bytes appear and not about where
     they sit. SP and HTAB are permitted inside a value. The position rule reaches h3 only through
     RFC 9110 §5.5, which states it and which §10.3 imports for its character set alone. So this
     check stays per protocol under the same criterion as the other four, and `http` reports the
@@ -1429,31 +1429,31 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     owner on 2026-09-20, before the send path was written, because each one changes what a
     packet costs and all four would otherwise be settled by whoever typed first.
 
-    **RFC 9001 §5.4.2's four-octet floor is met by widening the packet number, not by PADDING.**
-    Header protection samples four octets, so a packet's Packet Number field and payload together
-    must reach that; a packet carrying only PING or HANDSHAKE_DONE under a one-octet packet number
+    **RFC 9001 §5.4.2's four-byte floor is met by widening the packet number, not by PADDING.**
+    Header protection samples four bytes, so a packet's Packet Number field and payload together
+    must reach that; a packet carrying only PING or HANDSHAKE_DONE under a one-byte packet number
     falls short. §17.1 permits any width that represents the range, so widening is always legal.
     The alternative it beat is writing PADDING, which most implementations do and which is
     simpler. It loses because RFC 9002 §2 counts a packet in flight when it is ack-eliciting "or
     contains a PADDING frame": padding a bare probe or keep-alive spends congestion window on the
     packets least able to afford it, and widening the number spends none.
 
-    **RFC 9000 §14.1's expansion to 1,200 octets lands on the last packet of the datagram.** §14.1
+    **RFC 9000 §14.1's expansion to 1,200 bytes lands on the last packet of the datagram.** §14.1
     permits "adding PADDING frames to the Initial packet or ... coalescing the Initial packet" and
     does not say which. Padding the Initial is what §14.1 names first; it loses because the Initial
-    then counts about 1,200 octets in flight, so a lost first flight costs the whole datagram
+    then counts about 1,200 bytes in flight, so a lost first flight costs the whole datagram
     against the congestion window rather than the Initial's own contents. A trailing PADDING-only
     packet was also refused: it accounts most cleanly and spends a packet number for nothing,
     which invariant 17 makes irreversible.
 
-    **The frame scratch is a comptime parameter defaulting to 1,200 octets.** `crypto.Sealing`
+    **The frame scratch is a comptime parameter defaulting to 1,200 bytes.** `crypto.Sealing`
     forbids the payload overlapping the output, so the frames cannot be framed at their final
     offset and a separate buffer is forced. Decision 35 makes the caller place it, so its size is
     storage the caller commits per connection. `datagram_len_max` was refused at 64 KiB each; a
     flat `datagram_len_min` was refused because it would forgo a larger path MTU permanently. The
     comptime parameter follows `recovery_sent`, which already takes its capacity that way.
 
-    **`token_len_max` is 256 octets.** RFC 9000 bounds an Initial's Token field only by the packet
+    **`token_len_max` is 256 bytes.** RFC 9000 bounds an Initial's Token field only by the packet
     carrying it (§17.2.2, §19.7), so there is no number to derive. 256 comfortably holds the
     authenticated, address-bound, expiring token §8.1.1 describes. It is a judgement and the
     constant says so: 128 risks refusing a Retry from a server that mints something larger, and
@@ -1500,12 +1500,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Connection ID to the first Destination Connection ID. That puts per-Retry state and its expiry
     in every caller, and the token would no longer bind the IDs it vouches for.
 
-56. **One STREAM frame per packet, so a lost packet's stream octets are one range.** Ruled by the
+56. **One STREAM frame per packet, so a lost packet's stream bytes are one range.** Ruled by the
     owner on 2026-09-22, and amended the same day by entry 57, which replaces its rewind on loss
     and its last paragraph.
 
     RFC 9000 §13.3 has application data "retransmitted in new STREAM frames", which means a lost
-    packet must be able to say which stream octets it carried. CRYPTO needed no ruling for this:
+    packet must be able to say which stream bytes it carried. CRYPTO needed no ruling for this:
     one packet carries at most one CRYPTO frame, so `recovery_sent.Record` holds one offset and
     one length. A packet may carry STREAM frames for several streams, and that is what this
     entry settles: it carries one.
@@ -1523,7 +1523,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     measured number rather than argued again.
 
     The alternatives refused. **A fixed array of ranges on `Record`** costs 36 kilobytes a
-    connection at two ranges and 72 at four, against `Record`'s 32 octets and the 768 of them a
+    connection at two ranges and 72 at four, against `Record`'s 32 bytes and the 768 of them a
     connection holds; it also caps how many streams a packet may carry, which is a protocol limit
     invented for storage rather than read from an RFC. **A side table keyed by packet number**
     costs about the same without the cap, and is a second structure that must stay in step with
@@ -1531,52 +1531,52 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     acknowledged ranges per stream, with no packet mapping**, cannot work at all: an ACK frame
     names packet numbers and not stream offsets, so the mapping has to exist somewhere.
 
-    What this does not settle. The octets themselves stay with the caller, which is
+    What this does not settle. The bytes themselves stay with the caller, which is
     non-negotiable 1 and decision 35 and needs no entry of its own: `h2`'s `write_data` already
     takes the caller's payload and answers how much it consumed, and QUIC only strengthens that
     contract from "hold until consumed" to "hold until acknowledged". Which stream sends next is
     the frame scheduler's, not this entry's.
 
-57. **The caller keeps a stream's unacknowledged octets, and colibri reads them through a stream
+57. **The caller keeps a stream's unacknowledged bytes, and colibri reads them through a stream
     provider.** Ruled by the owner on 2026-09-22. It amends entry 56: one STREAM frame per packet
     and the flat range on `Record` stand, and this entry replaces the rest.
 
-    Entry 56 said the octets stay with the caller and that this needed no ruling, because `h2`'s
+    Entry 56 said the bytes stay with the caller and that this needed no ruling, because `h2`'s
     `write_data` already works that way. That precedent does not carry over. Under h2 the kernel
-    retransmits, so an octet colibri has consumed is no longer the caller's concern. Under QUIC
-    colibri retransmits (RFC 9000 §13.3), so the caller must keep each octet until the peer
+    retransmits, so a byte colibri has consumed is no longer the caller's concern. Under QUIC
+    colibri retransmits (RFC 9000 §13.3), so the caller must keep each byte until the peer
     acknowledges it, and colibri must be able to read it again. Entry 56 gave colibri no way to
     read it and gave the caller no way to learn when it may let it go.
 
     So the caller supplies a third vtable, the stream provider. Its one member,
-    `read(stream_id, offset, output)`, writes the stream's octets from `offset` into `output` and
+    `read(stream_id, offset, output)`, writes the stream's bytes from `offset` into `output` and
     returns how many it wrote. colibri calls it only inside `send`, as it calls the suite's
-    `seal`, so it is not a callback at a time colibri chooses (design §4). New octets and lost
-    octets both arrive this way, straight into the packet scratch, so each octet is copied once
-    before sealing, as today. The caller tells colibri how far each stream's octets reach and
-    whether the stream ends there, in a call that passes no octets. The provider must answer the
-    same octets for an offset every time (RFC 9000 §2.2: "The data at a given offset MUST NOT
+    `seal`, so it is not a callback at a time colibri chooses (design §4). New bytes and lost
+    bytes both arrive this way, straight into the packet scratch, so each byte is copied once
+    before sealing, as today. The caller tells colibri how far each stream's bytes reach and
+    whether the stream ends there, in a call that passes no bytes. The provider must answer the
+    same bytes for an offset every time (RFC 9000 §2.2: "The data at a given offset MUST NOT
     change if it is sent multiple times"). colibri holds no copy to check this against, so it is
     the provider's promise, as protecting a packet correctly is the suite's.
 
     Loss resends exactly what was lost. Entry 56 rewound the stream to the lowest lost offset, as
     the CRYPTO rule does. That is cheap for a handshake flight of a few kilobytes. For a stream it
-    resends every octet from the lost one to the send offset, up to 256 packets of them at
+    resends every byte from the lost one to the send offset, up to 256 packets of them at
     `sent_packets_max`, most of them already acknowledged. Instead, a lost packet's range goes
     into a table of lost ranges that the stream table keeps, and `send` frames those before any
-    new octets (§13.3: "Endpoints SHOULD prioritize retransmission of data over sending new
-    data"). New octets wait while a lost range is owed, so the table needs `sent_packets_max`
+    new bytes (§13.3: "Endpoints SHOULD prioritize retransmission of data over sending new
+    data"). New bytes wait while a lost range is owed, so the table needs `sent_packets_max`
     ranges. A range split to fit a smaller packet (§13.3) is the exception, and the table joins
     adjacent ranges of one stream to absorb it; a table that fills anyway closes the connection
     with INTERNAL_ERROR.
 
     Each range of a stream is then in exactly one place: in one packet in flight, in the lost
-    table, or acknowledged. So a count of acknowledged octets per stream is exact in any order of
+    table, or acknowledged. So a count of acknowledged bytes per stream is exact in any order of
     acknowledgment. The stream enters Data Recvd when the count reaches the final size and the
     FIN is acknowledged (§3.1: "Once all stream data has been successfully acknowledged"), and
-    colibri reports it. From then on the caller may drop the stream's octets. A reset ends the
+    colibri reports it. From then on the caller may drop the stream's bytes. A reset ends the
     obligation too (§13.3: "Once an endpoint sends a RESET_STREAM frame, no further STREAM frames
-    are needed"). Two rules keep the count exact. A probe (RFC 9002 §6.2.4) carries new octets or
+    are needed"). Two rules keep the count exact. A probe (RFC 9002 §6.2.4) carries new bytes or
     a PING, never a range already in flight. And recovery reports every acknowledged record,
     where `recovery_sent.Removed` today reports only the largest.
 
@@ -1590,22 +1590,22 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     its other ground, that a cap on streams per packet is a limit invented for storage, and its
     wire cost is still design §11's to measure.
 
-    The cost falls on the caller. It keeps each stream's octets until Data Recvd or a reset. For
+    The cost falls on the caller. It keeps each stream's bytes until Data Recvd or a reset. For
     a small response that is the whole response, which a server holds anyway. For a file it is
     nothing extra, because the provider reads the file. A caller that generates a long body it
     cannot produce again must keep all of it until the stream ends, because colibri reports no
     acknowledged prefix: that needs per-stream bookkeeping of acknowledged ranges, and it serves
     bulk transfer, which decision 31 expects colibri to lose. When `h3` is the caller, it answers
-    for the octets it writes itself, such as SETTINGS and frame headers; that is for `h3` to
+    for the bytes it writes itself, such as SETTINGS and frame headers; that is for `h3` to
     settle when its send path is built. Design §4 gains a fifth item.
 
-    The alternatives refused. **colibri keeps the octets** in a pool the caller places, copied in
-    at write. That keeps `h2`'s contract as it is, but it adds a copy per octet and 40 to 90
-    kilobytes a connection, and the pool's size caps the octets in flight: 64 kilobytes is about
+    The alternatives refused. **colibri keeps the bytes** in a pool the caller places, copied in
+    at write. That keeps `h2`'s contract as it is, but it adds a copy per byte and 40 to 90
+    kilobytes a connection, and the pool's size caps the bytes in flight: 64 kilobytes is about
     26 Mbit/s over a 20 ms round trip, the kind of cap decision 49 removed on the receive side.
     **Keeping each packet's payload** until it is acknowledged, and reading lost frames back out
     of it, is the queue of frames to replay that design §8 step 9e refused, and it holds 300
-    kilobytes a connection at the constants' worst case. **The caller keeps the octets and learns
+    kilobytes a connection at the constants' worst case. **The caller keeps the bytes and learns
     of a loss** by asking for each stream's send offset before every write. That is entry 56 made
     explicit, and it puts resend logic in every caller, where colibri's simulator cannot test it.
 
@@ -1641,7 +1641,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     a `Recovery`, but `send` recorded no packet in it, an ACK frame updated only the packet number
     space, and nothing called the loss timeout. A caller could not have done it either: ACK frames
     are read inside `connection_frames.process` and never reach the caller. And every piece that
-    acts on an acknowledged or lost packet lives in the connection: CRYPTO, stream octets, the flow
+    acts on an acknowledged or lost packet lives in the connection: CRYPTO, stream bytes, the flow
     control frames, HANDSHAKE_DONE and the connection ID frames.
 
     So the connection runs RFC 9002 itself. `send` records each packet it builds (Appendix A.5) and
@@ -1671,7 +1671,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     set. That is CLAUDE.md's "cross the caller's boundary in bulk" for the receive side. It reports
     the peer's CONNECTION_CLOSE, the streams that finished, and what a Retry or a Version
     Negotiation packet did. An error is a connection error, and
-    `connection_datagram.connection_error_code` names its code. The caller still owns the octets,
+    `connection_datagram.connection_error_code` names its code. The caller still owns the bytes,
     the instant and the scratch (decision 35), and still installs each level's keys as its provider
     produces them (decision 48).
 
@@ -1680,18 +1680,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     never counts a datagram, then breaks §13.1 or §8.1 with nothing to say so. It is decision 59's
     reasoning, applied to the receive side.
 
-61. **colibri reassembles received stream octets into a pool the caller places.** Ruled by the
+61. **colibri reassembles received stream bytes into a pool the caller places.** Ruled by the
     owner on 2026-09-23. It settles [#41](https://github.com/c4milo/colibri/issues/41) and
     [#42](https://github.com/c4milo/colibri/issues/42).
 
     colibri checked every STREAM frame against RFC 9000's flow control, final size and state
-    rules and kept none of the octets, so no caller could read a stream. And decision 49's
+    rules and kept none of the bytes, so no caller could read a stream. And decision 49's
     window growth had no cap, so no window grew.
 
-    So colibri reassembles. A connection's received octets go into one pool the caller places,
+    So colibri reassembles. A connection's received bytes go into one pool the caller places,
     `stream_incoming.Pool(capacity)`, in fixed-size blocks any stream may take. The application
-    reads a stream's octets in order, and what it reads is what gives the peer new credit (RFC
-    9000 §4.1). One pool is enough for every stream: the octets waiting across all streams can
+    reads a stream's bytes in order, and what it reads is what gives the peer new credit (RFC
+    9000 §4.1). One pool is enough for every stream: the bytes waiting across all streams can
     never pass the connection window, so the pool is sized by it plus two blocks per stream for
     the ends of each stream's span. colibri never advertises more than it can hold, so the pool's
     capacity is decision 49's cap, for the connection and for each stream alike. The default
@@ -1699,16 +1699,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     caller that wants more places a larger pool. A connection given no pool reads no stream: it
     checks STREAM frames and keeps nothing, and its windows stay where they start.
 
-    Three alternatives were refused. Handing each frame's octets to the caller puts reassembly
+    Three alternatives were refused. Handing each frame's bytes to the caller puts reassembly
     in every caller, which is decision 60's reasoning again. A buffer per stream, sized to that
-    stream's largest window, commits 128 of them per connection. Handing in-order octets out as
+    stream's largest window, commits 128 of them per connection. Handing in-order bytes out as
     they arrive and keeping only what sits past a gap needs less pool, but makes the caller take
-    octets whenever they come rather than when it reads.
+    bytes whenever they come rather than when it reads.
 
     Amended by the owner on 2026-10-17, after a review of the server's defences (design §8 step
     20e): the pool finds a block through an index, not by a walk of its stream's list. Each
     STREAM frame walked the list from the stream's first block. A peer that leaves the first
-    octets out and sends one octet into each block of its window made each frame walk the whole
+    bytes out and sends one byte into each block of its window made each frame walk the whole
     list: up to 1,026 blocks at the default pool of 1 MiB. RFC 9000 §21.7 asks for a mitigation
     of this "large and inefficient data structure".
     - The pool holds a bucket for each block. A block lies in the bucket its stream and number
@@ -1717,9 +1717,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       buckets, so a chain holds at most one block of each stream. A lookup takes at most one
       probe for each stream that holds blocks.
     - A stream keeps a count of its blocks in place of its first block. A stream reset with
-      octets unread gives them back by a walk of every bucket, which is rare.
+      bytes unread gives them back by a walk of every bucket, which is rare.
 
-    The pool grows by two octets a block, 2,560 octets at the default capacity. The alternatives
+    The pool grows by two bytes a block, 2,560 bytes at the default capacity. The alternatives
     refused: a pointer to each stream's last block, which speeds honest traffic but leaves a
     write into the middle of a list at the full walk; a cap on the blocks past a gap, which an
     honest peer with heavy loss and a large window could reach; and the cost left as it was.
@@ -1736,7 +1736,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     9001 §4.1.4 says an endpoint "SHOULD buffer received packets if they might be processed using
     keys that are not yet available".
 
-    So `receive` advances the handshake after each packet it processes. It hands TLS the octets
+    So `receive` advances the handshake after each packet it processes. It hands TLS the bytes
     that packet's CRYPTO frames completed, takes the peer's parameters and asks whether the
     handshake completed. Then it asks `crypto.Suite.keys_available` about each level and
     direction still in state `none` (invariant 21) and marks the ready ones installed, before it
@@ -1751,7 +1751,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     makes its keys still loses it, which §12.2 asks senders not to do.
 
     Two alternatives were refused. `receive` could report the packets it refused for want of keys
-    and the caller feed them in again, but their octets would count twice toward RFC 9000 §8.1's
+    and the caller feed them in again, but their bytes would count twice toward RFC 9000 §8.1's
     limit unless a second entry point skipped the count. Leaving it costs every handshake at least
     one round trip.
 
@@ -1779,31 +1779,31 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     and `testing-clock` holds it to this entry's clock rule alone.
 
 64. **A PTO at the Initial or Handshake level declares that level's packets in flight lost, so its
-    probe carries their CRYPTO octets.** Ruled by the owner on 2026-09-23. It keeps entry 57's rule
-    that no octet is in two packets at once, and settles the QUIC Interop Runner's handshake loss
+    probe carries their CRYPTO bytes.** Ruled by the owner on 2026-09-23. It keeps entry 57's rule
+    that no byte is in two packets at once, and settles the QUIC Interop Runner's handshake loss
     case.
 
-    A probe (RFC 9002 §6.2.4) carried new octets or a PING, and at the handshake levels there are
-    rarely new octets, so it carried a PING. Lost CRYPTO octets were sent again only once an
+    A probe (RFC 9002 §6.2.4) carried new bytes or a PING, and at the handshake levels there are
+    rarely new bytes, so it carried a PING. Lost CRYPTO bytes were sent again only once an
     acknowledgment showed them lost. Under bursty loss the probes that did arrive gave the peer
     nothing it could use, and the runner's handshake loss case failed in both roles.
 
     §6.2.4 offers: "instead of sending an ack-eliciting packet, the sender MAY mark any packets
     still in flight as lost." colibri does that at the Initial and Handshake levels when their PTO
-    fires, and then sends the probes. Their CRYPTO octets enter the lost ranges, so the probes
-    carry them, and each octet is still in exactly one place.
+    fires, and then sends the probes. Their CRYPTO bytes enter the lost ranges, so the probes
+    carry them, and each byte is still in exactly one place.
 
-    These packets are declared lost to move their octets, not because the path signalled
+    These packets are declared lost to move their bytes, not because the path signalled
     congestion, so they are no congestion event. §6.2.4 names "an unnecessary rate reduction by the
     congestion controller" as the risk of this choice, and colibri takes none.
 
-    Two alternatives were refused. Letting a probe repeat octets still in flight breaks entry 57's
-    rule, and the CRYPTO stream's accounting would have to take one octet in two packets. Leaving
+    Two alternatives were refused. Letting a probe repeat bytes still in flight breaks entry 57's
+    rule, and the CRYPTO stream's accounting would have to take one byte in two packets. Leaving
     PING-only probes keeps every lossy handshake waiting on a round trip it need not.
 
     Amended by the owner on 2026-09-28: when a PTO at the Initial or Handshake level owes two
-    probes and the first carries all of the level's CRYPTO octets, the second carries them again
-    in place of a PING. This reverses the first alternative refused above, for CRYPTO octets
+    probes and the first carries all of the level's CRYPTO bytes, the second carries them again
+    in place of a PING. This reverses the first alternative refused above, for CRYPTO bytes
     alone.
     - In the QUIC Interop Runner's `handshakeloss` case against quic-go, colibri's client lost 2
       of 8 runs to one pattern. Its Finished went in one probe datagram and a PING in the other,
@@ -1813,19 +1813,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       second copy of the Finished would have ended the handshake.
     - RFC 9002 §6.2.4 permits it: "Previously sent data MAY be sent if no new data can be sent",
       and a second datagram is there "to avoid an expensive consecutive PTO expiration due to a
-      single lost datagram". RFC 9000 §2.2 has the receiver discard octets it already holds.
-    - The CRYPTO accounting already takes it. A CRYPTO stream keeps no record of which octets
+      single lost datagram". RFC 9000 §2.2 has the receiver discard bytes it already holds.
+    - The CRYPTO accounting already takes it. A CRYPTO stream keeps no record of which bytes
       were acknowledged: a lost packet rewinds the level's send offset, "the lowest rewind wins",
-      and nothing is tracked per packet. So a copy in flight changes no count. Stream octets keep
+      and nothing is tracked per packet. So a copy in flight changes no count. Stream bytes keep
       entry 57's rule and INV-29 unchanged.
     - `Connection.crypto_probe_from` notes where the PTO's rewind left each level. A packet
       built while a probe is owed, with nothing left unsent at its level, rewinds there and
-      frames the octets again. A single probe, such as decision 70's in another space, and a
-      flight longer than one packet, whose second probe carries the next octets, are as before.
+      frames the bytes again. A single probe, such as decision 70's in another space, and a
+      flight longer than one packet, whose second probe carries the next bytes, are as before.
 
-65. **A server whose client shows it lacks the server's Initial CRYPTO octets sends them again at
+65. **A server whose client shows it lacks the server's Initial CRYPTO bytes sends them again at
     once, at most twice per connection.** Ruled by the owner on 2026-09-23. It takes RFC 9002
-    §6.2.3's option to speed up handshake completion, and moves the octets as entry 64 does.
+    §6.2.3's option to speed up handshake completion, and moves the bytes as entry 64 does.
 
     In the QUIC Interop Runner's handshake loss case, one connection lost the server's first
     flight and the CRYPTO probe of each of the next three PTOs, while the PING probes arrived.
@@ -1837,11 +1837,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     An endpoint then "MAY, for a limited number of times per connection, send a packet containing
     unacknowledged CRYPTO data earlier than the PTO expiry". A padded Initial PING shows the same
     thing: §6.2.2.1 has a client send one when its PTO fires only if it has no Handshake keys, and
-    a client with the server's Initial CRYPTO octets has them.
+    a client with the server's Initial CRYPTO bytes has them.
 
     So a server takes either as the signal: an ack-eliciting Initial packet that brings no new
-    CRYPTO octets, while its own Initial CRYPTO octets are in flight. It declares its Initial
-    packets in flight lost, and the next datagram carries their octets. Like entry 64, this is no
+    CRYPTO bytes, while its own Initial CRYPTO bytes are in flight. It declares its Initial
+    packets in flight lost, and the next datagram carries their bytes. Like entry 64, this is no
     congestion event.
 
     The limit is `early_crypto_resends_max`, 2. §6.2.3 warns that "An endpoint that always
@@ -1871,7 +1871,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     RFC 9002 §6.2.4 lets a sender "mark any packets still in flight as lost". At the application
     level colibri marks the oldest ack-eliciting ones, `probe_packets` of them, and the probes
-    carry their frames. Each octet is still in one place (entry 57). Like entry 64, this is no
+    carry their frames. Each byte is still in one place (entry 57). Like entry 64, this is no
     congestion event.
 
     Two alternatives were refused. Declaring every application packet in flight lost, as entry 64
@@ -2007,7 +2007,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     11 to 3.
 
     Each other space's packet follows the rule of its level: decision 64 declares an Initial or
-    Handshake space's packets in flight lost, so the probe carries their CRYPTO octets, and
+    Handshake space's packets in flight lost, so the probe carries their CRYPTO bytes, and
     decision 66 declares the oldest application packet lost.
 
     The alternative refused: probing only the space whose timer expired, which is what colibri
@@ -2017,7 +2017,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     the owner on 2026-09-24. It amends entry 65.
 
     A client whose PTO fires sends two probes at once (RFC 9002 §6.2.4), and each is an Initial
-    packet that brings the server no new CRYPTO octets. Under entry 65 the server answered each
+    packet that brings the server no new CRYPTO bytes. Under entry 65 the server answered each
     with an early resend, so both resends went out 6 ms apart, and in the QUIC Interop Runner's
     handshake loss case one loss took both. The simulator cannot show this, because it delivers
     every datagram due at one instant before either endpoint sends.
@@ -2036,7 +2036,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     rebinding does.
 
     colibri owns no socket (non-negotiable 1), so it cannot see an address. The caller passes one
-    with each datagram: up to `peer_address_len_max` octets and a port, which colibri compares
+    with each datagram: up to `peer_address_len_max` bytes and a port, which colibri compares
     and never reads otherwise. From that:
     - A client discards a datagram from any address but its server's. §9: "If a client receives
       packets from an unknown server address, the client MUST discard these packets."
@@ -2070,11 +2070,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     them validates the path (§8.2.3).
 
     Amended again after the QUIC Interop Runner's rebind cases, where a colibri server lost the
-    first challenge on a new path and then had no room to send another. The client's 117 octets
+    first challenge on a new path and then had no room to send another. The client's 117 bytes
     from its new port allowed 351, and the challenge's packet was filled with stream data. So,
     until a path the peer moved to is validated, colibri sends ACK and path frames alone there,
-    and a datagram carrying a path frame is padded only when all 1,200 octets fit (§8.2.1 excepts
-    the rest, and part of the padding validates no path MTU). The octets §8 allows then go to the
+    and a datagram carrying a path frame is padded only when all 1,200 bytes fit (§8.2.1 excepts
+    the rest, and part of the padding validates no path MTU). The bytes §8 allows then go to the
     challenges §13.3 sends. The ACK frames stay because withholding them deadlocked the
     simulator: a peer whose window was full of unacknowledged data could not send its
     PATH_RESPONSE. Each challenge also repeats the latest ACK, whether or not anything new asks
@@ -2091,10 +2091,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     small ack-eliciting frame occasionally, such as once per round trip, to elicit an ACK from
     the peer." A colibri client that only downloads sent only ACK frames, so it had nothing in
     flight and no PTO armed. In the QUIC Interop Runner's rebind case, quic-go's server followed
-    the client to its new port and sent one PATH_CHALLENGE, padded to all the octets §8 allowed
+    the client to its new port and sent one PATH_CHALLENGE, padded to all the bytes §8 allowed
     it. The challenge was lost, and the server could send nothing more until the client sent
     again, which a client that receives nothing and owes nothing never did. With a PING in flight
-    the client's PTO stays armed, and its probes give the server the octets to challenge again.
+    the client's PTO stays armed, and its probes give the server the bytes to challenge again.
     (A first reading, that quic-go ignored packets of ACK frames alone, was wrong: it was waiting
     for a spare connection ID, RFC 9000 §9.3, which colibri's test endpoint now issues.)
 
@@ -2129,10 +2129,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     RFC 9204 §2.2.1 blocks a stream whose field section needs dynamic table entries that have not
     arrived yet. colibri owns no I/O and no heap (non-negotiables 1 and 4), so the decoder holds
-    none of the section's octets:
+    none of the section's bytes:
     - `read_section` reads the prefix. When the Required Insert Count is above the decoder's
       insert count, it records the stream as blocked and returns `blocked`. The caller keeps the
-      octets, which §2.2.1 already asks it to leave in the stream's flow-control window.
+      bytes, which §2.2.1 already asks it to leave in the stream's flow-control window.
     - `ready_stream` names a blocked stream whose section can now be decoded, and the caller
       calls `read_section` for it again. The decoder holds each blocked stream's ID and Required
       Insert Count, at most `blocked_streams_max` of them. That limit is also the most the caller
@@ -2154,8 +2154,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       high blocks a stream for nothing.
 
     The alternatives refused:
-    - The decoder copies a blocked section's octets. That needs room for `blocked_streams_max`
-      sections, and the caller already holds the octets.
+    - The decoder copies a blocked section's bytes. That needs room for `blocked_streams_max`
+      sections, and the caller already holds the bytes.
     - A callback when a stream unblocks. Design §4 forbids colibri a call into the caller at a
       time of its choosing.
     - Each decoder instruction written into the caller's buffer as it arises. That crosses the
@@ -2227,7 +2227,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       is encoded against the peer's maximum, which is what the peer's decoder uses (§4.5.1.1).
     - When `outstanding_sections_max` sections are unacknowledged, the next section references no
       dynamic entry, so it needs no record.
-    - The encoder stream octets it wrote are owed even when the field section did not fit. The
+    - The encoder stream bytes it wrote are owed even when the field section did not fit. The
       inserts are in the encoder's table, so the decoder must receive them too.
 
     The alternatives refused:
@@ -2238,7 +2238,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       until the acknowledgments arrive, which is correct and costs compression only. Design §11
       measures before adding them.
     - A dynamic name reference in an insert. The static name or a literal name serves, and a
-      reference to the dynamic table's own octets would need a copy before the insert evicts them.
+      reference to the dynamic table's own bytes would need a copy before the insert evicts them.
 
 77. **Lean 4 proves the pure arithmetic under colibri's codecs, and vector files tie each proved
     definition to the Zig function it mirrors.** Ruled by the owner on 2026-09-24, on issue #52:
@@ -2268,19 +2268,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       and the Zig code would stop being the one people read and review.
     - Proving the Zig code itself. There is no verifier for Zig.
 
-78. **colibri reports how far a stream's octets are acknowledged from its start.** Ruled by the
+78. **colibri reports how far a stream's bytes are acknowledged from its start.** Ruled by the
     owner on 2026-09-24, for design §8 step 12. It amends entry 57, which said colibri reports no
     acknowledged prefix.
 
     h3 writes three streams of its own that never end: its control stream (RFC 9114 §6.2.1) and
     QPACK's encoder and decoder streams (RFC 9204 §4.2). Closing any of them is a connection
-    error. Entry 57 lets a caller drop a stream's octets only once the stream reaches "Data
-    Recvd" or is reset, and these three do neither. So every octet h3 writes on them would stay
+    error. Entry 57 lets a caller drop a stream's bytes only once the stream reaches "Data
+    Recvd" or is reset, and these three do neither. So every byte h3 writes on them would stay
     in memory for the whole connection, and the encoder stream grows with every insert.
 
     `connection_stream_acknowledged.acknowledged_end(connection, id)` returns the offset below
-    which the peer has acknowledged every octet of the stream, and the caller may drop those
-    octets. It keeps no new state. Each framed octet sits in one packet in flight, in the lost
+    which the peer has acknowledged every byte of the stream, and the caller may drop those
+    bytes. It keeps no new state. Each framed byte sits in one packet in flight, in the lost
     table, or is acknowledged (invariant 29). So the answer is the lowest offset that an
     in-flight record or a lost range of the stream holds, or the end of what was framed when
     neither holds any. It scans the application space's sent records and the lost table, at most
@@ -2295,38 +2295,38 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       inserting after a fixed budget. It needs nothing from `quic`, but no peer could use a
       dynamic table toward colibri.
 
-79. **h3 keeps the octets of its own three streams, and the caller keeps every request stream's.**
-    Ruled by the owner on 2026-09-24, for design §8 step 12. Entry 57 left the octets h3 writes
+79. **h3 keeps the bytes of its own three streams, and the caller keeps every request stream's.**
+    Ruled by the owner on 2026-09-24, for design §8 step 12. Entry 57 left the bytes h3 writes
     itself for h3 to settle.
     - The control stream and QPACK's encoder and decoder streams are h3's. It writes them and
       holds each in a fixed buffer on the h3 connection. It drops the part below the stream's
       acknowledged end (entry 78) and moves the rest to the front, so the free room is one slice
-      a writer can fill. A buffer with no room never drops an octet. The encoder then does not
+      a writer can fill. A buffer with no room never drops a byte. The encoder then does not
       insert, and the decoder holds the instructions it owes, as entry 74 has it.
-    - A request stream's octets are the caller's: the HEADERS frame, each DATA frame's header, and
-      the body. h3 writes the frames' octets into the caller's buffer, as `h2`'s write path does.
+    - A request stream's bytes are the caller's: the HEADERS frame, each DATA frame's header, and
+      the body. h3 writes the frames' bytes into the caller's buffer, as `h2`'s write path does.
       The caller keeps them with the body until the stream reaches "Data Recvd" or is reset. h3
       keeps nothing per request stream but its state.
     - h3 hands `quic` one stream provider. It answers h3's three streams from the rings and
       passes every other stream to the caller's provider.
 
-    The alternative refused: h3 keeps the frame octets of each request stream and asks the
-    caller's provider for body octets only. The caller's provider is simpler. But h3 would then
-    hold up to one encoded field section per open stream, `field_section_size_max` octets each,
+    The alternative refused: h3 keeps the frame bytes of each request stream and asks the
+    caller's provider for body bytes only. The caller's provider is simpler. But h3 would then
+    hold up to one encoded field section per open stream, `field_section_size_max` bytes each,
     in memory decision 35 counts.
 
-80. **An application may copy a stream's received octets without reading them, and take them
+80. **An application may copy a stream's received bytes without reading them, and take them
     later.** Adopted on 2026-09-24 for design §8 step 12; the owner may overrule it. It adds to
     entry 61.
 
     h3 needs a HEADERS frame whole before QPACK decodes it. A field section blocked on the dynamic
     table (RFC 9204 §2.2.1) must wait until the entries it needs arrive. Entry 74 hands a blocked
-    section back unread and leaves its octets with the caller, "which §2.2.1 already asks it to
-    leave in the stream's flow-control window". But entry 61's `read` copies octets out and
+    section back unread and leaves its bytes with the caller, "which §2.2.1 already asks it to
+    leave in the stream's flow-control window". But entry 61's `read` copies bytes out and
     consumes them in one step, so h3 would need a buffer of its own for every blocked section.
 
     So `connection_stream_read` gains two calls:
-    - `peek` copies what `read` would and leaves the octets unread. They give the peer no credit
+    - `peek` copies what `read` would and leaves the bytes unread. They give the peer no credit
       (RFC 9000 §4.1) until they are taken.
     - `consume` takes a count of them as `read` would, without copying them again.
 
@@ -2354,9 +2354,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        connection window.
     4. The peer consumed nothing more and sent no credit, so the insert never went out.
 
-    `connection_stream_credit.send_credit(connection, id)` returns the octets a stream can still
-    send. That is the smaller of the stream's credit and the connection's, each less the octets
-    not yet framed that spend it first. For the connection's credit, those are the octets of every
+    `connection_stream_credit.send_credit(connection, id)` returns the bytes a stream can still
+    send. That is the smaller of the stream's credit and the connection's, each less the bytes
+    not yet framed that spend it first. For the connection's credit, those are the bytes of every
     stream that RFC 9000 §2.3's order frames before this one or in turn with it. h3 cuts the
     encoder's writer to that length. An insert the credit cannot carry is not made, and the
     encoder writes the line as a literal.
@@ -2372,11 +2372,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     2026-09-24, for design §8 step 5 and https://github.com/c4milo/colibri/issues/20. Entry 46
     stands: this is the handshake it was waiting for.
 
-    chapulin's `ROLE=server TRANSPORT=record` object takes the octets the caller read through
+    chapulin's `ROLE=server TRANSPORT=record` object takes the bytes the caller read through
     `ch_srv_record_in`, and hands the server's flight to an `on_record_out` callback. It never
     calls `send` or `recv` during the handshake (its INV-28). So the h2 server's `--tls` mode runs
     a handshake inside its one `poll` loop:
-    - `chapulin_server.zig` passes the octets read, and gets the flight back in the connection's
+    - `chapulin_server.zig` passes the bytes read, and gets the flight back in the connection's
       output.
     - `h2_tls.zig` opens the records into h2's byte stream once `attach_tls` accepts the
       handshake, and seals what the session writes.
@@ -2411,7 +2411,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A worker keeps one accept in flight while it has a free slot. Each connection has at most
       one receive, one send and, at its end, one close in flight, and its slot is reused only
       after every one of them has its final event (Rotor's rule 1).
-    - A receive writes into a buffer of its own, and its octets are appended to the session's
+    - A receive writes into a buffer of its own, and its bytes are appended to the session's
       input when its event arrives. The session moves what is left of its input as it consumes,
       and Rotor owns a receive's buffer until its final event (Rotor's rule 3), so a receive never
       targets the input.
@@ -2581,9 +2581,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - The module holds RFC 1951's inflate, the zlib wrapper of RFC 1950 with its Adler-32 check,
       and the gzip wrapper of RFC 1952 with its CRC-32 check. It imports `core` alone, and `h11`
       imports it. The three RFCs are in `docs/rfcs/compression/`.
-    - It decodes input that arrives in pieces. Each call takes the octets the caller has, writes
+    - It decodes input that arrives in pieces. Each call takes the bytes the caller has, writes
       what it can into the caller's output, and says whether it needs more input or more room. It
-      keeps its state and its window of 32,768 octets in storage the caller owns, because a
+      keeps its state and its window of 32,768 bytes in storage the caller owns, because a
       deflate distance reaches that far back (RFC 1951 §2).
     - zlib and Wuffs may serve as test oracles and benchmark baselines in `tools/` and `bench/`.
       Neither is linked into the library.
@@ -2631,13 +2631,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       client fails the response.
     - `deflate` is the zlib format alone, as RFC 9110 §8.4.1.2 defines it. A raw deflate stream
       fails the zlib header check and is refused.
-    - h11 caps no decoded size. The decoded octets go into the application's buffers, so colibri's
+    - h11 caps no decoded size. The decoded bytes go into the application's buffers, so colibri's
       memory stays bounded, and the application stops reading at its own limit, as it does for
       any body.
     - A `gzip` body may hold several members (RFC 1952 §2.2). Each member's CRC-32 and length are
       checked.
-    - Octets after the coded stream ends inside the body make the message malformed. A server
-      answers 400 and closes the connection, and a client fails the response. Octets that belong
+    - Bytes after the coded stream ends inside the body make the message malformed. A server
+      answers 400 and closes the connection, and a client fails the response. Bytes that belong
       to no coding are a framing disagreement, which is how request smuggling starts.
     - Two verdicts. A server answers 400 and closes for a corrupt body, such as a wrong checksum or
       a malformed block. It answers 501 for a feature it refuses, such as a zlib preset dictionary
@@ -2653,13 +2653,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     The alternatives refused:
     - Stacked compression codings, with a named limit on their depth. Each layer costs another
-      window of 32,768 octets.
-    - Raw deflate accepted by inspecting the first two octets. A corrupt body would then pass as
+      window of 32,768 bytes.
+    - Raw deflate accepted by inspecting the first two bytes. A corrupt body would then pass as
       raw deflate for longer before it failed.
     - A named limit on each message's decoded size, or on its ratio to the coded size. The ratio
       limit also refuses content that is legitimately repetitive.
     - The first `gzip` member alone, which refuses input RFC 1952 allows.
-    - Leftover octets read and dropped, so two parsers can disagree about what a body held.
+    - Leftover bytes read and dropped, so two parsers can disagree about what a body held.
     - One verdict for every decoder error.
     - A decoder inside every connection. A server holding 10,000 idle connections would spend
       about 400 MB on decoders it rarely uses.
@@ -2680,7 +2680,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       - 400 for a malformed request (RFC 9112 §2.2, §3.2, §5.1, §6.3; RFC 9110 §15.5.1), and for
         a CONNECT request that declares content (RFC 9110 §9.3.6, decision 109);
       - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15),
-        unless its method holds an octet no token holds, which is a 400 at once (decision 109);
+        unless its method holds a byte no token holds, which is a 400 at once (decision 109);
       - 431 for a head, field section or trailer section past colibri's limits (RFC 6585 §5, now in
         `docs/rfcs/`);
       - 501 for a transfer coding h11 does not decode, when chunked is the final coding (RFC 9112
@@ -2815,11 +2815,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       key as an opaque pointer and changes no code. RSA-2048 signing goes from 37 ms to about 1 ms
       on an M1 Pro, by chapulin's measurement.
     - Each QUIC session and each configuration grows by one or two words. The memory table of
-      docs/performance.md moves by 8 to 144 octets a row.
+      docs/performance.md moves by 8 to 144 bytes a row.
 
     The alternatives refused:
     - A chapulin tag first. `takes_tickets` then waits for chapulin's next release.
-    - An anchor limit of 256 now, for a system bundle. Each channel grows by 15,616 octets
+    - An anchor limit of 256 now, for a system bundle. Each channel grows by 15,616 bytes
       before a program can read a bundle
       ([#97](https://github.com/c4milo/colibri/issues/97)).
 
@@ -2834,7 +2834,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       (chapulin's decisions 134, 136 and 137). colibri calls these through forms of the Zig API
       that did not change, so no other code changes.
     - Each `tls` session holds one more word, `instant`. With chapulin's own changes, the rows
-      of the memory table in docs/performance.md move by 8 octets down to 48 up.
+      of the memory table in docs/performance.md move by 8 bytes down to 48 up.
 
     **Amended by the owner on 2026-10-18 and 2026-10-19, a third time: the pin moves to chapulin
     main 50d7d17b.** It is 20 commits after e6e3c1e7. chapulin's decision 138 moves the answer to
@@ -2845,7 +2845,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - chapulin's `read` sends only the alert of a failure. It reads 16 KeyUpdates in a row,
       `CH_KEY_UPDATE_RUN_MAX`, and fails the read of the 17th with unexpected_message.
     - The adapter keeps only that alert, so `tls.constants.key_update_replies_max` is removed.
-      `State.owed` holds 24 octets in place of 78.
+      `State.owed` holds 24 bytes in place of 78.
     - colibri drops the rule of 5368f5b that a second request ends the connection while an
       answer is owed. RFC 9846 §4.7.3 puts its rule on the sender of the request, and describes
       "a single update" for several requests.
@@ -2875,12 +2875,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     not change. colibri calls each function by its new name, and its own names do not change.
     Design §8 step 16 records each move.
 
-95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
+95. **h11 counts body bytes the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.
-    - `Connection.count_body(len)` counts `len` octets against the body the head declared, as
-      `write_body` does, and writes nothing. The caller sends those octets itself, next, before
-      any other octet of the connection: in cleartext from its buffer, and over TLS through
+    - `Connection.count_body(len)` counts `len` bytes against the body the head declared, as
+      `write_body` does, and writes nothing. The caller sends those bytes itself, next, before
+      any other byte of the connection: in cleartext from its buffer, and over TLS through
       `connection_tls.encrypt` from the same buffer.
     - It serves a body with a Content-Length, a body the close ends, and a tunnel. A chunked body
       refuses it with `BodyChunked`, because each chunk needs a size line before its data (RFC
@@ -2888,14 +2888,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - `write_body` and `count_body` share one count, so a caller may use both on one body.
 
     The alternatives refused:
-    - `write_body` alone, which copies every octet of the body into the output buffer. The caller
-      already holds the octets, and the copy reads and writes each of them once more.
-    - A call that returns the octets to send as a list of slices, the caller's among them. A body
+    - `write_body` alone, which copies every byte of the body into the output buffer. The caller
+      already holds the bytes, and the copy reads and writes each of them once more.
+    - A call that returns the bytes to send as a list of slices, the caller's among them. A body
       with a Content-Length has no framing, so the list would hold one slice, the caller's own.
-    - A chunked form that writes a chunk's size line, counts the caller's octets, and writes the
+    - A chunked form that writes a chunk's size line, counts the caller's bytes, and writes the
       CRLF after them. No caller needs it yet.
 
-    Cost: colibri cannot check that the octets counted are the octets sent, or that they go out
+    Cost: colibri cannot check that the bytes counted are the bytes sent, or that they go out
     next. A caller that counts one thing and sends another frames the message wrongly, which is
     how request smuggling starts.
 
@@ -2907,7 +2907,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       step, so an example that stops working fails CI.
     - A client and a server run in one process, each on its own Rotor loop. What one side sends is
       copied into the other side's queue in memory, and a message posted between the loops says
-      how many octets arrived (`examples/link.zig`). The instant colibri takes is the one the
+      how many bytes arrived (`examples/link.zig`). The instant colibri takes is the one the
       side's loop read at its last tick.
     - The examples open no socket, so `src/testing/` stays the one directory that does. Rotor is
       still a lazy package that only colibri's own build requests, and the library imports it
@@ -2937,7 +2937,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Programs over real sockets that CI builds and never runs, as chapulin's are. They show a
       whole program, but a broken one passes CI, and they would make a second directory open
       sockets.
-    - Octets passed between the two sides with no loop at all. It is shorter, but it shows no
+    - Bytes passed between the two sides with no loop at all. It is shorter, but it shows no
       program's shape: where the loop, the time and colibri's calls meet.
 
 97. **The library's TLS module is `tls`, and the vtable it fills is `tls_provider`.** Ruled by the
@@ -2987,8 +2987,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - chapulin refuses `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its
       `ct.h`, INV-26).
     - ChaCha20-Poly1305 is also the faster AEAD in software. chapulin's `bench/aead.sh` timed a
-      1200-octet seal on an AMD EPYC 7763 under Linux, built by gcc 13.3 at `-O2`: 6.04 ns per
-      octet for ChaCha20-Poly1305, and 135 for AES-128-GCM over `AES=soft`. chapulin's
+      1200-byte seal on an AMD EPYC 7763 under Linux, built by gcc 13.3 at `-O2`: 6.04 ns per
+      byte for ChaCha20-Poly1305, and 135 for AES-128-GCM over `AES=soft`. chapulin's
       `docs/quic.md` holds the run, under "What the AES axis costs in time, measured".
 
     The alternative refused: AES-GCM in software on those targets. chapulin lets no software AES
@@ -3122,26 +3122,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     that hides SSE4.1 and shows the SHA extensions would fault, and no judge measures x86-64.
 
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
-    on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
+    on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded bytes reach the
     application.
     - `receive(input, decoded)` takes the buffer, and stdx's decoder writes straight into it. Each
       `data` event of a body carrying `gzip` or `deflate` is a slice of it, valid until the caller
       passes it again. A caller that places no decoder pool passes it empty.
-    - The pool holds decoders alone: `h11.coding.Pool(count)`, 43,216 octets a decoder, which the
+    - The pool holds decoders alone: `h11.coding.Pool(count)`, 43,216 bytes a decoder, which the
       caller places and gives each connection in `Options.decoders`. `DefaultPool` holds
-      `decoders_default`, 16, in 691,472 octets. The caller prepares it with
+      `decoders_default`, 16, in 691,472 bytes. The caller prepares it with
       `storage().reset(features)` and chooses the features, `Features.detect()` or
       `Features.target()`, so colibri never asks the CPU itself. Since 2026-11-24 the type is
       `h11.coding.CpuFeatures`, stdx's `platform.CpuFeatures` (decision 102 as amended that day).
       Amended by decision 169: the pool holds no features, and each connection gives its own,
       from `Options.cpu_features`, to the decoder a message takes.
-    - The reason is copies. stdx writes each decoded octet once, and at the end of each call copies
-      the call's last 32,768 octets into its window. Into the caller's own buffer that is about one
-      write per octet, with no copy out, and a larger buffer means fewer calls.
+    - The reason is copies. stdx writes each decoded byte once, and at the end of each call copies
+      the call's last 32,768 bytes into its window. Into the caller's own buffer that is about one
+      write per byte, with no copy out, and a larger buffer means fewer calls.
 
     The alternatives refused:
     - A 16 KiB output block in each pool slot, with `receive` unchanged. Every caller's call stays
-      as it was, but each decoded octet costs two or three writes: the decode, the window's copy of
+      as it was, but each decoded byte costs two or three writes: the decode, the window's copy of
       the whole block, and the caller's copy out. Each slot also grows by the block.
     - A decoded buffer in each connection. Idle connections would hold buffers they rarely use,
       which is what decision 91's pool exists to avoid.
@@ -3234,7 +3234,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        connection.
      - The server serves h11, h2 and h3 behind the same calls. The transport and ALPN choose each
        connection's version, and whether it advertises h3 with Alt-Svc is a value.
-     - Both keep colibri's rules. Octets go in and out tagged by transport, time is a value, and
+     - Both keep colibri's rules. Bytes go in and out tagged by transport, time is a value, and
        the caller owns the memory, with bounds known at build time: concurrent requests, the
        longest body, authority and path. Events are polled, a request can be cancelled by its
        id, and the caller names the response fields it reads.
@@ -3257,7 +3257,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      (RFC 9110 §8.4) to decision 100's modules.
      - The server's configuration names the codings it may apply, in its order of preference, and
        each response says whether its body may be coded. Only the caller knows whether a body
-       mixes a secret with octets a peer chose, and a coded length leaks such a secret (RFC 7932
+       mixes a secret with bytes a peer chose, and a coded length leaks such a secret (RFC 7932
        §12).
      - The server applies the coding the request's `Accept-Encoding` accepts with the highest
        nonzero qvalue, and the configuration's order breaks a tie (RFC 9110 §12.5.3). It codes
@@ -3266,7 +3266,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        the body uncoded and disregards the field, as RFC 9110 §12.4.1 permits.
      - A coded response gains `Content-Encoding` (RFC 9110 §8.4) and `Vary: accept-encoding`
        (§12.5.5). It loses the caller's `Content-Length`, which would have to count the coded
-       octets (§8.6), and a strong `ETag` becomes weak (§8.8.1). A response to HEAD gets the same
+       bytes (§8.6), and a strong `ETag` becomes weak (§8.8.1). A response to HEAD gets the same
        fields and no body (§9.3.2), and a 304 gets the `Vary` and the weak `ETag` alone (§15.4.5).
      - The client offers its configuration's codings in `Accept-Encoding`, unless the caller's
        request carries that field. It takes a decoder from the caller's pool when it sends the
@@ -3296,10 +3296,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        an idle connection would hold an encoder it rarely uses. Decision 91's pool avoids the same
        cost for decoders.
      - Coding a response to a request with no `Accept-Encoding`, which RFC 9110 §12.5.3 permits.
-       A client that decodes nothing, such as curl without `--compressed`, would receive octets
+       A client that decodes nothing, such as curl without `--compressed`, would receive bytes
        it cannot read.
      - Coding every response unless the caller opts out. The caller would have to find every body
-       that mixes a secret with a peer's octets, and each one it missed would leak.
+       that mixes a secret with a peer's bytes, and each one it missed would leak.
 
      Cost: a coded response has no `Content-Length`, so h11 sends it chunked, and a strong `ETag`
      on it becomes weak. The server's encoder pool is memory the caller places. Design §3 gains
@@ -3364,7 +3364,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        dropped whole and counted, and never fails the connection.
      - A log never changes what a connection sends. The same seed gives the same datagrams with
        and without one.
-     - colibri writes a peer's octets, such as a close reason or an ALPN value, as hexstrings and
+     - colibri writes a peer's bytes, such as a close reason or an ALPN value, as hexstrings and
        never as text, so every string it writes is its own ASCII and needs no UTF-8 check.
 
      The alternatives offered:
@@ -3392,7 +3392,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        (non-negotiable 3), and `write_data_header` becomes a method of the connection that names
        its stream. Refused: logging each h3 event at the instant of `quic`'s last call, which
        would give a frame the caller writes long after that call an earlier time than it had.
-     - A HEADERS frame's field name is logged as text when every octet of it is printable ASCII,
+     - A HEADERS frame's field name is logged as text when every byte of it is printable ASCII,
        0x20 to 0x7e, and as `name_bytes` otherwise; its value likewise, as `value_bytes`. That is
        h3-events §4.2.2's rule, and text of ASCII alone needs no UTF-8 check, the reason this entry
        gave for hexstrings. Refused: hexstrings for every line, which a viewer shows as hex, and an
@@ -3408,7 +3408,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      paths may use (stdx's decision 30), `qlog.Log.init` takes them from its caller, who passes
      `Features.detect()` or `Features.target()`, as decision 98 has h11's decoder pool do, so
      colibri never asks the CPU itself. `qlog` then imports stdx's `codec` too. The records are the
-     same octets for every value (stdx's invariant 5). Refused: `qlog` calling `Features.target()`
+     same bytes for every value (stdx's invariant 5). Refused: `qlog` calling `Features.target()`
      itself, which keeps `Log.init` as it is but leaves the caller no choice, and gives a build for
      a baseline CPU the scalar paths.
 
@@ -3423,11 +3423,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Amended by the owner on 2026-09-29: `qlog` hands each record's tokens to stdx's `write_items`
      many at a call (stdx's decision 33), with stdx pinned at c134f2c. `batch.zig` gathers them,
-     and copies each name's, string's and hex string's octets into its own buffer as it takes
-     them, so no writer's octets need to outlive the call that passed them. Octets longer than
-     that buffer go to `write_items` at once. The records are the same octets as before. The QUIC
+     and copies each name's, string's and hex string's bytes into its own buffer as it takes
+     them, so no writer's bytes need to outlive the call that passed them. Bytes longer than
+     that buffer go to `write_items` at once. The records are the same bytes as before. The QUIC
      simulator tests took 2.61 s in ReleaseSafe on an Apple M1 Pro, against 2.68 s writing one
-     token a call, about 2 ns less for each octet the logged runs write. Refused: one token a
+     token a call, about 2 ns less for each byte the logged runs write. Refused: one token a
      call, which is simpler and 2.7% slower there; and gathering without copies, which has each
      writer that formats a string on its stack write the gathered tokens before it returns, a rule
      a later writer could break without any test failing.
@@ -3457,15 +3457,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        passes each datagram with the address it came from, and sends each datagram the endpoint
        writes to the address the endpoint names.
      - A response body stays the caller's until the server reports its request done: over h3, once
-       the peer has acknowledged every octet (RFC 9000 §3.1) or the stream was reset. `write_body`
-       reads the caller's octets without copying them, and the server keeps only each stream's
+       the peer has acknowledged every byte (RFC 9000 §3.1) or the stream was reset. `write_body`
+       reads the caller's bytes without copying them, and the server keeps only each stream's
        frame headers, as decision 79 has h3's caller do. The same rule holds for h11 and h2,
-       which report a request done after the call that writes its last octet, so a caller writes
+       which report a request done after the call that writes its last byte, so a caller writes
        one path for every version.
 
      The alternatives refused:
      - The server copies each body into send buffers the caller places, and frees them as the
-       peer acknowledges. It adds a copy per octet, and the buffers cap the octets in flight,
+       peer acknowledges. It adds a copy per byte, and the buffers cap the bytes in flight,
        which decision 57 refused for `quic`.
      - One object per QUIC connection, with helpers that read a datagram's connection ID. Every
        caller would keep the routing table, the IDs NEW_CONNECTION_ID adds included (RFC 9000
@@ -3485,7 +3485,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      So the memory that `body()` writes is a ring, and `response_bytes` bounds the bytes in flight,
      not the length of the response. The amendment adds no public name. It differs from the first
      alternative refused above in two ways:
-     - That alternative added a copy for each octet and a cap on the octets in flight to the
+     - That alternative added a copy for each byte and a cap on the bytes in flight to the
        server. `body()` already makes that copy, into the entry's memory, and that memory already
        caps it. A program sets the cap with `response_bytes`.
      - The engine's contract does not change. Over h3, `write_body` still reads the bytes it took
@@ -3524,16 +3524,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the owner on 2026-09-28, for [#70](https://github.com/c4milo/colibri/issues/70), after design
      §8 step 17d's tests found two faults in the client over QUIC. A shut-down connection never
      closed, because it owed a GOAWAY it never sent. A failed connection left each stream holding
-     its exchange's octets, so no `finished` event came. No model covered the client.
+     its exchange's bytes, so no `finished` event came. No model covered the client.
      - `spec/tla/client_exchanges` models the exchanges the client carries to one origin over QUIC
        and TCP. Each exchange runs from `request` to its one `finished` event, or to its cancel.
        The model holds the connection that carries it, whether a QUIC stream may still read its
-       octets (RFC 9000 §3.1), and whether a server processed it. Each connection runs from its
+       bytes (RFC 9000 §3.1), and whether a server processed it. Each connection runs from its
        handshake to its `closed` event. The choice between them is design §8 step 17d's: QUIC
        first, TCP when QUIC fails or the fallback delay passes, and an exchange the server
        refused unprocessed moves to another connection.
      - Its safety property says each exchange is reported once, and never while a stream holds
-       its octets. An exchange is `refused` only when no server processed it, and no request is
+       its bytes. An exchange is `refused` only when no server processed it, and no request is
        processed by two servers. A connection reports `closed` only once it holds no exchange.
        Its liveness property says every exchange made ends, and every connection opened reports
        its close once the caller shuts the client down.
@@ -3650,7 +3650,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Wait for chapulin's callback and build version 2 whole. The client, and a server that
        accepts version 2 from the start, need nothing more from chapulin.
 
-109. **What h11 does with the octets after a CONNECT or an Upgrade request.** Ruled by the owner on
+109. **What h11 does with the bytes after a CONNECT or an Upgrade request.** Ruled by the owner on
      2026-09-29, after RFC 9931 joined `docs/rfcs/`. It amends decision 92. RFC 9931 §4.1 names
      the hazard: until the answer arrives, the client cannot know whether the server reads what
      follows as HTTP/1.1 or in the new protocol, and a server that reads it as HTTP/1.1 can take a
@@ -3660,12 +3660,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        from an origin, so the rule holds at every h11 server. RFC 9931 §8 lets a proxy skip it for
        a client known to wait for the 2xx, and h11 does not.
      - Every 2xx to CONNECT opens the tunnel, 204 included (RFC 9110 §6.4.1, §9.3.6). h11 applied
-       RFC 9112 §6.3 rule 1 to a 204 before rule 2, so it read the octets after one as HTTP where
+       RFC 9112 §6.3 rule 1 to a 204 before rule 2, so it read the bytes after one as HTTP where
        the peer had started the tunnel. A server refuses Content-Length and Transfer-Encoding on a
        2xx to CONNECT (RFC 9110 §8.6, RFC 9112 §6.1).
      - A CONNECT request declares no content (RFC 9110 §9.3.6). A client's `write_request` refuses
        one that does, with `FramingInvalid`, and a server answers one with 400 and closes, as it
-       answers any malformed request. `Content-Length: 0` declares none. So every octet after a
+       answers any malformed request. `Content-Length: 0` declares none. So every byte after a
        CONNECT head belongs to the tunnel a 2xx opens, and is never read otherwise.
      - A client refuses a request carrying Upgrade, with `UpgradeUnsupported`, as the `client`
        module does. h11 implements no upgrade: its server writes no 101 and its client fails on
@@ -3685,12 +3685,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        pipelined after it go unanswered.
 
      Amended by the owner on 2026-09-29: the head scanner refuses a request line at the first
-     octet of its method that no token holds, and at an SP where the method would start (RFC 9110
+     byte of its method that no token holds, and at an SP where the method would start (RFC 9110
      §9.1), with 400. A TLS record sent after an ignored `Upgrade: TLS/1.2` starts with 22, so the
      server now answers it at once (RFC 9931 §6.1). The scanner judged a line only when it ended,
-     so such a record got 400 when it held a stray CR or LF, 414 after `start_line_len_max` octets
+     so such a record got 400 when it held a stray CR or LF, 414 after `start_line_len_max` bytes
      without one, and otherwise nothing while the server waited for more. The alternatives
-     refused: checking the request line's first octet alone, and leaving the scanner as it was.
+     refused: checking the request line's first byte alone, and leaving the scanner as it was.
 
 110. **The server's defences against denial of service: Rapid Reset first, then deadlines.** Ruled
      by the owner on 2026-09-29 for [#82](https://github.com/c4milo/colibri/issues/82), on the
@@ -3704,9 +3704,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - **Seven deadlines in `server.Connection`**, reported by `deadline_ns()` and fired by
        `on_instant(now_ns)`, as `server.Endpoint` does for QUIC. They are the first request (the
        TLS handshake and the first whole request head), idle (between requests), head (fixed from
-       a head's first octet), body and send (a minimum rate over a window after a grace period,
+       a head's first byte), body and send (a minimum rate over a window after a grace period,
        with a total cap per request), h2's SETTINGS acknowledgment, and drain (after
-       `shutdown()`). Only request octets count as progress, and a deadline pauses while colibri
+       `shutdown()`). Only request bytes count as progress, and a deadline pauses while colibri
        waits on the application. h2 keeps them per stream and checks a minimum rate across the
        connection.
      - **What each does.** An idle or silent connection closes without a response, and h2 sends
@@ -3716,8 +3716,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        CANCEL. The SETTINGS deadline is a connection error of SETTINGS_TIMEOUT. `close_linger_ns`
        bounds every close.
      - **The defaults**, each a named limit `server.Config` carries: first request 10 s, idle
-       30 s, head 10 s, grace and window 10 s each, 1,024 octets a second for body and send, a
-       300 s cap per request, a floor of 1,024 octets on a DATA frame, drain 30 s, linger 2 s, and
+       30 s, head 10 s, grace and window 10 s each, 1,024 bytes a second for body and send, a
+       300 s cap per request, a floor of 1,024 bytes on a DATA frame, drain 30 s, linger 2 s, and
        100 concurrent h2 streams, down from 128.
      - **One control.** A caller may change one connection's limits at any time. Null turns a
        deadline off, and 0 is refused.
@@ -3735,8 +3735,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - For the deadlines: a recipe of timeouts for each caller to write, and per-stream deadlines
        without the check across a connection.
      - For what each does: closing silently at every deadline.
-     - For the defaults: a gentler set (idle 60 s, 512 octets a second, 128 streams) and a
-       stricter one (idle 15 s, 2,048 octets a second, 64 streams).
+     - For the defaults: a gentler set (idle 60 s, 512 bytes a second, 128 streams) and a
+       stricter one (idle 15 s, 2,048 bytes a second, 64 streams).
      - For the controls: `idle_since_ns()`, which would let a full server close its longest-idle
        connection, and raising one request's cap after its head.
 
@@ -3755,16 +3755,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Amended again by the owner on 2026-09-29: the floor on a DATA frame applies only while the
      peer's SETTINGS_INITIAL_WINDOW_SIZE is at least the floor. h2spec's flow-control cases set a
-     window of one octet and wait for a DATA frame of one octet, which the floor never sent, and a
+     window of one byte and wait for a DATA frame of one byte, which the floor never sent, and a
      client whose windows stay under the floor would stall the same way and be cut. A peer that
      asks for small windows gets frames that fit them, and the send-rate deadline bounds one that
-     opens its window a few octets at a time. Refused: dropping the floor, keeping it and skipping
+     opens its window a few bytes at a time. Refused: dropping the floor, keeping it and skipping
      the six cases, and turning it off for h2spec alone.
 
      Amended a third time by the owner on 2026-09-30: the floor applies only once the peer has
      sent a WINDOW_UPDATE whose increment is below it. `spec/tla/server_deadlines` found a client
      the floor still stalled: one that sends a WINDOW_UPDATE only once it has more credit than its
-     window less the floor, which RFC 9113 allows. colibri held the last octets of the window, the
+     window less the floor, which RFC 9113 allows. colibri held the last bytes of the window, the
      client never reached its threshold, and the send deadline cut it
      ([#90](https://github.com/c4milo/colibri/issues/90)). The floor defends against the tiny
      increments RFC 9113 §10.5 warns of, so one of them now turns it on, and a peer that gives
@@ -3789,10 +3789,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      whole units at twice the minimum rate or more and starts before the grace period ends. It never
      falls short in a window exactly when twice the rate over one window is a whole unit or more.
      Over TLS a body arrives a record at a time, and in h2 a DATA frame at a time, each of up to
-     16,384 octets (RFC 9846 §5.1, RFC 9113 §4.2). So `server.Connection` refuses a `body_rate_min`
+     16,384 bytes (RFC 9846 §5.1, RFC 9113 §4.2). So `server.Connection` refuses a `body_rate_min`
      under the bound, at `init` and at `set_deadlines`, when its configuration has TLS or speaks h2
-     in cleartext. An h11 connection in cleartext reads a body octet by octet and keeps any rate.
-     The defaults, 1,024 octets a second over 10 s windows, pass. The send rate is unchanged: the
+     in cleartext. An h11 connection in cleartext reads a body byte by byte and keeps any rate.
+     The defaults, 1,024 bytes a second over 10 s windows, pass. The send rate is unchanged: the
      proof is about a peer that sends, not one that reads. Refused: refusing in
      `Deadlines.validate`, which cannot see the protocol and would refuse h11 in cleartext too; and
      accepting such limits with the bound in a note.
@@ -3827,7 +3827,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        with no request open sends its GOAWAY the same way. A close before the handshake
        completes sends none, because h3 has not started. A program that sets `drain_ns` to
        null leaves the wait for that acknowledgment to QUIC's own idle timeout, which a
-       client's PING keeps away, as `linger_ns` of null leaves a TCP connection's last octets
+       client's PING keeps away, as `linger_ns` of null leaves a TCP connection's last bytes
        to its peer.
      - **An endpoint given limits a connection refuses** returns `DeadlineInvalid` from
        `Endpoint.init`, as `server.Connection.init` does, as the owner ruled on 2026-10-04. The
@@ -3863,25 +3863,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        writes a MAX_STREAM_DATA frame ahead of stream data in its next packet, so the frame
        never waits behind a response, as an h2 WINDOW_UPDATE does in a TCP connection's output.
        A body arrives a QUIC packet at a time, and a QUIC connection refuses to start with a rate
-       `validate_units` refuses: the bound for a unit of 16,384 octets covers every packet up
+       `validate_units` refuses: the bound for a unit of 16,384 bytes covers every packet up
        to that length, and one `Deadlines` then suits a server's TCP and QUIC connections. A
        longer packet crosses only a path with such an MTU, as loopback has, and the bound is
        not proved for it.
-     - **The send rate over h3.** A QUIC peer takes a response's octets by acknowledging them,
+     - **The send rate over h3.** A QUIC peer takes a response's bytes by acknowledging them,
        and lets them leave by the credit it gives the stream and the connection (RFC 9000 §4.1,
-       §13.2). So the meters count the octets the peer acknowledged, which the server reads
+       §13.2). So the meters count the bytes the peer acknowledged, which the server reads
        when it settles its requests after each datagram, and not for each frame.
-       - While any response holds octets the peer may take and has not acknowledged, the peer
+       - While any response holds bytes the peer may take and has not acknowledged, the peer
          must acknowledge the minimum send rate over each window, across the responses. A peer
          that falls short acknowledges too little, or holds the responses with the connection's
          credit, and the connection closes with H3_EXCESSIVE_LOAD.
        - A response its stream's credit does not cover has a meter of its own, which counts
-         what the peer acknowledges of it. It waits while any other response holds octets the
-         peer may take, as an h2 stream's waits while the connection's output holds octets. A
+         what the peer acknowledges of it. It waits while any other response holds bytes the
+         peer may take, as an h2 stream's waits while the connection's output holds bytes. A
          stream under the rate is reset with H3_REQUEST_CANCELLED, and the caller reads
          `cancelled`.
        - A stream's meter keeps its window while its own credit grows, so credit that grows a
-         few octets at a time is judged by what it lets through. h2 needs a floor on a DATA
+         few bytes at a time is judged by what it lets through. h2 needs a floor on a DATA
          frame for that, and h3 needs none.
      - **What does not apply.** h3 defines no SETTINGS acknowledgment (RFC 9114 Appendix A.4),
        and QUIC's closing period bounds a close (RFC 9000 §10.2), so h3 has no SETTINGS deadline
@@ -3906,15 +3906,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Leaving a connection that brings partial heads alone to the caller. The caller never
        hears of a request whose head is not whole, so it has nothing to decide with.
      - Resetting a response that ended when its request's body falls short. Over TCP the
-       response's octets are ahead of the RST_STREAM and arrive. A QUIC stream that is reset
-       sends its octets no more (RFC 9000 §3.1), so the client would lose a whole response.
+       response's bytes are ahead of the RST_STREAM and arrive. A QUIC stream that is reset
+       sends its bytes no more (RFC 9000 §3.1), so the client would lose a whole response.
      - Body deadlines for each stream alone. A client that opens slow bodies one after another
        would then hold the connection with no end, each body taking a grace period and a
        window.
      - Counting the datagrams `send` writes, as a TCP connection counts what its socket takes.
        A UDP socket takes every datagram, and a peer that sends PING frames draws
        acknowledgments from the server at no cost to itself.
-     - Counting the octets QUIC frames for the first time. The server keeps a response until
+     - Counting the bytes QUIC frames for the first time. The server keeps a response until
        the peer acknowledges it, so a peer that acknowledges nothing of a response framed whole
        would hold its record with no meter running.
      - The GOAWAY in the close's packet, which RFC 9114 §5.3 names. `quic` would write a stream
@@ -3934,7 +3934,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        had. A program that reads its limits from outside would stop on a value it could have
        reported.
 
-     Cost: a few branches for each datagram and each event of an h3 connection, and 8 octets
+     Cost: a few branches for each datagram and each event of an h3 connection, and 8 bytes
      for each request stream h3 holds, the instant it first saw the stream. The work is design
      §8 step 20c.
 
@@ -4048,7 +4048,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        transport parameters have arrived and before anything is sent (its decision 79). `quic`
        reads the client's version_information, moves the connection to version 2, and rewrites the
        server's own transport parameters, at the same length, so their Chosen Version names it
-       (RFC 9368 §3). chapulin reads those octets when it writes EncryptedExtensions, after the
+       (RFC 9368 §3). chapulin reads those bytes when it writes EncryptedExtensions, after the
        choice.
      - **The option.** `quic.Connection`'s options and `server.QuicConfig` carry `switch_to`, the
        version a server switches a client to, version 2 by default. Null keeps every client in its
@@ -4244,8 +4244,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        head, so a `request` event over h3 never says the request ended. So the server owes
        the 100 on the head alone.
      - When the connection writes the 100, it looks at the request's stream. Once the stream's
-       final size is known (RFC 9000 §4.5) and h3 has taken every octet below it, nothing more
-       of the request arrives: the stream ended with the head, or every octet of the content
+       final size is known (RFC 9000 §4.5) and h3 has taken every byte below it, nothing more
+       of the request arrives: the stream ended with the head, or every byte of the content
        has been read. Such a request gets no 100. Every other request that expects one gets
        it, whether or not content has begun to arrive, as over h2.
      - The connection writes the 100 when it next settles its requests, which `receive` does
@@ -4263,7 +4263,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        is true over h3 as over h2. It changes h3's event and what a program reads over h3, and
        a FIN that arrives in a later packet is still unknown at the head.
      - Omitting the 100 once the stream's final size is known, since the client has then sent
-       its last octet. When the content was lost and the FIN alone arrived, the server has
+       its last byte. When the content was lost and the FIN alone arrived, the server has
        received none of the content, and RFC 9110 §10.1.1 then requires the 100.
      - Waiting for content, or for the request's end, before deciding. RFC 9110 §10.1.1: the
        server "MUST NOT wait for the content before sending the 100 (Continue) response".
@@ -4271,13 +4271,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        waits for room. A TCP connection has one output for every stream. Over QUIC one
        request's response would delay the events of every other stream.
 
-     Cost: 8 octets for each request a QUIC connection holds, 256 for a connection, and a branch
+     Cost: 8 bytes for each request a QUIC connection holds, 256 for a connection, and a branch
      for each request each time the connection settles them.
 
      **Amended on 2026-11-05, for design §8 step 29d.15, at the owner's ruling.** The owner asked
      why each h3 GET costs three events. A request whose FIN arrives with its HEADERS frame now
      reports `request.end` true over h3, as h2 reports `end_stream` (RFC 9113 §8.1).
-     - h3 reads the HEADERS frame and then takes the octets after it from `quic`. When that take
+     - h3 reads the HEADERS frame and then takes the bytes after it from `quic`. When that take
        reaches the stream's final size (RFC 9000 §4.5), the stream ended with the head. h3 then
        runs the checks of its end at once: a content-length that is not zero is malformed (RFC
        9114 §4.1.2), and h3 refuses the stream.
@@ -4324,14 +4324,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The rulings:
      1. One `server.Endpoint` holds the TCP connections a program accepts as well as the QUIC
-        connections of its UDP socket. One `receive` takes a TCP connection's octets or a
+        connections of its UDP socket. One `receive` takes a TCP connection's bytes or a
         datagram. A request's id names its connection, so `respond`, `write_body`,
         `write_trailers` and `cancel` are calls on the endpoint. One deadline covers every
         connection. `close` and `ended` are events, in place of polling `should_close`,
         `close_reason` and `ended`.
      2. Each request carries one word of `user_data`, which the program sets at the request's
         head and each later event of the request brings back. A `writable` event says that a
-        response whose last `write_body` took fewer octets than it was given can take more.
+        response whose last `write_body` took fewer bytes than it was given can take more.
      3. `server.Connection`, `server.QuicConnection`, `client.Connection` and
         `client.QuicConnection` leave the public API. `client.Channel` is the one client object.
      4. An optional `versions` field says which of h11, h2 and h3 a server or a client speaks,
@@ -4418,16 +4418,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        reports `cancelled` with the reason `program`, and a connection that stops first reports
        `cancelled` with the reason `closed` for each request still open. So "free on `done` or
        `cancelled`" is the whole rule a program follows.
-     - `send` says a TCP connection owes octets, so a program calls `send_stream` for that
+     - `send` says a TCP connection owes bytes, so a program calls `send_stream` for that
        connection alone. It is reported once for each debt, and again only after a
-       `send_stream` that wrote fewer octets than its buffer held. QUIC needs none: one socket
+       `send_stream` that wrote fewer bytes than its buffer held. QUIC needs none: one socket
        carries every QUIC connection.
      - `closed` says, after `shutdown`, that every connection has ended, as `client.Channel`'s
        `closed` says it for a channel.
      - `writable` also follows a `respond` that returned `NoSpaceLeft` and a coded
        `write_trailers` that returned `Blocked`. Over h3 nothing else tells a program that a
        response's runs freed.
-     - h2's `Connection` adds `sendable_len(stream_id, room_len)`, the octets of DATA a stream
+     - h2's `Connection` adds `sendable_len(stream_id, room_len)`, the bytes of DATA a stream
        can send now: both windows, decision 110's floor and the room for a frame header.
        `writable` and `send` read it. h2's send window alone is not exact, because the floor can
        hold a frame while both windows are open.
@@ -4447,10 +4447,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `user_data` in a per-connection record. It changes the sizes `docs/performance.md` pins
        and touches one transport only.
      - A queue of events. Their slices would go stale.
-     - Scanning every slot for events, owed octets or deadlines on each call, as before.
+     - Scanning every slot for events, owed bytes or deadlines on each call, as before.
        Decision 117's cost refuses it.
      - A timer wheel for the deadlines. It needs a granularity, and the heap is exact.
-     - Copying every TCP octet into the endpoint. It costs a copy per octet and 33 KB per slot.
+     - Copying every TCP byte into the endpoint. It costs a copy per byte and 33 KB per slot.
      - No event for the program's own `cancel`, as `client.Channel.cancel` does. A program would
        then need a second rule for when to free a request's memory.
 
@@ -4460,7 +4460,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        payload_len)`. The floor holds a frame only when the window is shorter than the payload,
        so without it a window under the floor that holds the rest of a response would get no
        `writable` and no `send`, and the stream would wait until `send_rate` cancelled it. A
-       request's table entry keeps the octets its program waits to write for this.
+       request's table entry keeps the bytes its program waits to write for this.
      - The transport's close keeps the `done` of each response written whole, and the endpoint
        reports them before the connection's `ended`. `Connection.transport_closed`, which a
        program that drives a TCP connection itself calls, still drops them.
@@ -4473,20 +4473,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A program that serves QUIC alone sizes its endpoint with `.tcp_connections = 0`, which
        draws and builds nothing for TCP. The examples and checks that serve QUIC alone do so.
      - A TCP connection may leave input unconsumed until an event of its own: an h11 connection
-       reads a pipelined request only once the response before it ends, which may write no octet
-       and so bring no `send`. The program therefore passes held octets again after each event
+       reads a pipelined request only once the response before it ends, which may write no byte
+       and so bring no `send`. The program therefore passes held bytes again after each event
        that names the connection, beside its next read and its `send_stream`.
 
      Amended again on 2026-10-09 by design §8 step 21b.5, whose check found two defects of 21b.4:
      - An h11 connection in cleartext that had read half a head, or half a chunk-size line,
-       reached an assertion when the endpoint polled it with no octets: h11 needs the octets it
-       left unconsumed at the start of the next call's input. A call with no octets now reads
+       reached an assertion when the endpoint polled it with no bytes: h11 needs the bytes it
+       left unconsumed at the start of the next call's input. A call with no bytes now reads
        nothing from h11 while any remain, and waits for the program to pass them again.
      - The endpoint read a TCP connection between a write and the `send` it owed. Each read
        observes the connection's deadlines, and an h2 stream's send meter waits while the output
-       holds octets (decision 110 as amended). So the meter waited after each write and started
-       again with a grace period, and a peer that opened its window an octet at a time was never
-       cut. The endpoint now reports the `send` of octets the output holds before it reads the
+       holds bytes (decision 110 as amended). So the meter waited after each write and started
+       again with a grace period, and a peer that opened its window a byte at a time was never
+       cut. The endpoint now reports the `send` of bytes the output holds before it reads the
        connection again, so `send` comes before the `done` of a response that write ended.
 
      Amended again on 2026-10-11 by design §8 step 21b.6, when every TCP caller moved to the
@@ -4593,7 +4593,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `QuicStart`. The client trace census changes once, because each QUIC connection's start
      values come from the TLS source. `client.Connection` grows by one field, and
      `client.Channel` by two TLS configurations. A program with TCP alone places about 1 MB a
-     channel where it placed 289,200 octets a connection.
+     channel where it placed 289,200 bytes a connection.
 
      Amended on 2026-10-12 by design §8 step 21c, for what its sub-steps met that the rulings
      left open:
@@ -4607,7 +4607,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        every exchange answered and every socket it opened ended before the run did.
      - A shut-down channel that abandons a connection whose `open` no caller heard of drops the
        `open`, and owes no `close` for it.
-     - A program drops the octets it still holds from a socket when the channel says `close`:
+     - A program drops the bytes it still holds from a socket when the channel says `close`:
        they are that connection's, and the next connection on the transport must not get them.
 
 121. **The roots of `server` and `client` export what an endpoint and a channel take and
@@ -4760,7 +4760,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        pointer or a struct.
      - A pattern is a path of segments. A segment is a literal, a parameter (`:name`) or a last
        segment `*`, the wildcard.
-     - `match` reads the path as received, octet for octet and case-sensitive. It reads the
+     - `match` reads the path as received, byte for byte and case-sensitive. It reads the
        path up to the first "?". A path that does not start with "/" matches nothing. A path with
        an empty segment other than the root's, or with a "." or ".." segment, matches nothing.
      - At each node the walk tries the literal, then the parameter, then the wildcard. It backs
@@ -4778,7 +4778,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. HEAD finds the GET route at a leaf that names GET and no HEAD. The leaf's Allow value
         lists HEAD after GET. RFC 9110 §9.1 tells every general-purpose server to support GET and
         HEAD. The endpoint also writes no content in a response to HEAD, in h11, h2 and h3 alike
-        (RFC 9110 §9.3.2, RFC 9113 §8.1.1, RFC 9114 §4.1.2). `write_body` takes the octets and
+        (RFC 9110 §9.3.2, RFC 9113 §8.1.1, RFC 9114 §4.1.2). `write_body` takes the bytes and
         writes none. So a program writes the same answer for GET and for HEAD. Before this step,
         `write_body` on a response to HEAD returned `SectionOutOfOrder` over h11, and h2 and h3
         sent the content. The endpoint keeps the Content-Length field that the program writes,
@@ -4801,20 +4801,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      6. The wildcard matches one segment or more, the rest of the path. A program reads it with
         `get("*")`. So `/files/*` does not match `/files`.
      7. A path that holds a "%" matches nothing (RFC 3986 §2.1). So no parameter holds a space, a
-        "/" or an octet above 0x7F.
-     8. A path with an octet outside RFC 3986's `pchar` matches nothing (RFC 3986 §3.3). h11
+        "/" or a byte above 0x7F.
+     8. A path with a byte outside RFC 3986's `pchar` matches nothing (RFC 3986 §3.3). h11
         refuses such a target before the program reads it, so h2 and h3 route as h11 does.
      9. `Request.method` stays text in this step, and `match` compares the text with the token of
         each entry. [#96](https://github.com/c4milo/colibri/issues/96) says that a `request`
         event carries its method as one of the eight or as the token.
         [#101](https://github.com/c4milo/colibri/issues/101) holds that change.
      10. `server.constants.path_parameters_max` is 8. It counts the parameters of one pattern,
-         the wildcard included. `PathParameters` then holds 264 octets on a 64-bit target. A
+         the wildcard included. `PathParameters` then holds 264 bytes on a 64-bit target. A
          table that needs more does not compile, so the limit never fails at run time.
      11. For a 405, `match` gives the leaf's Allow value. The build writes it: the leaf's
-         standard methods in RFC 9110 §9.1's order, then its tokens ordered by octets, joined
+         standard methods in RFC 9110 §9.1's order, then its tokens ordered by bytes, joined
          by ", ". The program writes the 405 and its "allow" field (RFC 9110 §15.5.6). Each
-         Allow value holds `core.constants.field_value_len_max` octets at most, because a
+         Allow value holds `core.constants.field_value_len_max` bytes at most, because a
          program sends it as a field value. A table with a longer one does not compile:
          `allow_too_long`.
      12. A route that other routes hide does not compile. The owner read this ruling on
@@ -4848,8 +4848,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          compares its verdict with a brute force on 2,838 small tables.
      13. `server.constants.path_len_max` is the endpoint's own bound on a path:
          `@max(h11.constants.start_line_len_max, core.constants.field_value_len_max)`, 8192
-         octets today. A comptime assert pins it. `match` gives `not_found` for a longer path
-         (INV-8). The check of the path reads each octet once, before the walk.
+         bytes today. A comptime assert pins it. `match` gives `not_found` for a longer path
+         (INV-8). The check of the path reads each byte once, before the walk.
 
      Adopted for this step, which the owner may overrule:
      - A walk does not back up for a method. The leaf of a path is one resource, and RFC 9110
@@ -4869,7 +4869,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Not in this step:
      - The typed method on the `request` event:
        [#101](https://github.com/c4milo/colibri/issues/101).
-     - The grammar of `:path` in h2 and h3, which check only its first octet:
+     - The grammar of `:path` in h2 and h3, which check only its first byte:
        [#102](https://github.com/c4milo/colibri/issues/102). Until then ruling 8 makes the
        router match nothing for a path that h11 refuses.
      - An absolute-form target with an empty path and a query, such as `GET http://a?x`. Its
@@ -4898,12 +4898,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        neither, because no parameter name can be "*".
      - Ruling 6: a wildcard that matches zero segments. Each other segment of a pattern matches
        one segment of the path, never none.
-     - Ruling 7: only an encoding of an unreserved octet matches nothing (RFC 3986 §2.3), and a
+     - Ruling 7: only an encoding of an unreserved byte matches nothing (RFC 3986 §2.3), and a
        parameter binds each other encoding as received. No result for a path without "%"
        depends on the choice, so a later step can relax the rule.
      - Ruling 7: a path decoded, or its dot segments removed, before the match. A router that
        decoded `/users/%6De` could route it past a check written for `/users/me`.
-     - Ruling 8: an octet outside `pchar` read like any other. h2 and h3 then route a path that
+     - Ruling 8: a byte outside `pchar` read like any other. h2 and h3 then route a path that
        h11 refuses.
      - Ruling 9: `Request.method` as a union of `Standard` and a token. It breaks each program
        that reads `request.method`, and it needs a step of its own.
@@ -4927,7 +4927,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      What this decision changes in [#96](https://github.com/c4milo/colibri/issues/96):
      - The issue says that the work for one request depends on the table alone, never on what
-       the peer sent. The check of the path reads each of its octets once, up to `path_len_max`.
+       the peer sent. The check of the path reads each of its bytes once, up to `path_len_max`.
        So the work depends on the table and on the path's length, and `path_len_max` bounds it.
      - The issue's typed method on the `request` event is not built (ruling 9).
 
@@ -4947,7 +4947,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Step 21e removes the quadratic compile-time work that the measured tables paid for. That
        work was the scans of siblings, the insertion sort, the pairwise check of parameter names,
        and the passes over large constants. `match` finds a literal edge by a binary search over the
-       edges of a node, which the build sorts by length and then by octets. Before, it read the
+       edges of a node, which the build sorts by length and then by bytes. Before, it read the
        edges in turn. The check of hidden routes walks the trie, and the build merges the trie
        once.
      - The check of hidden routes stays quadratic in the leaves for some tables. Take the
@@ -5003,7 +5003,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The alternatives refused:
      - Room for "/?x" in each h11 connection, so that `Request.path` always starts with "/". A
-       request line holds up to 8,192 octets, so each connection grows by that much, for a form
+       request line holds up to 8,192 bytes, so each connection grows by that much, for a form
        that only a proxy sends (RFC 9112 §3.2.2).
      - A `query` field beside `path`, with `path` holding "/" alone. Each program that reads
        `path` then reads the query apart, and the `:path` of h2 and h3 holds both.
@@ -5063,9 +5063,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The 1-RTT space skips one number after each interval. An ACK frame that covers the number
        skipped last is one for a packet never sent, and the connection closes with
        PROTOCOL_VIOLATION, as for any packet never sent.
-     - The intervals are the eight octets of one value the caller draws from its source at start,
-       the option `packet_number_skips` of `quic.Connection`. Each octet is added to
-       `packet_number_skip_interval_min`, 128, and the octets are taken in turn. So a skip comes
+     - The intervals are the eight bytes of one value the caller draws from its source at start,
+       the option `packet_number_skips` of `quic.Connection`. Each byte is added to
+       `packet_number_skip_interval_min`, 128, and the bytes are taken in turn. So a skip comes
        128 to 383 packets after the one before. colibri holds no generator (invariant 5), and one
        seed still replays.
      - The server's and the client's QUIC connections draw the value. A program that drives
@@ -5110,13 +5110,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           content before it ends its response.
         - The next exchange goes on another connection.
      3. The channel sends an idempotent request again.
-        - The rule: a connection closes or fails before any octet of a request's response
+        - The rule: a connection closes or fails before any byte of a request's response
           arrives, and the method is idempotent (RFC 9110 §9.2.2). Then the channel sends the
           request again, once, on another connection (RFC 9112 §9.3.1).
         - The idempotent methods are PUT, DELETE, and the safe methods GET, HEAD, OPTIONS and
           TRACE. Any other method ends `closed`, as before.
         - Over h2 and h3, the header of a HEADERS frame on the request's stream counts as an
-          octet of the response, even when its field section does not decode.
+          byte of the response, even when its field section does not decode.
         - After a failed h11 connection, the next connection writes the first request alone
           until its final response arrives (RFC 9112 §9.3.2).
         - The program sees one outcome. The owner ruled that a program implements no part of
@@ -5137,7 +5137,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           QUIC.
      5. Three limits in `client.constants`, so a program sizes its memory and bounds its loops at
         init with no name from `h11` or `tls_provider`:
-        - `stream_input_len_min`: the octets a program holds so that `receive` on a TCP
+        - `stream_input_len_min`: the bytes a program holds so that `receive` on a TCP
           transport takes some, in cleartext and over TLS, while `send_stream` has written what
           the connection owes;
         - `stream_output_len_min`: the least `output` with which `send_stream` always writes a
@@ -5145,7 +5145,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `tls_provider.constants.record_write_len_min`, though chapulin seals a shorter record
           into a shorter output;
         - `receive_events_without_input_max`: the most `receive` calls in a row that report an
-          event and take no octet.
+          event and take no byte.
      6. Doc comments state four rules that the code keeps: `Response.status` holds the final
         status when the outcome is `too_large`; `Channel.init` may run again on a channel with
         no connection and no exchange; a program may close a transport at any time and then
@@ -5154,7 +5154,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         whole record. Before, `plaintext_in_len` held one h2 frame and one record, so a head longer
         than a frame, sent in records of an odd size, stopped the connection. The owner ruled the
         fix on 2026-10-17, in the client and in the server: `plaintext_in_len` grows from 33,033 to
-        49,407 octets (RFC 9112 §2.1, RFC 9846 §5.2), and each TCP connection by about 16 KB.
+        49,407 bytes (RFC 9112 §2.1, RFC 9846 §5.2), and each TCP connection by about 16 KB.
      8. Three asks become issues: content sent with no copy into the channel's output
         ([#105](https://github.com/c4milo/colibri/issues/105)), `too_large` at the head
         ([#106](https://github.com/c4milo/colibri/issues/106)), and an IPv6 scope id
@@ -5171,7 +5171,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        rule 8 for a body that runs until the close.
      - `Channel.negotiated(transport)`, the suite a transport settled on. Withdrawn: which suite a
        connection settles on is colibri's and chapulin's to test.
-     - A channel that always holds QUIC state: 704,792 octets, the difference between
+     - A channel that always holds QUIC state: 704,792 bytes, the difference between
        `client.Channel` and a channel with no QUIC, that a TCP-only program never uses.
      - The TLS stall of ruling 7 as an issue only. A large head over TLS then waits for a
        deadline or for the program's timeout.
@@ -5217,7 +5217,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           response keeps the name exchange, as RFC 9110 §7.5 calls it. The owner ruled it on
           2026-10-20, over a rename everywhere: "request" already names the message, as in
           `client.Request`.
-        - `Pool.memory_bytes(options)` returns the octets that the options need. `init` takes
+        - `Pool.memory_bytes(options)` returns the bytes that the options need. `init` takes
           that memory, aligned to `Pool.memory_alignment`.
         - `Pool.receive_events_without_input_max(options)` replaces the constant of decision 124
           ruling 5, because the bound counts each exchange and each transport of the pool. The
@@ -5231,14 +5231,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           protocol.
         - `start_tcp`, `send_stream`, `transport_closed` and `take_ticket` take it. `Input.stream`
           carries it in a `client.StreamOctets`.
-        - A new event, `send`, names a TCP connection that owes octets, as the server's does. A
+        - A new event, `send`, names a TCP connection that owes bytes, as the server's does. A
           program then calls `send_stream` for that connection alone, until a call leaves room in
           its output.
-        - The event comes once for each debt, in a call that passes the connection no octets, so
+        - The event comes once for each debt, in a call that passes the connection no bytes, so
           the connection has read what the program held for it before a request goes out.
         - The connection says what it may owe without writing it. A request that waits for the
           peer or for room counts, so a `send_stream` may write nothing. That call blocks the
-          connection: its next `send` waits until it reads octets, or until the program makes a
+          connection: its next `send` waits until it reads bytes, or until the program makes a
           request or a cancel. A loop of the program therefore never turns on an empty debt.
      4. Connections open on demand. The pool opens another TCP connection only when an exchange
         waits, no open connection can take it, and fewer than `tcp_connections` are open or
@@ -5304,7 +5304,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      | One name and value | `Header` | field line (§5.2) | field line (§5) | field (§8.2) | field line (§4.2) |
      | The set of them | `Headers` | header section (§6.3) | "headers" or header section (§2.1) | field block (§4.3) | header section in a HEADERS frame (§4.1) |
      | Fields after the content | `Trailers` | trailer section (§6.5) | trailer section (§7.1.2) | trailers in a field block (§8.1) | trailer section in a HEADERS frame (§4.1) |
-     | The octets of a message | `RequestBody`, `ResponseBody`, `body` | content (§6.4) | message body (§6) | DATA frames (§8.1) | DATA frames (§4.1) |
+     | The bytes of a message | `RequestBody`, `ResponseBody`, `body` | content (§6.4) | message body (§6) | DATA frames (§8.1) | DATA frames (§4.1) |
      | A unit of the wire | bytes | octets | octets | octets | octets |
      | Which HTTP | `Protocol`, `Protocols` | protocol version (§2.5) | HTTP/1.1 | h2 | h3 |
      | A request's name | `RequestId` | none | its place on the connection | stream identifier (§5.1.1) | stream ID (RFC 9000 §2.1) |
@@ -5358,6 +5358,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      17. Kept: exchange (decision 125), `ended`, `close` and `closed`.
 
      Every rename is breaking, and 0.9.0's notes list each one.
+
+     Amended by the owner on 2026-11-27, as "Bytes in all prose" and "Change it all now", while
+     design §8 step 79 was built:
+     - **All prose and every comment say "bytes", the API's word.** This holds in the protocol
+       modules and in a comment that cites an RFC too. A quotation of an RFC keeps its words, and
+       so do an ABNF rule such as `OCTET` (RFC 5234 Appendix B.1) or `dec-octet` (RFC 3986
+       §3.2.2) and a name in the code, such as `first_octet`. The protocol modules keep "field
+       line", "field section" and "content", as ruled.
+     - **The text in the tree changed at once.** One commit changed each "octet" of the prose
+       and the comments, and left the code, its strings and each quotation as they were. The
+       tables that give each RFC's own term, here and in docs/usage.md, keep "octets".
+     - The alternatives refused:
+       - "bytes" in docs/ and CLAUDE.md alone, which leaves the comments in two words.
+       - "bytes" in CLAUDE.md's own text alone, under the rule as it stood.
+       - Changing the old text only when a later change edits it.
 
 127. **The server reads a request's query, and a route table calls the program's functions, with
      middleware.** Ruled by the owner on 2026-10-20 and 2026-10-21. Amends decisions 101, 118 and
@@ -5561,8 +5576,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The rulings:
      1. `quic_requests_max` is 100, h3's own count (`h3.constants.request_streams_max`). Each
-        request's record holds an 8,192-octet buffer for its kept frames (decision 79), so each
-        QUIC slot of an endpoint grows from 724,192 octets to 1,328,032.
+        request's record holds an 8,192-byte buffer for its kept frames (decision 79), so each
+        QUIC slot of an endpoint grows from 724,192 bytes to 1,328,032.
      2. A stream count owes a MAX_STREAMS frame as each stream the peer opened closes, which RFC
         9000 §4.6 suggests. Data keeps decision 49's rule: credit once half the window is used.
 
@@ -5593,12 +5608,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 131. **A packet carries up to 16 STREAM frames, and a ring holds the ranges after its first.**
      Ruled by the owner on 2026-10-29. Amends decision 56, which asked to be revisited against a
-     measured number. Decision 57 stands: the caller keeps the octets, and loss resends exactly
+     measured number. Decision 57 stands: the caller keeps the bytes, and loss resends exactly
      what was lost.
 
      The number is design §8 step 13i's lossy run. On a path of 50 ms with 1% loss each way, at
      4,000 requests a second over 8 connections, colibri sent 6,586 packets on one connection
-     for 5,003 STREAM frames, with a median packet of 64 octets. quic-go sent 2,716 packets for
+     for 5,003 STREAM frames, with a median packet of 64 bytes. quic-go sent 2,716 packets for
      5,022 frames, and 3.4 frames a packet over its 8 connections. The congestion window counts
      each packet's header and AEAD tag, so under loss colibri carried about half the responses
      in each round trip, and its p99 was 221 ms against quic-go's 121 ms.
@@ -5622,9 +5637,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         range in flight may be lost at once, and a table that cannot take one closes the
         connection. Before, it held one range for each packet in flight.
 
-     The cost, for each QUIC connection: the ring is 512 ranges of 24 octets, about 12 KB. The lost
-     table grows by 512 ranges of 32 octets, about 16 KB. Each of the 1,280 records grows by 8
-     octets for the position and the count, about 10 KB. That is about 38 KB in all. The owner
+     The cost, for each QUIC connection: the ring is 512 ranges of 24 bytes, about 12 KB. The lost
+     table grows by 512 ranges of 32 bytes, about 16 KB. Each of the 1,280 records grows by 8
+     bytes for the position and the count, about 10 KB. That is about 38 KB in all. The owner
      chose 512 over 1,024, which costs about 66 KB: a full ring falls back to one frame a packet,
      and only many small frames in flight at once fill it.
 
@@ -5641,8 +5656,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      colibri wrote every response line with `without_indexing`, so each response repeated its
      lines whole. On a laptop's Linux VM a capture of h2 to colibri's test-only server and to axum
-     gave a field block of 26 octets a response from colibri and 7 from axum, whose encoder indexes
-     `content-type` and `date` once and then sends each as one octet. The reason was decision 93's:
+     gave a field block of 26 bytes a response from colibri and 7 from axum, whose encoder indexes
+     `content-type` and `date` once and then sends each as one byte. The reason was decision 93's:
      a line inserts into the encoder's table as the block is written, and into the peer's only as
      the peer decodes the block. So a block the caller abandons after an insert leaves the two
      tables apart, and `write_in_place` abandons one each time a block does not fit its room.
@@ -5658,13 +5673,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         responses, an abandoned block rarely inserts, and the tables rarely empty.
 
      The price, counted with callgrind on a laptop's Linux VM over h2 in cleartext: at most 325
-     fewer instructions a request, from 12,544 to 12,219, and 19 fewer octets a response.
+     fewer instructions a request, from 12,544 to 12,219, and 19 fewer bytes a response.
 
      Alternatives that lost:
-     - Keep `without_indexing`. Each response then pays the 19 octets and the Huffman coding of
+     - Keep `without_indexing`. Each response then pays the 19 bytes and the Huffman coding of
        its lines.
      - Copy the table before each block, to put it back after an abandoned one. Decision 93
-       refused it for requests: the table is up to 16,384 octets and 512 records.
+       refused it for requests: the table is up to 16,384 bytes and 512 records.
      - Hold a block's inserts until `commit_block`. Each later index in the block must then count
        the inserts still held, and an entry they would evict must count as absent: more code on
        each line, for a case that rarely comes.
@@ -5686,7 +5701,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         estimate of §4.3, the concave and convex regions of §4.4 and §4.5, a decrease to 0.7 of
         the window on a congestion event (§4.6), and fast convergence (§4.7). RFC 9002's loss
         detection, recovery period, persistent congestion and pacing stay as they are.
-     2. The arithmetic is integer. Windows are in octets, as §4.1 permits. `C`, `β` and `α` are
+     2. The arithmetic is integer. Windows are in bytes, as §4.1 permits. `C`, `β` and `α` are
         rational constants, time is in microseconds, and §4.2's cube root is an integer cube
         root with a bounded loop. So one seed replays on every host (non-negotiable 5).
      3. `on_ack` takes the instant and the smoothed RTT, which §4.2 reads (non-negotiable 3).
@@ -5790,7 +5805,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Alternatives that lost:
      - A call that asks the program for each draw. Each wait would add a step to the receive
        path, and the program would answer a question it cannot judge.
-     - The eight octets of the value taken in turn, as decision 123 does. The waits would repeat
+     - The eight bytes of the value taken in turn, as decision 123 does. The waits would repeat
        after eight probes, and two connections with one value would probe together.
      - One bool for BBRv3. An enum takes a third controller without a new name.
      - A controller for each connection that the server picks. A server has no way to tell which
@@ -5843,10 +5858,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      request's content from the program's memory, as decision 95 lets h11 do.
      - `Connection.write_data_header(output, stream_id, payload_len, end_stream)` writes the
        header of the DATA frame that `write_data` would write into `output`, and charges both
-       flow-control windows (RFC 9113 §6.9.1). It returns the octets of the payload the frame
-       carries in `consumed`, and the header's octets in `written`.
-     - The caller writes those `consumed` octets right after the header, in `output`, before any
-       other octet of the connection. END_STREAM is on the frame of the last octet (RFC 9113
+       flow-control windows (RFC 9113 §6.9.1). It returns the bytes of the payload the frame
+       carries in `consumed`, and the header's bytes in `written`.
+     - The caller writes those `consumed` bytes right after the header, in `output`, before any
+       other byte of the connection. END_STREAM is on the frame of the last byte (RFC 9113
        §6.1), and the frame has no padding.
      - The client uses it in cleartext. Over TLS, a frame's header and its data go through the
        client's output together, because the provider seals one slice. chapulin's
@@ -5854,18 +5869,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        (https://github.com/c4milo/chapulin/issues/212).
 
      The alternatives refused:
-     - `write_data` alone, which copies every octet of the content into the output.
-     - A call that counts octets and writes nothing, as h11's `count_body` does. h2 frames its
-       data, so the header must be written in front of each frame's octets.
+     - `write_data` alone, which copies every byte of the content into the output.
+     - A call that counts bytes and writes nothing, as h11's `count_body` does. h2 frames its
+       data, so the header must be written in front of each frame's bytes.
      - The header of each frame in a TLS record of its own. Each 16 KiB frame then costs one more
        record and one more seal. The owner chose chapulin's call over two slices.
 
-     Cost: colibri cannot check that the octets the caller writes after the header are the ones
+     Cost: colibri cannot check that the bytes the caller writes after the header are the ones
      the header counts. A caller that writes others frames the stream wrongly.
 
      Amended on 2026-10-31 by decision 139: the call writes the header into a buffer of its own,
      `write_data_header(header, room_len, stream_id, payload_len, end_stream)`, where `room_len`
-     is the octets the whole frame may take. Over TLS the frame's data never shares a buffer with
+     is the bytes the whole frame may take. Over TLS the frame's data never shares a buffer with
      its header, so `output` could not size the frame.
 
 139. **A provider seals a frame's header and its data from two slices.** Ruled by the owner on
@@ -5873,11 +5888,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `writeParts` (chapulin's decision 167, https://github.com/c4milo/chapulin/issues/212). It
      amends decision 8, which fixes the vtable's list, and decision 138.
      - `tls_provider.VTable` gains `writable_len(output_len)`, the most plaintext one seal writes
-       into that many octets, and `encrypt_parts(head, data, output)`. The second seals `head`
+       into that many bytes, and `encrypt_parts(head, data, output)`. The second seals `head`
        and then `data` in the records `encrypt_record` writes for the two joined, whole or not
-       at all, and returns the octets written.
+       at all, and returns the bytes written.
      - The client's h2 sizes each DATA frame by `writable_len`, at most one record's plaintext,
-       so a frame and its header fill one record. h2 writes the header into its own nine octets,
+       so a frame and its header fill one record. h2 writes the header into its own nine bytes,
        and the provider seals it with the frame's data from the program's memory.
      - Over TLS, h2 and h11 copy into the output the start of a request's content that fills
        the record of its head, so a small content goes out in one record with its head.
@@ -6011,7 +6026,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A patched copy of the runner in `tools/`. It is 607 lines of Zig's code, past the file
        length limit and the heap rule, and it would not follow a Zig patch release.
      - A fuzzer run in `tools/ci.sh` on each push. It adds minutes to each run, and the fuzz
-       properties already run over their corpus and every input of up to two octets.
+       properties already run over their corpus and every input of up to two bytes.
      - A wait for Zig 0.17. colibri stays at 0.16, and the fuzzer finds what the corpus does not.
 
      Cost: the build depends on one line of Zig's runner, so another 0.16 release can stop
@@ -6021,7 +6036,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      owner on 2026-11-02 ([#125](https://github.com/c4milo/colibri/issues/125)). Decision 124
      keeps an h11 connection when the caller cancels an exchange, or when its content does not fit:
      the connection reads the rest of the response and drops it (RFC 9112 §9.3). That drop had no
-     bound. A large response read every octet left, and a slow one held the connection until it
+     bound. A large response read every byte left, and a slow one held the connection until it
      ended. In a pool of one TCP connection, the exchanges after it wait behind the drop.
 
      The rulings:
@@ -6050,7 +6065,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The time starting at the next instant the pool reads after a cancel. No public call changes,
        but a pool with no input after the cancel would never start the time.
      - 64 KiB or 1 MiB for the size. The first closes more connections; the second reads more
-       octets for nothing.
+       bytes for nothing.
 
      Cost: `cancel` changes its signature, so every program that cancels changes its call. A
      dropped response past a bound costs a new TCP connection, and over TLS a new handshake.
@@ -6079,7 +6094,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      4. The ML-DSA-87 code point, 0x0906, is draft-ietf-tls-mldsa-05 §3's, an Internet-Draft
         submitted to the IESG. colibri pins it in `docs/rfcs/mldsa/` until an RFC publishes it, as
         decisions 102 and 134 pin theirs. RFC 9881 gives the key's forms and its sizes: a public
-        key of 2,592 octets (§4) and an expanded private key of 4,896 (§6).
+        key of 2,592 bytes (§4) and an expanded private key of 4,896 (§6).
 
      Alternatives that lost:
      - One type for each algorithm, `MlDsa87Identity` and `MlDsa87Key` beside the P-256 names.
@@ -6098,8 +6113,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The owner ruled that every server object outside chapulin's `PROFILE=cnsa2` exports the
        call, device objects too.
 
-     Cost: a `tls.Key` holds 7,488 octets and its scheme, even for a P-256 key of 96. chapulin's
-     server accept takes 28,752 octets of stack on arm64, where it took 12,752, whether or not an
+     Cost: a `tls.Key` holds 7,488 bytes and its scheme, even for a P-256 key of 96. chapulin's
+     server accept takes 28,752 bytes of stack on arm64, where it took 12,752, whether or not an
      ML-DSA-87 identity is set.
 
 149. **colibri's QUIC connections may resume congestion state, by RFC 9959's Careful Resume.**
@@ -6313,7 +6328,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        and Upgrade (RFC 9113 §8.2.2). It refuses a name with an uppercase letter, which h2 and h3
        refuse (RFC 9113 §8.2.1, RFC 9114 §4.2). It refuses a name or a value that RFC 9110 §5.1
        or §5.5 refuses, and a section larger than `field_section_size_max`.
-     - Over h3 the header section and the trailer section share one prefix of 16,436 octets for
+     - Over h3 the header section and the trailer section share one prefix of 16,436 bytes for
        each stream. A request whose two sections do not fit in it together ends `invalid` at
        `open`. docs/usage.md states it.
      - `added_fields_max` goes from 3 to 5, for TE and, over h11, Connection.
@@ -6362,7 +6377,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `client.Streamed` is `struct { request: bool = false, response: bool = false,
           request_len: ?u64 = null }`. A stated length sends Content-Length, and h11 otherwise
           sends the request chunked (RFC 9112 §7.1).
-        - A `body` event carries `{ id, len }`, the octets `Response.body` holds. Trailers land
+        - A `body` event carries `{ id, len }`, the bytes `Response.body` holds. Trailers land
           in `Response.trailers`, and `finished` comes only after the last piece is released.
         - While a response piece is held, h2 reads nothing more of the connection, and h2 and h3
           hold back that stream's credit alone. The connection's credit flows on (RFC 9113 §6.9,
@@ -6397,8 +6412,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          other libraries, and the program ticks the loop. Decision 156 also renames `ClientOf` to
          `Client`, a type function, and `ClientCapacity` keeps its three sizes.
      11. Ruled by the owner on 2026-11-06, after the review of step 39: over h3 a held piece keeps
-         the connection's credit, and that is correct. QUIC gives back MAX_DATA as octets are
-         consumed (RFC 9000 §4.1), and a held piece's octets still take room in the client's
+         the connection's credit, and that is correct. QUIC gives back MAX_DATA as bytes are
+         consumed (RFC 9000 §4.1), and a held piece's bytes still take room in the client's
          receive pool. The gap was the window of a request stream: the client granted each one
          the whole pool, so one held stream could fill the pool and stop the others. The client
          grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
@@ -6406,14 +6421,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          decision 49: the window grows up to the pool's capacity less its reserve, one starting
          window (`stream_window_reserve_windows`), so a held stream keeps that reserve of the pool
          free. Amended again on 2026-11-06, with decision 49: MAX_DATA is also owed when the
-         credit left to the server is below that reserve and the client consumed one octet since
+         credit left to the server is below that reserve and the client consumed one byte since
          the last MAX_DATA. The other streams thus keep getting credit while a piece is held.
      12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
-         `data_available` event carries the count of octets that arrived and copies none, and
+         `data_available` event carries the count of bytes that arrived and copies none, and
          `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.
          `client.ConnectionPool` calls it with `Response.body`.
      13. Ruled by the owner on 2026-11-06: an h11 response that is not streamed and ends
-         `too_large` keeps in `Response.body` the octets that fit, as it did before step 39. Only
+         `too_large` keeps in `Response.body` the bytes that fit, as it did before step 39. Only
          a held piece goes back to the caller at a drop.
 
      Alternatives that lost:
@@ -6432,12 +6447,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        does not call the program back inside its loop.
      - A module of its own for the client. Two modules would then do I/O.
      - For ruling 11: give back the connection's credit when a held piece arrives. The piece's
-       octets still take room in the receive pool, so the server could send more than the pool
+       bytes still take room in the receive pool, so the server could send more than the pool
        holds.
      - For ruling 12: an output for each held stream, given at `write_request`. h3 would then
        write into the caller's memory after the exchange ended, as when a GOAWAY refuses the
        stream (RFC 9114 §5.2) and h3 still reads it.
-     - For ruling 12: keep two copies, through the h3 connection's 16,384-octet buffer.
+     - For ruling 12: keep two copies, through the h3 connection's 16,384-byte buffer.
 
 154. **One reading of quic-go's congestion controller, to explain a gap the judge measured.**
      Ruled by the owner on 2026-11-05. It makes one exception to non-negotiable 10. At 1% loss on
@@ -6456,25 +6471,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - No question: the gap stays unexplained.
 
 155. **QUIC finds each path's datagram size by DPLPMTUD (RFC 9000 §14.3, RFC 8899).** Ruled by
-     the owner on 2026-11-05 (design §8 step 40), after decision 154 found that 1,200-octet
+     the owner on 2026-11-05 (design §8 step 40), after decision 154 found that 1,200-byte
      datagrams cost colibri about a fifth of quic-go's goodput at 1% loss (design §8 step 34).
      RFC 8899 is pinned in `docs/rfcs/`.
-     1. Each path starts at RFC 8899's BASE_PLPMTU, 1,200 octets (RFC 9000 §14.1), and searches
+     1. Each path starts at RFC 8899's BASE_PLPMTU, 1,200 bytes (RFC 9000 §14.1), and searches
         upward once the handshake is confirmed. A probe is a PING padded to its size (RFC 9000
         §14.4). The search stops at the smallest of the peer's `max_udp_payload_size` (§18.2),
-        colibri's own limit, and a new connection option, `datagram_len_max`, 1,452 octets by
-        default: a 1,500-octet link less the IPv6 and UDP headers.
+        colibri's own limit, and a new connection option, `datagram_len_max`, 1,452 bytes by
+        default: a 1,500-byte link less the IPv6 and UDP headers.
      2. A lost probe is no congestion: RFC 9000 §14.4 says it "SHOULD NOT trigger a congestion
-        control reaction". Its octets count in flight.
+        control reaction". Its bytes count in flight.
      3. Black-hole detection (RFC 8899 §4.3): repeated losses of full-size packets, while smaller
         ones arrive, return the path to the base size. PMTU_RAISE_TIMER (RFC 8899 §5.1.1) starts
         the search again later.
-     4. The congestion window stays in octets. A larger datagram raises the minimum window, the
+     4. The congestion window stays in bytes. A larger datagram raises the minimum window, the
         initial window and each step of growth, under CUBIC, NewReno and BBRv3 alike.
-     5. The send buffers and the frame scratch grow from 1,200 octets to `datagram_len_max`, so
+     5. The send buffers and the frame scratch grow from 1,200 bytes to `datagram_len_max`, so
         each QUIC connection grows. Each new limit is named, and each new name goes on its list.
-     6. Amended by the owner on 2026-11-05, so a datacenter path with 9,000-octet frames is found:
-        `datagram_len_max` may go up to 65,527 octets, the largest `max_udp_payload_size` RFC 9000
+     6. Amended by the owner on 2026-11-05, so a datacenter path with 9,000-byte frames is found:
+        `datagram_len_max` may go up to 65,527 bytes, the largest `max_udp_payload_size` RFC 9000
         §18.2 allows, and colibri advertises the option's value as its own
         `max_udp_payload_size`. The send buffers, the frame scratch, and the receive buffers where
         the kernel coalesces nothing size from the option, so memory grows with the ceiling a
@@ -6485,7 +6500,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - PMTUD from ICMP (RFC 9000 §14.2.1). Rotor reads no ICMP, and §14.2.1 asks that a message be
        validated before it is used.
      - Trust the peer's `max_udp_payload_size` alone. It says nothing of the path between.
-     - Stay at 1,200 octets, as RFC 9000 §14.2 allows. It costs every controller.
+     - Stay at 1,200 bytes, as RFC 9000 §14.2 allows. It costs every controller.
 
 156. **`colibri.Client` and `colibri.Server` run on a Rotor loop that the program may share.**
      Ruled by the owner on 2026-11-06 (design §8 step 44), for v0.15.0, and amended by the owner
@@ -6870,9 +6885,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. `server.Endpoint` holds a table of the connection IDs its connections issued. The table
         has `2 × quic_connections × connection_ids_max` entries, rounded up to a power of two.
         Each entry holds one ID and its slot, or nothing.
-     2. The low bits of an ID's first two octets name its entry. The server makes this true when
+     2. The low bits of an ID's first two bytes name its entry. The server makes this true when
         it issues the ID:
-        1. It draws `quic_id_len` random octets, as before (§5.1).
+        1. It draws `quic_id_len` random bytes, as before (§5.1).
         2. When the entry those bits name is in use, it moves to the next free entry.
         3. It writes the index of that entry into the bits, and puts the ID in the entry.
      3. The table is exact. The server frees a slot's entries when the slot is released. After
@@ -6930,7 +6945,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           13, camelCase as std names functions, loses.
         - `init` of a large struct stays in place, through an out-pointer: `init(self: *T, ...)`.
           The ReleaseSafe fill of a returned value costs a copy (docs/performance.md).
-        - An argument over 16 octets stays `*const T`.
+        - An argument over 16 bytes stays `*const T`.
         - `http.QueryParameters` keeps its out-pointer `read`, because the struct is about 1 KiB.
           The audit's `parse`, which returns the value, loses.
      2. A type whose `init` takes a `*const Config` copies the fields that it keeps. It keeps no
@@ -7143,7 +7158,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - RFC 9110 §15 says: "A client that receives a response with an invalid status code
            SHOULD process the response as if it had a 5xx (Server Error) status code." colibri
            follows the SHOULD.
-         - `from_digits` reads what a peer sends, and accepts any three DIGIT octets. Text that is
+         - `from_digits` reads what a peer sends, and accepts any three DIGIT bytes. Text that is
            not three digits stays `error.StatusNotThreeDigits`, and the response stays malformed.
          - `class` returns `.server_error` for a code outside 100 to 599. Such a code is a final
            response, never an interim one.
@@ -7231,7 +7246,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The alternatives that lost:
      - camelCase for each function, as std names them. TigerStyle names functions in snake_case,
        and a change touches about 1,800 definitions and each program's hooks.
-     - `Config` by value in `init`. The struct passes 16 octets, so TigerStyle passes it by
+     - `Config` by value in `init`. The struct passes 16 bytes, so TigerStyle passes it by
        `*const`. The copy of the fields that the object keeps does the same work once.
      - The engine and the pool keep their pointer to `Config`. Each program then keeps its
        `Config` alive and aligned, and a change to it after `init` changes a running engine.
@@ -7835,8 +7850,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. A final h11 response that completes before its request's body is read whole starts the
         `discard` phase of `h11.Connection`. The connection reads the rest of the body, reports
         none of it, and then reads the next request. It does so when the rest has a known length
-        of at most `server.constants.limits.discard_len_max`, 262,144 octets (256 KiB), or is
-        chunked and ends within that many octets.
+        of at most `server.constants.limits.discard_len_max`, 262,144 bytes (256 KiB), or is
+        chunked and ends within that many bytes.
      2. Past that bound, for a request with the close option, or when the bound is 0, the
         connection closes in stages (RFC 9112 §9.6):
         - The engine reports `half_close` once the response is out. The program closes only the
@@ -7844,7 +7859,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - The engine reports `close` when `server.constants.limits.half_close_ns`, 1 s, has
           passed since the `half_close`. A program whose peer closes first calls
           `transport_closed`, as before.
-     3. Decision 110's deadlines hold while the body is discarded. The body's octets count for its
+     3. Decision 110's deadlines hold while the body is discarded. The body's bytes count for its
         rate, and its deadlines end with it. A peer that drips the body is cut at the body's
         deadline, with no 408 after the response. The 1 s bound is a deadline that `deadline_ns`
         names, and colibri reads no clock.
@@ -8015,13 +8030,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The alternatives refused:
      - Both keys in the configuration alone, with no call. A server that runs for weeks then keeps
        one key until the program starts it again.
-     - A null previous key until the first change. chapulin refuses a key of zero octets, so the
+     - A null previous key until the first change. chapulin refuses a key of zero bytes, so the
        pointer must change at the first change, and a session that started before it keeps null.
      - A call that swaps two pointers. A session that started before the swap keeps the old
        pointers, and can seal under the key that the program retired.
 
      Cost: a ticket that the current key does not open costs a second open. Each server holds one
-     more key of 32 octets. A server with the old key cannot open a ticket that a server with the
+     more key of 32 bytes. A server with the old key cannot open a ticket that a server with the
      new key sealed, so a program that runs several servers gives each one the new key in one
      pass.
 
@@ -8108,9 +8123,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         accepted that cost. A copy only before the connection writes its section again lost
         more: about 480. h2load runs ten streams on a connection, so another stream's HEADERS
         frame comes before most bodies end, and that path paid its own costs and the copy too.
-        The copy gives a part that lies in the copied octets the same offset there. It finds the
+        The copy gives a part that lies in the copied bytes the same offset there. It finds the
         offset as the difference of two addresses. The owner ruled that such an offset is no
-        pointer value in the sense of non-negotiable 5: it follows from the request's octets,
+        pointer value in the sense of non-negotiable 5: it follows from the request's bytes,
         at every address. INV-3 and INV-6 say so.
      6. A struct route is a stream. Its `on_request` runs at the header and takes the
         `server.Request`, so it never copies the header. `on_data` takes the stream of the
@@ -8126,21 +8141,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         it added a name and no behaviour. The stream of the body takes the name
         `server.RequestBodyStream`, because it holds the request's body and no part of the
         response. Its calls are `next`, `keep` and `ended`. `keep(len)` leaves the last `len`
-        octets of a piece unread, and the next `next` gives them joined with the octets that
+        bytes of a piece unread, and the next `next` gives them joined with the bytes that
         arrive later. So a route reads a message that two events cut, as gRPC and Connect frame
         theirs.
 
         Amended again on 2026-11-15, after connect-zig moved to step 50 (design §8 step 50i):
-        - At the body's end, `next` gives the kept octets once more as a last piece, with no new
-          octet. A `keep` of that last piece keeps nothing, and the call after it returns null and
+        - At the body's end, `next` gives the kept bytes once more as a last piece, with no new
+          byte. A `keep` of that last piece keeps nothing, and the call after it returns null and
           makes `ended` true. So a route keeps a body that has no length, as Connect's unary POST,
           until the end, and reads it in place.
-        - Through a middleware's wrapper, the router copies kept octets into the entry's
-          `body_bytes` and joins the wrapper's later octets there. It asks a wrapper for no more
-          than one octet past what it gave out. A wrapper's `rebase` may hold less than its buffer,
+        - Through a middleware's wrapper, the router copies kept bytes into the entry's
+          `body_bytes` and joins the wrapper's later bytes there. It asks a wrapper for no more
+          than one byte past what it gave out. A wrapper's `rebase` may hold less than its buffer,
           as std's flate decompressor does, and the owner ruled that the library prevents that
           mistake. A piece that follows no `keep` stays a slice of the wrapper's buffer.
-        - The router's held octets and the kept octets share `body_bytes`, with 413 past it, over
+        - The router's held bytes and the kept bytes share `body_bytes`, with 413 past it, over
           each protocol and with each kind of reader.
      7. `server.ResponseWriter` takes the name `server.Response`, and the engine's header struct
         of that name becomes `server.ResponseHeader`. No other name changes: `server.Request`
@@ -8149,8 +8164,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         judge gets a POST input before the sub-step that copies a header.
      9. `server.RouterOptions.body_bytes` and `response_bytes` have no default, ruled on
         2026-11-12 after connect-zig's report. A program names both, 0 included. With the defaults
-        of 0 and 256, a route that reads a whole body answered 413 to a body of 18 octets, and a
-        reply of 1,520 octets failed, and neither answer named the pool. No value is right to
+        of 0 and 256, a route that reads a whole body answered 413 to a body of 18 bytes, and a
+        reply of 1,520 bytes failed, and neither answer named the pool. No value is right to
         assume for memory that a program sizes (decision 158 ruling 16). `requests` keeps its
         default.
     10. A test of a program's code makes a context with `server.RequestContext.init(id, T,
@@ -8163,7 +8178,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        2026-11-14 and refused by the judge the same day (ruling 5 as amended).
      - A function route that never reads a body, and a second field section for each h2 and h3
        connection. The first takes the whole request from the routes that most need it. The
-       second costs 17,420 octets for each connection.
+       second costs 17,420 bytes for each connection.
      - A slot that `server.ResponseWriter` gives, with no change of signature. The owner chose
        connect-zig's split.
      - The name `Context` for the request's object. It is the program's type that `server.Router`
@@ -8174,19 +8189,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - An event of the engine that tells the router before a lent header changes, so that the
        copy comes only when the body is late. It changes the engine and each protocol's
        connection.
-     - A whole `http.FieldSection` for each entry, with no option: 17,420 octets an entry, where
-       the judge's POST header has 171 live octets.
+     - A whole `http.FieldSection` for each entry, with no option: 17,420 bytes an entry, where
+       the judge's POST header has 171 live bytes.
      - A pool of whole sections with a count of its own, which a program sizes beside
        `requests`.
      - A reader for a stream's body. `std.Io.Reader` reports a body that has no bytes yet as
        `error.ReadFailed`, which is what `on_body` did.
      - A second type for a stream route's response, `server.ResponseStream`, from the same
        definition as `server.Response`. A middleware hook takes a `server.Response`, so a stream
-       copied about 1,470 octets of state to the other type and back, ruled on 2026-11-14.
+       copied about 1,470 bytes of state to the other type and back, ruled on 2026-11-14.
      - A stream route's body in `server.Request`, whose header the router would copy for each
        stream request too: about 165 instructions on a small POST (ruling 6 as amended).
      - The name `RequestStream`, which suggests a second kind of `server.Request`.
-     - Kept octets that a wrapper's own buffer holds, with a rule in docs/usage.md that a route
+     - Kept bytes that a wrapper's own buffer holds, with a rule in docs/usage.md that a route
        bounds its `keep` through such a wrapper. A long `keep` through std's flate decompressor
        tripped std's assertion (ruling 6 as amended again).
      - The names `RequestHeader` for the engine's request header, and `header_sent` for
@@ -8202,10 +8217,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: every route, middleware and error handler of every program changes in v0.17.0, and so
      do connect_colibri's routes. Each router entry grows by a `RequestContext` and by
      `@sizeOf(Values)`. With `header_bytes` above 0 it also grows by `header_bytes`, and by the
-     copy's `Slice` and `server.Request`: 176 octets on a 64-bit target. A request with a body on
+     copy's `Slice` and `server.Request`: 176 bytes on a 64-bit target. A request with a body on
      a function route pays one copy of its header, about 165 instructions on a small POST. Each
-     connection keeps the `http.FieldSection.Slice` of its event, 32 octets, so `server.Headers`
-     stays at 16 octets in each copy of an event.
+     connection keeps the `http.FieldSection.Slice` of its event, 32 bytes, so `server.Headers`
+     stays at 16 bytes in each copy of an event.
 
 164. **Line coverage comes from pepegrillo's tool under kcov, and the badge from a named CI run.**
      Ruled by the owner on 2026-11-15, as connect-zig's decision 43.
@@ -8231,13 +8246,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 165. **The server's `receive` writes its result through a pointer, and a `server.Router` takes
      `*const server.Event`, from v0.19.0.** Ruled by the owner on 2026-11-17, for
      [#133](https://github.com/c4milo/colibri/issues/133).
-     - `server.Event` holds 160 octets, and `server.ReceiveResult` 192. Each layer of the engine,
+     - `server.Event` holds 160 bytes, and `server.ReceiveResult` 192. Each layer of the engine,
        and the public `receive`, returns the result by value. A `server.Router`'s `handle` takes
        the event by value. The laptop profile of 2026-11-14 put about 640 of the 1,710
        instructions a request of `State.receive` on h11-many in the lines that build and return
        the result.
      - From v0.19.0, `server.Engine(capacity).receive` takes a fourth argument,
-       `result: *server.ReceiveResult`, writes the octets it took and the event there, and
+       `result: *server.ReceiveResult`, writes the bytes it took and the event there, and
        returns nothing. A `server.Router`'s `handle` takes `received: *const server.Event`.
        `colibri.Server`'s loop, the examples, docs/usage.md and `tools/consumer/` change with
        them.
@@ -8264,13 +8279,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      **Amended by the owner on 2026-11-25**, who asked for 58b in v0.20.0. `server.Handled` hands
      an event back by the pointer `handle` took, as `event: *const server.Event`, so the router
      copies no event it does not take. A program switches on `other.*`. The alternative refused:
-     `Handled.event` by value, which copies 160 octets back on each `send`, `close` and `ended`.
+     `Handled.event` by value, which copies 160 bytes back on each `send`, `close` and `ended`.
 
      **Amended again by the owner on 2026-11-25:** 58b ships in v0.20.0 for its shape, and not for
      a win of the judge. The judge measured it neutral: every input within the noise in both jobs
      ([run 45605444855](https://github.com/c4milo/colibri/actions/runs/45605444855)). The owner
      admitted it under TigerStyle: the program owns the storage of each result, as decision 158
-     ruling 1 gives a program the storage of a large struct, and no call copies a 160-octet value
+     ruling 1 gives a program the storage of a large struct, and no call copies a 160-byte value
      in or out. The rule that a change of every program's loop must win past the noise yields to
      that ruling for this change alone.
 
@@ -8279,15 +8294,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the owner on 2026-11-18, for the last item of
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 62).
      - The sizes, each with today's value as its default:
-       - HPACK's encoder table, from 16,384 octets down to 0, which colibri chooses (RFC 7541
+       - HPACK's encoder table, from 16,384 bytes down to 0, which colibri chooses (RFC 7541
          §4.2).
        - HPACK's decoder table, from 16,384 down to 4,096, which a peer may use before it
          acknowledges a smaller SETTINGS_HEADER_TABLE_SIZE (RFC 9113 §6.5.2).
        - The longest header value, 8,192, and the header section, 16,384 (RFC 9110 §5.4 sets no
          limit).
        - The response header block, 32,768, which sizes `output`; the TLS flight keeps `output`
-         at 20,480 octets at least.
-       - h11's head, 32,768; RFC 9112 §3 recommends request lines of 8,000 octets at least.
+         at 20,480 bytes at least.
+       - h11's head, 32,768; RFC 9112 §3 recommends request lines of 8,000 bytes at least.
      - The types that hold them take them as type parameters: the server's TCP connection,
        `h2.Connection`, HPACK's decoder and encoder, and `h11.Connection`. A program that names
        one of those types directly changes its code.
@@ -8301,7 +8316,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Buffers that the engine places and sizes from `server.Capacity`, as the slot tables are.
        Each read on the per-frame path then checks a length the compiler no longer knows.
      - The stream count as a size. RFC 9113 §5.1.2 recommends at least 100 streams, and 100 in
-       place of 128 saves about 6,600 octets a connection.
+       place of 128 saves about 6,600 bytes a connection.
      - A release of its own before 58b, which breaks names twice.
      - Fixed sizes, as before. connect-zig's OTLP sink then holds about 384 KB a connection
        after steps 60 and 61, where its counterpart on connect-rust holds about 100 KB.
@@ -8310,11 +8325,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      size colibri's internal parts, and ruled that they need not: colibri sizes each part to what
      it uses, with no `Capacity` field and no type parameter, as long as performance is not
      affected. The names of design §8 step 62a were withdrawn before any code landed.
-     - HPACK's dynamic table holds 4,096 octets, the SETTINGS_HEADER_TABLE_SIZE colibri
+     - HPACK's dynamic table holds 4,096 bytes, the SETTINGS_HEADER_TABLE_SIZE colibri
        advertises and the most its encoder uses (RFC 7541 §4.2), in place of 16,384. This amends
        the ruling of 2026-09-16 that every directory of http2jp/hpack-test-case decodes: the run
        skips `nghttp2-16384-4096`, whose encoder used a table of 16,384.
-     - A server reads a request head of `request_head_len_max`, 24,582 octets: the leading empty
+     - A server reads a request head of `request_head_len_max`, 24,582 bytes: the leading empty
        line, the longest start line, the largest field section colibri accepts, and their CRLFs.
        A client reads a response head of `response_head_len_max`, 32,768, as before.
      - Each change landed only after the judge found no input losing.
@@ -8325,8 +8340,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        - A `Capacity` field that drops the TLS session and the plaintext buffer from a server
          that serves no TLS, about 35% of a TCP slot. The owner was not convinced.
      - The response header block of one h2 frame, in place of two, waits for the owner: it saves
-       16,384 octets a connection, colibri would then send no CONTINUATION, and each `send`
-       holds a third fewer octets of a large body.
+       16,384 bytes a connection, colibri would then send no CONTINUATION, and each `send`
+       holds a third fewer bytes of a large body.
 
      **Amended by the owner on 2026-11-19, and refused by the judge.** The owner asked to try a
      server output sized for one h2 frame of header block in place of two, and then, after the
@@ -8334,25 +8349,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The note above was wrong in part. The server bounds a response's header section by its
        count of lines and by the output alone, not by `field_section_size_max`, so a block can
        pass one frame, and colibri sends CONTINUATION for it.
-     - The trial held a HEADERS frame and a DATA frame in the output, 32,786 octets in place of
+     - The trial held a HEADERS frame and a DATA frame in the output, 32,786 bytes in place of
        49,161, and cut no DATA frame at the room below `data_frame_len_min`. Without that floor,
-       a full output went out in DATA frames of a few hundred octets.
+       a full output went out in DATA frames of a few hundred bytes.
      - The judge refused it, in run 44541453452: a response of 256 KiB, `h2-large-many` (design §8
        step 13n), lost in both jobs, at 1.1164 and 1.1129 of the base's instructions. Its user
        instructions went from 119,077 to 146,980 a request: each response took more passes.
-     - So the output stays 49,161 octets, and no floor on the room lands. The branch
+     - So the output stays 49,161 bytes, and no floor on the room lands. The branch
        `one-frame-65b` keeps the trial.
 
 167. **A TCP connection over TLS takes its TLS session from a buffer the program passes in
      `server.Config.tls_buffer`, from v0.19.0.** Ruled by the owner on 2026-11-18, for
      [#137](https://github.com/c4milo/colibri/issues/137) (design §8 step 64).
-     - Every TCP slot of an engine holds a TLS session, `tls.record.Server` of 41,808 octets, and
+     - Every TCP slot of an engine holds a TLS session, `tls.record.Server` of 41,808 bytes, and
        `plain_in` of 41,221, in cleartext too. That is 35% of the slot.
      - The owner ruled that colibri saves this memory, and that `server.Capacity` is the wrong
        place for the switch, because it counts connections.
      - `Config.tls` keeps its type, `?tls.Server`. `Config.tls_buffer`, a `[]u8` that is empty by
        default, holds the TLS sessions of the TCP connections over TLS that the engine holds at
-       once. `Config.tls_buffer_len(n)` gives the octets that hold `n` sessions, with room to align
+       once. `Config.tls_buffer_len(n)` gives the bytes that hold `n` sessions, with room to align
        them. So the program declares a plain `[N]u8`, as `std.crypto.tls.Client.Options` takes its
        `read_buffer`.
      - `accept(.{ .tls = true })` takes a free session, and returns null when none is free, as when
@@ -8385,7 +8400,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        was lost. The server dropped its request, and quinn's probes never carried it again
        ([quinn#2893](https://github.com/quinn-rs/quinn/issues/2893)).
      - Each connection holds `early_packets`: at most `early_packets_max` packets, 12, and
-       `early_packet_octets_max` octets, 14,720. That is RFC 9002 §7.2's initial window. The owner
+       `early_packet_octets_max` bytes, 14,720. That is RFC 9002 §7.2's initial window. The owner
        ruled both limits, and the store in each connection.
      - The walk names such a packet's discard `handshake_pending`, apart from `no_keys`, which
        now means RFC 9001 §4.9's absent or discarded keys. A server keeps a `handshake_pending`
@@ -8415,7 +8430,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        client's three decoder pools, a server's encoder pool and its decoder pool, h11's own pool,
        and each qlog. Each one is a place where a program built for a generic CPU can leave
        `CpuFeatures.target()` by mistake. No test sees that mistake, since stdx writes the same
-       octets on every path.
+       bytes on every path.
      - `client.Config`, `server.Config` and h11's `Options` each hold one field,
        `cpu_features: CpuFeatures`. The type is stdx's `platform.CpuFeatures`, under the names
        `client.CpuFeatures`, `server.CpuFeatures` and `h11.coding.CpuFeatures`, as before.
@@ -8592,7 +8607,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A seed still replays. The engine passed its own source to each session before, so the
        engine and its sessions drew from one source then too.
      - The simulator describes a CPU with no feature, and reads nothing of the host. Every
-       session of its runs then holds ChaCha20 alone, so one seed replays octet for octet on every
+       session of its runs then holds ChaCha20 alone, so one seed replays byte for byte on every
        host (non-negotiable 5). Ruled by the owner on 2026-11-26: "They simulator shouldn't
        detect, its job is deterministic simulation testing". The simulator once stated the timing
        on every host, so every host ran AES-GCM. stdx states it on arm64 only where the core has
@@ -8601,7 +8616,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        code. The alternatives, each ruled and then replaced the same day:
        - The host's features, and one pinned value for each suite: a seed then replays only on a
          host that holds the same suite, so a failure on one host may not reproduce on another.
-       - The host's features, with each client offering ChaCha20 alone: the octets are the same
+       - The host's features, with each client offering ChaCha20 alone: the bytes are the same
          on every host, but the run still reads the host, which a simulation must not.
      - Each example over TLS, `tools/consumer/` and `tools/consumer_hosted/` draw from
        `io.randomSecure`, in the shape stdx documents, and halt when a draw fails. The owner

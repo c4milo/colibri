@@ -13,8 +13,8 @@ const Utilization = recovery_congestion.Utilization;
 const newreno = constants.recovery.newreno;
 
 pub const NewReno = struct {
-    /// The octets of Appendix B.5's congestion avoidance increase that have not yet made a whole
-    /// octet of window: the increase is `max_datagram_size × acknowledged / window`.
+    /// The bytes of Appendix B.5's congestion avoidance increase that have not yet made a whole
+    /// byte of window: the increase is `max_datagram_size × acknowledged / window`.
     growth_numerator: u64,
 
     pub fn init(state: *NewReno) void {
@@ -22,7 +22,7 @@ pub const NewReno = struct {
     }
 };
 
-/// Appendix B.5's `OnPacketAcked`: takes the acknowledgment of `sent_len` octets, the largest of
+/// Appendix B.5's `OnPacketAcked`: takes the acknowledgment of `sent_len` bytes, the largest of
 /// them sent at `sent_at_ns`.
 pub fn on_ack(congestion: *Congestion, state: *NewReno, sent_at_ns: u64, sent_len: u64, used: Utilization) void {
     // RFC 9002 §7.8 and Appendix B.5: "Do not increase congestion_window if application limited

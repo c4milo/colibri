@@ -36,9 +36,9 @@ pub const Trace = struct {
 pub const Log = struct {
     buffer: []u8,
     /// The CPU features stdx's JSON writer may use, which the caller chose (decision 102 as
-    /// amended). The records are the same octets for every value (stdx's invariant 5).
+    /// amended). The records are the same bytes for every value (stdx's invariant 5).
     cpu_features: CpuFeatures,
-    /// Octets of whole records, from the start of `buffer`, that the caller has not taken.
+    /// Bytes of whole records, from the start of `buffer`, that the caller has not taken.
     len: usize = 0,
     /// Events dropped because they did not fit.
     dropped: u64 = 0,

@@ -159,7 +159,7 @@ test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunn
 test "RFC 9931 §8: a client writes nothing after a CONNECT until its 2xx" {
     const target = client(.{ .cpu_features = .none(), .role = .client });
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
-    // Neither a tunnel octet nor a pipelined request goes out before the answer.
+    // Neither a tunnel byte nor a pipelined request goes out before the answer.
     try testing.expectError(error.NoBody, target.write_body(&test_output, "raw"));
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     // A refusal opens no tunnel, and the connection takes the next request.
@@ -191,7 +191,7 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
     try target.count_body(2);
     // `write_body` and `count_body` share the one Content-Length.
     try testing.expectEqual(1, try target.write_body(&test_output, "c"));
-    // RFC 9112 §6.2: no more octets than the Content-Length declared, and a refused count is not
+    // RFC 9112 §6.2: no more bytes than the Content-Length declared, and a refused count is not
     // counted.
     try testing.expectError(error.BodyTooLong, target.count_body(3));
     try testing.expectError(error.BodyIncomplete, target.write_end(&test_output, &.{}));
@@ -199,7 +199,7 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
     try testing.expectEqual(0, try target.write_end(&test_output, &.{}));
     // RFC 9112 §6: once the body ends there is nothing to count.
     try testing.expectError(error.NoBody, target.count_body(1));
-    // RFC 9112 §7.1: a chunk needs its size line, so octets counted before a chunk head are
+    // RFC 9112 §7.1: a chunk needs its size line, so bytes counted before a chunk head are
     // refused.
     target = client(.{ .cpu_features = .none(), .role = .client });
     _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
@@ -208,12 +208,12 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
 
 const chunked_field: Field = .{ .name = "Transfer-Encoding", .value = "chunked" };
 
-/// The server that reads back what the client wrote, and the octets of the body it read.
+/// The server that reads back what the client wrote, and the bytes of the body it read.
 var test_server: Connection align(@alignOf(Connection)) = undefined;
 var test_read: [test_output_len]u8 = undefined;
 
 /// Writes a chunked POST whose body is `pieces`, each sent from the caller's memory after its chunk
-/// head and counted, and returns the octets written into `test_output`.
+/// head and counted, and returns the bytes written into `test_output`.
 fn write_pieces(target: *Connection, pieces: []const []const u8) !usize {
     var length = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
     for (pieces) |piece| {
@@ -231,7 +231,7 @@ fn read_back(input: []const u8) ![]const u8 {
     test_server.init(.{ .cpu_features = .none(), .role = .server });
     var offset: usize = 0;
     var read_len: usize = 0;
-    // Bounded: each event takes at least an octet, or ends the body.
+    // Bounded: each event takes at least a byte, or ends the body.
     for (0..input.len + 1) |_| {
         const received = try test_server.receive(input[offset..], &.{});
         offset += received.consumed;
@@ -250,7 +250,7 @@ fn read_back(input: []const u8) ![]const u8 {
 
 test "RFC 9112 §7.1: chunk heads frame pieces the caller sends in place, and a server reads them whole" {
     const target = client(.{ .cpu_features = .none(), .role = .client });
-    // The middle piece is 26 octets long, which reads 0x1a in hex and 26 in decimal.
+    // The middle piece is 26 bytes long, which reads 0x1a in hex and 26 in decimal.
     const pieces = [_][]const u8{ "first", "abcdefghijklmnopqrstuvwxyz", "end" };
     const length = try write_pieces(target, &pieces);
     const body = "5\r\nfirst\r\n1a\r\nabcdefghijklmnopqrstuvwxyz\r\n3\r\nend\r\n0\r\n\r\n";

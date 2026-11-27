@@ -1,9 +1,9 @@
-//! The QUIC input check: hostile octets for three readers of what a QUIC peer sends, drawn from
+//! The QUIC input check: hostile bytes for three readers of what a QUIC peer sends, drawn from
 //! one seed (https://github.com/c4milo/colibri/issues/53). It stands where the fuzzer would, as
 //! `qpack_input_check.zig` does for QPACK: Zig 0.16.0 cannot build its fuzz mode (design §8 step
-//! 1), and `core.fuzz.sweep` covers only inputs of two octets.
+//! 1), and `core.fuzz.sweep` covers only inputs of two bytes.
 //!
-//! Each input starts from what colibri's own writer produces, so it reaches past the first octet,
+//! Each input starts from what colibri's own writer produces, so it reaches past the first byte,
 //! and then takes up to `quic_input_check_edits_max` edits (`input_edit.zig`). It goes to one of:
 //! - `quic.frame.read`, a payload frame by frame (`quic_input_frames.zig`);
 //! - `quic.packet.header.read`, a datagram packet by packet (`quic_input_packets.zig`);
@@ -36,7 +36,7 @@ const Target = enum { frames, datagram, parameters };
 pub const Outcome = enum(u8) { taken, refused };
 
 pub const Storage = struct {
-    /// The random octets every drawn string is a slice of, drawn once per seed.
+    /// The random bytes every drawn string is a slice of, drawn once per seed.
     material: [constants.quic_input_check_material_len]u8,
     frames: frames.Storage,
     packets: packets.Storage,

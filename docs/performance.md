@@ -22,11 +22,11 @@ Performance section states the rules, and design §11 holds the method's numbers
     `server.Router`'s cost, which the owner asked for on 2026-10-28 (design §8 step 13h).
   - `h2-k8s-routes-many`: h2-routes-many over 463 of the Kubernetes API's routes with `--routes
     kubernetes`, which h2load sends 228 GET routes of. Its segments are longer than the GitHub
-    API's: 220 of its 352 literal edges have more than 8 octets (design §8 step 13l).
+    API's: 220 of its 352 literal edges have more than 8 bytes (design §8 step 13l).
   - `h2-routes-post-many` and `h2-routes-post-late-many`: h2-many as a POST to a route of that
     route table, whose route reads its whole body (design §8 step 50b). The first body has 128
-    octets, and arrives with its header. The second has 8,192 octets. The streams of a connection
-    pass h2's first window of 65,535 octets together (RFC 9113 §6.9.2), so that body arrives in a
+    bytes, and arrives with its header. The second has 8,192 bytes. The streams of a connection
+    pass h2's first window of 65,535 bytes together (RFC 9113 §6.9.2), so that body arrives in a
     later receive than its header. Only colibri's servers answer them.
   - `h2-large-many` and `h2-tls-large-many`: h2-many against the server with `--body 262144`, so
     each answer carries 256 KiB, past the server's output several times, and goes out over many
@@ -39,7 +39,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   - `h11-many`, `h11-tls-many`, `h11-one` and `h11-tls-one`: the same four loads over h11, which
     wrk sends, as the baselines below describe (design §8 step 13g).
   - `h3-many` and `h3-one`: the same two loads over h3, against the test-only UDP server in its
-    `h3` mode (design §8 step 13d). Each request asks for a file of the same eight octets, which
+    `h3` mode (design §8 step 13d). Each request asks for a file of the same eight bytes, which
     the server reads from its directory: the h3 servers design §11.3 names answer from files
     alone, so colibri's does the same work. The h2load that sends them is the one
     `tools/h3load/Dockerfile` builds with HTTP/3, run from its image on the load generator's
@@ -59,7 +59,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   compared within one job and never across jobs.
 - The programs the judge and `tools/h3load.sh` time, `http-server` and `quic-udp`, export their own
   `memset` on Linux under Zig 0.16 (`src/testing/memset.zig`), as pepegrillo's guide tells a
-  program to: compiler_rt's writes one octet at a time, for Zig's fills and chapulin's C code
+  program to: compiler_rt's writes one byte at a time, for Zig's fills and chapulin's C code
   alike. The report names the `memset` each build links.
 - The report writes the machine beside the numbers, as decision 33 requires: the CPU, the kernel,
   the core count, the path, the socket buffer sizes, the certificate type, and the cipher suite
@@ -127,7 +127,7 @@ for latency, which `bench/run.sh --latency` measures (design §8 step 13f).
 The owner admitted a second batch on 2026-10-28, for the goal of no copy on a request's path,
 which the owner set on 2026-10-27 (design §8 step 13h). Its changes:
 
-- the varint encoder writes its octets in place;
+- the varint encoder writes its bytes in place;
 - h2 encodes a response's block in its frame;
 - the test-only server swaps its receive buffers.
 
@@ -168,7 +168,7 @@ four h2 ones. Each competitor is set up so that all of them do the same work:
   Fastify is the program of `bench/competitors/fastify/`, which the latency run starts too, on
   Node's latest LTS release: it serves h11 or h2 alone, so an h2 input starts one with `--h2`.
 - Each answers every request as colibri's test-only server does, from memory: status 200,
-  `text/plain; charset=utf-8` and the eight octets `colibri\n`. nginx answers with `return`, and
+  `text/plain; charset=utf-8` and the eight bytes `colibri\n`. nginx answers with `return`, and
   h2o 2.2 through its mruby handler. `bench/competitors/` holds every configuration and program.
 - Each runs one worker on the core the judge pins servers to, and presents the same P-256
   identity. h2load offers TLS_AES_256_GCM_SHA384 alone, so that all of them run one cipher.
@@ -206,10 +206,10 @@ when both of its inputs are set:
   `cargo build --release --locked`. With `--www` and `--h3`, it sends each request through axum's
   router, over the h3 crate on quinn, with rustls over ring, on tokio's single-thread runtime. The
   report names the versions of axum, h3 and quinn, and the Rust release.
-- Each server reads the same file of eight octets from its directory on each request, and
+- Each server reads the same file of eight bytes from its directory on each request, and
   presents the same P-256 identity. h2load offers TLS_AES_256_GCM_SHA384 alone.
 - Each answers with the fields its own code adds, which h2load counts before QPACK: colibri's
-  server sends 25 octets of field lines, `content-length` alone, and quic-go's sends 155.
+  server sends 25 bytes of field lines, `content-length` alone, and quic-go's sends 155.
 
 ### Throughput at full load
 
@@ -363,7 +363,7 @@ target builds its device objects, prints another heading, and its test fails unt
 holds its table. An endpoint holds each QUIC connection's receive pool. A QUIC connection listed by
 itself holds none: a client's program passes one to `Pool.init`, whose default the table lists.
 A client's pool holds its TCP connections and its exchanges in memory that the program supplies:
-`Pool.memory_bytes(options)` octets beside the fixed part that `@sizeOf` gives (decision 35 as
+`Pool.memory_bytes(options)` bytes beside the fixed part that `@sizeOf` gives (decision 35 as
 amended), and the table lists both at the default counts.
 The two endpoints of one slot each hold one connection and the endpoint's fixed part, about 15.8 KB
 beside a TCP connection and 14.9 KB beside a QUIC one, of TLS and connection configuration, which
@@ -377,7 +377,7 @@ With chapulin's host objects:
 | `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 168608 | an engine that holds one TCP connection |
 | `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2962528 | an engine that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 151240 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS, with no TLS session |
-| `server.Config.tls_buffer_len(1)` | 132207 | the octets of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167) |
+| `server.Config.tls_buffer_len(1)` | 132207 | the bytes of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167) |
 | `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1437912 | the connection each QUIC slot of an engine holds, without its receive pool |
 | `server.EncoderPool(.{})` | 1461296 | the encoders a program gives a server's connections, at the default options |
 | `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))` | 234288 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
@@ -400,27 +400,27 @@ With chapulin's host objects:
 ## Pitfalls this tree has paid for
 
 - **compiler_rt's `memset`.** Symptom: on the judge, a cleartext h2 connection cost 857,000
-  instructions against 46,100 for a request on an open one, about 2.8 for each octet of the server's
+  instructions against 46,100 for a request on an open one, about 2.8 for each byte of the server's
   TCP connection. Cause: on Linux every `memset` in a Zig 0.16 program is compiler_rt's, which
-  writes one octet at a time, and each connection's structs are filled through it. Rule: the
+  writes one byte at a time, and each connection's structs are filled through it. Rule: the
   programs colibri times export their own (`src/testing/memset.zig`), which brought the connection
   to 305,000 instructions. A program that links colibri should export one too, as pepegrillo's guide
   says.
 - **A scratch array as large as its limit.** Symptom: every h2 response cost about 940
-  instructions before it wrote an octet, whatever it carried. Cause: ReleaseSafe fills an
+  instructions before it wrote a byte, whatever it carried. Cause: ReleaseSafe fills an
   `undefined` local with 0xAA on every call, and `respond` copied the caller's fields into an
-  array of `field_count_max` lines, 4,096 octets. Rule: read the caller's data where it is, and
+  array of `field_count_max` lines, 4,096 bytes. Rule: read the caller's data where it is, and
   size a scratch array to its data, as pepegrillo's guide says under "Copies and fills". Design
   §8 step 17 has the judge's numbers.
 - **A union constant stored whole.** Symptom: each accepted connection cost 35,700 instructions
-  for a zero fill of 163,392 octets. Cause: Zig 0.16 stores a union constant such as `.none` over
-  every octet of the union, its largest payload's included. Rule: where a payload is large, store
+  for a zero fill of 163,392 bytes. Cause: Zig 0.16 stores a union constant such as `.none` over
+  every byte of the union, its largest payload's included. Rule: where a payload is large, store
   the tag with `.{ .none = undefined }`, and read the disassembly for the fill again at each Zig
   upgrade, because the language fixes the tag alone. Design §8 step 17 has the judge's numbers.
 - **A large payload made `undefined` to change a union's field.** Symptom: each coded response
-  wrote 299,768 octets of 0xAA before its encoder started. Cause: `.{ .gzip = undefined }` names a
+  wrote 299,768 bytes of 0xAA before its encoder started. Cause: `.{ .gzip = undefined }` names a
   payload of that size, and ReleaseSafe writes 0xAA over all of it. Rule: hold a large payload
-  that changes type as octets beside a tag of its own, and start it in place through a pointer of
+  that changes type as bytes beside a tag of its own, and start it in place through a pointer of
   its type. Design §8 step 67 has the numbers, and step 69 removes the same fill from h11's
   decoders.
 - **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that

@@ -11,7 +11,7 @@
 //!     after a compression coding, which decision 91 does not decode.
 //!
 //! A CONNECT request that declares content is refused: RFC 9110 §9.3.6 gives it none, so every
-//! octet after its head belongs to the tunnel a 2xx opens (decision 109).
+//! byte after its head belongs to the tunnel a 2xx opens (decision 109).
 //!
 //! Decision 91 limits the codings: chunked, and at most one of gzip or deflate. A coding h11 does
 //! not decode is `CodingUnsupported`, which RFC 9112 §6.1 has a server answer with 501. A request
@@ -50,11 +50,11 @@ pub const Error = error{
 pub const Length = union(enum) {
     /// No body.
     none,
-    /// Content-Length octets.
+    /// Content-Length bytes.
     fixed: u64,
     /// The chunked coding, which ends itself (RFC 9112 §7.1).
     chunked,
-    /// Every octet until the server closes the connection; a response only.
+    /// Every byte until the server closes the connection; a response only.
     close_delimited,
     /// The connection becomes a tunnel after the head; a 2xx response to CONNECT only.
     tunnel,
@@ -181,7 +181,7 @@ fn transfer_codings(section: *const FieldSection) Error!?Codings {
         if (!http.field.names_equal(line.name, transfer_encoding_name)) continue;
         found = true;
         var members = std.mem.splitScalar(u8, line.value, ',');
-        // Bounded by `members_max`, which a value of `field_value_len_max` octets cannot pass.
+        // Bounded by `members_max`, which a value of `field_value_len_max` bytes cannot pass.
         for (0..members_max) |_| {
             const member = members.next() orelse break;
             const name = std.mem.trim(u8, member, " \t");

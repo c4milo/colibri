@@ -1,5 +1,5 @@
 //! The field lines of a head (RFC 9112 §5), read into a `FieldSection`, the one model h2 and h3
-//! fill too (decision 15). The octets arrive as `message_scan` delimited them: each line ends with
+//! fill too (decision 15). The bytes arrive as `message_scan` delimited them: each line ends with
 //! CRLF, no line holds another CR or LF, and the empty line ends the section.
 //!
 //! RFC 9112 leaves three choices, and colibri takes the strict side of each where the RFC lets it:
@@ -46,7 +46,7 @@ const line_end = "\r\n";
 /// OWS and RWS are made of SP and HTAB (RFC 9110 §5.6.3).
 const whitespace = " \t";
 
-/// The octet that joins the lines of a folded value (RFC 9112 §5.2).
+/// The byte that joins the lines of a folded value (RFC 9112 §5.2).
 const fold_replacement = " ";
 
 /// Most lines a head holds: every line takes at least its CRLF.
@@ -106,13 +106,13 @@ fn join_fold(section: *FieldSection, line: []const u8) Error!void {
     assert(line.len > 0 and is_whitespace(line[0]));
     const segment = std.mem.trim(u8, line, whitespace);
     if (segment.len == 0) return;
-    // RFC 9110 §5.5: the joined value holds the same octets a value may hold.
+    // RFC 9110 §5.5: the joined value holds the same bytes a value may hold.
     http.field.validate_value(segment) catch return error.FieldValueInvalid;
     const last = section.get(section.len() - 1);
     const joined_len = last.value.len + fold_replacement.len + segment.len;
     // RFC 9110 §5.4: no predefined limit on a value, so colibri's applies to the joined one.
     if (joined_len > core.constants.limits.field_value_len_max) return error.FieldValueInvalid;
-    // RFC 9112 §5.2: a user agent MUST replace each obs-fold with one or more SP octets. After an
+    // RFC 9112 §5.2: a user agent MUST replace each obs-fold with one or more SP bytes. After an
     // empty value that SP would lead the value, and RFC 9112 §5.1 leaves leading OWS out of it.
     if (last.value.len > 0) section.extend_last(fold_replacement) catch return error.SectionTooLarge;
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to the joined value.
@@ -198,7 +198,7 @@ test "a folded value is held to field_value_len_max once joined" {
     const total = head.len + first_len + fold.len;
     try parse(.response, octets[0..total], &test_section);
     try testing.expectEqual(limit, test_section.get(0).value.len);
-    // One octet more in the first line takes the joined value one past the limit.
+    // One byte more in the first line takes the joined value one past the limit.
     @memset(octets[head.len..][0 .. first_len + 1], 'v');
     @memcpy(octets[head.len + first_len + 1 ..][0..fold.len], fold);
     try expect_refused(.response, octets[0 .. total + 1], error.FieldValueInvalid);

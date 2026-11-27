@@ -7,15 +7,15 @@ const assert = std.debug.assert;
 /// trace line holds is a new version, never a silent edit.
 pub const trace_version: u32 = 1;
 
-/// Longest trace record, in octets, its newline included. A record is built whole before it is
+/// Longest trace record, in bytes, its newline included. A record is built whole before it is
 /// written, so this sizes the line a record is built in.
 pub const trace_record_len_max: u32 = 512;
 
 /// Longest check name a trace's first line carries.
 pub const check_name_len_max: u32 = 32;
 
-/// Longest chunk the byte pipe hands the caller at once, in octets. A chunk is 1 to this many
-/// octets, so a seed produces every split of a short value.
+/// Longest chunk the byte pipe hands the caller at once, in bytes. A chunk is 1 to this many
+/// bytes, so a seed produces every split of a short value.
 pub const chunk_len_max: u32 = 16;
 
 /// Longest delay between two chunks, in nanoseconds: one millisecond.
@@ -28,10 +28,10 @@ pub const check_seeds_default: u64 = 256;
 /// Most values one chunk-check stream carries before its refused tail, if it has one.
 pub const chunk_check_values_max: u32 = 16;
 
-/// Longest text one chunk-check string literal carries, in octets.
+/// Longest text one chunk-check string literal carries, in bytes.
 pub const chunk_check_text_len_max: u32 = 16;
 
-/// Longest encoding of one chunk-check value, in octets. `chunk_stream.zig` pins it against the
+/// Longest encoding of one chunk-check value, in bytes. `chunk_stream.zig` pins it against the
 /// longest Huffman literal.
 pub const chunk_check_value_len_max: u32 = 72;
 
@@ -41,7 +41,7 @@ pub const chunk_check_stream_len_max: u32 = (chunk_check_values_max + 1) * chunk
 /// One chunk-check seed in this many, on average, ends its stream with a refused encoding.
 pub const chunk_check_refusal_one_in: u64 = 4;
 
-/// Most octets one chunk-check trace holds: a record for every octet fed, every value, the refusal,
+/// Most bytes one chunk-check trace holds: a record for every byte fed, every value, the refusal,
 /// and the first and last lines, each at its longest.
 pub const chunk_check_trace_len_max: u32 =
     (chunk_check_stream_len_max + chunk_check_values_max + 3) * trace_record_len_max;
@@ -55,7 +55,7 @@ pub const connection_check_frames_max: u32 = 24;
 /// Most streams one connection-check plan opens: one per frame it draws.
 pub const connection_check_streams_max: u32 = connection_check_frames_max;
 
-/// Most DATA payload octets one connection-check frame carries.
+/// Most DATA payload bytes one connection-check frame carries.
 pub const connection_check_data_len_max: u32 = 64;
 
 /// The fragments one connection-check field block is cut into: the HEADERS frame and the
@@ -86,10 +86,10 @@ pub const connection_check_stream_id_steps: u64 = 3;
 /// refuses.
 pub const connection_check_refusal_one_in: u64 = 4;
 
-/// Most octets the client connection preface and the SETTINGS frame after it take.
+/// Most bytes the client connection preface and the SETTINGS frame after it take.
 pub const connection_check_preface_len_max: u32 = 64;
 
-/// Most octets one drawn connection-check frame takes, the frames that continue it included.
+/// Most bytes one drawn connection-check frame takes, the frames that continue it included.
 pub const connection_check_frame_len_max: u32 = 96;
 
 /// Most frames one connection-check refusal writes.
@@ -99,13 +99,13 @@ pub const connection_check_refusal_frames_max: u32 = 2;
 pub const connection_check_stream_len_max: u32 = connection_check_preface_len_max +
     (connection_check_frames_max + connection_check_refusal_frames_max) * connection_check_frame_len_max;
 
-/// Most octets one connection-check trace holds: a record for every octet fed, every frame the
+/// Most bytes one connection-check trace holds: a record for every byte fed, every frame the
 /// connection consumed, and the first and last lines, each at its longest.
 pub const connection_check_trace_len_max: u32 = (connection_check_stream_len_max +
     connection_check_frames_max * connection_check_fragments_max +
     connection_check_refusal_frames_max + 3) * trace_record_len_max;
 
-/// Octets the connection-check subject gives the connection to write the frames it owes: its own
+/// Bytes the connection-check subject gives the connection to write the frames it owes: its own
 /// SETTINGS frame and every reply its queues can hold. `connection_check.zig` pins it.
 pub const connection_check_output_len_max: u32 = 1024;
 
@@ -119,7 +119,7 @@ pub const null_suite_retry_name: u32 = 0x5e77_1e5d;
 /// instant colibri passes in and never against a clock (non-negotiable 3).
 pub const null_suite_retry_token_lifetime_ns: u64 = 1_000_000_000;
 
-/// The first octet of every Retry token the null suite writes, which tells it from any other token
+/// The first byte of every Retry token the null suite writes, which tells it from any other token
 /// (RFC 9000 §8.1.1).
 pub const null_suite_retry_token_type: u8 = 0x01;
 
@@ -127,8 +127,8 @@ pub const null_suite_retry_token_type: u8 = 0x01;
 /// Initial, a Handshake and a 1-RTT packet, which is the order RFC 9000 §12.2 asks for.
 pub const packet_check_packets_max: u32 = 3;
 
-/// Most octets of one packet's payload, of an Initial packet's token, and of a datagram. The
-/// datagram is past RFC 9000 §14.1's 1,200 octets, so three packets of the longest payload fit.
+/// Most bytes of one packet's payload, of an Initial packet's token, and of a datagram. The
+/// datagram is past RFC 9000 §14.1's 1,200 bytes, so three packets of the longest payload fit.
 pub const packet_check_payload_len_max: u32 = 400;
 pub const packet_check_token_len_max: u32 = 32;
 pub const packet_check_datagram_len_max: u32 = 1500;
@@ -150,8 +150,8 @@ pub const packet_check_key_updates_max: u64 = 3;
 /// written as a plain fraction and no floating-point value enters a run (invariant 5).
 pub const schedule_denominator: u32 = 1000;
 
-/// Octets of the largest datagram the network carries. It is past RFC 9000 §14.1's smallest
-/// allowed maximum of 1,200 octets, which every datagram carrying an Initial packet must reach.
+/// Bytes of the largest datagram the network carries. It is past RFC 9000 §14.1's smallest
+/// allowed maximum of 1,200 bytes, which every datagram carrying an Initial packet must reach.
 pub const network_datagram_len_max: u32 = 1500;
 
 /// Datagrams the network holds at once. A send with no slot left is a harness defect, not a
@@ -179,7 +179,7 @@ pub const network_check_turns: u32 = 64;
 pub const network_check_turn_ns: u64 = 2_000_000;
 pub const network_check_payload_len_max: u32 = 256;
 
-/// Octets of a payload that carry the packet number the sender put in the header, so the peer
+/// Bytes of a payload that carry the packet number the sender put in the header, so the peer
 /// compares what it recovered against what was sent rather than against what is plausible.
 pub const network_check_number_len: u32 = @sizeOf(u64);
 
@@ -221,10 +221,10 @@ pub const record_version_offset: u32 = 1;
 pub const record_length_offset: u32 = 3;
 
 /// RFC 9846 §5.1: legacy_record_version is 0x0303 on every record a TLS 1.3 endpoint writes after
-/// the first flight. Both octets are the same value.
+/// the first flight. Both bytes are the same value.
 pub const record_legacy_version_octet: u8 = 0x03;
 
-/// The octets a real AEAD adds to every record (RFC 9846 §5.2). The null provider writes as many
+/// The bytes a real AEAD adds to every record (RFC 9846 §5.2). The null provider writes as many
 /// zeros, so a record occupies what one would occupy on the wire.
 pub const record_tag_len: u32 = 16;
 
@@ -244,18 +244,18 @@ pub const tls_check_records_max: u32 = 64;
 /// The events one run may record, which is one per frame the connection accepted.
 pub const tls_check_events_max: u32 = 32;
 
-/// The octets a record adds around its body: the header RFC 9846 §5.1 defines, whose last field is
-/// the two-octet length, and the tag §5.2 sizes.
+/// The bytes a record adds around its body: the header RFC 9846 §5.1 defines, whose last field is
+/// the two-byte length, and the tag §5.2 sizes.
 pub const record_overhead_len: u32 = record_length_offset + @sizeOf(u16) + record_tag_len;
 
 /// The buffers the counted-cost check drives one request through. They are generous on purpose:
 /// what the check measures is how many times the caller crosses colibri's boundary and how many
-/// octets cross with it, not what a small buffer forces.
+/// bytes cross with it, not what a small buffer forces.
 pub const cost_check_buffer_len: u32 = 4096;
 
 /// The null `tls.QuicVTable` of design §8 step 9e (`null_quic_provider.zig`).
 ///
-/// RFC 9846 §4 frames a handshake message as a one-octet HandshakeType, a uint24 length and the
+/// RFC 9846 §4 frames a handshake message as a one-byte HandshakeType, a uint24 length and the
 /// body. The null QUIC provider frames its made-up messages the same way, so a message cut across
 /// CRYPTO frames is put back together the way a real one is.
 pub const null_quic_message_type_len: u32 = 1;
@@ -263,18 +263,18 @@ pub const null_quic_message_length_len: u32 = 3;
 pub const null_quic_message_header_len: u32 =
     null_quic_message_type_len + null_quic_message_length_len;
 
-/// Octets of one `quic_transport_parameters` body an endpoint holds, and it holds two: its own
+/// Bytes of one `quic_transport_parameters` body an endpoint holds, and it holds two: its own
 /// and the peer's (RFC 9001 §8.2). RFC 9000 §18 gives the body no maximum, so the null provider
 /// states its own, as the vtable's `NoSpaceLeft` says a provider must.
 pub const null_quic_params_len_max: u32 = 512;
 
-/// Octets one encryption level holds of handshake messages that have not been read yet. RFC 9001
+/// Bytes one encryption level holds of handshake messages that have not been read yet. RFC 9001
 /// §4.1.3: "TLS is responsible for buffering handshake bytes that have arrived in order." It holds
 /// the longest flight one level carries: EncryptedExtensions with the parameters, and the Finished
 /// after it.
 pub const null_quic_pending_len_max: u32 = 1024;
 
-/// Octets of one endpoint's qlog in the QUIC and h3 checks (decision 102): one step's events, which
+/// Bytes of one endpoint's qlog in the QUIC and h3 checks (decision 102): one step's events, which
 /// the run takes after each step as a caller writing them to a file would.
 pub const quic_qlog_len: usize = 262_144;
 
@@ -316,14 +316,14 @@ pub const qpack_check_cancel_one_in: u64 = 16;
 pub const qpack_check_no_insert_one_in: u64 = 10;
 pub const qpack_check_never_indexed_one_in: u64 = 10;
 
-/// Octets of one encoded field section, of the whole encoder stream, and of the whole decoder
+/// Bytes of one encoded field section, of the whole encoder stream, and of the whole decoder
 /// stream a seed writes. Each holds the most its drawn sections can produce.
 pub const qpack_check_section_len_max: u32 = 4096;
 pub const qpack_check_encoder_stream_len_max: u32 = 64 * 1024;
 pub const qpack_check_decoder_stream_len_max: u32 = 4096;
 
 /// Steps one seed may take before the check calls it stuck: far more than delivering every
-/// section, every encoder stream octet and every decoder stream octet one step each needs.
+/// section, every encoder stream byte and every decoder stream byte one step each needs.
 pub const qpack_check_steps_max: u32 = 4096;
 
 /// The trace one seed writes: a record per step.
@@ -332,7 +332,7 @@ pub const qpack_check_trace_len_max: u32 = qpack_check_steps_max * 64;
 /// The h3 check (design §8 step 12): the requests one seed draws, sent in rounds of
 /// `h3_check_round_len`, the regular lines of one message beyond its pseudo-header fields, and its
 /// longest content. A seed's lines repeat across its exchanges, drawn from `h3_check_values`
-/// values of up to `h3_check_value_len_max` octets, so a table the peer allows is used, and over
+/// values of up to `h3_check_value_len_max` bytes, so a table the peer allows is used, and over
 /// many rounds fills and evicts, and h3's own streams outgrow their buffers (decision 78).
 pub const h3_check_requests_max: u32 = 64;
 pub const h3_check_round_len: u32 = 8;
@@ -340,7 +340,7 @@ pub const h3_check_lines_max: u32 = 6;
 pub const h3_check_content_len_max: u32 = 3000;
 /// The long h3 check: fewer seeds, each one connection of up to `h3_long_check_requests_max`
 /// exchanges with short content, so QPACK's encoder stream outgrows its buffer and h3 drops the
-/// octets its peer acknowledged (decision 78). A normal seed's connection never gets that far.
+/// bytes its peer acknowledged (decision 78). A normal seed's connection never gets that far.
 pub const h3_long_check_seeds: u64 = 128;
 pub const h3_long_check_requests_max: u32 = 512;
 pub const h3_long_check_content_len_max: u32 = 256;
@@ -395,25 +395,25 @@ pub const h11_split_defect_one_in: u64 = 3;
 /// The longest message the plan writes, and the longest stream: every message at its longest.
 pub const h11_split_message_len_max: u32 = 512;
 pub const h11_split_stream_len_max: u32 = h11_split_messages_max * h11_split_message_len_max;
-/// Most octets one h11 split-check trace holds: a head and an end record per message, a refusal,
+/// Most bytes one h11 split-check trace holds: a head and an end record per message, a refusal,
 /// and the first and last lines.
 pub const h11_split_trace_len_max: u32 = (2 * h11_split_messages_max + 3) * trace_record_len_max;
 
 /// The h11 connection check (design §8 step 15b): the requests one seed plans, the longest body
 /// each way, one seed in this many ending the connection early, one closing response or last
 /// request in this many that runs until the close or carries the close, the most steps a server
-/// holds a request before answering it, and the octets each direction's stream holds.
+/// holds a request before answering it, and the bytes each direction's stream holds.
 pub const h11_requests_max: u32 = 6;
 pub const h11_exchange_body_len_max: u32 = 40;
 pub const h11_exchange_close_one_in: u64 = 3;
 pub const h11_exchange_last_close_one_in: u64 = 2;
 pub const h11_exchange_response_delay_max: u32 = 2;
 pub const h11_exchange_stream_len_max: u32 = h11_requests_max * h11_split_message_len_max;
-/// Each step delivers an octet one way or the other, moves a held request closer to its answer,
+/// Each step delivers a byte one way or the other, moves a held request closer to its answer,
 /// or is the last.
 pub const h11_exchange_steps_max: u32 = 2 * h11_exchange_stream_len_max +
     h11_requests_max * h11_exchange_response_delay_max + 1;
-/// Most octets one h11 connection-check trace holds: a record per exchange, one for the close, and
+/// Most bytes one h11 connection-check trace holds: a record per exchange, one for the close, and
 /// the first and last lines.
 pub const h11_exchange_trace_len_max: u32 = (h11_requests_max + 3) * trace_record_len_max;
 
@@ -431,9 +431,9 @@ pub const quic_input_check_input_len_max: u32 = 512;
 pub const quic_input_check_frames_max: u64 = 6;
 pub const quic_input_check_packets_max: u64 = 3;
 pub const quic_input_check_ack_ranges_max: u64 = 4;
-/// The longest octet string a drawn frame or packet carries: data, a token, a reason, a payload.
+/// The longest byte string a drawn frame or packet carries: data, a token, a reason, a payload.
 pub const quic_input_check_octets_len_max: u64 = 32;
-/// The random octets every drawn string is taken from, drawn once per seed.
+/// The random bytes every drawn string is taken from, drawn once per seed.
 pub const quic_input_check_material_len: u32 = 64;
 /// One choice in this many takes the rarer branch: a field left out, an offset of 0.
 pub const quic_input_check_one_in: u64 = 2;
@@ -441,7 +441,7 @@ pub const quic_input_check_one_in: u64 = 2;
 pub const quic_input_check_near_bound: u64 = 4;
 
 /// The h2 input check: inputs per seed, the most edits made to one, the longest input, the most
-/// frames drawn into one, the longest octet string a frame carries, the random octets those are
+/// frames drawn into one, the longest byte string a frame carries, the random bytes those are
 /// drawn from, how often a draw takes its rarer branch, and how far inside a bound it lands.
 pub const h2_input_check_inputs: u32 = 128;
 pub const h2_input_check_edits_max: u64 = 8;

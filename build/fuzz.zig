@@ -10,7 +10,7 @@ const std = @import("std");
 /// The runner's path inside Zig's library directory.
 const runner_path = "compiler/test_runner.zig";
 
-/// More octets than Zig 0.16.0's runner holds, which is about 24,000.
+/// More bytes than Zig 0.16.0's runner holds, which is about 24,000.
 const runner_len_max = 1 << 20;
 
 /// The line that fails to compile, at test_runner.zig:566 of Zig 0.16.0.

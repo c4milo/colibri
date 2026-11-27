@@ -11,7 +11,7 @@ const fixture = @import("connection_retry_test.zig");
 
 const testing = std.testing;
 
-/// The client's address, as the opaque octets RFC 9000 §8.1.4 binds a token to. colibri owns no
+/// The client's address, as the opaque bytes RFC 9000 §8.1.4 binds a token to. colibri owns no
 /// socket, so what they mean is the caller's business and never colibri's.
 const address_octet: u8 = 0xad;
 const other_address_octet: u8 = 0xae;
@@ -38,7 +38,7 @@ test "RFC 9000 §17.2.5.1: a server writes a Retry the client of §17.2.5.2 acce
     fixture.checker.init();
     const written = answer(request()).written;
 
-    // The same octets, read by a client that sent its first Initial to S1.
+    // The same bytes, read by a client that sent its first Initial to S1.
     fixture.open_as(.client);
     const parsed = (try header.read(fixture.output[0..written], fixture.test_connection.identity.local_len())).retry;
     // §17.2.5.1: the Destination Connection ID is what the client put in its Source Connection ID.

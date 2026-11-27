@@ -60,7 +60,7 @@ const connection_window: u64 = pool_capacity;
 const body_len: u64 = 3_000;
 const long_body_len: u64 = 6_000;
 
-/// The client's octets, each set by its offset so one read from the wrong place shows. Test-only.
+/// The client's bytes, each set by its offset so one read from the wrong place shows. Test-only.
 const octet_stride: u64 = 7;
 fn octet_at(offset: u64) u8 {
     return @truncate(offset *% octet_stride);
@@ -127,7 +127,7 @@ fn expect_octets(from: u64, octets: []const u8) !void {
     for (octets, 0..) |octet, index| try testing.expectEqual(octet_at(from + index), octet);
 }
 
-/// The client opens its stream and hands colibri `len` octets and, when `fin`, their end.
+/// The client opens its stream and hands colibri `len` bytes and, when `fin`, their end.
 fn client_stream(len: u64, fin: bool) !StreamId {
     const id = try stream_send.open(&client, .bidirectional);
     try stream_send.supply(&client, id, len, fin);
@@ -144,7 +144,7 @@ test "decision 61: the application reads a stream in order, and all of it with t
     try testing.expectEqual(body_len, read.len);
     try testing.expect(read.fin);
     try expect_octets(0, output[0..read.len]);
-    // RFC 9000 §3.2: every octet was read, so the receiving part is in "Data Read".
+    // RFC 9000 §3.2: every byte was read, so the receiving part is in "Data Read".
     try testing.expectEqual(.data_read, server.streams.lookup(id).live.receiving.state);
 }
 
@@ -180,14 +180,14 @@ test "design §8 step 29d.9: a peek where nothing arrived copies none, and still
     const id = try client_stream(body_len, false);
     for (0..try send_all(&client)) |index| try deliver(index, &server);
     const flow = &server.streams.lookup(id).live.receive_flow;
-    // A first peek with octets past the read offset copies them.
+    // A first peek with bytes past the read offset copies them.
     try testing.expectEqual(body_len, (try stream_read.peek(&server, id, &output)).len);
     _ = try stream_read.consume(&server, id, body_len);
     try testing.expectEqual(flow.used, flow.consumed);
     const idle = try stream_read.peek(&server, id, &output);
     try testing.expectEqual(0, idle.len);
     try testing.expect(!idle.fin);
-    // RFC 9000 §19.8: a STREAM frame that carries no octet and the FIN ends the stream there.
+    // RFC 9000 §19.8: a STREAM frame that carries no byte and the FIN ends the stream there.
     try stream_send.supply(&client, id, body_len, true);
     for (0..try send_all(&client)) |index| try deliver(index, &server);
     try testing.expectEqual(flow.used, flow.consumed);
@@ -296,7 +296,7 @@ test "RFC 9000 §3.2: a reset stream is reported once, and its octets go back to
     open_pair();
     const id = try client_stream(long_body_len, false);
     const count = try send_all(&client);
-    // The first datagram, which carries the stream's first octets, is the one held back.
+    // The first datagram, which carries the stream's first bytes, is the one held back.
     for (1..count) |index| try deliver(index, &server);
     late_len = held_len[0];
     @memcpy(late[0..late_len], held[0][0..late_len]);
@@ -306,7 +306,7 @@ test "RFC 9000 §3.2: a reset stream is reported once, and its octets go back to
     const reset_count = try send_all(&client);
     for (0..reset_count) |index| try deliver(index, &server);
     try testing.expect(server.streams.lookup(id).live.incoming.is_empty());
-    // Octets that arrive after the reset are for no one (RFC 9000 §3.2), so none is kept.
+    // Bytes that arrive after the reset are for no one (RFC 9000 §3.2), so none is kept.
     _ = try datagram_module.receive(&server, suite_holder.suite(), provider_holder.provider(), .{ .octets = late[0..late_len], .now_ns = test_now_ns, .ecn = .not_ect }, &datagram_scratch);
     try testing.expect(server.streams.lookup(id).live.incoming.is_empty());
     // The application learns the peer's code before it reads, and reading reports the reset.
@@ -365,7 +365,7 @@ test "RFC 9000 §3: a stream closes once each endpoint has finished both of its 
     try testing.expect(server.streams.lookup(id) == .closed);
     // RFC 9000 §4.6: a closed stream the client opened is one more it may open.
     try testing.expectEqual(1, server.streams.peer_limit[@intFromEnum(stream_module.Directionality.bidirectional)].consumed);
-    // Decision 61: the block the last octets sat in went back with the stream.
+    // Decision 61: the block the last bytes sat in went back with the stream.
     try testing.expectEqual(all, free_blocks());
     // The client closes once it reads the server's FIN, its own having been acknowledged.
     try testing.expect(client.streams.lookup(id) == .live);
@@ -379,7 +379,7 @@ test "RFC 9000 §3: a unidirectional stream closes when its one part finishes at
     const id = try stream_send.open(&client, .unidirectional);
     try stream_send.supply(&client, id, body_len, true);
     try exchange();
-    // RFC 9000 §3.1: the client's octets and FIN were acknowledged.
+    // RFC 9000 §3.1: the client's bytes and FIN were acknowledged.
     try testing.expect(client.streams.lookup(id) == .closed);
     try testing.expect((try stream_read.read(&server, id, &output)).fin);
     // RFC 9000 §3.2: the server read to the end, and receiving is all it does on this stream.

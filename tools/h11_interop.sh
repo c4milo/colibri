@@ -23,9 +23,9 @@ readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image tools/h2_interop.sh builds, tagged by a checksum of what it is built from.
 readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" "${peer_directory}/Caddyfile" "${peer_directory}/Caddyfile_tls" | shasum -a 256 | cut -c1-16)"
 readonly listening_port="${repository_root}/tools/listening_port.sh"
-# Octets of request content, sent in slices across many reads and writes.
+# Bytes of request content, sent in slices across many reads and writes.
 readonly content_len=300000
-# Octets of /large on every peer, whose octet i is i % 251, as the request content's is.
+# Bytes of /large on every peer, whose byte i is i % 251, as the request content's is.
 readonly large_len=1048576
 # Seconds to wait for a peer to listen before the run gives it up.
 readonly listen_wait_seconds=30
@@ -49,7 +49,7 @@ fail() {
   exit 1
 }
 
-# The CRC-32 of the first $1 octets of the pattern, as the client prints one.
+# The CRC-32 of the first $1 bytes of the pattern, as the client prints one.
 pattern_crc32() {
   python3 -c "import sys, zlib; print('0x%08x' % zlib.crc32(bytes(i % 251 for i in range(int(sys.argv[1])))))" "$1"
 }
@@ -206,7 +206,7 @@ plan_go() {
     --get /interim --get /trailers --get /missing
   expect / "status=200 interim=0"
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
-  # The echo returns what was sent, octet for octet, while it is still being sent.
+  # The echo returns what was sent, byte for byte, while it is still being sent.
   expect /echo "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=response"
   # RFC 9112 §9.2: an interim response, then the final one to the same request.
   expect /interim "status=200 interim=1"
@@ -232,7 +232,7 @@ plan_go_slots() {
 }
 
 # Decision 101: the client offers gzip and deflate, Go's server with -gzip codes each answer in
-# gzip, and the client decodes it octet for octet and names the coding it removed.
+# gzip, and the client decodes it byte for byte and names the coding it removed.
 plan_go_coded() {
   run_client --coded --get / --get /large
   expect / "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"

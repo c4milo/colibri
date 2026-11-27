@@ -20,7 +20,7 @@ const connection = &support.connection;
 const ok: http.Status = .ok;
 /// Rounds that carry a request to the server, and its answer back.
 const rounds_few: usize = 2;
-/// A receive pool, and so every window the server grants, of 32,768 octets. Test-only.
+/// A receive pool, and so every window the server grants, of 32,768 bytes. Test-only.
 const pool_len: usize = 32_768;
 const Pool = quic.ReceivePool(.{ .capacity = pool_len });
 threadlocal var pool: Pool align(@alignOf(Pool)) = undefined;
@@ -34,7 +34,7 @@ const idle_short_ns: u64 = idle_short_seconds * constants.nanoseconds_per_second
 /// From the start of a body's wait to the end of its first window.
 const first_window_ns: u64 = constants.policy.rate_grace_ns + constants.policy.rate_window_ns;
 
-/// A connected pair whose server grants windows of `pool_len` octets and goes idle after
+/// A connected pair whose server grants windows of `pool_len` bytes and goes idle after
 /// `idle_ns`.
 fn connected(idle_ns: u64) !void {
     try support.start_with_pool(pool.storage());

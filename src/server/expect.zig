@@ -36,7 +36,7 @@ pub fn expects_continue(request: event.Request) bool {
 /// value is case-insensitive.
 fn names_hundred_continue(value: []const u8) bool {
     var members = std.mem.splitScalar(u8, value, ',');
-    // Bounded: a value of n octets holds at most n + 1 members.
+    // Bounded: a value of n bytes holds at most n + 1 members.
     for (0..value.len + 1) |_| {
         const member = members.next() orelse return false;
         if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, member, list_whitespace), hundred_continue)) return true;

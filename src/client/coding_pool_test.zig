@@ -9,9 +9,9 @@ const testing = std.testing;
 const ZstdHeld = coding_pool.Held(coding_pool.Zstd);
 const BrotliHeld = coding_pool.Held(coding_pool.Brotli);
 
-/// Where the tests decode: the text, and an octet more, which stays unwritten. Test-only.
+/// Where the tests decode: the text, and a byte more, which stays unwritten. Test-only.
 threadlocal var output: [support.plain.len + 1]u8 = undefined;
-/// The pieces coded content arrives in: one octet, a few, and whole. Test-only.
+/// The pieces coded content arrives in: one byte, a few, and whole. Test-only.
 const piece_lens = [_]usize{ 1, piece_len_few, std.math.maxInt(usize) };
 /// A piece that ends inside the fixtures' headers and blocks, as a transport's reads do. Test-only.
 const piece_len_few: usize = 7;
@@ -20,7 +20,7 @@ const piece_len_few: usize = 7;
 fn decode_in_pieces(held: anytype, coded: []const u8, piece_len: usize) ![]const u8 {
     var taken: usize = 0;
     var written: usize = 0;
-    // Bounded: every pass takes or writes at least one octet.
+    // Bounded: every pass takes or writes at least one byte.
     for (0..coded.len + output.len + 1) |_| {
         if (taken == coded.len) return output[0..written];
         const piece = coded[taken..@min(coded.len, taken +| piece_len)];
@@ -80,7 +80,7 @@ test "RFC 9659 §3 and RFC 7932 §9.1: a window past the coding's limit fails, a
 test "RFC 7932 §9.2 and RFC 8878 §3.1: octets after a stream, or a stream cut short, are corrupt" {
     support.reset_pools();
     var room: [support.plain_zst.len + support.plain_br.len + 1]u8 = undefined;
-    // A br stream ends with its last meta-block, so an octet after it is no coding's.
+    // A br stream ends with its last meta-block, so a byte after it is no coding's.
     @memcpy(room[0..support.plain_br.len], support.plain_br);
     room[support.plain_br.len] = 0;
     var br_held: BrotliHeld = .{};
@@ -88,7 +88,7 @@ test "RFC 7932 §9.2 and RFC 8878 §3.1: octets after a stream, or a stream cut 
     br_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&br_held, room[0 .. support.plain_br.len + 1], piece_lens[2]));
     br_held.release();
-    // Octets after a zstd frame must start another, and a zero octet starts no magic number.
+    // Bytes after a zstd frame must start another, and a zero byte starts no magic number.
     @memcpy(room[0..support.plain_zst.len], support.plain_zst);
     room[support.plain_zst.len] = 0;
     var zstd_held: ZstdHeld = .{};
@@ -96,7 +96,7 @@ test "RFC 7932 §9.2 and RFC 8878 §3.1: octets after a stream, or a stream cut 
     zstd_held.begin(.none());
     try testing.expectError(error.CodingCorrupt, decode_in_pieces(&zstd_held, room[0 .. support.plain_zst.len + 1], piece_lens[2]));
     zstd_held.release();
-    // A frame without its last octet, its checksum's, never ends.
+    // A frame without its last byte, its checksum's, never ends.
     try testing.expect(zstd_held.reserve(support.zstd_pool.storage()));
     zstd_held.begin(.none());
     _ = try decode_in_pieces(&zstd_held, support.plain_zst[0 .. support.plain_zst.len - 1], piece_lens[2]);

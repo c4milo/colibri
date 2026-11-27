@@ -1,7 +1,7 @@
 //! The world of the client trace run (decision 105): the caller of a `client.ConnectionPool`, the QUIC
 //! server over the simulator's datagram network, and the TCP server over an ordered link, acting
 //! out one seed's plan. Time moves from one instant something is due to the next: a datagram or
-//! TCP octets arriving, a deadline, a server's answer, or the plan's next action. At each instant
+//! TCP bytes arriving, a deadline, a server's answer, or the plan's next action. At each instant
 //! the world runs every receive and send until nothing moves, which is where the run logs the
 //! model's state.
 //!
@@ -44,7 +44,7 @@ pub const Error = error{
     Unsettled,
 } || link_module.Error || client.RequestError || client.WriteBodyError || body.Error;
 
-/// Octets of each exchange's response body.
+/// Bytes of each exchange's response body.
 pub const body_len: usize = 64;
 const datagram_len: usize = sim.constants.network_datagram_len_max;
 const segment_len: usize = 65_536;
@@ -105,7 +105,7 @@ pub const World = struct {
     datagram: [datagram_len]u8,
     crossing: [datagram_len]u8,
     segment: [segment_len]u8,
-    /// The CRC-32 of every octet the pool sent, datagrams and TCP segments in order.
+    /// The CRC-32 of every byte the pool sent, datagrams and TCP segments in order.
     wire: std.hash.Crc32,
 
     /// Prepares the world for `seed`'s plan, with nothing opened.
@@ -355,7 +355,7 @@ pub const World = struct {
 
     /// Passes what the TCP link carried to the pool until it consumes nothing more.
     fn stream_to_pool(world: *World) Error!void {
-        // Bounded: each pass consumes octets or reports an event.
+        // Bounded: each pass consumes bytes or reports an event.
         for (0..limits.tcp_chunks_max) |_| {
             const arrived = world.to_client.arrived(world.now_ns);
             const received = world.pool.receive(.{ .stream = .{ .connection = world.tcp_connection, .bytes = arrived } }, world.now_ns);
@@ -479,7 +479,7 @@ fn earliest(at: ?u64, candidate: ?u64) ?u64 {
     return @min(at orelse held, held);
 }
 
-/// The source a TLS session draws from: the simulator's generator, octet by octet.
+/// The source a TLS session draws from: the simulator's generator, byte by byte.
 pub fn tls_source(random: *Random) identity.RandomSource {
     return identity.RandomSource.init(random, fill);
 }

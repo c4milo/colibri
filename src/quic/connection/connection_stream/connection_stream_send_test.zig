@@ -3,7 +3,7 @@
 //! §13.3).
 //!
 //! Every packet is opened by the peer and its STREAM frame read back, so what is checked is the
-//! octets that went out and where, not what the sender says about them.
+//! bytes that went out and where, not what the sender says about them.
 const std = @import("std");
 const core = @import("core");
 const constants = @import("../../constants.zig");
@@ -56,13 +56,13 @@ pub const short_body_len: u64 = 300;
 pub const long_body_len: u64 = 3_000;
 /// A limit below the short body, for the flow control tests.
 const small_window: u64 = 100;
-/// Octets a provider has ready, below 64, so a Length field that measured two octets for the
+/// Bytes a provider has ready, below 64, so a Length field that measured two bytes for the
 /// supplied range holds it in one (RFC 9000 §16).
 const short_read_len: u64 = 50;
 /// A datagram smaller than the one a range was first sent in, for §13.3's split.
 const small_datagram_len: usize = 600;
 
-/// Each octet is set by its offset, so a frame read at the wrong offset shows.
+/// Each byte is set by its offset, so a frame read at the wrong offset shows.
 const octet_stride: u64 = 7;
 const octet_seed: u64 = 0x2b;
 
@@ -70,7 +70,7 @@ fn octet_at(offset: u64) u8 {
     return @truncate(offset *% octet_stride +% octet_seed);
 }
 
-/// The caller's octets on every stream, `len` of them, read back by offset. Test-only.
+/// The caller's bytes on every stream, `len` of them, read back by offset. Test-only.
 pub const Body = struct {
     len: u64,
 
@@ -160,7 +160,7 @@ fn range_of(packet: send.Packet) Range {
 }
 
 /// Opens the datagram as the server, which takes every frame, and returns the STREAM frame the
-/// one packet carried after checking its octets against the body.
+/// one packet carried after checking its bytes against the body.
 fn stream_frame_of(sent: send.Sent) !frame_stream.Stream {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
@@ -210,7 +210,7 @@ pub fn record_kept(sent: send.Sent) !recovery_sent.Record {
     return error.TestExpectedRecord;
 }
 
-/// Octets of each stream in the tests of decision 131, so that many frames fit in one packet.
+/// Bytes of each stream in the tests of decision 131, so that many frames fit in one packet.
 const tiny_body_len: u64 = 10;
 
 test "decision 131: a packet carries several streams' STREAM frames, and its record names each" {
@@ -283,7 +283,7 @@ test "§13.3: a lost range goes out again first, with the same octets at the sam
     try testing.expectEqual(first.packets[0].data_len, again.packets[0].data_len);
     _ = try stream_frame_of(again);
     try testing.expectEqual(0, client.streams.lost.count);
-    // Then the new octets, from where they stopped.
+    // Then the new bytes, from where they stopped.
     const third = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(second.packets[0].data_offset + second.packets[0].data_len, third.packets[0].data_offset);
 }
@@ -335,7 +335,7 @@ test "§13.3: a lost range of a stream reset since is not sent again" {
     _ = stream_of(id).sending.on(.sent_reset);
     try testing.expectEqual(null, try send_from(&body, datagram.len));
     try testing.expectEqual(0, client.streams.lost.count);
-    // Nor are new octets on a stream reset before any went out.
+    // Nor are new bytes on a stream reset before any went out.
     const unsent = try open_supplied(short_body_len, true);
     _ = stream_of(unsent).sending.on(.sent_reset);
     try testing.expectEqual(null, try send_from(&body, datagram.len));
@@ -362,7 +362,7 @@ test "§4.1: new octets stop at the peer's limit for the stream, and at the conn
     const id = try open_supplied(short_body_len, true);
     const limited = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(small_window, limited.packets[0].data_len);
-    // "Senders MUST NOT send data in excess of either limit": no more octets until it rises, and
+    // "Senders MUST NOT send data in excess of either limit": no more bytes until it rises, and
     // one STREAM_DATA_BLOCKED says so (§4.1), once for this limit.
     const blocked = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(Carries.none, blocked.packets[0].carries);
@@ -381,7 +381,7 @@ test "§4.1: new octets stop at the peer's limit for the stream, and at the conn
 
 test "decision 57: a provider with fewer octets than supplied is framed for what it gave" {
     open_pair(.{});
-    // The caller said its octets reach further than the provider can yet read.
+    // The caller said its bytes reach further than the provider can yet read.
     var body: Body = .{ .len = short_read_len };
     const id = try open_supplied(short_body_len, true);
     const partial = (try send_from(&body, datagram.len)).?;
@@ -391,7 +391,7 @@ test "decision 57: a provider with fewer octets than supplied is framed for what
     // With nothing more to read, nothing goes out, and the stream waits rather than ending early.
     try testing.expectEqual(null, try send_from(&body, datagram.len));
     try testing.expectEqual(.send, stream_of(id).sending.state);
-    // Another stream's octets the provider can read go out meanwhile.
+    // Another stream's bytes the provider can read go out meanwhile.
     const other = try open_supplied(short_read_len, true);
     const other_sent = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(other.value, other_sent.packets[0].stream_id);
@@ -436,7 +436,7 @@ test "§19.8: a packet with no room for a STREAM frame's header leaves the octet
     open_pair(.{});
     var body: Body = .{ .len = short_body_len };
     const id = try open_supplied(short_body_len, true);
-    // Two octets hold a STREAM frame's type and Stream ID, and nothing of its Length.
+    // Two bytes hold a STREAM frame's type and Stream ID, and nothing of its Length.
     var tiny: [2]u8 = undefined;
     const written = stream_send.write(&client, body.provider(), &tiny);
     try testing.expectEqual(0, written.len);

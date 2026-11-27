@@ -16,12 +16,12 @@ const test_datagram_len = support.test_datagram_len;
 const test_rate = support.test_rate;
 const test_acknowledged_len = support.test_acknowledged_len;
 const unbounded_len = recovery_bbr.unbounded_len;
-/// Octets in flight when a lost packet went out: its own loss alone is more than 2% of them.
+/// Bytes in flight when a lost packet went out: its own loss alone is more than 2% of them.
 const test_small_flight_len: u64 = 50_000;
 /// Startup's rates in the rounds of loss recovery: each doubles, so the pipe does not fill.
 const test_second_rate: u64 = 8_000_000;
 const test_third_rate: u64 = 16_000_000;
-/// Octets in flight when each of Startup's lost packets went out.
+/// Bytes in flight when each of Startup's lost packets went out.
 const test_startup_flight_len: u64 = 48_000;
 
 test "§5.5.10.3: a round with loss outside a probe lowers the short-term model by Beta" {
@@ -98,7 +98,7 @@ test "§5.5.10.2: BBR.inflight_longterm stays at least Beta of the target" {
     reach_up(&driver);
     driver.state.window_len = 100 * test_small_flight_len;
     driver.lose(500, test_datagram_len, 0);
-    // The target is the BDP, 200,000 octets, and 0.7 of it is 140,000.
+    // The target is the BDP, 200,000 bytes, and 0.7 of it is 140,000.
     try testing.expectEqual(140_000, driver.state.inflight_longterm_len);
 }
 
@@ -123,7 +123,7 @@ test "§5.5.10.2: a lost packet the application limited sets no bound" {
 test "§5.5.10.2: losses before the lost packet went out are not its round's" {
     var driver: Driver = undefined;
     reach_up(&driver);
-    // 5,000 octets were lost before the packet went out with 100,000 in flight. Its own 1,200
+    // 5,000 bytes were lost before the packet went out with 100,000 in flight. Its own 1,200
     // are 1.2% of that, below 2%.
     driver.delivery.on_lost(5_000);
     driver.lose(500, 2 * test_small_flight_len, 5_000);
@@ -232,7 +232,7 @@ test "§5.3.1.3: a loss of 2% or less does not end Startup" {
     driver.state.on_enter_recovery(driver.path(0));
     driver.ack(test_round_trip_ns, 2 * test_rate, 0);
     for ([_]u64{ 10, 12, 14, 16, 18, 20 }) |number| driver.lose(number, 4 * test_acknowledged_len, 0);
-    // 7,200 lost of 12,000 acknowledged is 37%; raise the acknowledged octets to 360,000.
+    // 7,200 lost of 12,000 acknowledged is 37%; raise the acknowledged bytes to 360,000.
     driver.state.round_acknowledged_len = 360_000 - test_acknowledged_len;
     driver.ack(test_round_trip_ns, 4 * test_rate, 0);
     try testing.expectEqual(.startup, driver.state.state);

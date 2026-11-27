@@ -4,11 +4,11 @@
 //! limit are here, beside the code that refuses.
 //!
 //! A line's length is measured from the block offset where the line before it ended, so the
-//! verdict depends on the block's octets and not on where its fragments were cut (RFC 9113 §4.3:
+//! verdict depends on the block's bytes and not on where its fragments were cut (RFC 9113 §4.3:
 //! a field block is logically equivalent to a single frame). `representation_len_max` is the
 //! longest line the decoder accepts, so a decoded line is asserted to fit, and only a line the
-//! last fragment cut can be refused. Its octets fed so far are measured, which is what bounds the
-//! octets the slot keeps to `representation_len_max` (decision 40).
+//! last fragment cut can be refused. Its bytes fed so far are measured, which is what bounds the
+//! bytes the slot keeps to `representation_len_max` (decision 40).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -48,8 +48,8 @@ pub fn record_line_end(block: *FieldBlock, line_end: u64) void {
     block.line_end_offset = line_end;
 }
 
-/// Measures the line the last fragment cut, by its octets fed so far, before another fragment is
-/// appended to the octets the slot keeps of it.
+/// Measures the line the last fragment cut, by its bytes fed so far, before another fragment is
+/// appended to the bytes the slot keeps of it.
 pub fn measure_cut_line(block: *const FieldBlock) Error!void {
     assert(block.line_end_offset <= block.octets_decoded);
     assert(block.octets_decoded + block.buffer_len == block.octets_fed);
@@ -103,7 +103,7 @@ test "the CONTINUATION count is checked before the fragment is decoded or change
 }
 
 test "a block of continuation_count_max + 1 full frames decodes, invariant 14's byte bound" {
-    // Every octet is an indexed field, so the section refuses the lines past its count and the
+    // Every byte is an indexed field, so the section refuses the lines past its count and the
     // decoder still reads all of them.
     @memset(test_frame, 0x82);
     start(1, .headers, false);
@@ -119,8 +119,8 @@ test "a block of continuation_count_max + 1 full frames decodes, invariant 14's 
     try testing.expect(test_block.octets_fed > constants.limits.continuation_count_max * constants.limits.frame_size_max);
 }
 
-/// Writes into `test_frame` the head of a raw literal whose value claims `value_len` octets. The
-/// rest of the frame is value octets. Test-only.
+/// Writes into `test_frame` the head of a raw literal whose value claims `value_len` bytes. The
+/// rest of the frame is value bytes. Test-only.
 fn write_literal_head(value_len: u64) !void {
     var output = Writer.init(test_frame);
     try output.write_bytes("\x00\x01a");
@@ -128,11 +128,11 @@ fn write_literal_head(value_len: u64) !void {
 }
 
 test "a cut line is refused once its octets fed pass representation_len_max, before END_HEADERS is read" {
-    // The value claims more octets than the buffer holds, so the literal stays cut.
+    // The value claims more bytes than the buffer holds, so the literal stays cut.
     try write_literal_head(constants.limits.field_block_buffer_len);
     const rest = constants.limits.representation_len_max - constants.limits.frame_size_max;
-    // The two fragments fill `field_block_buffer_len`. The octets past the limit arrive as a full
-    // frame, and as one octet with END_HEADERS, which step 3 refuses before step 4 reads the flag.
+    // The two fragments fill `field_block_buffer_len`. The bytes past the limit arrive as a full
+    // frame, and as one byte with END_HEADERS, which step 3 refuses before step 4 reads the flag.
     const past_limit = [_][]const u8{ test_frame, "v" };
     for (past_limit, [_]bool{ false, true }) |fragment, end_headers| {
         start(1, .headers, false);
@@ -154,18 +154,18 @@ test "a cut line is refused once its octets fed pass representation_len_max, bef
 /// fragments. Test-only.
 threadlocal var test_line: [constants.limits.representation_len_max + 1]u8 = undefined;
 
-/// An octet RFC 7541 Appendix B codes in `huffman_code_bits_max` bits, the longest code, and one
+/// A byte RFC 7541 Appendix B codes in `huffman_code_bits_max` bits, the longest code, and one
 /// RFC 9113 §8.2.1 allows in a field value. Test-only.
 const longest_code_octet: u8 = 22;
 
-/// The continuation flag of a prefixed integer's octet and the value bits below it (RFC 7541
-/// §5.1), and the H flag of a string literal's first octet (§5.2). Test-only.
+/// The continuation flag of a prefixed integer's byte and the value bits below it (RFC 7541
+/// §5.1), and the H flag of a string literal's first byte (§5.2). Test-only.
 const continuation_flag: u8 = 0x80;
 const continuation_value_mask: u8 = 0x7f;
 const huffman_flag: u8 = 0x80;
 
-/// Writes `value` as a prefixed integer of `integer_len_max` octets: the prefix full of ones, then
-/// continuation octets, the last of them carrying zeros, which RFC 7541 §5.1 does not forbid.
+/// Writes `value` as a prefixed integer of `integer_len_max` bytes: the prefix full of ones, then
+/// continuation bytes, the last of them carrying zeros, which RFC 7541 §5.1 does not forbid.
 /// Test-only.
 fn write_integer_longest(output: *Writer, comptime prefix_bits: u4, pattern: u8, value: u64) !void {
     const prefix_max: u8 = @intCast((@as(u16, 1) << prefix_bits) - 1);
@@ -180,7 +180,7 @@ fn write_integer_longest(output: *Writer, comptime prefix_bits: u4, pattern: u8,
     assert(rest == 0);
 }
 
-/// Writes `octets` as a Huffman-coded string literal whose length takes `integer_len_max` octets.
+/// Writes `octets` as a Huffman-coded string literal whose length takes `integer_len_max` bytes.
 /// Test-only.
 fn write_string_longest(output: *Writer, octets: []const u8) !void {
     const prefix_bits = hpack.constants.protocol.string_prefix_bits - 1;
@@ -206,8 +206,8 @@ fn write_longest_line() ![]const u8 {
     return output.written();
 }
 
-/// Feeds `line` as a first fragment of `first_len` octets, fewer than the line's, then frames of
-/// `frame_size_max` octets, the last with END_HEADERS. Test-only.
+/// Feeds `line` as a first fragment of `first_len` bytes, fewer than the line's, then frames of
+/// `frame_size_max` bytes, the last with END_HEADERS. Test-only.
 fn feed_cut(line: []const u8, first_len: usize) Error!?Done {
     assert(first_len < line.len);
     start(1, .headers, false);

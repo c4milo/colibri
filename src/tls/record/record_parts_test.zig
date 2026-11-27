@@ -29,7 +29,7 @@ test "decision 139: two parts seal as one run of plaintext, whole or not at all"
     try testing.expectEqual(head.len + data.len, opened.len);
     try testing.expectEqualStrings(head, opened[0..head.len]);
     try testing.expectEqualSlices(u8, &data, opened[head.len..]);
-    // One octet past the writable length seals nothing, and the writable length seals both whole.
+    // One byte past the writable length seals nothing, and the writable length seals both whole.
     var small: [small_len]u8 = undefined;
     const fits = sender.writable_len(small.len);
     try testing.expect(fits > head.len);

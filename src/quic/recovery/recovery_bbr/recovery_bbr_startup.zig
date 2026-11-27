@@ -63,7 +63,7 @@ pub fn enter_drain(state: *Bbr) void {
     state.drain_start_round = state.model.round_count;
 }
 
-/// §5.3.2's `CheckDrainDone`: Drain ends once the octets in flight fit one BDP, or 3 rounds on.
+/// §5.3.2's `CheckDrainDone`: Drain ends once the bytes in flight fit one BDP, or 3 rounds on.
 pub fn check_drain_done(state: *Bbr, path: Path) void {
     if (state.state != .drain) return;
     const drained = path.in_flight_len <= recovery_bbr_inflight.inflight(state, path, state.bw, bbr.gain_denominator);

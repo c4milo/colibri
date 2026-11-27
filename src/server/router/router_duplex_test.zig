@@ -1,4 +1,4 @@
-//! The tests of a stream route that answers each request octet while its client still sends, over
+//! The tests of a stream route that answers each request byte while its client still sends, over
 //! h11 and h2 (decision 127 as amended, design §8 step 46): the router runs on the engine of the
 //! TCP tests, which reports each event to it. Each reply is longer than what the engine takes at
 //! once, so the route writes most of it from `next`. A router that calls `next` only after the
@@ -14,17 +14,17 @@ const duplex = @import("router_duplex_test_support.zig");
 const testing = std.testing;
 const engine = &support.engine;
 
-/// The request body, one octet a piece, and the octets of each reply: past a connection's output
+/// The request body, one byte a piece, and the bytes of each reply: past a connection's output
 /// over h11, and past ten windows of `small_window` over h2, by `memories_per_reply` times the
 /// route's response memory. Test-only.
 const pieces = "abc";
 const memories_per_reply = 4;
 const h11_reply_len = server_constants.limits.output_len + memories_per_reply * duplex.response_bytes;
 const h2_reply_len = memories_per_reply * duplex.response_bytes;
-/// Octets of a function route's reply: two windows, which its response memory holds.
+/// Bytes of a function route's reply: two windows, which its response memory holds.
 const windows_per_reply = 2;
 const whole_reply_len = windows_per_reply * small_window;
-/// The rounds a test moves octets for each piece at most.
+/// The rounds a test moves bytes for each piece at most.
 const rounds_max = 64;
 
 /// The client preface with a SETTINGS frame whose SETTINGS_INITIAL_WINDOW_SIZE (0x4) is
@@ -52,7 +52,7 @@ fn start(settings: duplex.App) !event.ConnectionHandle {
     return engine.accept(.{ .tls = false }, support.now_ns).?;
 }
 
-/// Writes what the connection owes to its socket until the route wrote `target` octets.
+/// Writes what the connection owes to its socket until the route wrote `target` bytes.
 fn drain_h11(handle: event.ConnectionHandle, target: usize) void {
     // Bounded: each round empties the connection's output, which reports `writable`.
     for (0..rounds_max) |_| {
@@ -64,7 +64,7 @@ fn drain_h11(handle: event.ConnectionHandle, target: usize) void {
 
 test "decision 127 as amended: a struct route answers each octet before the body ends, over h11" {
     const handle = try start(.{ .reply_len = h11_reply_len });
-    // The fixture's socket takes octets only when the test flushes, so the output fills.
+    // The fixture's socket takes bytes only when the test flushes, so the output fills.
     support.flushing = false;
     _ = support.give(handle, "POST /duplex HTTP/1.1\r\nHost: example.com\r\nContent-Length: 3\r\n\r\n");
     for (pieces, 1..) |piece, count| {
@@ -85,7 +85,7 @@ test "decision 160 ruling 5 as amended: a struct route that answers a chunked bo
     const head = "POST /duplex HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n";
     _ = support.give(handle, head ++ "1\r\na\r\n");
     drain_h11(handle, h2_reply_len);
-    // The route answered the first octet, so its head went out while the request body was open.
+    // The route answered the first byte, so its head went out while the request body was open.
     // RFC 9110 §10.1.1: the route still reads the body, so the head says no close.
     const sent = support.sent_of(handle.slot);
     try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 200 OK\r\n"));
@@ -105,7 +105,7 @@ test "decision 160 ruling 5 as amended: a struct route that answers a chunked bo
     try testing.expectEqual(null, support.nth(.close, 0));
 }
 
-/// The octets of the chunked body of the test above.
+/// The bytes of the chunked body of the test above.
 const pieces_chunked = 2;
 
 /// Passes a WINDOW_UPDATE frame that opens the stream's window by `small_window` (RFC 9113
@@ -125,7 +125,7 @@ fn give_data(handle: event.ConnectionHandle, piece: u8, end: bool) !void {
     _ = support.give(handle, &frame);
 }
 
-/// Opens the stream's window until the route wrote `target` octets, or the rounds ran out.
+/// Opens the stream's window until the route wrote `target` bytes, or the rounds ran out.
 fn drain_h2(handle: event.ConnectionHandle, target: usize) !void {
     // Bounded: each round opens the window once, which reports `writable`.
     for (0..rounds_max) |_| {
@@ -164,7 +164,7 @@ test "decision 163 ruling 4: a function route gets no call before the body's end
     try give_data(handle, pieces[0], false);
     try testing.expectEqual(0, app.whole_calls);
     try testing.expectEqual(0, app.written);
-    // The body's end calls the route once, with each octet. The window takes a part of its reply,
+    // The body's end calls the route once, with each byte. The window takes a part of its reply,
     // and the router writes the rest at each `writable`.
     try give_data(handle, pieces[1], true);
     try testing.expectEqual(1, app.whole_calls);

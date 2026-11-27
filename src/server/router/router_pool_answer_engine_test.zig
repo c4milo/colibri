@@ -34,7 +34,7 @@ const routes = .{
     .routes = .{.{ .get, "/fill", fill }},
 };
 
-/// The entries of the pool, and octets of each entry's response memory. Test-only.
+/// The entries of the pool, and bytes of each entry's response memory. Test-only.
 const requests = 2;
 const response_bytes = 64;
 const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });

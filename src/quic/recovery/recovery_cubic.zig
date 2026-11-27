@@ -1,8 +1,8 @@
-//! The arithmetic of CUBIC (RFC 9438 §4.2 to §4.7, decision 133), in octets and microseconds, which
+//! The arithmetic of CUBIC (RFC 9438 §4.2 to §4.7, decision 133), in bytes and microseconds, which
 //! `recovery_congestion.zig` calls. Part of design §8 step 27.
 //!
 //! RFC 9438 counts the window in segments and time in seconds, and §4.1 lets an implementation
-//! count octets, scaling by the maximum segment, which here is the maximum datagram. colibri reads
+//! count bytes, scaling by the maximum segment, which here is the maximum datagram. colibri reads
 //! no floating point on a protocol path, so each fraction is a pair of integers, time is in
 //! microseconds, and §4.2's cube root is an integer one (non-negotiable 5).
 const std = @import("std");
@@ -23,14 +23,14 @@ pub const Curve = struct {
         assert(datagram_len > 0);
         if (w_max <= window) return .{ .w_max = window, .k_us = 0, .datagram_len = datagram_len };
         // Figure 2: K = cbrt((W_max − cwnd_epoch) / C), in seconds and segments. In microseconds
-        // and octets: cbrt((W_max − cwnd_epoch) × 10^18 / (C × datagram)).
+        // and bytes: cbrt((W_max − cwnd_epoch) × 10^18 / (C × datagram)).
         const shortfall: u128 = w_max - window;
         const scaled = shortfall * cubic.c_denominator * cubic.microseconds_per_second * cubic.microseconds_per_second *
             cubic.microseconds_per_second / (cubic.c_numerator * datagram_len);
         return .{ .w_max = w_max, .k_us = cube_root(scaled), .datagram_len = datagram_len };
     }
 
-    /// §4.2, Figure 1: W_cubic(t) = C × (t − K)^3 + W_max, in octets, for `t_us` microseconds into
+    /// §4.2, Figure 1: W_cubic(t) = C × (t − K)^3 + W_max, in bytes, for `t_us` microseconds into
     /// the stage. It is 0 rather than negative before the curve rises past nothing.
     pub fn window_at(curve: Curve, t_us: u64) u64 {
         const elapsed: i128 = @as(i128, @min(t_us, cubic.elapsed_us_max)) - @min(curve.k_us, cubic.elapsed_us_max);
@@ -51,7 +51,7 @@ pub const Curve = struct {
     }
 };
 
-/// §4.3, Figure 4: what W_est gains from `acknowledged_len` octets acknowledged at `window`, with
+/// §4.3, Figure 4: what W_est gains from `acknowledged_len` bytes acknowledged at `window`, with
 /// α_cubic until W_est reaches cwnd_prior and 1 from there.
 pub fn estimate_gain(acknowledged_len: u64, window: u64, datagram_len: u64, reached_prior: bool) u64 {
     assert(window > 0);
@@ -108,7 +108,7 @@ test "RFC 9438 §4.2: the curve starts at the window, reaches W_max at K, and ri
     const w_max = 30 * datagram;
     const curve = Curve.init(w_max, 20 * datagram, datagram);
     try testing.expectEqual(2_924_017, curve.k_us);
-    // At t = 0 the curve is back at the window. K rounds down, so it lands an octet above it.
+    // At t = 0 the curve is back at the window. K rounds down, so it lands a byte above it.
     try testing.expectEqual(20 * datagram + 1, curve.window_at(0));
     try testing.expectEqual(w_max, curve.window_at(curve.k_us));
     // One second past K: W_max + C × 1^3 segments, 0.4 of a datagram.
@@ -124,7 +124,7 @@ test "RFC 9438 §4.8, §4.10: a W_max at or below the window gives K = 0 and W_m
 test "RFC 9438 §4.2: the target holds between the window and 1.5 times it" {
     const window = 20 * datagram;
     const curve = Curve.init(30 * datagram, window, datagram);
-    // At the stage's start the target is the window, an octet above it for K's rounding.
+    // At the stage's start the target is the window, a byte above it for K's rounding.
     try testing.expectEqual(window + 1, curve.target(0, 0, window));
     // A W_max below the window starts the curve at it, and the target cannot fall below it.
     try testing.expectEqual(window, Curve.init(0, window, datagram).target(0, 0, window));
@@ -133,7 +133,7 @@ test "RFC 9438 §4.2: the target holds between the window and 1.5 times it" {
 }
 
 test "RFC 9438 §4.3, §4.6, §4.7: the Reno-friendly gain, the decrease and fast convergence" {
-    // A window of octets acknowledged at that window gains α = 9/17 of a datagram, then 1.
+    // A window of bytes acknowledged at that window gains α = 9/17 of a datagram, then 1.
     try testing.expectEqual(datagram * 9 / 17, estimate_gain(10 * datagram, 10 * datagram, datagram, false));
     try testing.expectEqual(datagram, estimate_gain(10 * datagram, 10 * datagram, datagram, true));
     try testing.expectEqual(7 * datagram, reduced(10 * datagram));

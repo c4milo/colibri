@@ -3,7 +3,7 @@
 (* One QUIC stream and the connection's flow control (RFC 9000 §3, §4), as *)
 (* colibri keeps them (src/quic/flow.zig, src/quic/stream/, and            *)
 (* connection_flow.zig and connection_stream/ in src/quic/connection/). A  *)
-(* sender sends Len octets on one stream, the FIN with the last, and the   *)
+(* sender sends Len bytes on one stream, the FIN with the last, and the   *)
 (* receiver's application reads them. Each frame goes in a packet of its   *)
 (* own. The network may lose a frame or its acknowledgment, deliver frames *)
 (* in any order, and deliver a frame twice when it was sent again while a  *)
@@ -15,8 +15,8 @@
 (* frame still on its way may be declared lost too.                        *)
 (*                                                                         *)
 (* colibri's rules, as this model has them:                                *)
-(*   - a sender frames a new octet only below both limits (§4.1), and      *)
-(*     sends a lost octet again until it resets the stream (§13.3);        *)
+(*   - a sender frames a new byte only below both limits (§4.1), and      *)
+(*     sends a lost byte again until it resets the stream (§13.3);        *)
 (*   - a receiver advertises a new limit once consumed + window - limit    *)
 (*     reaches window / Fraction (flow.Receiver), and sends                *)
 (*     MAX_STREAM_DATA only in "Recv" (§13.3);                             *)
@@ -38,7 +38,7 @@
 (* the connection. Configuration no_repeat keeps that path.                *)
 (*                                                                         *)
 (* A reset stream's final size counts against the connection's limit       *)
-(* (§4.5). With ReturnOnReset, the octets the application did not read     *)
+(* (§4.5). With ReturnOnReset, the bytes the application did not read     *)
 (* give their connection credit back when the reset arrives, because §4.5  *)
 (* calls the final size "the amount of flow control credit that is         *)
 (* consumed by a stream". Without it the connection loses that credit for  *)
@@ -50,13 +50,13 @@
 EXTENDS Integers, FiniteSets
 
 CONSTANTS
-    Len,                \* octets the sender sends, the FIN with the last
+    Len,                \* bytes the sender sends, the FIN with the last
     StreamWindow,       \* the receiver's stream window, and the stream's first limit
     ConnectionWindow,   \* the receiver's connection window, and the connection's first limit
     Fraction,           \* flow_credit_fraction
     Repeat,             \* whether a blocked sender with nothing in flight sends BLOCKED again
     ResendLimits,       \* whether a lost MAX_DATA or MAX_STREAM_DATA is owed again
-    ReturnOnReset,      \* whether a reset gives the octets never read back to the connection
+    ReturnOnReset,      \* whether a reset gives the bytes never read back to the connection
     Resets,             \* whether the sender's application may reset the stream
     Stops,              \* whether the receiver's application may send STOP_SENDING
     Spurious,           \* whether a frame still on its way may be declared lost
@@ -75,7 +75,7 @@ StreamMax == Len + StreamWindow
 ConnectionMax == Len + ConnectionWindow
 Larger(a, b) == IF a > b THEN a ELSE b
 
-(* One frame. A STREAM frame carries one octet, and the FIN when it is the *)
+(* One frame. A STREAM frame carries one byte, and the FIN when it is the *)
 (* last; every other frame carries one number.                            *)
 Frame(type, value) == [type |-> type, value |-> value]
 SenderFrames ==
@@ -99,23 +99,23 @@ LatestValue == [owed : BOOLEAN, sent : BOOLEAN, value : {None} \cup 0..Connectio
 VARIABLES
     \* the sender
     sendState,          \* the sending part (§3.1)
-    framed,             \* octets framed at least once: the send limits' `used`
+    framed,             \* bytes framed at least once: the send limits' `used`
     sendStreamLimit,    \* the stream limit the receiver gave
     sendConnectionLimit,\* the connection limit the receiver gave
-    acked,              \* octets acknowledged
-    lost,               \* octets declared lost and owed again
+    acked,              \* bytes acknowledged
+    lost,               \* bytes declared lost and owed again
     streamReported,     \* the stream limit a STREAM_DATA_BLOCKED last named, or None
     connectionReported, \* the connection limit a DATA_BLOCKED last named, or None
     sentAny,            \* whether the sender has sent an ack-eliciting packet
     \* the receiver
     opened,             \* whether a frame of the sender's created the stream (§3.2)
     recvState,          \* the receiving part (§3.2)
-    got,                \* octets that arrived and were kept
+    got,                \* bytes that arrived and were kept
     finalSize,          \* the final size once known (§4.5), or None
     highest,            \* one past the largest offset received
     recvStreamLimit,    \* the stream limit advertised
     recvStreamUsed,     \* the stream's high-water mark
-    recvStreamConsumed, \* octets of the stream the application took
+    recvStreamConsumed, \* bytes of the stream the application took
     recvConnectionLimit,
     recvConnectionUsed,
     recvConnectionConsumed,
@@ -258,7 +258,7 @@ SendStreamDataBlocked ==
 
 CanSendReset == Live /\ latest["reset_stream"].owed /\ sendState = "reset_sent"
 
-(* §19.4: the final size is every octet framed, the same in every copy.    *)
+(* §19.4: the final size is every byte framed, the same in every copy.    *)
 SendReset ==
     /\ CanSendReset
     /\ latest' = Sent("reset_stream", framed)
@@ -275,7 +275,7 @@ AppReset ==
                    failure, forbidden>>
 
 (* blocked_deadline_ns: armed one PTO after the last ack-eliciting packet  *)
-(* while a limit holds octets back and nothing is in flight (§4.1).        *)
+(* while a limit holds bytes back and nothing is in flight (§4.1).        *)
 BlockedArmed ==
     Repeat /\ Live /\ sentAny /\ inflight[Sender] = {} /\ (DataBlocked \/ StreamDataBlocked)
 
@@ -337,7 +337,7 @@ SendStopSending ==
     /\ Send(Receiver, Frame("stop_sending", 0))
     /\ UNCHANGED <<senderVars, receiverVars, losses, closed, failure>>
 
-(* The application reads the next octet, which consumes credit (§4.1).     *)
+(* The application reads the next byte, which consumes credit (§4.1).     *)
 Read ==
     /\ Live /\ recvState \in {"recv", "size_known", "data_recvd"}
     /\ recvStreamConsumed \in got
@@ -404,7 +404,7 @@ TakeStream(i) ==
                            recvConnectionConsumed, failure>>
 
 (* connection_stream_frames.take_reset: the final size counts against both *)
-(* limits (§4.5), and the octets not yet read are dropped (§3.2).          *)
+(* limits (§4.5), and the bytes not yet read are dropped (§3.2).          *)
 TakeReset(size) ==
     LET fresh == Larger(size - recvStreamUsed, 0)
         sizeChanged == \/ finalSize # None /\ finalSize # size
@@ -579,12 +579,12 @@ WithinLimits ==
     /\ framed <= sendStreamLimit /\ framed <= sendConnectionLimit
     /\ sendStreamLimit <= recvStreamLimit /\ sendConnectionLimit <= recvConnectionLimit
 
-(* §3.2: "Data Recvd" only once every octet up to the final size arrived.  *)
+(* §3.2: "Data Recvd" only once every byte up to the final size arrived.  *)
 DataRecvdComplete ==
     recvState \in {"data_recvd", "data_read"} =>
         finalSize = Len /\ \A k \in Octets : k \in got
 
-(* §4.5: once the stream is done at the receiver, every octet it counted   *)
+(* §4.5: once the stream is done at the receiver, every byte it counted   *)
 (* against the connection gave its credit back.                            *)
 CreditReturned ==
     RecvClosed => recvConnectionConsumed = recvConnectionUsed

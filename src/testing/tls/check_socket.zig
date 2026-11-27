@@ -13,17 +13,17 @@ const constants = @import("../constants.zig");
 /// HelloRetryRequest, and the flight that answers it, each possibly split across reads.
 pub const handshake_reads_max: usize = 16;
 
-/// What the socket delivered, of which the first `len` octets are not yet taken.
+/// What the socket delivered, of which the first `len` bytes are not yet taken.
 pub const Input = struct {
     octets: [constants.tls_record_buffer_len]u8 = undefined,
     len: usize = 0,
 
-    /// The octets not yet taken, which a session may unprotect in place.
+    /// The bytes not yet taken, which a session may unprotect in place.
     pub fn unread(input: *Input) []u8 {
         return input.octets[0..input.len];
     }
 
-    /// Reads at least one octet after those not yet taken, which is what a peer that owes a record
+    /// Reads at least one byte after those not yet taken, which is what a peer that owes a record
     /// always sends.
     pub fn read_more(input: *Input, socket: std.c.fd_t) !void {
         const room = input.octets[input.len..];
@@ -35,7 +35,7 @@ pub const Input = struct {
 
     /// Reads until the input holds one whole record, which is what `decrypt_record` opens.
     pub fn read_record(input: *Input, socket: std.c.fd_t) ![]u8 {
-        // Bounded: each pass reads at least one octet, and a record fits the buffer.
+        // Bounded: each pass reads at least one byte, and a record fits the buffer.
         for (0..input.octets.len) |_| {
             if (whole_record(input.unread())) break;
             try input.read_more(socket);
@@ -43,7 +43,7 @@ pub const Input = struct {
         return input.unread();
     }
 
-    /// Drops the `consumed` octets taken, keeping what follows at the front.
+    /// Drops the `consumed` bytes taken, keeping what follows at the front.
     pub fn take(input: *Input, consumed: usize) void {
         assert(consumed <= input.len);
         @memmove(input.octets[0 .. input.len - consumed], input.octets[consumed..input.len]);
@@ -65,10 +65,10 @@ fn whole_record(octets: []const u8) bool {
 /// (RFC 9846 §5.1).
 const record_length_offset: usize = 3;
 
-/// Writes every octet, looping because a blocking send may still move fewer than it was asked.
+/// Writes every byte, looping because a blocking send may still move fewer than it was asked.
 pub fn write_all(socket: std.c.fd_t, octets: []const u8) !void {
     var sent: usize = 0;
-    // Bounded by the slice, and every pass moves at least one octet or returns.
+    // Bounded by the slice, and every pass moves at least one byte or returns.
     while (sent < octets.len) {
         const wrote = std.c.send(socket, octets.ptr + sent, octets.len - sent, 0);
         if (wrote <= 0) return error.SendFailed;

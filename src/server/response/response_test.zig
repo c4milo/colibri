@@ -119,7 +119,7 @@ test "design §8 step 46: the body writes again over the bytes the engine releas
     const writer = response.body();
     try writer.writeAll("a" ** (memory_len - 2));
     try writer.flush();
-    // Three octets fit neither after the run nor before it, so none of them is written.
+    // Three bytes fit neither after the run nor before it, so none of them is written.
     try testing.expectError(error.WriteFailed, writer.writeAll("bcd"));
     try testing.expectEqual(2, writer.unusedCapacityLen());
     var out: [memory_len]u8 = undefined;
@@ -281,7 +281,7 @@ test "design §8 step 46: a flush with a run in every slot adds its bytes to the
         try writer.flush();
     }
     try testing.expectEqual(slots, response.piece_count);
-    // The engine takes fourteen runs and one octet of the next, and holds each in place.
+    // The engine takes fourteen runs and one byte of the next, and holds each in place.
     fixture.recorder.room = 2 * (slots - 2) + 1;
     try testing.expect(try internal.resume_writes(response) == false);
     // No slot is free. The engine took none of the newest run, so that run takes the bytes.
@@ -290,8 +290,8 @@ test "design §8 step 46: a flush with a run in every slot adds its bytes to the
     try testing.expectEqual(0, writer.end);
     try testing.expectEqual(slots, response.piece_count);
     try testing.expect(!response.cut_owed);
-    // The engine takes the run before the newest, and one octet of the newest. The run still
-    // takes bytes at its end, and the octet the engine took stays where it was.
+    // The engine takes the run before the newest, and one byte of the newest. The run still
+    // takes bytes at its end, and the byte the engine took stays where it was.
     fixture.recorder.room = 2;
     try testing.expect(try internal.resume_writes(response) == false);
     const calls = fixture.recorder.count;

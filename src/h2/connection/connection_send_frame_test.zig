@@ -13,7 +13,7 @@ const testing = std.testing;
 const test_connection = &support.test_connection;
 
 /// The reference: the old call, which cut `block` into a HEADERS frame and its CONTINUATION frames
-/// written into `output`, each at most `limit` octets (RFC 9113 §4.2, §6.10). Test-only.
+/// written into `output`, each at most `limit` bytes (RFC 9113 §4.2, §6.10). Test-only.
 fn write_block_reference(limit: usize, output: []u8, stream_id: u32, block: []const u8, end_stream: bool) !usize {
     var writer = Writer.init(output);
     var offset: usize = 0;
@@ -44,8 +44,8 @@ threadlocal var test_block_octets: [constants.limits.send_block_len_max]u8 = und
 const frame_size_factor = 4;
 const frame_sizes = [_]u32{ constants.protocol.max_frame_size_min, constants.protocol.max_frame_size_min + 1, frame_size_factor * constants.protocol.max_frame_size_min };
 
-/// Requires both calls to write the same frames for a block of `block_len` octets, or both to refuse
-/// it, in an output of `room` octets. Test-only.
+/// Requires both calls to write the same frames for a block of `block_len` bytes, or both to refuse
+/// it, in an output of `room` bytes. Test-only.
 fn expect_same_frames(limit: u32, block_len: usize, room: usize, end_stream: bool) !void {
     test_connection.peer.max_frame_size = limit;
     const block = test_block_octets[0..block_len];
@@ -72,7 +72,7 @@ test "design §8 step 61b: a block cut into frames where it lies is the frames t
             const needed = connection_send.block_frames_len(test_connection, block_len);
             for ([_]bool{ false, true }) |end_stream| {
                 try expect_same_frames(limit, block_len, @min(needed, output_len), end_stream);
-                // One octet short of the frames refuses the block in both.
+                // One byte short of the frames refuses the block in both.
                 if (needed > constants.protocol.frame_header_len) try expect_same_frames(limit, block_len, needed - 1, end_stream);
             }
         }

@@ -38,7 +38,7 @@ pub const Ack = struct {
 
 /// What the acknowledgment did.
 pub const Outcome = struct {
-    /// How many packets it took out of flight, and their octets.
+    /// How many packets it took out of flight, and their bytes.
     acknowledged: usize,
     in_flight_len: u64,
     /// How many of those packets' records were written to the caller's slice, and how many did
@@ -64,7 +64,7 @@ pub const Outcome = struct {
 /// largest, in the order the frame names its ranges, which RFC 9000 §19.3.1 puts "in descending
 /// packet number order".
 /// RFC 9000 §3.1 moves a stream to "Data Recvd" once all its data is acknowledged, and only the
-/// records say which stream octets each packet carried. The records declared lost go into
+/// records say which stream bytes each packet carried. The records declared lost go into
 /// `lost`, as `recovery_loss.detect` writes them.
 pub fn on_ack_received(
     held: *Recovery,
@@ -103,7 +103,7 @@ pub fn on_ack_received(
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
 
-    // RFC 9959 §3.3: PipeSize counts the frame's octets before a loss it shows ends the phase.
+    // RFC 9959 §3.3: PipeSize counts the frame's bytes before a loss it shows ends the phase.
     if (kind == .application) recovery_resume_phases.on_acknowledged(held, removed.in_flight_len);
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
     // draft-ietf-ccwg-bbr-06 §4.1.2.3 compares the interval with C.min_rtt, which this frame's
@@ -145,7 +145,7 @@ fn take(held: *Recovery, kind: Kind, ack: Ack, acknowledged: []Record) recovery_
     var total = recovery_sent.Removed.none();
     var walk = ack.ranges.iterator();
     // Bounded: RFC 9000 §19.3's ranges are bounded by the frame's own ACK Range Count, and the
-    // reader the iterator holds cannot run past the octets it was given.
+    // reader the iterator holds cannot run past the bytes it was given.
     while (walk.next()) |range| {
         assert(total.written <= acknowledged.len);
         const into = acknowledged[total.written..];
@@ -223,10 +223,10 @@ fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_
     // RFC 9959 §3.3 and §3.5: the Unvalidated and the Safe Retreat Phases hold the window.
     if (recovery_resume_phases.holds_window(held)) return;
     // Appendix B.5 walks the packets one at a time and each one asks the same two questions of
-    // the same instant, so the octets are added once. The record kept is the largest, which is
+    // the same instant, so the bytes are added once. The record kept is the largest, which is
     // the one whose send instant decides whether the recovery period still holds, and the caller
     // has already returned when nothing was removed. Appendix B.5's `if (!acked_packet.in_flight)`
-    // needs no test of its own here: octets that were not in flight sum to nothing, and adding
+    // needs no test of its own here: bytes that were not in flight sum to nothing, and adding
     // nothing to the window is what skipping them does.
     const largest = removed.record.?;
     // RFC 9438 §4.2 reads the smoothed round trip, which is 0 until the first sample.
@@ -248,7 +248,7 @@ const test_interval_ns: u64 = 1_000_000;
 
 /// RFC 9000 §19.3.1 encodes each range after the first as a Gap and an ACK Range Length, the
 /// next range's largest being `previous_smallest - gap - 2`. The first range covers 3 and 4, and
-/// these two octets name 0 and 1, so packet 2 is the one left out.
+/// these two bytes name 0 and 1, so packet 2 is the one left out.
 const split_largest: u64 = 4;
 const split_first_range: u64 = 1;
 const split_octets = [_]u8{ 0, 1 };
@@ -264,7 +264,7 @@ fn split_ack() Ack {
     return .{ .ranges = ranges, .delay_ns = 0, .ecn = null };
 }
 
-/// Sends packets 0 to `count - 1`, each carrying CRYPTO octets at an offset of its own, so a
+/// Sends packets 0 to `count - 1`, each carrying CRYPTO bytes at an offset of its own, so a
 /// test can tell one record from another by more than its number. Test-only.
 fn send_numbered(count: u64) !void {
     for (0..count) |number| {
@@ -295,7 +295,7 @@ test "A.7: every packet an ACK takes out reaches the caller, not only the larges
     var numbers: [split_acknowledged]u64 = undefined;
     for (test_acknowledged[0..split_acknowledged], &numbers) |held, *number| number.* = held.number;
     try testing.expectEqualSlices(u64, &.{ 3, 4, 0, 1 }, &numbers);
-    // The whole record reaches the caller, which is what lets it say which octets arrived.
+    // The whole record reaches the caller, which is what lets it say which bytes arrived.
     try testing.expectEqual(3 * test_datagram_len, test_acknowledged[0].data_offset);
 }
 

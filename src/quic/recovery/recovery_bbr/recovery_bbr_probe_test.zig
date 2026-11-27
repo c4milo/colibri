@@ -50,7 +50,7 @@ test "§5.3.3.9: DOWN keeps the headroom below BBR.inflight_longterm before it c
     driver.fill_pipe();
     for (0..4) |_| driver.ack(test_round_trip_ns, test_rate, test_queue_len);
     try testing.expectEqual(.probe_bw_down, driver.state.state);
-    // One BDP less 15% is 170,000 octets: 190,000 fits the BDP but not the headroom.
+    // One BDP less 15% is 170,000 bytes: 190,000 fits the BDP but not the headroom.
     driver.state.inflight_longterm_len = test_bdp_len;
     driver.ack(1, test_rate, 190_000);
     try testing.expectEqual(.probe_bw_down, driver.state.state);
@@ -97,8 +97,8 @@ test "§5.3.3.9: UP held at BBR.inflight_longterm by a full window does not go d
 test "§5.3.3.9: UP raises BBR.inflight_longterm faster each round" {
     var driver: Driver = undefined;
     reach_up_at_window(&driver, test_bdp_len);
-    // Entering UP set 200,000 octets per datagram of growth, and each round halves it: 100,000,
-    // then 50,000, then 25,000. Each ACK frame acknowledges 12,000 octets, so the fourth frame
+    // Entering UP set 200,000 bytes per datagram of growth, and each round halves it: 100,000,
+    // then 50,000, then 25,000. Each ACK frame acknowledges 12,000 bytes, so the fourth frame
     // brings 48,000, past the step of 25,000.
     const window_len = driver.state.window_len;
     for (0..3) |_| driver.ack(test_round_trip_ns, test_rate, 0);

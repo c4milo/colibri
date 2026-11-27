@@ -31,7 +31,7 @@ const rounds_past_probe = fixture.rounds_past_probe;
 /// The versions of a client that speaks h3 alone.
 const h3_alone: protocols_module.Protocols = .{ .h11 = false, .h2 = false };
 
-/// Whether `init` left `built` as the fixture filled it: no octet of it written.
+/// Whether `init` left `built` as the fixture filled it: no byte of it written.
 fn unwritten(built: anytype) bool {
     return std.mem.allEqual(u8, std.mem.asBytes(built), fixture.unstarted_octet);
 }

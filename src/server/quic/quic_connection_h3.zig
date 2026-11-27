@@ -1,5 +1,5 @@
 //! The h3 half of a server QUIC connection (decision 103): h3's events turned into the server's
-//! (RFC 9114 §4.1), and each response written as its request stream's octets. The stream carries
+//! (RFC 9114 §4.1), and each response written as its request stream's bytes. The stream carries
 //! the frames the connection keeps (decision 79) and runs of the caller's content, which QUIC
 //! reads by offset through the stream provider until the peer acknowledges them (decision 57).
 const std = @import("std");
@@ -51,7 +51,7 @@ pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_
 
 /// Reads h3's events until one means something to the caller, and returns it, or null.
 pub fn read_event(connection: *QuicConnection, now_ns: u64) quic_connection.Error!?event.ConnectionEvent {
-    // Bounded: every event reads at least one octet the pool holds, or ends a stream.
+    // Bounded: every event reads at least one byte the pool holds, or ends a stream.
     for (0..constants.limits.quic_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             internal.fail(connection);
@@ -146,7 +146,7 @@ fn on_end(connection: *QuicConnection, stream_id: u64) ?event.ConnectionEvent {
 }
 
 /// RFC 9114 §4.1.1: the client cancelled the request. The server resets its response too, so
-/// nothing reads the caller's octets once `cancelled` says so.
+/// nothing reads the caller's bytes once `cancelled` says so.
 fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.ConnectionEvent {
     // A stream reset before its head was whole has no record, and still counts. One whose record
     // is over was counted when `settle` saw its STOP_SENDING, or was ended by the server.
@@ -250,7 +250,7 @@ pub fn write_body(connection: *QuicConnection, id: Number, content: event.Respon
     if (octets.len > 0) {
         const pieces = &record.response;
         // RFC 9000 §3.1: a run leaves only once the peer acknowledges it, and a DATA frame takes two:
-        // its header, which the connection keeps, and the caller's octets.
+        // its header, which the connection keeps, and the caller's bytes.
         if (pieces.runs_len + data_runs > pieces.runs.len) return error.Blocked;
         var writer = quic.core.Writer.init(pieces.kept_room());
         // RFC 9114 §7.2.1: the frame's header goes before its content, when the kept frames have room.
@@ -406,12 +406,12 @@ fn head_error(connection: *QuicConnection, failure: h3.Connection.SendError, emp
     };
 }
 
-/// Tells QUIC how far the stream's octets reach, and that it ends there with `fin` (RFC 9000
+/// Tells QUIC how far the stream's bytes reach, and that it ends there with `fin` (RFC 9000
 /// §2.2).
 pub fn supply(connection: *QuicConnection, record: *Request, fin: bool) SendError!void {
     const id: StreamId = .{ .value = record.stream_id };
     quic.Connection.supply(&connection.transport, id, record.response.end, fin) catch |failure| return switch (failure) {
-        // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, which takes no more octets.
+        // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, which takes no more bytes.
         error.NotWritable => error.RequestUnknown,
         // RFC 9000 §19.8: a stream reaches no further than 2^62-1.
         error.OffsetTooLarge => error.ContentLengthMismatch,

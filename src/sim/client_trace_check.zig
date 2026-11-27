@@ -25,7 +25,7 @@ const Tracker = state_module.Tracker;
 pub const Violation = world_module.Error || error{
     /// A reported or cancelled exchange's memory is still read by a QUIC stream.
     HeldAfterReturn,
-    /// A stream holds an exchange's octets on a connection that is not live.
+    /// A stream holds an exchange's bytes on a connection that is not live.
     HeldOffLiveConnection,
     /// A connection refused an exchange its server processed, the caller heard `refused` for an
     /// exchange a server processed, two servers processed a request that is not idempotent, or an
@@ -117,7 +117,7 @@ pub const Census = struct {
     result: Result = .{},
     /// The longest a seed's pool took to close once it had nothing left to carry.
     closing_max_ns: u64 = 0,
-    /// The CRC-32 of each seed's wire checksum, least significant octet first, in seed order.
+    /// The CRC-32 of each seed's wire checksum, least significant byte first, in seed order.
     wire_crc32: std.hash.Crc32 = .init(),
 
     fn count(census: *Census, result: Result, closing_ns: u64, wire: u32) void {
@@ -371,7 +371,7 @@ test "client trace run: every seed closes the pool with each exchange reported o
         .quic_after_tcp = 11,
         .trailers = 113,
     }, census.result);
-    // Every octet the pool sent, so a change to one changes it (decision 175).
+    // Every byte the pool sent, so a change to one changes it (decision 175).
     try testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }
 

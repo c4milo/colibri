@@ -15,16 +15,16 @@ const send_at = deadline_support.send_at;
 /// RFC 9110 §15.5.6: 405 (Method Not Allowed), as a router answers a method a route lacks.
 const method_not_allowed: http.Status = .method_not_allowed;
 
-/// Octets of the body each test's client sends after the head: 10 KiB, under the bound.
+/// Bytes of the body each test's client sends after the head: 10 KiB, under the bound.
 const body_len: usize = 10_240;
 
 const next_request = "GET /b HTTP/1.1\r\nHost: h\r\n\r\n";
 
-/// The octets a test's client sends, outside any stack frame.
+/// The bytes a test's client sends, outside any stack frame.
 var wire: [support.input_len]u8 = undefined;
 
-/// Writes the head of a POST whose body is `body_len` octets, chunked or with a Content-Length,
-/// into `wire`, and returns its octets.
+/// Writes the head of a POST whose body is `body_len` bytes, chunked or with a Content-Length,
+/// into `wire`, and returns its bytes.
 fn post_head(chunked: bool) []const u8 {
     const head = if (chunked) chunked_head else length_head;
     @memcpy(wire[0..head.len], head);
@@ -53,10 +53,10 @@ fn post_body(at: usize, chunked: bool) usize {
 }
 
 /// Hands `octets` to the connection at `now_ns` until it reports an event or reads nothing, and
-/// returns the octets it read and the event.
+/// returns the bytes it read and the event.
 fn receive_until_event(octets: []const u8, now_ns: u64) !struct { consumed: usize, event: ?support.ConnectionResult } {
     var offset: usize = 0;
-    // Bounded: each pass that reports nothing takes an octet at least.
+    // Bounded: each pass that reports nothing takes a byte at least.
     for (0..octets.len + 1) |_| {
         const received = try deadline_support.receive_at(octets[offset..], now_ns);
         offset += received.consumed;
@@ -190,7 +190,7 @@ test "decision 160 ruling 5 as amended: a program that reads on answers a chunke
     // The program reads the body to its end while its response is open.
     var at = head.len;
     var ended = false;
-    // Bounded: each pass reports an event or reads an octet at least.
+    // Bounded: each pass reports an event or reads a byte at least.
     for (0..end) |_| {
         const read = try deadline_support.receive_at(wire[at..end], early_ns);
         at += read.consumed;

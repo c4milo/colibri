@@ -46,7 +46,7 @@ pub const Answers = struct {
     reading_count: u32,
     owed: [constants.responses_owed_max]Request,
     owed_count: u32,
-    /// Whether the oldest owed response's head is written, and octets of its content sent.
+    /// Whether the oldest owed response's head is written, and bytes of its content sent.
     head_written: bool,
     content_sent: usize,
     /// Where the `--echo` mode keeps the request it returns, or null in every other mode.
@@ -61,7 +61,7 @@ pub const Answers = struct {
         answers.echo = echo;
     }
 
-    /// A request's head arrived. Its octets are valid until the engine's next call, so the echo
+    /// A request's head arrived. Its bytes are valid until the engine's next call, so the echo
     /// copies them now.
     pub fn on_request(answers: *Answers, request: *const server.Request) void {
         if (answers.echo) |echo| echo.begin(.{
@@ -74,7 +74,7 @@ pub const Answers = struct {
         if (request.end) answers.owe(read) else answers.start_reading(read);
     }
 
-    /// Octets of a request's content arrived, which the echo keeps.
+    /// Bytes of a request's content arrived, which the echo keeps.
     pub fn on_body(answers: *Answers, body: server.RequestBody) void {
         if (answers.echo) |echo| echo.add(body.bytes);
         if (body.end) answers.finish_reading(body.id.number);
@@ -170,7 +170,7 @@ pub const Answers = struct {
     }
 
     /// The content of the response owed: the request's echo in the `--echo` mode, and the
-    /// server's answer otherwise, `response_body` or `--body`'s octets.
+    /// server's answer otherwise, `response_body` or `--body`'s bytes.
     fn content(answers: *const Answers) []const u8 {
         const echo = answers.echo orelse return server_mode.answer_body;
         return echo.written();

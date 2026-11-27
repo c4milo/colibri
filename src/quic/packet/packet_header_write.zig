@@ -30,9 +30,9 @@ pub const Long = struct {
     /// The Token of an Initial packet, and empty in every other type (§17.2.2).
     token: []const u8 = &.{},
     packet_number: packet_number.Truncated,
-    /// Octets of the payload as the wire carries it, the AEAD tag included.
+    /// Bytes of the payload as the wire carries it, the AEAD tag included.
     protected_payload_len: usize,
-    /// Octets the Length field is written in (RFC 9000 §16 permits a longer encoding than the
+    /// Bytes the Length field is written in (RFC 9000 §16 permits a longer encoding than the
     /// shortest). 0 picks the shortest.
     length_len: u8 = 0,
 };
@@ -43,7 +43,7 @@ pub fn write_long(writer: *Writer, header: Long) core.Writer.Error!void {
     assert(@max(header.dcid.len, header.scid.len) <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     // RFC 9000 §17.2: Header Form 1, Fixed Bit 1, the type, Reserved Bits 0, and the Packet
-    // Number Length as one less than the field's octets.
+    // Number Length as one less than the field's bytes.
     try copy.write_byte(long_first_octet(header.version, header.type) | (header.packet_number.len - 1));
     try copy.write_int_big(u32, @intFromEnum(header.version));
     try invariant.write_connection_id(&copy, header.dcid);
@@ -135,7 +135,7 @@ pub fn write_retry_pseudo_packet(
 
 const testing = std.testing;
 
-/// A connection ID and the octets RFC 9001 Appendix A publishes. Test-only.
+/// A connection ID and the bytes RFC 9001 Appendix A publishes. Test-only.
 const client_dcid = "\x83\x94\xc8\xf0\x3e\x51\x57\x08".*;
 const server_scid = "\xf0\x67\xa5\x50\x2a\x42\x62\xb5".*;
 
@@ -145,7 +145,7 @@ test "RFC 9001 and RFC 9369 Appendix A.2: the client Initial's unprotected heade
     inline for (comptime std.enums.values(Version), heads) |version, head| {
         var buffer: [64]u8 = undefined;
         var writer = Writer.init(&buffer);
-        // 1162 octets of frames and the 16-octet tag, under a 4-octet packet number of 2.
+        // 1162 bytes of frames and the 16-byte tag, under a 4-byte packet number of 2.
         try write_long(&writer, .{
             .version = version,
             .type = .initial,
@@ -165,7 +165,7 @@ test "RFC 9001 and RFC 9369 Appendix A.3: the server Initial's unprotected heade
     inline for (comptime std.enums.values(Version), heads) |version, head| {
         var buffer: [64]u8 = undefined;
         var writer = Writer.init(&buffer);
-        // The Length of 117 is written in two octets, which RFC 9000 §16 permits.
+        // The Length of 117 is written in two bytes, which RFC 9000 §16 permits.
         try write_long(&writer, .{
             .version = version,
             .type = .initial,
@@ -183,7 +183,7 @@ test "RFC 9001 and RFC 9369 Appendix A.3: the server Initial's unprotected heade
 test "RFC 9001 Appendix A.5: the short header, octet for octet" {
     var buffer: [8]u8 = undefined;
     var writer = Writer.init(&buffer);
-    // Packet number 654360564 in three octets, with no connection ID and Key Phase 0.
+    // Packet number 654360564 in three bytes, with no connection ID and Key Phase 0.
     try write_short(&writer, .{
         .dcid = &.{},
         .packet_number = .{ .value = 0x00bff4, .len = 3 },
@@ -228,7 +228,7 @@ test "§17.2: every long type of each version is read back as it was written, an
             };
             try write_long(&writer, header);
             const header_len = writer.written().len;
-            // The payload, then the first octets of a second packet in the same datagram (§12.2).
+            // The payload, then the first bytes of a second packet in the same datagram (§12.2).
             const datagram = buffer[0 .. header_len + 20 + 5];
             const packet = (try packet_header.read(datagram, 0)).long;
             try testing.expectEqual(version, packet.version);

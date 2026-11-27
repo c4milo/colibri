@@ -229,7 +229,7 @@ test "§2.2.2.2: a decoder that permits no dynamic table owes no cancellation" {
 
 test "§7.4: a name or value longer than colibri accepts fails the section, not the process" {
     var octets: [test_room]u8 = undefined;
-    // A literal name of field_name_len_max + 1 octets: 0x27 fills the 3-bit prefix with 7, and
+    // A literal name of field_name_len_max + 1 bytes: 0x27 fills the 3-bit prefix with 7, and
     // 0xfa 0x01 add 122 and 128.
     const name_len = core.constants.limits.field_name_len_max + 1;
     octets[0] = 0x00;
@@ -241,7 +241,7 @@ test "§7.4: a name or value longer than colibri accepts fails the section, not 
     octets[5 + name_len] = 0x01;
     octets[6 + name_len] = 'v';
     try testing.expectError(Error.FieldTooLong, decode(octets[0 .. 7 + name_len]));
-    // One octet shorter is accepted.
+    // One byte shorter is accepted.
     octets[3] = 0xf9;
     octets[4 + name_len] = 0x01;
     octets[5 + name_len] = 'v';
@@ -249,7 +249,7 @@ test "§7.4: a name or value longer than colibri accepts fails the section, not 
     try testing.expectEqual(core.constants.limits.field_name_len_max, test_section.get(0).name.len);
 }
 
-/// Room for a literal value one octet past `field_value_len_max`, and its framing. Test-only.
+/// Room for a literal value one byte past `field_value_len_max`, and its framing. Test-only.
 const long_value_room: usize = core.constants.limits.field_value_len_max + test_room;
 var long_octets: [long_value_room]u8 = undefined;
 var long_strings: [long_value_room]u8 = undefined;
@@ -257,7 +257,7 @@ var long_strings: [long_value_room]u8 = undefined;
 test "§7.4: a value longer than colibri accepts fails the section" {
     var writer = Writer.init(&long_octets);
     try writer.write_bytes(&.{ 0x00, 0x00 });
-    // A literal with a name reference to static `:path`, and a value one octet too long.
+    // A literal with a name reference to static `:path`, and a value one byte too long.
     const value: [core.constants.limits.field_value_len_max + 1]u8 = @splat('v');
     try representation_write.write(&writer, .{ .literal_name_reference = .{
         .never_indexed = false,
@@ -274,7 +274,7 @@ test "§7.4: a value longer than colibri accepts fails the section" {
 }
 
 test "a line decoded from the dynamic table outlives the entry it came from" {
-    // A table that holds one entry of a one-octet name and value.
+    // A table that holds one entry of a one-byte name and value.
     const one_entry: u64 = constants.protocol.entry_overhead_len + 2;
     test_decoder.init(.{ .max_table_capacity = one_entry, .blocked_streams = example_blocked_streams });
     var capacity: [test_room]u8 = undefined;
@@ -283,7 +283,7 @@ test "a line decoded from the dynamic table outlives the entry it came from" {
     try encoder_stream(writer.written());
     try encoder_stream(&.{ 0x41, 'a', 0x01, 'x' });
     try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &.{ 0x02, 0x00, 0x80 }));
-    // The next insert evicts `a` and writes `b` where its octets were.
+    // The next insert evicts `a` and writes `b` where its bytes were.
     try encoder_stream(&.{ 0x41, 'b', 0x01, 'y' });
     try testing.expectEqualStrings("b", test_decoder.table.get_absolute(1).?.name);
     try expect_line(0, "a", "x");
@@ -358,7 +358,7 @@ test "a field section cut short is refused rather than half accepted" {
     try testing.expectError(Error.Truncated, decode_on(0, &.{0x00}));
 }
 
-/// Octets the fuzzed decoder reads before each input: a table of 220 octets, `:authority: a` and
+/// Bytes the fuzzed decoder reads before each input: a table of 220 bytes, `:authority: a` and
 /// `x: y`, so a reference can resolve. Test-only.
 const fuzz_setup = "\x3f\xbd\x01\xc0\x01a\x41x\x01y";
 

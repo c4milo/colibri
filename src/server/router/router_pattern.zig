@@ -14,10 +14,10 @@
 //!      1. not empty, but for the last segment, or `segment_empty`;
 //!      2. not "." or "..", or `segment_dot`;
 //!      3. for the wildcard: it is the last segment, or `wildcard_not_last`;
-//!      4. for a parameter: a name follows the ":", or `parameter_unnamed`, and each octet of the
-//!         name is an octet of `name_octets`, or `parameter_name_invalid`;
-//!      5. for a literal: each octet, from the first, is not "%", or `segment_encoded`, and is an
-//!         octet of `path_octets`, or `octet_outside_path`;
+//!      4. for a parameter: a name follows the ":", or `parameter_unnamed`, and each byte of the
+//!         name is a byte of `name_octets`, or `parameter_name_invalid`;
+//!      5. for a literal: each byte, from the first, is not "%", or `segment_encoded`, and is an
+//!         byte of `path_octets`, or `octet_outside_path`;
 //!      6. for a parameter or the wildcard: no earlier parameter of the pattern has the name, or
 //!         `parameter_repeated`, and the pattern holds no more than `path_parameters_max`
 //!         parameters, the wildcard included, or `parameters_too_many`.
@@ -55,7 +55,7 @@ pub const Refusal = enum {
     }
 };
 
-/// The octets that a segment of a path matches a route with: RFC 3986 §3.3's `pchar`, which is
+/// The bytes that a segment of a path matches a route with: RFC 3986 §3.3's `pchar`, which is
 /// `unreserved / pct-encoded / sub-delims / ":" / "@"`, other than "%". http's `uri.zig` holds
 /// the same classes, and to share them would add a public name.
 pub const path_octets: [std.math.maxInt(u8) + 1]bool = build: {
@@ -83,7 +83,7 @@ pub const separator = '/';
 /// The pattern of the root, which matches the path "/" alone.
 pub const root = "/";
 
-/// The octet that starts a parameter's segment. The name follows it.
+/// The byte that starts a parameter's segment. The name follows it.
 pub const parameter_prefix = ':';
 /// The segment that keys every parameter child in the trie, whatever its name: two routes may
 /// name one position differently (decision 129).
@@ -92,7 +92,7 @@ pub const parameter_key: []const u8 = &.{parameter_prefix};
 /// The segment of the wildcard, and the name that `match` binds the rest of the path to.
 pub const wildcard = "*";
 
-/// The octets of a parameter's name: `1*( ALPHA / DIGIT / "_" )` (decision 122).
+/// The bytes of a parameter's name: `1*( ALPHA / DIGIT / "_" )` (decision 122).
 pub const name_octets: [std.math.maxInt(u8) + 1]bool = build: {
     var table: [std.math.maxInt(u8) + 1]bool = undefined;
     for (&table, 0..) |*allowed, octet| allowed.* = std.ascii.isAlphanumeric(octet) or octet == '_';
@@ -110,7 +110,7 @@ pub fn parameter_name(segment: []const u8) []const u8 {
     return segment[1..];
 }
 
-/// Whether `segment` is the wildcard. A segment that holds "*" and other octets is a literal.
+/// Whether `segment` is the wildcard. A segment that holds "*" and other bytes is a literal.
 pub fn is_wildcard(segment: []const u8) bool {
     return std.mem.eql(u8, segment, wildcard);
 }
@@ -159,7 +159,7 @@ fn segment_refusal(comptime segment: []const u8, comptime last: bool) ?Refusal {
 
 fn literal_refusal(comptime segment: []const u8) ?Refusal {
     for (segment) |octet| {
-        // RFC 3986 §2.1: "%" starts a pct-encoded octet, and a path with one matches no route.
+        // RFC 3986 §2.1: "%" starts a pct-encoded byte, and a path with one matches no route.
         if (octet == '%') return .segment_encoded;
         // RFC 3986 §3.3: segment = *pchar.
         if (!path_octets[octet]) return .octet_outside_path;
@@ -190,7 +190,7 @@ fn names_refusal(comptime names: []const []const u8, comptime name: []const u8) 
 }
 
 /// How many segments `pattern` holds: none for the root. Comptime-only. The loop reads each
-/// octet with no call to `std.mem.count`, whose search costs many comptime branches.
+/// byte with no call to `std.mem.count`, whose search costs many comptime branches.
 pub fn segments_count(comptime pattern: []const u8) usize {
     assert(pattern.len > 0 and pattern[0] == separator);
     if (std.mem.eql(u8, pattern, root)) return 0;
@@ -201,7 +201,7 @@ pub fn segments_count(comptime pattern: []const u8) usize {
     return count;
 }
 
-/// Whether a value of `T` is text: a slice of octets, or a pointer to an array of them.
+/// Whether a value of `T` is text: a slice of bytes, or a pointer to an array of them.
 pub fn is_text(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |pointer| switch (pointer.size) {

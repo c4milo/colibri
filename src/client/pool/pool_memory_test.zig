@@ -29,7 +29,7 @@ var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var exchanges: [few.requests + 1]support.Exchange align(@alignOf(support.Exchange)) = undefined;
 
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);

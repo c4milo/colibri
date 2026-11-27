@@ -7,7 +7,7 @@
 //! - `recovery_bbr_startup.zig`: Startup and Drain (§5.3.1, §5.3.2).
 //! - `recovery_bbr_probe_bw.zig`: ProbeBW (§5.3.3).
 //! - `recovery_bbr_probe_rtt.zig`: ProbeRTT and the restart after an idle period (§5.3.4, §5.4).
-//! - `recovery_bbr_inflight.zig`: the volumes they compare with the octets in flight (§5.6.4).
+//! - `recovery_bbr_inflight.zig`: the volumes they compare with the bytes in flight (§5.6.4).
 //! - `recovery_bbr_wait.zig`: the draws of each bandwidth probe wait (decision 136).
 //! - `recovery_bbr_loss.zig`: the short-term model and the response to loss (§5.5.10, §5.5.11).
 //! - `recovery_bbr_control.zig`: the pacing rate, the send quantum and the window (§5.6).
@@ -56,9 +56,9 @@ pub const AckPhase = enum(u8) {
 /// What the connection knows when BBR runs: the draft's `C.*` values.
 pub const Path = struct {
     now_ns: u64,
-    /// `C.inflight`: the octets in flight (RFC 9002 §7.2's `bytes_in_flight`).
+    /// `C.inflight`: the bytes in flight (RFC 9002 §7.2's `bytes_in_flight`).
     in_flight_len: u64,
-    /// `C.delivered`: the octets the peer has acknowledged (§4.1.2.1.1).
+    /// `C.delivered`: the bytes the peer has acknowledged (§4.1.2.1.1).
     delivered_len: u64,
     /// `C.is_cwnd_limited`: whether the window, and not the application, bounded what went out
     /// (RFC 9002 §7.8).
@@ -79,7 +79,7 @@ pub const Bbr = struct {
     /// §2.5's `BBR.pacing_gain` and §2.6's `BBR.cwnd_gain`, in hundredths.
     pacing_gain: u64,
     cwnd_gain: u64,
-    /// §5.5.10.3's `BBR.bw`, octets a second: `BBR.max_bw`, bounded by the short-term model.
+    /// §5.5.10.3's `BBR.bw`, bytes a second: `BBR.max_bw`, bounded by the short-term model.
     bw: u64,
     /// §2.10 and §5.5.10.3: the short-term model, which loss outside a probe lowers, and the
     /// latest round's delivery it lowers toward.
@@ -95,7 +95,7 @@ pub const Bbr = struct {
     undo_bw_shortterm: u64,
     undo_inflight_shortterm_len: u64,
     undo_inflight_longterm_len: u64,
-    /// §5.3.1.3's counts of the round in progress: octets acknowledged and lost, lost ranges and
+    /// §5.3.1.3's counts of the round in progress: bytes acknowledged and lost, lost ranges and
     /// the last lost packet number, and the round RFC 9002's recovery period started in.
     round_acknowledged_len: u64,
     round_lost_len: u64,
@@ -104,7 +104,7 @@ pub const Bbr = struct {
     recovery_start_round: ?u64,
     /// `C.cwnd`, which `recovery_bbr_control.set_window` sets and `Congestion.window` mirrors.
     window_len: u64,
-    /// §5.6.2's `C.pacing_rate`, octets a second, §5.6.3's `C.send_quantum`, §5.6.4.2's
+    /// §5.6.2's `C.pacing_rate`, bytes a second, §5.6.3's `C.send_quantum`, §5.6.4.2's
     /// `BBR.max_inflight`, and whether a round trip sample has set the pacing rate again.
     pacing_rate: u64,
     send_quantum_len: u64,

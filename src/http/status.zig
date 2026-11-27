@@ -5,15 +5,15 @@
 //! The two directions check a status in different ways (decision 158, ruling 17):
 //! - `from_code` checks a code that a program sends. It refuses a value outside 100 to 599 with
 //!   `error.StatusOutOfRange`.
-//! - `from_digits` reads a code that a peer sent. It accepts any three DIGIT octets, 000 to 999.
+//! - `from_digits` reads a code that a peer sent. It accepts any three DIGIT bytes, 000 to 999.
 //!
 //! `from_digits` checks the text in this order (invariant 7):
-//!   1. exactly three octets, or `error.StatusNotThreeDigits`;
-//!   2. every octet a DIGIT, or `error.StatusNotThreeDigits`.
+//!   1. exactly three bytes, or `error.StatusNotThreeDigits`;
+//!   2. every byte a DIGIT, or `error.StatusNotThreeDigits`.
 //!
 //! RFC 9110 §15 tells a client to process an invalid code as a 5xx, so `class` returns
 //! `.server_error` for a code outside 100 to 599. Such a code is never interim. h2 and h3 carry
-//! the status as the text of `:status`, so the text form is the form that the peer's octets carry.
+//! the status as the text of `:status`, so the text form is the form that the peer's bytes carry.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -246,7 +246,7 @@ test "the recognised codes are exactly those RFC 9110 §15.2 to §15.6 define" {
     }
 }
 
-/// Most octets a fuzz input carries: one more than a status, so a fourth digit is reachable.
+/// Most bytes a fuzz input carries: one more than a status, so a fourth digit is reachable.
 const fuzz_input_len_max = constants.protocol.status_digits_len + 1;
 
 fn fuzz_from_digits(_: void, smith: *testing.Smith) anyerror!void {

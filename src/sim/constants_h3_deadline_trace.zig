@@ -12,7 +12,7 @@ pub const head_units_max: u32 = 2;
 pub const content_units_max: u32 = 2;
 pub const response_units_max: u32 = 2;
 
-/// The octets of one unit of a request's content, and of a response's content.
+/// The bytes of one unit of a request's content, and of a response's content.
 pub const content_unit_len: u32 = 16;
 pub const response_unit_len: u32 = 8;
 
@@ -29,7 +29,7 @@ pub const drain_actions_max: u32 = 256;
 /// of the run at most.
 pub const queue_len_max: u32 = 64;
 pub const sends_per_call_max: u32 = 32;
-/// The octets each side may write into one datagram: an Ethernet MTU, past RFC 9000 §14.1's 1,200.
+/// The bytes each side may write into one datagram: an Ethernet MTU, past RFC 9000 §14.1's 1,200.
 pub const datagram_len: u32 = 1_500;
 
 /// Events the server's connection, or the client's h3, reports in one call of the run at most.
@@ -61,7 +61,7 @@ pub const wait_seconds_max: u64 = 30;
 pub const written_seeds: u64 = 32;
 pub const steps_between_max: u64 = 16;
 
-/// Octets of the TLA+ module one seed's trace is written as: 1 MiB.
+/// Bytes of the TLA+ module one seed's trace is written as: 1 MiB.
 pub const module_len_max: u32 = 1_048_576;
 
 comptime {

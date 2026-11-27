@@ -1,6 +1,6 @@
 //! The fuzz property of the QUIC frame reader, and the sweep that runs it over every input of up
-//! to two octets (decision 29, https://github.com/c4milo/colibri/issues/53). A peer's frames reach
-//! `frame.read` once packet protection is removed, so every octet of a payload is hostile.
+//! to two bytes (decision 29, https://github.com/c4milo/colibri/issues/53). A peer's frames reach
+//! `frame.read` once packet protection is removed, so every byte of a payload is hostile.
 //!
 //! The property reads a payload frame by frame, as a connection does, and checks three things.
 //! A refusal consumes nothing. A frame that is read keeps every rule the writer asserts, so no
@@ -20,19 +20,19 @@ const AckRange = frame.frame_ack.Range;
 const Smith = std.testing.Smith;
 const testing = std.testing;
 
-/// Most octets one fuzz input carries: past the longest fixed frame, a NEW_CONNECTION_ID with a
-/// 20-octet connection ID, with room for a second frame after it.
+/// Most bytes one fuzz input carries: past the longest fixed frame, a NEW_CONNECTION_ID with a
+/// 20-byte connection ID, with room for a second frame after it.
 const fuzz_input_len_max = 128;
 
 /// Where a frame that was read is written again. A frame is never longer written than read, but
-/// for PADDING, which is written one octet per octet read, so the input's bound is enough.
+/// for PADDING, which is written one byte per byte read, so the input's bound is enough.
 var fuzz_written: [fuzz_input_len_max]u8 = @splat(0);
 
 fn fuzz_payload(_: void, smith: *Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const payload = input[0..smith.slice(&input)];
     var reader = Reader.init(payload);
-    // Bounded: every frame that is read consumes at least its type's octet.
+    // Bounded: every frame that is read consumes at least its type's byte.
     for (0..fuzz_input_len_max + 1) |_| {
         if (reader.remaining_len() == 0) return;
         const at_frame = reader;
@@ -63,7 +63,7 @@ fn expect_writable(read: Frame) !void {
         .streams_blocked => |blocked| try testing.expect(blocked.limit <= constants.protocol.max_streams_max),
         .new_connection_id => |new| {
             // RFC 9000 §19.15: Retire Prior To is at most the Sequence Number, and a connection
-            // ID is 1 to 20 octets.
+            // ID is 1 to 20 bytes.
             try testing.expect(new.retire_prior_to <= new.sequence_number);
             try testing.expect(new.connection_id.len >= constants.protocol.connection_id_len_min);
             try testing.expect(new.connection_id.len <= constants.protocol.connection_id_len_max);
@@ -80,7 +80,7 @@ fn expect_ranges(ranges: frame.AckRanges) !void {
     var walk = ranges.iterator();
     var previous: ?AckRange = null;
     var walked: u64 = 0;
-    // Bounded by the count the frame carries, which the octets it was read from bound.
+    // Bounded by the count the frame carries, which the bytes it was read from bound.
     for (0..fuzz_input_len_max + 1) |_| {
         const range = walk.next() orelse break;
         try testing.expect(range.smallest <= range.largest);
@@ -91,7 +91,7 @@ fn expect_ranges(ranges: frame.AckRanges) !void {
     try testing.expectEqual(ranges.count + 1, walked);
 }
 
-/// Writes `read` again and reads it back, which gives the same frame and consumes every octet.
+/// Writes `read` again and reads it back, which gives the same frame and consumes every byte.
 /// The type written is the type read, but for a STREAM frame at offset 0: RFC 9000 §19.8 lets
 /// its Offset go unwritten, and the writer clears the OFF bit.
 fn expect_round_trip(read: Frame, read_type: u64) !void {
@@ -127,7 +127,7 @@ test "fuzz: a frame the reader accepts is one the writer writes, and reads back 
             core.fuzz.input("\x02\x05\x00\x01\x00\x04\x00"),
             core.fuzz.input("\x02\x05\x00\x01\x00\x00\x03"),
             core.fuzz.input("\x02\x05\x00\x01\x00\x00\x04"),
-            // STREAM with every flag: stream 4, offset 7, three octets, and the stream ends.
+            // STREAM with every flag: stream 4, offset 7, three bytes, and the stream ends.
             core.fuzz.input("\x0f\x04\x07\x03abc"),
             // STREAM with no Length, which runs to the end of the payload.
             core.fuzz.input("\x08\x00rest of the payload"),
@@ -136,8 +136,8 @@ test "fuzz: a frame the reader accepts is one the writer writes, and reads back 
             core.fuzz.input("\x0e\x00\xff\xff\xff\xff\xff\xff\xff\xff\x01a"),
             core.fuzz.input("\x06\xff\xff\xff\xff\xff\xff\xff\xfe\x01a"),
             core.fuzz.input("\x06\xff\xff\xff\xff\xff\xff\xff\xff\x01a"),
-            // NEW_CONNECTION_ID: sequence 2, retire below 2, a 4-octet ID, a 16-octet token; then
-            // retire below 3, an empty ID and a 21-octet ID, which RFC 9000 §19.15 refuses.
+            // NEW_CONNECTION_ID: sequence 2, retire below 2, a 4-byte ID, a 16-byte token; then
+            // retire below 3, an empty ID and a 21-byte ID, which RFC 9000 §19.15 refuses.
             core.fuzz.input("\x18\x02\x02\x04\xaa\xbb\xcc\xdd" ++ "\x10" ** 16),
             core.fuzz.input("\x18\x02\x03\x04\xaa\xbb\xcc\xdd" ++ "\x10" ** 16),
             core.fuzz.input("\x18\x02\x00\x00" ++ "\x10" ** 16),
@@ -150,7 +150,7 @@ test "fuzz: a frame the reader accepts is one the writer writes, and reads back 
             // then one past it.
             core.fuzz.input("\x13\xd0\x00\x00\x00\x00\x00\x00\x00\x12\xd0\x00\x00\x00\x00\x00\x00\x01"),
             core.fuzz.input("\x16\xd0\x00\x00\x00\x00\x00\x00\x00\x17\xd0\x00\x00\x00\x00\x00\x00\x01"),
-            // PATH_CHALLENGE, then a NEW_TOKEN of one octet, then one of none (RFC 9000 §19.7).
+            // PATH_CHALLENGE, then a NEW_TOKEN of one byte, then one of none (RFC 9000 §19.7).
             core.fuzz.input("\x1a\x01\x02\x03\x04\x05\x06\x07\x08\x07\x01t\x07\x00"),
         },
     });

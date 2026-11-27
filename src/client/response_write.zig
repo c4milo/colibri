@@ -48,7 +48,7 @@ pub fn record_trailers(slot: *Slot, section: *const FieldSection) Error!void {
     try headers.record(&response.trailers, section, 0);
 }
 
-/// Copies octets of the response's content after those already in `body`, or decodes them there,
+/// Copies bytes of the response's content after those already in `body`, or decodes them there,
 /// with `cpu_features`, the configuration's.
 pub fn append_body(slot: *Slot, octets: []const u8, cpu_features: coding.CpuFeatures) Error!void {
     if (coding.active(slot)) return coding.decode(slot, octets, cpu_features);
@@ -61,7 +61,7 @@ pub fn append_body(slot: *Slot, octets: []const u8, cpu_features: coding.CpuFeat
 }
 
 /// Copies the start of `octets` into the caller's empty `body`, as much as it holds, as the next
-/// piece of a streamed response (decision 153 ruling 7), and returns the octets copied. The piece
+/// piece of a streamed response (decision 153 ruling 7), and returns the bytes copied. The piece
 /// is held, and its `body` event owed, until the caller releases it.
 pub fn hold_piece(slot: *Slot, octets: []const u8) usize {
     assert(octets.len > 0);
@@ -79,7 +79,7 @@ pub fn piece_room(slot: *const Slot) []u8 {
     return slot.response.body;
 }
 
-/// Holds the first `len` octets of the caller's `body` as the next piece, which the connection
+/// Holds the first `len` bytes of the caller's `body` as the next piece, which the connection
 /// wrote there itself, as `hold_piece` does once it copied them.
 pub fn hold_len(slot: *Slot, len: usize) void {
     assert(len > 0 and len <= piece_room(slot).len);
@@ -88,7 +88,7 @@ pub fn hold_len(slot: *Slot, len: usize) void {
     slot.body_owed = true;
 }
 
-/// The caller gave back the piece `body` held. Returns its octets, the flow credit the connection
+/// The caller gave back the piece `body` held. Returns its bytes, the flow credit the connection
 /// gives back for it (RFC 9113 §6.9, RFC 9000 §4.1).
 pub fn release_piece(slot: *Slot) usize {
     assert(slot.body_held and !slot.body_owed);

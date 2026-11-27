@@ -7,14 +7,14 @@ const core = @import("core");
 /// Largest value a QUIC variable-length integer carries: 62 usable bits (RFC 9000 §16).
 pub const varint_value_max: u64 = (1 << 62) - 1;
 
-/// Longest QUIC variable-length integer, in octets (RFC 9000 §16).
+/// Longest QUIC variable-length integer, in bytes (RFC 9000 §16).
 pub const varint_len_max: u8 = 8;
 
-/// The four lengths a QUIC variable-length integer takes, in octets, shortest first (RFC 9000 §16,
+/// The four lengths a QUIC variable-length integer takes, in bytes, shortest first (RFC 9000 §16,
 /// Table 4).
 pub const varint_lens = [_]u8{ 1, 2, 4, varint_len_max };
 
-/// Bits of a QUIC variable-length integer's first octet that encode its length (RFC 9000 §16). The
+/// Bits of a QUIC variable-length integer's first byte that encode its length (RFC 9000 §16). The
 /// rest of the encoding carries the value.
 pub const varint_length_bits: u8 = 2;
 
@@ -24,14 +24,14 @@ pub const varint_length_bits: u8 = 2;
 /// maximum accepted.
 pub const integer_value_max: u64 = (1 << 62) - 1;
 
-/// Longest prefixed integer, in octets: the prefix octet and nine continuation octets. Nine
+/// Longest prefixed integer, in bytes: the prefix byte and nine continuation bytes. Nine
 /// seven-bit groups carry the 62 bits `integer_value_max` needs past even a 1-bit prefix. RFC 7541
 /// §5.1 requires an encoding longer than an implementation limit to be treated as a decoding
-/// error, so a peer cannot send an unbounded run of zero-valued continuation octets.
+/// error, so a peer cannot send an unbounded run of zero-valued continuation bytes.
 pub const integer_len_max: u8 = 10;
 
 /// Fewest and most bits a prefixed integer's prefix takes. RFC 7541 §5.1 names the prefix N and
-/// leaves its size to the representation using it; colibri's codec takes every size an octet holds.
+/// leaves its size to the representation using it; colibri's codec takes every size a byte holds.
 pub const integer_prefix_bits_min: u4 = 1;
 pub const integer_prefix_bits_max: u4 = 8;
 
@@ -39,14 +39,14 @@ pub const integer_prefix_bits_max: u4 = 8;
 /// (RFC 9204 §4.1.2). The most is `integer_prefix_bits_max`, HPACK's form (RFC 7541 §5.2).
 pub const string_prefix_bits_min: u4 = 2;
 
-/// Bits of value each continuation octet of a prefixed integer carries (RFC 7541 §5.1).
+/// Bits of value each continuation byte of a prefixed integer carries (RFC 7541 §5.1).
 pub const integer_continuation_bits: u8 = 7;
 
-/// Octets added to an entry's name and value lengths when a dynamic table's size is computed
+/// Bytes added to an entry's name and value lengths when a dynamic table's size is computed
 /// (RFC 7541 §4.1, RFC 9204 §3.2.1): the one constant both protocols measure field lines by.
 pub const table_entry_overhead: u32 = core.constants.protocol.field_line_overhead;
 
-/// Symbols in the Huffman code: the 256 octets and EOS (RFC 7541 Appendix B).
+/// Symbols in the Huffman code: the 256 bytes and EOS (RFC 7541 Appendix B).
 pub const huffman_symbol_count: u16 = 257;
 
 /// The EOS symbol's index in the Huffman code (RFC 7541 Appendix B).

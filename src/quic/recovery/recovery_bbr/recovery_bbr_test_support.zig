@@ -14,7 +14,7 @@ pub const test_round_trip_ns: u64 = 50_000_000;
 pub const test_datagram_len: u64 = 1_200;
 pub const test_initial_window_len: u64 = 12_000;
 pub const test_rate: u64 = 4_000_000;
-/// The BDP of `test_rate` over `test_round_trip_ns`: 200,000 octets.
+/// The BDP of `test_rate` over `test_round_trip_ns`: 200,000 bytes.
 pub const test_bdp_len: u64 = 200_000;
 pub const test_waits: u64 = 7;
 pub const test_send_quantum_len: u64 = 2_400;
@@ -101,7 +101,7 @@ pub const Driver = struct {
     }
 
     /// RFC 9002 §6.1 declares lost a datagram of the application space numbered `number`, sent
-    /// with `tx_in_flight_len` octets in flight and `lost_before_len` octets lost before it.
+    /// with `tx_in_flight_len` bytes in flight and `lost_before_len` bytes lost before it.
     pub fn lose(driver: *Driver, number: u64, tx_in_flight_len: u64, lost_before_len: u64) void {
         driver.delivery.on_lost(test_datagram_len);
         const record: recovery_sent.Record = .{

@@ -53,7 +53,7 @@ fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
     return &test_session;
 }
 
-/// What a test's step did: the input it consumed, the octets its socket sent into the test's
+/// What a test's step did: the input it consumed, the bytes its socket sent into the test's
 /// output, and whether the engine reported the connection's `close`. Test-only.
 const Stepped = struct { consumed: usize, written: usize, done: bool };
 
@@ -136,7 +136,7 @@ test "an h11 request split anywhere is answered once it is whole" {
         const stepped = step(input[consumed..end], test_output[written..]);
         consumed += stepped.consumed;
         written += stepped.written;
-        // Nothing is written before the last octet arrives.
+        // Nothing is written before the last byte arrives.
         if (end < input.len) try testing.expectEqual(0, written);
     }
     try testing.expectEqual(input.len, consumed);
@@ -239,7 +239,7 @@ const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04
 fn get_frame(comptime id: u8) []const u8 {
     return "\x00\x00\x03\x01\x05\x00\x00\x00" ++ [_]u8{id} ++ "\x82\x86\x84";
 }
-/// A frame's header: a length of three octets, then its type and its flags (RFC 9113 §4.1).
+/// A frame's header: a length of three bytes, then its type and its flags (RFC 9113 §4.1).
 const type_index: usize = 3;
 const flags_index: usize = 4;
 const length_len: usize = 3;
@@ -374,7 +374,7 @@ test "decision 119: a slot serves a new entry while its last entry still holds i
     try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = test_session.entries[0].handle;
     // Entry 0's connection ends with its response: the engine frees its slot, and the entry
-    // stays its socket's until the octets are sent and the socket is closed.
+    // stays its socket's until the bytes are sent and the socket is closed.
     const closing = step_entry(0, get_h11_close, &test_output);
     try testing.expect(closing.done and !test_session.entries[0].attached);
     // Entry 1's peer leaves, so its slot frees after entry 0's. Nothing of its socket's is read
@@ -419,7 +419,7 @@ test "a step that stops at its bound leaves its entry pending" {
     _ = step_entry(0, client_preface, &test_output);
     try testing.expectEqual(null, test_session.next_pending());
     // One pass a step. It reads a WINDOW_UPDATE for the connection (RFC 9113 §6.9), which brings
-    // no event and owes no octet, and stops before the pass that would find nothing to do.
+    // no event and owes no byte, and stops before the pass that would find nothing to do.
     test_session.events_max = 1;
     const window_update = "\x00\x00\x04\x08\x00\x00\x00\x00\x00" ++ "\x00\x00\x00\x01";
     const first = step_entry(0, window_update, &test_output);
@@ -487,7 +487,7 @@ test "an entry a new socket takes starts with nothing owed and not closing" {
     // The entry's next socket: its connection reads and answers, and is not closing.
     try testing.expect(test_session.accept(0, false, null, test_now_ns));
     try testing.expect(!entry.closing);
-    // Its peer leaves while the response's send is owed: the send took one octet.
+    // Its peer leaves while the response's send is owed: the send took one byte.
     var cramped: [1]u8 = undefined;
     try testing.expect(!step_entry(0, get_h11, &cramped).done);
     test_session.peer_closed(0, test_now_ns);

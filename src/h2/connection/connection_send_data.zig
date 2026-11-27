@@ -17,11 +17,11 @@ const Error = connection_send.Error;
 const DataWritten = connection_send.DataWritten;
 
 /// Writes into `header` the header of the DATA frame on `stream_id` that carries the next
-/// `consumed` octets of a payload `payload_len` long, as many as `write_data` would send into a
-/// buffer of `room_len` octets. The caller sends those octets right after the header, from its own
-/// memory, before any other octet of the connection: in cleartext after it in one buffer, and over
+/// `consumed` bytes of a payload `payload_len` long, as many as `write_data` would send into a
+/// buffer of `room_len` bytes. The caller sends those bytes right after the header, from its own
+/// memory, before any other byte of the connection: in cleartext after it in one buffer, and over
 /// TLS sealed with it (decision 139). `written` counts the header alone, or is 0 when no frame
-/// goes out. END_STREAM is set only on the frame that carries the last octet.
+/// goes out. END_STREAM is set only on the frame that carries the last byte.
 pub fn write_data_header(
     target: *Connection,
     header: *[constants.protocol.frame_header_len]u8,
@@ -57,11 +57,11 @@ const support = @import("connection_test_support.zig");
 const test_connection = &support.test_connection;
 const test_output = &support.test_output;
 
-/// The octets of the test's payload, and the status of its response. Test-only.
+/// The bytes of the test's payload, and the status of its response. Test-only.
 const test_payload_len: usize = 100;
 const ok: u16 = 200;
 const payload: [test_payload_len]u8 = @splat('x');
-/// The octets of one frame that carries the whole payload. Test-only.
+/// The bytes of one frame that carries the whole payload. Test-only.
 const frame_len: usize = constants.protocol.frame_header_len + test_payload_len;
 
 /// A server that has read a request on stream 1 and answered it with a head. Test-only.
@@ -97,7 +97,7 @@ test "decision 138: a short room carries part of the data, without END_STREAM, a
     const sent = try write_data_header(test_connection, &header, room, 1, test_payload_len, true);
     try testing.expectEqual(test_payload_len / 2, sent.consumed);
     try testing.expectEqual(.room, sent.short_by);
-    // RFC 9113 §6.1: END_STREAM is on the frame of the last octet, which is still to come.
+    // RFC 9113 §6.1: END_STREAM is on the frame of the last byte, which is still to come.
     var reader = core.Reader.init(header[0..sent.written]);
     try testing.expect(!frame.has_flag(try frame.read_header(&reader), constants.protocol.flag_end_stream));
     const none = try write_data_header(test_connection, &header, constants.protocol.frame_header_len, 1, test_payload_len, true);

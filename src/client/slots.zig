@@ -40,14 +40,14 @@ pub const Slot = struct {
     /// (RFC 9000 §2.1), whose client-initiated bidirectional streams start at 0 too, so a QUIC
     /// slot says whether it opened one with `stage`.
     stream_id: u64 = 0,
-    /// QUIC: the stream may still send the request's octets again, which it reads from the
+    /// QUIC: the stream may still send the request's bytes again, which it reads from the
     /// request (RFC 9000 §3.1), so an ended exchange is not reported until it is closed.
     holds_octets: bool = false,
     /// The protocol refused the rest of the content, so no more of it is written.
     content_stopped: bool = false,
     /// The part of the request's content the connection writes now (decision 153): the whole
     /// `body` of a request that is not streamed, or the piece `write_body` handed. `piece_sent`
-    /// counts its octets written, and `piece_end` says the content ends after it.
+    /// counts its bytes written, and `piece_end` says the content ends after it.
     piece: []const u8 = "",
     piece_sent: usize = 0,
     piece_end: bool = false,
@@ -55,7 +55,7 @@ pub const Slot = struct {
     piece_held: bool = false,
     /// The connection reads the piece no more, and owes the caller its `body_taken` event.
     taken_owed: bool = false,
-    /// The content's end went out: h11 wrote its last octet or its last chunk, h2 its
+    /// The content's end went out: h11 wrote its last byte or its last chunk, h2 its
     /// END_STREAM flag, and h3 supplied its FIN.
     content_ended: bool = false,
     /// A streamed response (decision 153 ruling 7): its `headers` event is owed; `Response.body`
@@ -65,7 +65,7 @@ pub const Slot = struct {
     headers_owed: bool = false,
     body_held: bool = false,
     body_owed: bool = false,
-    /// Some of the response arrived: an octet of it over h11, read or still held. Over h2, the
+    /// Some of the response arrived: a byte of it over h11, read or still held. Over h2, the
     /// header of a HEADERS frame on its stream, before h2 reads the frame. Over h3, a HEADERS
     /// frame h3 took, or the header of one first on its stream when the connection ends. Every
     /// frame of a response follows a HEADERS frame (RFC 9113 §8.1, RFC 9114 §4.1). The pool
@@ -74,14 +74,14 @@ pub const Slot = struct {
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
     /// is owed once the response is read.
     report_after_drop: bool = false,
-    /// A dropping slot: the octets of content it dropped, and the instant its drop runs out
+    /// A dropping slot: the bytes of content it dropped, and the instant its drop runs out
     /// (decision 146). The time starts once its response is the one being read, so it stays null
     /// before then, and with no time limit.
     dropped_len: u64 = 0,
     drop_until_ns: ?u64 = null,
     /// The decoders the exchange holds from its request's Accept-Encoding until its response's
     /// head names a coding, and the one it keeps until the response ends: `gzip` and `deflate`'s,
-    /// with the pool it came from, then `zstd`'s and `br`'s; and the coded octets it was given
+    /// with the pool it came from, then `zstd`'s and `br`'s; and the coded bytes it was given
     /// (decision 101 as amended).
     decoding: h11.coding.Decoding = .{},
     decoders: ?h11.coding.Storage = null,
@@ -99,7 +99,7 @@ pub const Slot = struct {
         return slot.content_stopped or slot.content_ended;
     }
 
-    /// Whether the connection has content to write now: octets of the piece, or the end after
+    /// Whether the connection has content to write now: bytes of the piece, or the end after
     /// it. A streamed request that waits for its next piece has none.
     pub fn content_ready(slot: *const Slot) bool {
         if (slot.content_done()) return false;
@@ -206,7 +206,7 @@ pub const Slots = struct {
         return found;
     }
 
-    /// The oldest ended slot whose octets no stream reads any more, whose `finished` event is owed
+    /// The oldest ended slot whose bytes no stream reads any more, whose `finished` event is owed
     /// first, or null. Decision 153 ruling 7: a slot whose caller holds a piece of its response,
     /// or whose `headers` event is owed, waits.
     pub fn oldest_reportable(slots: *Slots) ?*Slot {
@@ -317,7 +317,7 @@ pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.dropped_len == 0 and slot.drop_until_ns == null);
     give_back(slot);
     // Decision 153 ruling 7: the caller gets back a piece it held with the exchange, and the
-    // rest of the response is read and dropped. A response that is not streamed keeps the octets
+    // rest of the response is read and dropped. A response that is not streamed keeps the bytes
     // that fit in `body` (decision 153 ruling 13).
     if (slot.body_held) slot.response.body_len = 0;
     slot.headers_owed = false;

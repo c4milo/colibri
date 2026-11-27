@@ -3,7 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// The octets RFC 9112 §2.3 gives an HTTP-version: `HTTP-name "/" DIGIT "." DIGIT`.
+/// The bytes RFC 9112 §2.3 gives an HTTP-version: `HTTP-name "/" DIGIT "." DIGIT`.
 pub const version_len: u32 = 8;
 
 /// The HTTP-name of RFC 9112 §2.3, which compares case-sensitively.

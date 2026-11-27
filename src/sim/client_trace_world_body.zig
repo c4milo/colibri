@@ -4,7 +4,7 @@
 //! which hands its content in pieces, the next one once the pool reports the one before taken.
 //! The caller holds each piece of its response for the plan's delay, then releases it. What the
 //! caller records gives the model's `taken` and `pieces`. A request with content carries a trailer
-//! section after its last octet (decision 152).
+//! section after its last byte (decision 152).
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -19,7 +19,7 @@ const World = world_module.World;
 /// The `body` event's payload, named through the event: the root exports no such type.
 const Piece = @FieldType(client.Event, "body");
 
-/// The octets every POST's content is cut from, which a streamed request's pieces stay in.
+/// The bytes every POST's content is cut from, which a streamed request's pieces stay in.
 var content_source: [limits.content_len_max]u8 = @splat(content_octet);
 const content_octet: u8 = 'c';
 
@@ -38,7 +38,7 @@ pub const Pieces = struct {
     /// A piece of the request was taken: the model's `taken`.
     taken: [requests_max]bool,
     /// Pieces of the response the caller holds: the model's `pieces`. The instant it releases
-    /// them, and the octets of the response it read.
+    /// them, and the bytes of the response it read.
     held: [requests_max]u8,
     release_at_ns: [requests_max]?u64,
     received: [requests_max]usize,
@@ -146,7 +146,7 @@ pub fn on_finished(world: *World, index: usize) Error!void {
 }
 
 /// The caller makes exchange `index`. A streamed one's content goes through `write_body`, its
-/// first piece at once, and each piece of its response fills `response_piece_len` octets.
+/// first piece at once, and each piece of its response fills `response_piece_len` bytes.
 pub fn make(world: *World, index: usize) world_module.Error!void {
     const path = ledger_module.path_of(index, &world.paths[index]);
     const content = content_source[0..world.plan.content_len[index]];

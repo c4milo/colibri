@@ -1,5 +1,5 @@
 //! The blocks of the "QPACK Offline Interop" format: a 64-bit stream ID, a 32-bit length and that
-//! many octets, both integers in network byte order. Stream 0 is the encoder stream, and a request
+//! many bytes, both integers in network byte order. Stream 0 is the encoder stream, and a request
 //! stream's block holds one encoded field section. Part of design §9's QIF tools.
 const std = @import("std");
 const core = @import("core");

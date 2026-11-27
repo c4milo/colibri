@@ -135,10 +135,10 @@ pub const Connection = struct {
     /// §10.1.2, `connection_idle.owe_keep_alive`), which the next ack-eliciting packet at the
     /// application level answers.
     keep_alive_pending: bool,
-    /// Where the CRYPTO octets the last PTO's probes carry begin, at each handshake level, which a
+    /// Where the CRYPTO bytes the last PTO's probes carry begin, at each handshake level, which a
     /// second probe with nothing else to carry repeats (decision 64 as amended). Null until a PTO.
     crypto_probe_from: [core.levels_count]?u64,
-    /// How many times this server has sent its Initial CRYPTO octets again before the PTO, which
+    /// How many times this server has sent its Initial CRYPTO bytes again before the PTO, which
     /// decision 65 limits to `early_crypto_resends_max` (RFC 9002 §6.2.3).
     early_crypto_resends: u8,
     /// The instant of the last of those resends, which decision 71 spaces the next one from.
@@ -155,7 +155,7 @@ pub const Connection = struct {
     /// Whether the last `send` planned no packet while no limit held it: the sender ran out of
     /// data, which draft-ietf-ccwg-bbr-06 §4.1.2.4 marks as an application limit.
     ran_out_of_data: bool,
-    /// The pool the peer's stream octets wait in, or null when the caller reads no stream
+    /// The pool the peer's stream bytes wait in, or null when the caller reads no stream
     /// (decision 61).
     receive_storage: ?stream_incoming.Storage,
     /// `Options.ecn_reads` and `Options.ecn_marks` (decision 68).
@@ -164,7 +164,7 @@ pub const Connection = struct {
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
-    /// caller's octets, which the caller keeps alive until the closing period ends.
+    /// caller's bytes, which the caller keeps alive until the closing period ends.
     pending_close: ?frame_control.ConnectionClose,
     /// The alert the provider raised when the handshake failed, which RFC 9001 §4.8 turns into
     /// the CRYPTO_ERROR code the close carries. Null while none was raised.
@@ -212,7 +212,7 @@ pub const Connection = struct {
     pub const keep_alive_owed = connection_idle.keep_alive_owed;
     pub const owe_close = connection_close.owe;
     pub const close_due = connection_close.close_due;
-    // What a caller does with a stream: open it, supply its octets, read what arrived, and end it.
+    // What a caller does with a stream: open it, supply its bytes, read what arrived, and end it.
     pub const open_stream = stream_send.open;
     pub const OpenStreamError = stream_table.OpenError;
     pub const supply = stream_send.supply;
@@ -377,7 +377,7 @@ pub fn space_at(connection: *Connection, level: Level) *space.Space {
     return &connection.spaces[@intFromEnum(level)];
 }
 
-/// The CRYPTO stream a packet at `level` carries handshake octets on (RFC 9000 §19.6).
+/// The CRYPTO stream a packet at `level` carries handshake bytes on (RFC 9000 §19.6).
 pub fn crypto_at(connection: *Connection, level: Level) *crypto_stream.CryptoStream {
     return connection.crypto_streams.at(level);
 }

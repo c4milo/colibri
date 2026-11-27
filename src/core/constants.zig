@@ -16,7 +16,7 @@ const assert = std.debug.assert;
 pub const protocol = @import("constants_protocol.zig");
 pub const limits = @import("constants_limits.zig");
 
-/// Nanoseconds in a second. QUIC gives a delivery rate in octets a second
+/// Nanoseconds in a second. QUIC gives a delivery rate in bytes a second
 /// (draft-ietf-ccwg-bbr-06 §4.1).
 pub const nanoseconds_per_second: u64 = 1_000_000_000;
 

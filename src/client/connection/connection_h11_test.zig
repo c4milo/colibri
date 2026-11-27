@@ -35,7 +35,7 @@ fn start() !void {
     support.peer_requests = 0;
 }
 
-/// Whether the octets the client sent and the peer has not read hold `text`. Test-only.
+/// Whether the bytes the client sent and the peer has not read hold `text`. Test-only.
 fn sent(text: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], text) != null;
 }
@@ -46,7 +46,7 @@ fn give(octets: []const u8) event.ReceiveResult {
     return connection.receive(support.to_client[0..octets.len], support.now_ns);
 }
 
-/// A call with no octets, as the pool makes to read what the connection owes, reads nothing.
+/// A call with no bytes, as the pool makes to read what the connection owes, reads nothing.
 fn expect_nothing() !void {
     const polled = give("");
     try testing.expectEqual(0, polled.consumed);
@@ -58,9 +58,9 @@ test "design §8 step 21c.3: a call with no octets waits for half a head or chun
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
-    // The connection reports `connected` before it reads an octet.
+    // The connection reports `connected` before it reads a byte.
     try support.client_receive();
-    // h11 reads half a head again from its first octet, once the caller passes it with the rest.
+    // h11 reads half a head again from its first byte, once the caller passes it with the rest.
     const head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
     const half = give(head[0.."HTTP/1.1 2".len]);
     try testing.expectEqual(0, half.consumed);
@@ -299,7 +299,7 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
 const precondition_failed: u16 = 412;
 const early_response = "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\n\r\n";
 const ok_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-/// A response whose content of five octets is chunked, so its head gives no length. Test-only.
+/// A response whose content of five bytes is chunked, so its head gives no length. Test-only.
 const chunked_hello = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
 
 /// The peer writes `octets` itself, and the client reads them. Test-only.
@@ -315,7 +315,7 @@ fn put_upload(body: []u8) Exchange {
     return .{ .request = .{ .method = "PUT", .path = "/object", .body = &upload }, .response = .{ .body = body } };
 }
 
-/// Sends until every octet of `put`'s content is written. The peer drops what it gets. Test-only.
+/// Sends until every byte of `put`'s content is written. The peer drops what it gets. Test-only.
 fn send_content(put: *const Exchange) !void {
     // Bounded: each pass writes some of the content, until all of it is written.
     for (0..upload.len) |_| {
@@ -358,7 +358,7 @@ test "RFC 9112 §9.5: a response dropped while the content goes out ends the con
     _ = try connection.request(&put.request, &put.response);
     _ = try connection.request(&waiting.request, &waiting.response);
     support.client_send();
-    // The first chunk does not fit the two octets of `body`, and the client reads nothing after
+    // The first chunk does not fit the two bytes of `body`, and the client reads nothing after
     // it. The peer reads all of the PUT's content before it writes the last chunk (RFC 9112 §7.1),
     // so the client must not wait for that chunk.
     try peer_writes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n2\r\nlo\r\n");
@@ -381,7 +381,7 @@ test "RFC 9112 §9.5: a response dropped at its head while the content goes out 
     put.response.headers = .{ .buffer = values[0..2] };
     _ = try connection.request(&put.request, &put.response);
     support.client_send();
-    // The header section does not fit the two octets of its buffer.
+    // The header section does not fit the two bytes of its buffer.
     try peer_writes("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhel");
     try testing.expectEqual(.too_large, put.response.result);
     try testing.expect(put.response.body_sent < upload.len);

@@ -28,7 +28,7 @@
 # 13j, https://github.com/c4milo/colibri/issues/113), in place of the inputs above. colibri and
 # axum serve h2 and h2-tls at `waits_rates` for 11 s. 1 s into each load tcpdump captures the head
 # of each packet of both directions for 0.7 s, so the report gives the server's segments for each
-# response, its octets in each segment, and how long the server and the client each took to answer
+# response, its bytes in each segment, and how long the server and the client each took to answer
 # the other. Then `perf sched record` records the server's core for
 # 3 s, and `perf sched timehist` gives each time the server ran: how long it ran, how long it
 # waited for the core once woken, and how long it slept before. Then `perf stat` counts the

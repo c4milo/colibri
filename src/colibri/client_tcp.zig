@@ -91,7 +91,7 @@ pub fn connect_deadline(now_ns: u64, connect_ns: ?u64) ?u64 {
 
 /// The pool is done with a connection: its socket sends what it owes and closes. The pool reads
 /// nothing more of it, and the slot's next socket starts with no input (`Socket.open`), so the next
-/// connection gets none of its octets. An open still waiting for the slot's last close is the one
+/// connection gets none of its bytes. An open still waiting for the slot's last close is the one
 /// the pool gave up, and never starts. A socket whose connect is in flight closes at once (`arm`),
 /// and one whose connect is not written yet frees its slot with no operation.
 pub fn close(state: anytype, handle: client.ConnectionHandle) void {
@@ -117,7 +117,7 @@ pub fn close(state: anytype, handle: client.ConnectionHandle) void {
     state.pending.set(slot);
 }
 
-/// Marks the socket of a TCP connection that owes octets, so the turn steps it. A step of a slot
+/// Marks the socket of a TCP connection that owes bytes, so the turn steps it. A step of a slot
 /// whose connection owes nothing writes nothing, so the handle's generation is not checked.
 pub fn owed(state: anytype, handle: client.ConnectionHandle) void {
     if (handle.slot < state.sockets.len) state.pending.set(handle.slot);
@@ -199,7 +199,7 @@ fn serve_slot(run: anytype, slot: usize, now_ns: u64) void {
     step(run, slot, now_ns);
 }
 
-/// Passes the socket's unread octets to the pool and writes what its connection owes into the
+/// Passes the socket's unread bytes to the pool and writes what its connection owes into the
 /// socket's room, until neither moves.
 fn step(run: anytype, slot: usize, now_ns: u64) void {
     const state = run;
@@ -252,7 +252,7 @@ pub fn arm(state: anytype, out: *operation_table.Outbox, now_ns: u64) void {
     state.touched.setUnion(left);
 }
 
-/// Gives the socket of `slot` every octet its output holds that no send took, which its next
+/// Gives the socket of `slot` every byte its output holds that no send took, which its next
 /// send writes. A socket with a send in flight keeps what that send writes.
 fn give_unsent(state: anytype, slot: usize) void {
     const socket = &state.sockets[slot];

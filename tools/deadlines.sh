@@ -5,7 +5,7 @@
 #   1. an h11 peer that sends half a request head gets a 408 at the first-request deadline, 10 s;
 #   2. an h11 peer that sends nothing is closed then, with nothing sent, though another connection
 #      opens halfway there: the loop must wait for the deadline, not a tick of its own length;
-#   3. an h11 peer that sends a head and three octets of its body gets a 408 when the body's first
+#   3. an h11 peer that sends a head and three bytes of its body gets a 408 when the body's first
 #      window ends, the grace period and a window after the head, 20 s;
 #   4. an h2 peer that sends its preface alone gets a GOAWAY at the first-request deadline.
 # Each must end within a second after its instant and not before it. It needs python3, and it is

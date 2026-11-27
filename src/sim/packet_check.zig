@@ -9,7 +9,7 @@
 //! `quic.packet.header_write`, picks the Packet Number field's length from what the peer has
 //! acknowledged (Appendix A.2), and seals through the null suite into one datagram. The other
 //! reads the datagram packet by packet, opens each through its own null suite, and must get back
-//! the packet number, the header and the payload, with nothing left over. Then one octet of the
+//! the packet number, the header and the payload, with nothing left over. Then one byte of the
 //! datagram is changed, and at least one packet must fail to open.
 //!
 //! This file's module imports no HTTP module, which is the first time the boundary of decision 5
@@ -34,7 +34,7 @@ const packet_number = quic.packet.number;
 /// committed with the new value after both build modes agree.
 pub const census_crc32_expected: u32 = 0xf0818926;
 
-/// The packets and the octets the same seeds produce.
+/// The packets and the bytes the same seeds produce.
 pub const census_packets_expected: u64 = 512;
 pub const census_octets_expected: u64 = 128_870;
 
@@ -52,7 +52,7 @@ pub const Violation = error{
     PacketChanged,
     /// The packets' lengths do not add up to the datagram's (RFC 9000 §12.2).
     DatagramNotConsumed,
-    /// Every packet of a datagram with a changed octet still opened.
+    /// Every packet of a datagram with a changed byte still opened.
     CorruptionOpened,
 };
 
@@ -100,7 +100,7 @@ pub const Census = struct {
     seeds: u64 = 0,
     packets: u64 = 0,
     octets: u64 = 0,
-    /// Packets by the length of their Packet Number field, 1 to 4 octets.
+    /// Packets by the length of their Packet Number field, 1 to 4 bytes.
     by_packet_number_len: [quic.constants.protocol.packet_number_len_max]u64 = @splat(0),
     crc32: std.hash.Crc32 = std.hash.Crc32.init(),
 };
@@ -162,7 +162,7 @@ fn draw_plan(level: Level, random: *sim.Random) Plan {
 
 /// How far a packet is ahead of the largest one acknowledged. The length of the Packet Number field
 /// is drawn first and the distance inside the range that needs it, so every length is as likely
-/// as the others: a field of `len` octets serves while twice the distance is below its window
+/// as the others: a field of `len` bytes serves while twice the distance is below its window
 /// (RFC 9000 §17.1).
 fn draw_distance(random: *sim.Random) u64 {
     const factor = quic.constants.protocol.packet_number_range_factor;
@@ -224,7 +224,7 @@ fn write_header(storage: *Storage, plan: Plan, truncated: packet_number.Truncate
 /// Reads and opens every packet of `datagram` as the peer of `sender`, and checks each against
 /// its plan. Returns the packets that opened. A `strict` run is the datagram as it was sealed,
 /// where anything short of every packet opening is a violation; the other is the datagram with an
-/// octet changed, where a packet that fails is what is looked for.
+/// byte changed, where a packet that fails is what is looked for.
 fn open_datagram(storage: *Storage, sender: Role, datagram: []u8, strict: bool) Violation!usize {
     var offset: usize = 0;
     var opened_count: usize = 0;
@@ -232,7 +232,7 @@ fn open_datagram(storage: *Storage, sender: Role, datagram: []u8, strict: bool) 
         if (offset >= datagram.len) break;
         offset += open_packet(storage, sender, datagram[offset..], plan, strict) catch |violation| {
             if (strict) return violation;
-            // One packet that does not open is what the run with a changed octet looks for, and
+            // One packet that does not open is what the run with a changed byte looks for, and
             // where a packet that was not read ends is unknown (RFC 9000 §12.2).
             return opened_count;
         };
@@ -260,7 +260,7 @@ fn open_packet(storage: *Storage, sender: Role, rest: []u8, plan: Plan, strict: 
         // Every packet the reader has processed was in the current phase.
         .current_phase_lowest = 0,
     }) catch return error.PacketNotOpened;
-    // With an octet changed, the suite refusing the packet is the whole of what is checked: a
+    // With a byte changed, the suite refusing the packet is the whole of what is checked: a
     // comparison here that caught the change would hide a suite that did not.
     if (strict) try check_opened(storage, plan, framed, octets, opened);
     return framed.packet_len;
@@ -304,7 +304,7 @@ fn check_opened(storage: *Storage, plan: Plan, framed: Framed, octets: []const u
     if (!std.mem.eql(u8, payload, storage.payload[0..plan.payload_len])) return error.PacketChanged;
 }
 
-/// Runs one seed: seal, open, and open again with one octet changed.
+/// Runs one seed: seal, open, and open again with one byte changed.
 fn run_once(storage: *Storage, seed: u64, census: *Census) Violation!void {
     var random = sim.Random.init(seed);
     prepare(storage, &random);
@@ -317,7 +317,7 @@ fn run_once(storage: *Storage, seed: u64, census: *Census) Violation!void {
     const opened = try open_datagram(storage, sender, storage.received[0..datagram.len], true);
     assert(opened == storage.plans_len);
     // RFC 9001 §5.3: the header is the associated data and the payload is under the tag, so no
-    // octet of a datagram can change and leave every packet opening.
+    // byte of a datagram can change and leave every packet opening.
     @memcpy(storage.received[0..datagram.len], datagram);
     const changed = random.below(datagram.len);
     storage.received[changed] ^= @as(u8, 1) << @intCast(random.below(@bitSizeOf(u8)));

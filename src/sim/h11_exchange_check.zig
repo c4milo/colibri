@@ -7,7 +7,7 @@
 //! reads nothing past it meanwhile, and answers it as the plan says (decision 92).
 //!
 //! Each seed runs three times: in chunks, in the same chunks again, and with each direction's
-//! octets delivered whole as soon as they are written. When the client pipelines depends on when
+//! bytes delivered whole as soon as they are written. When the client pipelines depends on when
 //! responses arrive, so the trace records only what no delivery can change: for each exchange the
 //! server answered, its status and both bodies' lengths and CRC-32s, then how many were answered.
 //! So:
@@ -75,7 +75,7 @@ pub const SeedResult = struct {
     answered: u32,
     /// Requests the client wrote, which a close may leave unanswered.
     sent: u32,
-    /// Steps the run took, each delivering octets one way or the other.
+    /// Steps the run took, each delivering bytes one way or the other.
     steps: u64,
     /// The trace, inside the storage the seed ran in.
     trace: []const u8,
@@ -115,7 +115,7 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) Violat
         .response_seen = &storage.response_seen,
     };
     var steps: u64 = 0;
-    // Each step delivers at least one octet one way or the other, moves a held request closer to
+    // Each step delivers at least one byte one way or the other, moves a held request closer to
     // its answer, or ends the run.
     for (0..constants.h11_exchange_steps_max) |_| {
         steps += 1;

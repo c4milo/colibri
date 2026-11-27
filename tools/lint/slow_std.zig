@@ -1,7 +1,7 @@
 //! slow-std: no file names a declaration of Zig's standard library that a measurement found slow,
 //! where a faster replacement exists.
 //!
-//! In Zig 0.16, `std.mem.copyForwards` and `std.mem.copyBackwards` copy one octet a step. Design §8
+//! In Zig 0.16, `std.mem.copyForwards` and `std.mem.copyBackwards` copy one byte a step. Design §8
 //! step 55 found such a copy in `keep_unread` taking 43% of a stream route's instructions, and
 //! replaced every call of the tree with `@memmove`. The owner then asked pepegrillo for a rule
 //! that keeps such calls out, and pepegrillo's measurement gives its entries.

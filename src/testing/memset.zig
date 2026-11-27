@@ -2,7 +2,7 @@
 //! `quic-udp`, which `tools/h3load.sh` loads. Each root references this file, so the export is in
 //! the program; the library exports none, because its caller's program owns the symbol.
 //!
-//! On Linux every `memset` in a Zig 0.16 program is compiler_rt's, which writes one octet at a
+//! On Linux every `memset` in a Zig 0.16 program is compiler_rt's, which writes one byte at a
 //! time: the 0xAA fill of a large `undefined` local, each `@memset` whose length is known only at
 //! run time, and chapulin's C code. This one writes a vector at a time, and the linker takes it in
 //! place of compiler_rt's. It is pepegrillo's recipe (`docs/performance/performance_zig.md`, "Copies
@@ -11,7 +11,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// The octets one vector store writes.
+/// The bytes one vector store writes.
 const store_len = 32;
 
 comptime {
@@ -19,8 +19,8 @@ comptime {
     if (builtin.os.tag == .linux and zig_0_16) @export(&memset, .{ .name = "memset" });
 }
 
-/// Writes `value` to the `len` octets at `destination` and returns `destination`, as C's `memset`
-/// does. A fill of one store or more ends with a store over its last `store_len` octets, which may
+/// Writes `value` to the `len` bytes at `destination` and returns `destination`, as C's `memset`
+/// does. A fill of one store or more ends with a store over its last `store_len` bytes, which may
 /// write some of them twice. The barrier in each loop keeps the compiler from turning the loop into
 /// a call to `memset`, which is this function.
 fn memset(destination: ?[*]u8, value: u8, len: usize) callconv(.c) ?[*]u8 {

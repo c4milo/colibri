@@ -1,5 +1,5 @@
 //! The tests of a lent output and decision 110's send meter (`connection_output.zig`, decision
-//! 176): what a socket's send takes of a lent output counts as taken, as a copy's octets do.
+//! 176): what a socket's send takes of a lent output counts as taken, as a copy's bytes do.
 const std = @import("std");
 const http = @import("http");
 const support = @import("connection_test_support.zig");
@@ -14,7 +14,7 @@ const early_ns = deadline_support.early_ns;
 const grace_ns = server_constants.policy.rate_grace_ns;
 const window_ns = server_constants.policy.rate_window_ns;
 const first_end_ns = early_ns + grace_ns + window_ns;
-/// The octets each window owes at the default send rate.
+/// The bytes each window owes at the default send rate.
 const quota: usize = server_constants.policy.send_rate_min * (window_ns / server_constants.nanoseconds_per_second);
 /// An answer of `answer_windows` windows of quota, past what the test's peer takes, with its
 /// status: 200 (OK), RFC 9110 §15.3.1.
@@ -22,7 +22,7 @@ const content: [answer_windows * quota]u8 = @splat('a');
 const answer_windows: usize = 3;
 const ok_status: http.Status = .ok;
 
-/// The peer's send takes `len` octets of what the connection lends at `now_ns`.
+/// The peer's send takes `len` bytes of what the connection lends at `now_ns`.
 fn take(len: usize, now_ns: u64) void {
     const lent = connection_output.lend(connection, now_ns);
     connection_output.took(connection, @min(len, lent.len), now_ns);

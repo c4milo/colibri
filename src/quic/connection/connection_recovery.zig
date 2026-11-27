@@ -39,14 +39,14 @@ const Record = recovery_sent.Record;
 const StreamId = stream_module.StreamId;
 
 pub const Error = error{
-    /// A lost packet carried CRYPTO octets the level's send window has already forgotten, so they
+    /// A lost packet carried CRYPTO bytes the level's send window has already forgotten, so they
     /// cannot be sent again (`connection_crypto.on_packets_lost`). §13.3 has no answer for that.
     CryptoForgotten,
     /// The table of lost stream ranges cannot hold one more (`stream_lost.Error.Full`).
     LostRangesFull,
 };
 
-/// RFC 9000 §20.1: the code each refusal closes the connection with. Both leave octets the
+/// RFC 9000 §20.1: the code each refusal closes the connection with. Both leave bytes the
 /// connection can no longer send, and no code names that more closely than INTERNAL_ERROR.
 pub fn connection_error_code(failure: Error) u64 {
     return switch (failure) {
@@ -55,7 +55,7 @@ pub fn connection_error_code(failure: Error) u64 {
 }
 
 /// What the acknowledged packets finished: the streams that entered "Data Recvd" (RFC 9000
-/// §3.1), whose octets the caller may now drop (decision 57).
+/// §3.1), whose bytes the caller may now drop (decision 57).
 pub const Acknowledged = stream_recovery.Acknowledged;
 
 /// Where one ACK frame's packets are written while it is taken: the ones it acknowledged, the
@@ -82,7 +82,7 @@ pub fn on_ack_received(
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
     // RFC 9002 Appendix A.7 reads `PeerCompletedAddressValidation` and the handshake's state.
     sync_timer(connection);
-    // draft-ietf-ccwg-bbr-06 §4.1.2.4: before the ACK changes the octets in flight.
+    // draft-ietf-ccwg-bbr-06 §4.1.2.4: before the ACK changes the bytes in flight.
     check_application_limited(connection);
     // RFC 9002 Appendix A.7 asks `PeerCompletedAddressValidation` once the ACK is taken, and for
     // a client "has received Handshake ACK" is this ACK.
@@ -147,7 +147,7 @@ fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8,
 
 /// Probes that carry what packets declared lost here held rather than a PING. At the Initial and
 /// Handshake levels decision 64 declares every packet in flight lost, so the probes carry their
-/// CRYPTO octets, and as amended the second probe carries them again. At the application level
+/// CRYPTO bytes, and as amended the second probe carries them again. At the application level
 /// decision 66 declares the oldest ack-eliciting ones lost, one for each probe owed.
 fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch, now_ns: u64) Error!void {
     const level = level_of(kind);
@@ -173,14 +173,14 @@ fn declare_all_lost(connection: *Connection, kind: space_module.Kind, scratch: *
 
 /// RFC 9002 §6.2.3 for a server, after one Initial packet's frames are processed.
 /// `received_len_before` is the Initial CRYPTO flow's `received_len` from before them. An
-/// ack-eliciting packet that brought no new CRYPTO octets shows the client lacks the server's
+/// ack-eliciting packet that brought no new CRYPTO bytes shows the client lacks the server's
 /// own: it repeats the ClientHello, or it is the padded Initial §6.2.2.1 has a client without
 /// Handshake keys send. Decision 65 declares the server's Initial packets in flight lost, as
-/// decision 64 does on a PTO, so the next datagram carries their CRYPTO octets. `now_ns` is the
+/// decision 64 does on a PTO, so the next datagram carries their CRYPTO bytes. `now_ns` is the
 /// instant the packet arrived, which decision 71 spaces the resends by.
 pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, received_len_before: u64, now_ns: u64, scratch: *Scratch) Error!void {
     if (connection.role != .server or !ack_eliciting) return;
-    // New octets are the client's own flight still arriving, which shows nothing about the
+    // New bytes are the client's own flight still arriving, which shows nothing about the
     // server's.
     if (connection_module.crypto_at(connection, .initial).received_len() != received_len_before) return;
     // RFC 9002 §6.2.3: "for a limited number of times per connection".
@@ -201,7 +201,7 @@ pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, receiv
     try on_packets_lost(connection, .initial, scratch.lost[0..removed.written]);
 }
 
-/// Whether a packet in flight in `kind`'s space carries CRYPTO octets.
+/// Whether a packet in flight in `kind`'s space carries CRYPTO bytes.
 fn crypto_in_flight(connection: *Connection, kind: space_module.Kind) bool {
     var records = connection.recovery.table_of(kind).iterator();
     // Bounded by the table, which `constants.limits.sent_packets_max` sizes.
@@ -258,13 +258,13 @@ fn utilization(connection: *const Connection) recovery_congestion.Utilization {
 
 /// What RFC 9002 §7's congestion window leaves one datagram `send` builds.
 pub const Window = struct {
-    /// Octets the packets of the datagram may add to the bytes in flight.
+    /// Bytes the packets of the datagram may add to the bytes in flight.
     len: u64,
     /// Whether that is §7.3.2's one datagram past the window, which sending it spends.
     past_window: bool,
 };
 
-/// What the window and the pacer leave a datagram of at most `ceiling` octets at `now_ns`, which
+/// What the window and the pacer leave a datagram of at most `ceiling` bytes at `now_ns`, which
 /// `send` asks first. A call to `send` is the application asking to send more, so it is also
 /// where draft-ietf-ccwg-bbr-06 §4.1.2.4 checks for an application limit.
 pub fn window_of(connection: *Connection, ceiling: usize, now_ns: u64) Window {

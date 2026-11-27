@@ -77,7 +77,7 @@ pub fn load(identity: Identity, storage: *Storage, crypto: stdx.crypto.Context, 
 /// the pointers `load` gave (https://github.com/c4milo/chapulin/issues/220). A key equal to the
 /// current one changes nothing.
 pub fn change_ticket_key(storage: *Storage, key: *const TicketKey) void {
-    // A key of zero octets is a program's error, which chapulin refuses at a session's start too.
+    // A key of zero bytes is a program's error, which chapulin refuses at a session's start too.
     assert(!std.mem.allEqual(u8, key, 0));
     if (std.mem.eql(u8, key, &storage.ticket_key)) return;
     storage.ticket_key_previous = storage.ticket_key;
@@ -141,7 +141,7 @@ test "chapulin's issue 220: a key change keeps the current key as the previous o
     // The pointers a session keeps from its start now read the new bytes.
     try testing.expectEqualSlices(u8, &second, values.ticket_key.?);
     try testing.expectEqualSlices(u8, &first, values.ticket_key_previous.?);
-    // A second change leaves no octet of the first key, and the same key again changes nothing.
+    // A second change leaves no byte of the first key, and the same key again changes nothing.
     const third: TicketKey = @splat(0x33);
     change_ticket_key(&test_storage, &third);
     change_ticket_key(&test_storage, &third);

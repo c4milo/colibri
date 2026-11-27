@@ -43,7 +43,7 @@ const test_max_data: u64 = 1_000;
 const client_port: u16 = 50_000;
 const rebound_port: u16 = 50_001;
 const server_port: u16 = 443;
-/// Three IPv4 hosts, each its four octets alike. Test-only.
+/// Three IPv4 hosts, each its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const client_octet: u8 = 0x0a;
 const other_octet: u8 = 0x0b;
@@ -181,7 +181,7 @@ test "RFC 9000 §9.3.3: the previous path is challenged in a datagram of its own
     const recorded = server.recovery.table_of(.application).count();
     const probe = try send_into(&server, 0, test_now_ns);
     try testing.expect(probe.to.eql(&client_address));
-    // RFC 9000 §8.2.1: the datagram carrying a PATH_CHALLENGE is expanded to 1,200 octets.
+    // RFC 9000 §8.2.1: the datagram carrying a PATH_CHALLENGE is expanded to 1,200 bytes.
     try testing.expectEqual(constants.protocol.datagram_len_min, probe.len);
     try testing.expectEqual(recorded, server.recovery.table_of(.application).count());
     try testing.expect(server.migration.previous.?.challenge != null);
@@ -342,8 +342,8 @@ test "decision 72: a path the peer moved to carries ACK and path frames alone un
     const allowance = server.path.send_allowance();
     const challenge = try send_into(&server, 1, test_now_ns);
     try testing.expect(challenge.to.eql(&moved_address));
-    // RFC 9000 §8.2.1: §8's limit keeps the datagram below 1,200 octets, so it is not padded
-    // part of the way, and the octets left are there for the next challenge (§13.3).
+    // RFC 9000 §8.2.1: §8's limit keeps the datagram below 1,200 bytes, so it is not padded
+    // part of the way, and the bytes left are there for the next challenge (§13.3).
     try testing.expect(challenge.len < allowance);
     try testing.expect(server.path.send_allowance() > challenge.len);
     // The ACK the client's PING earned went with the challenge, and a PING waits for the path

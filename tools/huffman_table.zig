@@ -22,7 +22,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const assert = std.debug.assert;
 
-/// Symbols in Appendix B: the 256 octets and EOS (RFC 7541 Appendix B).
+/// Symbols in Appendix B: the 256 bytes and EOS (RFC 7541 Appendix B).
 const symbol_count = 257;
 
 /// The longest code in Appendix B, in bits.

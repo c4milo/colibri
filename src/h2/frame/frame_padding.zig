@@ -1,17 +1,17 @@
 //! The Pad Length rule that DATA, HEADERS and PUSH_PROMISE share (RFC 9113 §6.1, §6.2, §6.6).
-//! When the PADDED flag is set, the payload starts with a Pad Length octet and ends with that many
-//! padding octets, and the frame's own fields are between the two.
+//! When the PADDED flag is set, the payload starts with a Pad Length byte and ends with that many
+//! padding bytes, and the frame's own fields are between the two.
 //!
 //! `strip` checks, in order (invariant 7):
 //!   1. the PADDED flag is unset, in which case the whole payload is the frame's own fields;
-//!   2. the Pad Length octet is present, or `error.LengthInvalid` (§4.2: too small for its
+//!   2. the Pad Length byte is present, or `error.LengthInvalid` (§4.2: too small for its
 //!      mandatory data, a FRAME_SIZE_ERROR);
 //!   3. the padding length is less than the payload length, or `error.PaddingTooLong`, a
 //!      connection error of PROTOCOL_ERROR (§6.1, §6.2, §6.6).
 //!
-//! The padding octets are not verified: §6.1 lets a receiver treat non-zero padding as an error
-//! (a MAY), and colibri does not. On send every padding octet is zero (§6.1: a MUST). A padding
-//! length of 0 sends no Pad Length octet and no PADDED flag.
+//! The padding bytes are not verified: §6.1 lets a receiver treat non-zero padding as an error
+//! (a MAY), and colibri does not. On send every padding byte is zero (§6.1: a MUST). A padding
+//! length of 0 sends no Pad Length byte and no PADDED flag.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -24,21 +24,21 @@ const Header = frame_header.Header;
 
 /// The two errors `strip` returns.
 pub const Error = error{
-    /// A PADDED frame whose payload has no Pad Length octet (RFC 9113 §4.2).
+    /// A PADDED frame whose payload has no Pad Length byte (RFC 9113 §4.2).
     LengthInvalid,
     /// The Pad Length names the whole payload or more (RFC 9113 §6.1, §6.2, §6.6).
     PaddingTooLong,
 };
 
-/// A payload with the Pad Length octet and the padding removed.
+/// A payload with the Pad Length byte and the padding removed.
 pub const Unpadded = struct {
-    /// The frame's own fields: everything between the Pad Length octet and the padding.
+    /// The frame's own fields: everything between the Pad Length byte and the padding.
     payload: []const u8,
-    /// Padding octets the frame carried, 0 when the PADDED flag was unset.
+    /// Padding bytes the frame carried, 0 when the PADDED flag was unset.
     padding_len: u8,
 };
 
-/// Removes the Pad Length octet and the padding from `payload` when `header` has the PADDED flag.
+/// Removes the Pad Length byte and the padding from `payload` when `header` has the PADDED flag.
 pub fn strip(header: Header, payload: []const u8) Error!Unpadded {
     assert(payload.len == header.length);
     if (!frame_header.has_flag(header, constants.protocol.flag_padded)) {
@@ -50,7 +50,7 @@ pub fn strip(header: Header, payload: []const u8) Error!Unpadded {
     // RFC 9113 §6.1, §6.2, §6.6: padding of the payload length or greater is a connection error
     // of PROTOCOL_ERROR.
     if (padding_len >= payload.len) return error.PaddingTooLong;
-    // The check above leaves at least `padding_len` octets after the Pad Length octet.
+    // The check above leaves at least `padding_len` bytes after the Pad Length byte.
     const fields = reader.take(reader.remaining_len() - padding_len) catch unreachable;
     const padding = reader.take_rest();
     assert(padding.len == padding_len);
@@ -63,8 +63,8 @@ pub fn flag(padding_len: u8) u8 {
     return if (padding_len == 0) 0 else constants.protocol.flag_padded;
 }
 
-/// The Length field of a frame whose own fields take `fields_len` octets and that carries
-/// `padding_len` octets of padding, counting the Pad Length octet when there is padding.
+/// The Length field of a frame whose own fields take `fields_len` bytes and that carries
+/// `padding_len` bytes of padding, counting the Pad Length byte when there is padding.
 pub fn padded_len(fields_len: usize, padding_len: u8) u32 {
     const padding_total: usize = if (padding_len == 0) 0 else constants.protocol.pad_length_len + padding_len;
     const total = fields_len + padding_total;
@@ -72,13 +72,13 @@ pub fn padded_len(fields_len: usize, padding_len: u8) u32 {
     return @intCast(total);
 }
 
-/// Writes the Pad Length octet when `padding_len` is not 0 (RFC 9113 §6.1).
+/// Writes the Pad Length byte when `padding_len` is not 0 (RFC 9113 §6.1).
 pub fn write_pad_length(writer: *Writer, padding_len: u8) core.Writer.Error!void {
     if (padding_len == 0) return;
     try writer.write_byte(padding_len);
 }
 
-/// Writes `padding_len` zero octets (RFC 9113 §6.1: padding octets MUST be set to zero when
+/// Writes `padding_len` zero bytes (RFC 9113 §6.1: padding bytes MUST be set to zero when
 /// sending). The caller writes through a copy of its writer, so a short buffer costs nothing.
 pub fn write_padding(writer: *Writer, padding_len: u8) core.Writer.Error!void {
     const start = writer.offset;

@@ -2,7 +2,7 @@
 # The check of docs/design.md §8 step 17d: the test-only client's pool mode (§9) fetches over h3
 # from other implementations' servers, aioquic's and quic-go's, and falls back to h2 over TLS
 # against Go's server, which listens on TCP alone. Every exchange must end the way the plan says,
-# over the protocol its phase names, with the octets the server holds. The pool opens QUIC first,
+# over the protocol its phase names, with the bytes the server holds. The pool opens QUIC first,
 # and with `--tcp-first` it opens TCP first, as a pool does by default (decision 117 as amended).
 #
 # aioquic is pinned and installed once into the cached virtual environment tools/quic_aioquic.sh
@@ -24,11 +24,11 @@ readonly aioquic_version="1.3.0"
 readonly venv="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/aioquic-${aioquic_version}"
 # The image the QUIC Interop Runner runs for quic-go, an index for linux/amd64 and linux/arm64.
 readonly quic_go_image="martenseemann/quic-go-interop@sha256:5b921a144cbac11d465f63bd49e0d391b72773643288612fd65a3243cd423f10"
-# Octets of request content: past the window a stream starts with, so the upload finishes only if
+# Bytes of request content: past the window a stream starts with, so the upload finishes only if
 # the client reads the server's MAX_STREAM_DATA frames (RFC 9000 §4.1), or WINDOW_UPDATE frames
 # over h2 (RFC 9113 §6.9.2).
 readonly content_len=300000
-# Octets of Go's /large, whose octet i is i % 251, as the request content's is.
+# Bytes of Go's /large, whose byte i is i % 251, as the request content's is.
 readonly large_len=1048576
 # How long QUIC's handshake runs before TCP opens beside it, in milliseconds. Against an h3 server
 # it is long enough that TCP never opens, so the phase shows QUIC carried every exchange.
@@ -55,7 +55,7 @@ stop_peer() {
 }
 trap 'stop_peer; rm -rf "${scratch}"' EXIT
 
-# The CRC-32 of a file, or of the first $1 octets of the pattern, as the client prints one.
+# The CRC-32 of a file, or of the first $1 bytes of the pattern, as the client prints one.
 file_crc32() {
   python3 -c "import sys, zlib; print('0x%08x' % zlib.crc32(open(sys.argv[1], 'rb').read()))" "$1"
 }
@@ -202,7 +202,7 @@ echo "pool_interop.sh: building the test-only client"
 (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
 "${repository_root}/tools/python_venv.sh" "${venv}" aioquic "aioquic==${aioquic_version}"
 mkdir -p "${scratch}/www"
-# Each fits the octets the client keeps of one response (constants.response_content_len_max).
+# Each fits the bytes the client keeps of one response (constants.response_content_len_max).
 head -c 1000 /dev/urandom >"${scratch}/www/small"
 head -c 100000 /dev/urandom >"${scratch}/www/medium"
 head -c 1000000 /dev/urandom >"${scratch}/www/large"

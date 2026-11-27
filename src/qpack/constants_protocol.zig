@@ -2,7 +2,7 @@
 //! Decision 137 groups them, and `constants.zig` exports this file as `protocol`.
 
 /// The bit patterns that tell RFC 9204 §4.5's five field line representations apart, each read
-/// from the high bits of the first octet, and the prefix each leaves for its integer.
+/// from the high bits of the first byte, and the prefix each leaves for its integer.
 ///
 /// §4.5.2, Indexed Field Line: `1T` and a 6-bit index.
 pub const indexed_pattern: u8 = 0x80;
@@ -48,10 +48,10 @@ pub const delta_base_sign_flag: u8 = 0x80;
 pub const static_table_entries: u64 = 99;
 
 /// RFC 9204 §3.2.1: the size of an entry is its name and value lengths plus 32, which is what
-/// makes the smallest possible entry 32 octets and bounds `MaxEntries` in §4.5.1.1.
+/// makes the smallest possible entry 32 bytes and bounds `MaxEntries` in §4.5.1.1.
 pub const entry_overhead_len: u64 = 32;
 
-/// RFC 9204 §4.3's encoder instructions, told apart by the high bits of the first octet.
+/// RFC 9204 §4.3's encoder instructions, told apart by the high bits of the first byte.
 ///
 /// §4.3.2, Insert with Name Reference: `1T` and a 6-bit name index.
 pub const insert_name_reference_pattern: u8 = 0x80;

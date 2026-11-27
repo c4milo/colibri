@@ -74,7 +74,7 @@ pub fn read_header(reader: *Reader) Error!Kind {
     return kind;
 }
 
-/// Writes a unidirectional stream header (RFC 9114 §6.2). All of the octets are written, or none.
+/// Writes a unidirectional stream header (RFC 9114 §6.2). All of the bytes are written, or none.
 pub fn write_header(writer: *Writer, kind: Kind) core.Writer.Error!void {
     var cursor = writer.*;
     switch (kind) {
@@ -234,7 +234,7 @@ test "§6.2.2: only a server may open a push stream, and it may open many" {
 }
 
 test "§6.2: a header whose octets have not all arrived consumes nothing" {
-    // A type that is a multi-octet varint, cut short.
+    // A type that is a multi-byte varint, cut short.
     var short = Reader.init(&.{0x41});
     try testing.expectError(error.Truncated, read_header(&short));
     try testing.expectEqual(1, short.remaining_len());
@@ -254,7 +254,7 @@ test "§8.1: every error names the code the connection closes with" {
 }
 
 test "a header that does not fit writes nothing" {
-    // A push stream header of type and a two-octet push ID takes three octets.
+    // A push stream header of type and a two-byte push ID takes three bytes.
     var room: [3]u8 = undefined;
     var tight = Writer.init(room[0..2]);
     try testing.expectError(error.NoSpaceLeft, write_header(&tight, .{ .push = 0x100 }));

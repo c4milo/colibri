@@ -7,7 +7,7 @@
 //!
 //! A set of transport parameters is drawn inside RFC 9000 §18.2's bounds and written with
 //! `quic.transport_parameters.write`. What is read back must keep those bounds, must hold no
-//! server-only parameter from a client, and must be written again as the same octets.
+//! server-only parameter from a client, and must be written again as the same bytes.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -36,7 +36,7 @@ pub const Violation = error{
     PacketOutsideDatagram,
     /// Accepted transport parameters break RFC 9000 §18.2.
     ParametersInvalid,
-    /// Accepted transport parameters, written again, were not the same octets.
+    /// Accepted transport parameters, written again, were not the same bytes.
     ParametersChanged,
 };
 
@@ -136,11 +136,11 @@ fn draw_packet_number(random: *Random) quic.packet.number.Truncated {
     return .{ .value = @truncate(random.below(@as(u64, 1) << @intCast(len * @bitSizeOf(u8)))), .len = len };
 }
 
-/// Reads `datagram` packet by packet. True when every octet was read as packets, false when a
+/// Reads `datagram` packet by packet. True when every byte was read as packets, false when a
 /// packet was refused.
 pub fn read_datagram(storage: *const Storage, datagram: []const u8) Violation!bool {
     var reader = Reader.init(datagram);
-    // Bounded: every packet read consumes at least its first octet.
+    // Bounded: every packet read consumes at least its first byte.
     for (0..datagram.len + 1) |_| {
         if (reader.remaining_len() == 0) return true;
         const rest = reader.peek_rest();
@@ -150,7 +150,7 @@ pub fn read_datagram(storage: *const Storage, datagram: []const u8) Violation!bo
     unreachable;
 }
 
-/// Octets of a packet that was read, once it is checked to lie inside the `rest_len` octets left.
+/// Bytes of a packet that was read, once it is checked to lie inside the `rest_len` bytes left.
 fn packet_len_of(packet: header.Packet, rest_len: usize, short_dcid_len: usize) Violation!usize {
     const inside = switch (packet) {
         // RFC 9000 §12.2: the Length ends a long packet, which may be followed by another.
@@ -172,7 +172,7 @@ fn fixed(first_octet: u8) bool {
     return first_octet & limits.protocol.fixed_bit != 0;
 }
 
-/// Writes a drawn set of transport parameters as `sender` sends it, and returns the octets.
+/// Writes a drawn set of transport parameters as `sender` sends it, and returns the bytes.
 pub fn draw_parameters(storage: *Storage, random: *Random, material: []const u8, sender: Role) []const u8 {
     var parameters = Parameters.initial();
     draw_integers(&parameters, random);
@@ -244,7 +244,7 @@ fn within_bounds(parameters: Parameters) bool {
         parameters.retry_source_connection_id,
     };
     for (connection_ids) |connection_id| {
-        // RFC 9000 §17.2: a version 1 connection ID is at most 20 octets.
+        // RFC 9000 §17.2: a version 1 connection ID is at most 20 bytes.
         if (connection_id) |id| if (id.len > limits.protocol.connection_id_len_max) return false;
     }
     return parameters.max_udp_payload_size >= transport_parameters.max_udp_payload_size_min and

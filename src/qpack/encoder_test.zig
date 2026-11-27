@@ -29,7 +29,7 @@ var strings: [test_room]u8 = undefined;
 var written_section: []const u8 = &.{};
 var written_stream: []const u8 = &.{};
 
-/// Appendix B's table capacity, which holds entries of up to 55 octets under decision 76.
+/// Appendix B's table capacity, which holds entries of up to 55 bytes under decision 76.
 const example_capacity: u64 = 220;
 const stream_zero: u64 = 0;
 const stream_four: u64 = 4;
@@ -37,7 +37,7 @@ const stream_four: u64 = 4;
 /// One field line as the tests write it: a name and a value. Test-only.
 const pair_len: usize = 2;
 const Line = [pair_len][]const u8;
-/// A static-only section's prefix, §4.5.1's two zero octets. Test-only.
+/// A static-only section's prefix, §4.5.1's two zero bytes. Test-only.
 const static_prefix_len: usize = 2;
 
 /// Writes one section of the given lines, each with the same indexing. Test-only.
@@ -53,8 +53,8 @@ fn write(stream_id: u64, lines: []const Line, indexing: Indexing) !void {
     written_stream = encoder_stream.written();
 }
 
-/// Writes a one-line section with a static-only encoder, and returns the line's octets, past
-/// the two-octet prefix. Test-only.
+/// Writes a one-line section with a static-only encoder, and returns the line's bytes, past
+/// the two-byte prefix. Test-only.
 fn write_one(name: []const u8, value: []const u8, indexing: Indexing) ![]const u8 {
     try write(stream_zero, &.{.{ name, value }}, indexing);
     return written_section[static_prefix_len..];
@@ -207,7 +207,7 @@ test "decision 76: no_insert references what the table holds and inserts nothing
 
 test "decision 76: an entry larger than a quarter of the capacity is not inserted" {
     start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = 1 });
-    // 32 octets of overhead, 3 of name and 20 of value make 55, a quarter of 220; one more is not.
+    // 32 bytes of overhead, 3 of name and 20 of value make 55, a quarter of 220; one more is not.
     try write(stream_zero, &.{.{ "x-a", "aaaaaaaaaaaaaaaaaaaaa" }}, .may_insert);
     try testing.expectEqual(0, test_encoder.table.insert_count());
     try write(stream_zero, &.{.{ "x-a", "aaaaaaaaaaaaaaaaaaaa" }}, .may_insert);
@@ -229,7 +229,7 @@ test "§2.1.3: an insert the encoder stream's credit cannot hold is not made" {
 
 test "§2.1.1: an insert never evicts an entry the decoder has not acknowledged or still needs" {
     start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = 1 });
-    // Four entries of 52 octets fill 208 of 220.
+    // Four entries of 52 bytes fill 208 of 220.
     const lines = [_]Line{ .{ "x-a", "11111111111111111" }, .{ "x-b", "22222222222222222" }, .{ "x-c", "33333333333333333" }, .{ "x-d", "44444444444444444" } };
     try write(stream_zero, &lines, .may_insert);
     try deliver(stream_zero);
@@ -306,7 +306,7 @@ test "sections round trip through the decoder, with its acknowledgments flowing 
     try testing.expectEqual(test_encoder.table.insert_count(), test_encoder.state.known_received);
 }
 
-/// Four entries of 52 octets, which fill 208 of `example_capacity`. Test-only.
+/// Four entries of 52 bytes, which fill 208 of `example_capacity`. Test-only.
 const four_entries = [_]Line{ .{ "x-a", "11111111111111111" }, .{ "x-b", "22222222222222222" }, .{ "x-c", "33333333333333333" }, .{ "x-d", "44444444444444444" } };
 
 test "decision 76: a static name is referenced rather than a dynamic one" {

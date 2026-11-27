@@ -5,7 +5,7 @@ const h11 = @import("h11");
 const h2 = @import("h2");
 const quic = @import("quic");
 
-/// Octets of the last chunk and the empty line after it, `0\r\n\r\n`, which end a chunked body
+/// Bytes of the last chunk and the empty line after it, `0\r\n\r\n`, which end a chunked body
 /// with no trailer field (RFC 9112 §7.1).
 pub const last_chunk_len: usize = 5;
 

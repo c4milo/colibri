@@ -1,18 +1,18 @@
 //! Finds where one head ends: the empty line after the start line and the field lines (RFC 9112
-//! §2.1). The caller passes every unconsumed octet it holds on each call, and the scanner keeps its
-//! place between calls, so each octet is scanned once however the head arrives. A peer that sends
-//! a head one octet at a time costs linear work, not quadratic.
+//! §2.1). The caller passes every unconsumed byte it holds on each call, and the scanner keeps its
+//! place between calls, so each byte is scanned once however the head arrives. A peer that sends
+//! a head one byte at a time costs linear work, not quadratic.
 //!
-//! The scanner also refuses, as it meets them, the octets RFC 9112 §2.2 says a line may not hold:
+//! The scanner also refuses, as it meets them, the bytes RFC 9112 §2.2 says a line may not hold:
 //!   - a bare CR, one not followed by LF, which a recipient MUST treat as invalid or replace with
 //!     SP. colibri refuses it;
 //!   - a lone LF, which §2.2 lets a recipient accept as a line end. colibri takes the strict side
 //!     and refuses it, because §11.2 traces request smuggling to parsers that differ in what they
 //!     forgive, and a lone LF is one such difference.
 //!
-//! It refuses, the same way, an octet of a request line's method that no token holds (RFC 9110
+//! It refuses, the same way, a byte of a request line's method that no token holds (RFC 9110
 //! §9.1), and an SP where the method would start. A peer that speaks another protocol, such as a
-//! TLS record sent after an ignored Upgrade (RFC 9931 §6.1), is refused at its first octet, not
+//! TLS record sent after an ignored Upgrade (RFC 9931 §6.1), is refused at its first byte, not
 //! when a line would end (decision 109).
 //!
 //! A request may carry one empty line before its request line, which §2.2 says a server SHOULD
@@ -36,9 +36,9 @@ pub const Error = error{
     /// response carries any (RFC 9112 §2.2).
     StartLineEmpty,
     /// No end within the role's longest head, `request_head_len_max` or `response_head_len_max`
-    /// octets (RFC 9110 §5.4).
+    /// bytes (RFC 9110 §5.4).
     HeadTooLarge,
-    /// A request line whose method holds an octet no token holds, or starts with an SP (RFC 9110
+    /// A request line whose method holds a byte no token holds, or starts with an SP (RFC 9110
     /// §9.1).
     MethodInvalid,
 };
@@ -47,7 +47,7 @@ pub const Error = error{
 /// reads (RFC 9112 §2.1).
 pub const Role = enum { request, response };
 
-/// Where a whole head lies in the caller's octets: `start` is past the one leading empty line a
+/// Where a whole head lies in the caller's bytes: `start` is past the one leading empty line a
 /// request may carry, and `end` is past the empty line that ends the head.
 pub const Span = struct {
     start: u32,
@@ -69,17 +69,17 @@ pub fn head_len_max_of(role: Role) u32 {
 /// Where the scan of one head stands. `scan` updates it and the caller keeps it between calls;
 /// `reset` readies it for the next head.
 pub const Scanner = struct {
-    /// Octets of the caller's input already scanned.
+    /// Bytes of the caller's input already scanned.
     scanned: u32 = 0,
-    /// Octets of the current line scanned so far, its CR not counted.
+    /// Bytes of the current line scanned so far, its CR not counted.
     line_len: u32 = 0,
     /// Lines ended so far, the skipped leading empty line not counted.
     lines: u32 = 0,
-    /// Octets before the start line: 0, or `line_end.len` for the leading empty line skipped.
+    /// Bytes before the start line: 0, or `line_end.len` for the leading empty line skipped.
     skipped_len: u32 = 0,
-    /// The last octet scanned was a CR, so the next must be LF.
+    /// The last byte scanned was a CR, so the next must be LF.
     after_carriage_return: bool = false,
-    /// A request line's method has ended at its first SP, so the octets after it are not checked
+    /// A request line's method has ended at its first SP, so the bytes after it are not checked
     /// as a token's (RFC 9112 §3).
     method_ended: bool = false,
 
@@ -88,8 +88,8 @@ pub const Scanner = struct {
         assert(scanner.scanned == 0 and scanner.lines == 0);
     }
 
-    /// Scans the octets of `input` not scanned before. Returns the head's span once its end is in
-    /// `input`, or null when it needs more octets. `input` holds every octet the last call saw,
+    /// Scans the bytes of `input` not scanned before. Returns the head's span once its end is in
+    /// `input`, or null when it needs more bytes. `input` holds every byte the last call saw,
     /// then new ones: the caller consumes nothing from it until a head is returned.
     pub fn scan(scanner: *Scanner, role: Role, input: []const u8) Error!?Span {
         assert(scanner.scanned <= input.len);
@@ -97,14 +97,14 @@ pub const Scanner = struct {
         assert(scanner.scanned <= head_max);
         // The loop works on a copy of the fields in locals, which stay in registers, and each
         // return stores the copy once. The compiler cannot prove that `scanner` and `input` do
-        // not overlap, so a loop on `scanner` loads and stores each field for each octet.
+        // not overlap, so a loop on `scanner` loads and stores each field for each byte.
         var state = scanner.*;
         defer scanner.* = state;
         const limit = @min(input.len, head_max);
         var reader = Reader.init(input[0..limit]);
         _ = reader.take(state.scanned) catch unreachable;
         // At most `head_max` passes, because `limit` never exceeds it and each pass scans at
-        // least one octet.
+        // least one byte.
         while (reader.remaining_len() > 0) {
             const run = state.content_len(role, reader.peek_rest());
             _ = reader.take(run) catch unreachable;
@@ -120,9 +120,9 @@ pub const Scanner = struct {
         return null;
     }
 
-    /// How many octets at the front of `octets` `step` would only count: those before the next CR
+    /// How many bytes at the front of `octets` `step` would only count: those before the next CR
     /// or LF, where no other check applies. A field line and the rest of a start line after its
-    /// method qualify; a start line's run stops where `start_line_len_max` would refuse an octet.
+    /// method qualify; a start line's run stops where `start_line_len_max` would refuse a byte.
     fn content_len(scanner: *const Scanner, role: Role, octets: []const u8) u32 {
         if (scanner.after_carriage_return) return 0;
         if (scanner.lines > 0) return line_content_len(octets, octets.len);
@@ -131,7 +131,7 @@ pub const Scanner = struct {
         return line_content_len(octets, constants.limits.start_line_len_max - scanner.line_len);
     }
 
-    /// One octet. Returns true when it is the LF of the empty line that ends the head.
+    /// One byte. Returns true when it is the LF of the empty line that ends the head.
     fn step(scanner: *Scanner, role: Role, octet: u8) Error!bool {
         if (scanner.after_carriage_return) {
             scanner.after_carriage_return = false;
@@ -156,7 +156,7 @@ pub const Scanner = struct {
         return false;
     }
 
-    /// One octet of a request line's method, which ends at the first SP (RFC 9112 §3).
+    /// One byte of a request line's method, which ends at the first SP (RFC 9112 §3).
     fn check_method(scanner: *Scanner, octet: u8) Error!void {
         if (octet == ' ') {
             // RFC 9110 §5.6.2: a token is one or more tchar, so a method is never empty.
@@ -195,8 +195,8 @@ pub const Scanner = struct {
 
 const Chunk = @Vector(constants.limits.scan_vector_len, u8);
 
-/// Octets at the front of `octets` before the first CR or LF, at most `cap`. Compares
-/// `scan_vector_len` octets at once while that many remain, then one at a time.
+/// Bytes at the front of `octets` before the first CR or LF, at most `cap`. Compares
+/// `scan_vector_len` bytes at once while that many remain, then one at a time.
 fn line_content_len(octets: []const u8, cap: usize) u32 {
     const len = @min(octets.len, cap);
     assert(len <= constants.limits.head_len_max);
@@ -209,7 +209,7 @@ fn line_content_len(octets: []const u8, cap: usize) u32 {
         const ends = (chunk == carriage_returns) | (chunk == line_feeds);
         if (std.simd.firstTrue(ends)) |first| return @intCast(at + first);
     }
-    // Fewer than `scan_vector_len` octets.
+    // Fewer than `scan_vector_len` bytes.
     for (octets[at..len]) |octet| {
         if (octet == '\r' or octet == '\n') break;
         at += 1;
@@ -260,7 +260,7 @@ test "RFC 9110 §9.1: a request line's method is refused at its first octet no t
     try expect_error(.request, "GE\x00T", error.MethodInvalid);
     try expect_error(.request, "GET/ ", error.MethodInvalid);
     try expect_error(.request, " GET", error.MethodInvalid);
-    // The target, the version and the field lines hold octets no token does.
+    // The target, the version and the field lines hold bytes no token does.
     const request = "M-SEARCH /a?b=c HTTP/1.1\r\nHost: a:1\r\n\r\n";
     try expect_span(.request, request, 0, request.len);
     // A response's status line starts with HTTP/, and nothing here checks it.
@@ -299,7 +299,7 @@ test "every split of a head finds the span the whole head does, scanning each oc
     }
 }
 
-/// Octets the limit tests fill a line with.
+/// Bytes the limit tests fill a line with.
 threadlocal var test_octets: [constants.limits.head_len_max + 1]u8 = @splat('a');
 
 test "a start line of start_line_len_max octets is read, and one octet more is refused" {
@@ -309,7 +309,7 @@ test "a start line of start_line_len_max octets is read, and one octet more is r
 }
 
 test "a start line past its method is held to start_line_len_max too" {
-    // The octets after the method are counted in runs, and the run stops at the limit.
+    // The bytes after the method are counted in runs, and the run stops at the limit.
     var line: [constants.limits.start_line_len_max + 1]u8 = @splat('a');
     @memcpy(line[0..4], "GET ");
     var scanner: Scanner = .{};
@@ -320,7 +320,7 @@ test "a start line past its method is held to start_line_len_max too" {
 }
 
 test "a CR or LF is found at every place in a run, and the octets before it are counted" {
-    // Each place of a line end in and around one vector of octets, in a field line and in a start
+    // Each place of a line end in and around one vector of bytes, in a field line and in a start
     // line past its method.
     const prefixes = [_][]const u8{ "GET / HTTP/1.1\r\nHost: ", "GET /" };
     for (prefixes) |prefix| {
@@ -344,7 +344,7 @@ test "a CR or LF is found at every place in a run, and the octets before it are 
 }
 
 test "a head with no end within its role's limit is refused, and one that ends at the limit is not" {
-    // Decision 166 as amended: a server reads a request head of `request_head_len_max` octets, a
+    // Decision 166 as amended: a server reads a request head of `request_head_len_max` bytes, a
     // client a response head of `response_head_len_max`.
     // Each limit comes from the constants, not from `head_len_max_of`, which the scan reads.
     try expect_head_limit(.request, constants.limits.request_head_len_max);
@@ -361,7 +361,7 @@ fn expect_head_limit(comptime role: Role, comptime head_max: u32) !void {
     const head_end = line_end ++ line_end;
     @memcpy(input[head_max - head_end.len .. head_max], head_end);
     try expect_span(role, input[0..head_max], 0, head_max);
-    // Ends one octet past the limit.
+    // Ends one byte past the limit.
     @memset(input[head_max - head_end.len .. head_max], 'v');
     @memcpy(input[head_max + 1 - head_end.len .. head_max + 1], head_end);
     try expect_error(role, &input, error.HeadTooLarge);

@@ -191,7 +191,7 @@ fn validate_response(target: *Connection, block: field_block.Done, record: *Stre
     const interim = response.status.class() == .informational;
     record.sections_received = if (interim) .interim else .final;
     // RFC 9113 §8.1.1: the content-length belongs to the message the final response begins, so an
-    // interim response never sets the count the DATA octets are compared with.
+    // interim response never sets the count the DATA bytes are compared with.
     if (!interim) record.content_length = response.content_length;
     return .{ .response = .{
         .stream_id = block.stream_id,
@@ -398,10 +398,10 @@ fn expect_queued_reset(stream_id: u32, code: u32) !void {
 test "§10.5: CONTINUATION frames past continuation_count_max end the connection, and the limit is named" {
     try start_server();
     var block: [constants.limits.frame_size_max]u8 = undefined;
-    // A path long enough that the block holds an octet for every frame.
+    // A path long enough that the block holds a byte for every frame.
     const fragment = try support.request_block(&block, "/" ++ "a" ** (constants.limits.continuation_count_max + 1));
     // A HEADERS frame that leaves its block open, then one CONTINUATION frame too many, each
-    // carrying one octet of the block.
+    // carrying one byte of the block.
     _ = try feed(try frame_bytes(test_input, constants.protocol.frame_type_headers, 0, 1, fragment[0..1]));
     for (0..constants.limits.continuation_count_max) |index| {
         _ = try feed(try frame_bytes(test_input, constants.protocol.frame_type_continuation, 0, 1, fragment[index + 1 ..][0..1]));

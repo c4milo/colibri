@@ -1,7 +1,7 @@
 //! The tests of the pool over TCP in cleartext h11 (`pool.zig`, `pool_events.zig`). The
-//! pool reads what its connection owes with a call that passes no octets, and h11 needs the
-//! octets it left unconsumed at the start of the next call's input (design §8 step 21c.3). A
-//! request goes out again after a close only while no octet of its response arrived (decision 124).
+//! pool reads what its connection owes with a call that passes no bytes, and h11 needs the
+//! bytes it left unconsumed at the start of the next call's input (design §8 step 21c.3). A
+//! request goes out again after a close only while no byte of its response arrived (decision 124).
 //! The peer is h11's server side in the same process, or a response the test writes itself.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
@@ -26,7 +26,7 @@ const ok: u16 = 200;
 const no_content: u16 = 204;
 /// RFC 9110 §4.2.1: the port of an "http" origin whose URI names none.
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -35,16 +35,16 @@ const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)}
 /// The start of a response head, which ends inside its status code.
 const half_head = "HTTP/1.1 2";
 const chunked_head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
-/// RFC 9112 §7.1: one chunk of five octets, then the last chunk and an empty trailer section.
+/// RFC 9112 §7.1: one chunk of five bytes, then the last chunk and an empty trailer section.
 const chunked_body = "5\r\nhello\r\n0\r\n\r\n";
-/// The first octet of `chunked_body`: a chunk-size line without its CRLF.
+/// The first byte of `chunked_body`: a chunk-size line without its CRLF.
 const half_size_line = chunked_body[0..1];
 
 /// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing,
-/// with `.none` once no octet is left. Starts the connection an `open` event asks for, and keeps
+/// with `.none` once no byte is left. Starts the connection an `open` event asks for, and keeps
 /// the events.
 fn collect(pool: anytype) !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
@@ -98,13 +98,13 @@ fn index_of(tag: std.meta.Tag(Event), n: usize) ?usize {
 /// The content of a PUT, which the output of one `send_stream` does not hold. Test-only.
 var upload: [support.buffer_len]u8 = undefined;
 
-/// What the h11 peer read: the request heads, the octets of content, and the ends of requests.
+/// What the h11 peer read: the request heads, the bytes of content, and the ends of requests.
 const PeerRead = struct { requests: usize = 0, content_len: usize = 0, ends: usize = 0 };
 
 fn peer_read() !PeerRead {
     var read: PeerRead = .{};
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.to_peer_len + support.events_max) |_| {
         const received = try support.peer_h11.receive(support.to_peer[consumed..support.to_peer_len], &.{});
         consumed += received.consumed;
@@ -168,7 +168,7 @@ fn Tests(comptime Pool: type) type {
             try start(&exchange);
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
             try testing.expectEqual(0, try give(response[0..half_head.len]));
-            // The caller holds half a head, and reads the pool with no octets, as after a send.
+            // The caller holds half a head, and reads the pool with no bytes, as after a send.
             const polled = pool.receive(.none, support.now_ns);
             try testing.expectEqual(0, polled.consumed);
             try testing.expectEqual(null, polled.event);
@@ -205,7 +205,7 @@ fn Tests(comptime Pool: type) type {
             try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
             try support.peer_h11_read();
             try testing.expectEqual(2, support.peer_requests);
-            // RFC 9110 §15.3.5: a 204 response ends with its head, so no octet follows it.
+            // RFC 9110 §15.3.5: a 204 response ends with its head, so no byte follows it.
             try support.peer_h11_answer(no_content, &.{}, "");
             try collect(&pool);
             try testing.expectEqual(0, support.to_client_len);
@@ -363,7 +363,7 @@ fn Tests(comptime Pool: type) type {
         test "RFC 9110 §9.2.2: an h11 GET whose connection closed after one octet of its response ends closed" {
             var exchange = get(&bodies[0]);
             try start(&exchange);
-            // h11 holds the octet until the rest of the head arrives, and the pool read it.
+            // h11 holds the byte until the rest of the head arrives, and the pool read it.
             try testing.expectEqual(0, try give(half_head[0..1]));
             try close_transport();
             try testing.expectEqual(.closed, exchange.response.result);
@@ -390,8 +390,8 @@ fn Tests(comptime Pool: type) type {
             send();
             // RFC 9112 §9.3.2: the client pipelines the second request behind the first.
             try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));
-            // One call reads the first response whole and leaves the first octet of the second, and
-            // the transport closes before the program passes that octet again.
+            // One call reads the first response whole and leaves the first byte of the second, and
+            // the transport closes before the program passes that byte again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
             @memcpy(support.to_client[0..octets.len], octets);
             const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..octets.len] } }, support.now_ns);
@@ -430,7 +430,7 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&second.request, &second.response);
             send();
             try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));
-            // The transport fails with no octet of either response read, and both go out again.
+            // The transport fails with no byte of either response read, and both go out again.
             try close_transport();
             try testing.expectEqual(2, count(.open));
             send();

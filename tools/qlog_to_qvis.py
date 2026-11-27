@@ -62,7 +62,7 @@ STREAM_TYPES = {"request": "data", "unknown": "reserved"}
 
 
 def text_of(hexstring):
-    """A hexstring as the text it spells when every octet is printable ASCII, else unchanged."""
+    """A hexstring as the text it spells when every byte is printable ASCII, else unchanged."""
     octets = bytes.fromhex(hexstring)
     if all(0x20 <= octet <= 0x7E for octet in octets):
         return octets.decode("ascii")
@@ -135,7 +135,7 @@ def http_frame(event):
 
 
 def field_line(line):
-    """-02's HTTPField is text alone, so octets -13 wrote as a hexstring become text too."""
+    """-02's HTTPField is text alone, so bytes -13 wrote as a hexstring become text too."""
     name = line["name"] if "name" in line else bytes.fromhex(line["name_bytes"]).decode("latin-1")
     value = line["value"] if "value" in line else bytes.fromhex(line.get("value_bytes", "")).decode("latin-1")
     return {"name": name, "value": value}

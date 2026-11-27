@@ -34,7 +34,7 @@ pub fn read_part_if_present(prefix: []const u8, suffix: []const u8, into: []u8) 
     return read_file(joined[0 .. prefix.len + suffix.len], into) catch null;
 }
 
-/// Reads up to `into.len` octets of `path`, and returns what it read.
+/// Reads up to `into.len` bytes of `path`, and returns what it read.
 pub fn read_file(path: []const u8, into: []u8) ![]const u8 {
     if (path.len >= path_storage.len) std.process.exit(exit_usage);
     @memcpy(path_storage[0..path.len], path);

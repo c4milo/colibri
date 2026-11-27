@@ -1,7 +1,7 @@
 //! The harness the h3 connection's tests share, and the tests of a whole exchange.
 //!
 //! Two endpoints, each a caller as design §4 has one: a QUIC connection, an h3 connection, and
-//! the octets it keeps for each request stream (decision 79). No packet is protected: `transfer`
+//! the bytes it keeps for each request stream (decision 79). No packet is protected: `transfer`
 //! frames what one side's `quic` would send, one STREAM frame at a time with `quic`'s own writer,
 //! and applies each frame to the other side's `quic`. The simulator check runs the packet path.
 const std = @import("std");
@@ -21,8 +21,8 @@ const Event = connection_module.Connection.Event;
 const StreamId = quic.StreamId;
 const testing = std.testing;
 
-/// Test-only sizes: the receive pool each side places, the streams a caller keeps octets for, and
-/// the octets it keeps for each.
+/// Test-only sizes: the receive pool each side places, the streams a caller keeps bytes for, and
+/// the bytes it keeps for each.
 const pool_blocks: usize = 64;
 const pool_capacity: usize = pool_blocks * quic.stream.receive_block_len;
 const kept_max: usize = 8;
@@ -40,7 +40,7 @@ const id_octets: [id_len]u8 = @splat(id_octet);
 /// A field line as a test writes it: a name and a value. Test-only.
 pub const Line = struct { []const u8, []const u8 };
 
-/// The octets a caller keeps for one stream it sends on. Test-only.
+/// The bytes a caller keeps for one stream it sends on. Test-only.
 pub const Kept = struct {
     id: ?u64 = null,
     octets: [kept_len]u8 = undefined,
@@ -55,7 +55,7 @@ pub const Endpoint = struct {
     kept: [kept_max]Kept,
     body: [kept_len]u8,
 
-    /// The octets kept for `id`, taking a free entry the first time.
+    /// The bytes kept for `id`, taking a free entry the first time.
     pub fn kept_for(endpoint: *Endpoint, id: u64) *Kept {
         for (&endpoint.kept) |*held| {
             if (held.id == id) return held;
@@ -68,7 +68,7 @@ pub const Endpoint = struct {
         unreachable; // A test keeps fewer streams than `kept_max`.
     }
 
-    /// A writer over the free part of `id`'s octets.
+    /// A writer over the free part of `id`'s bytes.
     pub fn writer_for(endpoint: *Endpoint, id: u64) Writer {
         const held = endpoint.kept_for(id);
         return Writer.init(held.octets[held.len..]);
@@ -191,7 +191,7 @@ fn next_packet() u64 {
 }
 
 /// Acknowledges the packet `record` stands for at once, through the path an ACK frame takes, so
-/// every framed octet is acknowledged as invariant 29 has it.
+/// every framed byte is acknowledged as invariant 29 has it.
 fn acknowledge(from: *Endpoint, record: quic.recovery_sent.Record) void {
     var completed: [kept_max]StreamId = undefined;
     _ = quic.connection_stream_recovery.on_packets_acknowledged(&from.transport, .application, &.{record}, &completed);
@@ -199,7 +199,7 @@ fn acknowledge(from: *Endpoint, record: quic.recovery_sent.Record) void {
 
 fn apply_all(to: *Endpoint, octets: []const u8) !void {
     var reader = Reader.init(octets);
-    // Bounded by the octets, which each frame read shortens.
+    // Bounded by the bytes, which each frame read shortens.
     while (reader.remaining_len() > 0) {
         try quic.connection_stream_frames.apply(&to.transport, try quic.frame.read(&reader));
     }

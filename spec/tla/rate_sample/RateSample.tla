@@ -6,7 +6,7 @@
 (* it (design §8 step 29a). TLC checks every order of sends, writes that   *)
 (* run out of data, checks, ACK frames and losses that the bounds allow.   *)
 (*                                                                         *)
-(* Every packet is one octet, and packet numbers are 1..Packets in send    *)
+(* Every packet is one byte, and packet numbers are 1..Packets in send    *)
 (* order (RFC 9000 §12.3). An ACK frame takes any set of packets in        *)
 (* flight, so ACK frames arrive in every order. The rates are not          *)
 (* modelled: spec/lean/Colibri/Quic/DeliveryRate.lean proves their        *)

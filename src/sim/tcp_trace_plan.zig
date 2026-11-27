@@ -43,7 +43,7 @@ pub const Action = union(enum) {
     /// Each side's caller hands its socket what the connection wrote.
     client_send,
     server_send,
-    /// Each side reads every octet the other handed out.
+    /// Each side reads every byte the other handed out.
     deliver_to_server,
     deliver_to_client,
 };

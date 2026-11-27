@@ -83,7 +83,7 @@ pub fn check_request(request: *const Request) CheckError!void {
         try check_trailer(field);
         trailers_size += @as(u64, field.name.len) + field.value.len + core.constants.protocol.field_line_overhead;
         // RFC 9113 §6.5.2 and RFC 9114 §4.2.2: a section's size counts each line's name, value
-        // and 32 octets. colibri encodes no section larger than its own limit, so h11, h2 and
+        // and 32 bytes. colibri encodes no section larger than its own limit, so h11, h2 and
         // h3 each hold one this size whole after an empty output (decision 152).
         if (trailers_size > core.constants.limits.field_section_size_max) return error.InvalidTrailer;
     }
@@ -117,7 +117,7 @@ fn check_headers(headers: []const event.Header) CheckError!void {
 fn check_trailer(field: event.Header) CheckError!void {
     // RFC 9110 §5.1: a field name is a token.
     http.field.validate_name(field.name) catch return error.InvalidTrailer;
-    // RFC 9110 §5.5 and RFC 9113 §8.2.1: the octets a field value admits.
+    // RFC 9110 §5.5 and RFC 9113 §8.2.1: the bytes a field value admits.
     http.field.validate_value(field.value) catch return error.InvalidTrailer;
     for (field.name) |octet| {
         // RFC 9113 §8.2.1 and RFC 9114 §4.2: a field name with an uppercase letter is malformed.

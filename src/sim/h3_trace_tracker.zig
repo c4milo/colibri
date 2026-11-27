@@ -2,8 +2,8 @@
 //! it can compute the model's state: the units each side wrote on h3's own streams, and what each
 //! request stream went through.
 //!
-//! h3 drops the octets of its own streams once the peer acknowledged them (decision 78), so the
-//! tracker parses each stream's new octets after every step, before anything written in it can
+//! h3 drops the bytes of its own streams once the peer acknowledged them (decision 78), so the
+//! tracker parses each stream's new bytes after every step, before anything written in it can
 //! have been sent, let alone acknowledged. It keeps each unit with the offset where it ends, and
 //! `h3_trace_state.zig` compares that offset with how far QUIC framed or delivered the stream:
 //! - the client's encoder stream: each insert (RFC 9204 §4.3);
@@ -46,7 +46,7 @@ pub fn Log(comptime Unit: type) type {
     return struct {
         units: [units_max]Unit = undefined,
         len: usize = 0,
-        /// The stream offset parsed up to: every octet below it is in `units`.
+        /// The stream offset parsed up to: every byte below it is in `units`.
         parsed_end: u64 = 0,
 
         pub fn items(log: *const @This()) []const Unit {
@@ -116,7 +116,7 @@ pub fn frames_below(client: *const Endpoint, r: usize, offset: u64) u64 {
     return 1 + @min(data_frames, client.plan.content);
 }
 
-/// The octets of one DATA frame the trace run writes: its header and `h3_trace.data_len` octets.
+/// The bytes of one DATA frame the trace run writes: its header and `h3_trace.data_len` bytes.
 pub fn data_frame_len() u64 {
     var octets: [h3.constants.protocol.frame_header_len_max]u8 = undefined;
     var writer = Writer.init(&octets);
@@ -124,7 +124,7 @@ pub fn data_frame_len() u64 {
     return writer.written().len + constants.h3_trace.data_len;
 }
 
-/// The octets of `buffer` after what `parsed_end` already covers.
+/// The bytes of `buffer` after what `parsed_end` already covers.
 fn unparsed(buffer: anytype, parsed_end: u64) []const u8 {
     // Nothing unparsed was ever sent, so none of it was dropped.
     assert(parsed_end >= buffer.start_offset and parsed_end <= buffer.end_offset());

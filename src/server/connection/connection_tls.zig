@@ -1,5 +1,5 @@
 //! The TLS half of a server connection (decision 100): the handshake through `tls.record.Server`,
-//! then records opened into the protocol's octets and the protocol's octets sealed into records,
+//! then records opened into the protocol's bytes and the protocol's bytes sealed into records,
 //! through h11's or h2's `connection_tls`, which apply each protocol's rules to its records.
 //!
 //! A handshake that fails ends the connection with what chapulin wrote, the alert that says why
@@ -54,7 +54,7 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Connec
 pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!void {
     // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection.
     internal.open_session(connection, protocol_of(provider.negotiated_alpn(), connection.config.protocols));
-    // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet moves.
+    // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP byte moves.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),
         .h11 => |*session| session.attach_tls(provider),
@@ -84,7 +84,7 @@ pub fn read(connection: *Connection, input: []const u8, now_ns: u64) Error!Conne
     return .{ .consumed = consumed, .event = read_event.event };
 }
 
-/// Opens whole records into the protocol's octets while one fits, and returns the octets taken.
+/// Opens whole records into the protocol's bytes while one fits, and returns the bytes taken.
 fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!usize {
     var consumed: usize = 0;
     // Bounded: every pass takes a whole record, or ends the loop.
@@ -100,7 +100,7 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
             // An h2 connection error with its GOAWAY queued.
             error.ConnectionFailed => return internal.fail(connection),
             // TLS failed with its alert owed. RFC 9846 §6: no data goes out after the failure, so
-            // the protocol's octets queued behind the flight's records are dropped.
+            // the protocol's bytes queued behind the flight's records are dropped.
             error.TlsFailed => {
                 connection.output_len = connection.records_len;
                 connection.update_held_len = @min(connection.update_held_len, connection.records_len);
@@ -117,8 +117,8 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
     unreachable; // Each record takes at least its header, so the input ends first.
 }
 
-/// Writes the flight's records, then seals the protocol's octets, then the `close_notify` once
-/// the connection has finished. Returns the octets written into `output`.
+/// Writes the flight's records, then seals the protocol's bytes, then the `close_notify` once
+/// the connection has finished. Returns the bytes written into `output`.
 pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     const copied = @min(output.len, connection.records_len);
     @memcpy(output[0..copied], connection.output[0..copied]);
@@ -135,7 +135,7 @@ pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     return written;
 }
 
-/// Seals as much of the protocol's octets as `output` holds. A provider that owes the answer to a
+/// Seals as much of the protocol's bytes as `output` holds. A provider that owes the answer to a
 /// KeyUpdate writes it in front of the first record. After a failure, it writes only its alert.
 fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     var written: usize = 0;

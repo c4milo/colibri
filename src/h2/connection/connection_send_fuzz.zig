@@ -1,5 +1,5 @@
 //! The fuzz property of a response's frames (decision 29), and the sweep that runs it over every
-//! input of up to two octets. Every block is encoded where it is sent, and a block larger than one
+//! input of up to two bytes. Every block is encoded where it is sent, and a block larger than one
 //! frame is cut there (design §8 step 61b). The frames must decode to the response's fields, keep
 //! RFC 9113 §4.2 and §6.10, and be refused only when they do not fit. Everything in this file is
 //! test-only.
@@ -16,7 +16,7 @@ const testing = std.testing;
 const test_connection = &support.test_connection;
 
 /// An input: the field count, the room, the frame size, END_STREAM, then each field's name, its
-/// value's length in units of `value_unit`, and the octets its values cycle through.
+/// value's length in units of `value_unit`, and the bytes its values cycle through.
 const head_octets = 4;
 const fields_max = 6;
 const field_octets = 2;
@@ -33,7 +33,7 @@ const output_len_max = constants.limits.send_block_len_max + constants.limits.se
 /// A frame size larger than the initial one, which the peer may set (RFC 9113 §6.5.2).
 const frame_size_large: u32 = frame_size_factor * constants.limits.frame_size_max;
 const frame_size_factor = 4;
-/// Where each octet of the input's head sits.
+/// Where each byte of the input's head sits.
 const at_count = 0;
 const at_room = 1;
 const at_frame_size = 2;
@@ -86,7 +86,7 @@ fn check(case: Case) !void {
     const fields = case.fields[0..case.count];
     const written = test_connection.write_response(fuzz_output[0..case.room], 1, ok, fields, case.end_stream) catch |failure| {
         try testing.expectEqual(error.OutputTooSmall, failure);
-        // Refused for room: on a fresh connection, a buffer of every octet either takes more than
+        // Refused for room: on a fresh connection, a buffer of every byte either takes more than
         // the room, or refuses the block for `send_block_len_max` too.
         try start(case);
         const whole = test_connection.write_response(&fuzz_output, 1, ok, fields, case.end_stream) catch |again| {
@@ -103,7 +103,7 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
     var reader = Reader.init(octets);
     var block_len: usize = 0;
     var count: usize = 0;
-    // Bounded by the octets: every frame takes at least its header.
+    // Bounded by the bytes: every frame takes at least its header.
     while (reader.remaining_len() > 0) : (count += 1) {
         const header = try frame.read_header(&reader);
         const expected_type = if (count == 0) constants.protocol.frame_type_headers else constants.protocol.frame_type_continuation;
@@ -141,7 +141,7 @@ fn feed_frame_size(size: u32) !void {
 test "fuzz: a response's frames decode to its fields, keep RFC 9113 §4.2 and §6.10, and fit" {
     try testing.fuzz({}, fuzz_response, .{
         .corpus = &.{
-            // No field, with room for every octet, and with room for less than a frame header.
+            // No field, with room for every byte, and with room for less than a frame header.
             core.fuzz.input("\x00\xff\x00\x01"),
             core.fuzz.input("\x00\x00\x00\x01"),
             // Five long values: a block longer than one frame, cut into a CONTINUATION.
@@ -154,7 +154,7 @@ test "fuzz: a response's frames decode to its fields, keep RFC 9113 §4.2 and §
 }
 
 test "the response property holds over cases that a counter builds" {
-    // The sweep reaches no field, so this pass builds every input from a counter: each octet
+    // The sweep reaches no field, so this pass builds every input from a counter: each byte
     // depends on its place and on the case.
     var input: [fuzz_input_len]u8 = undefined;
     for (0..case_count) |case| {
@@ -163,7 +163,7 @@ test "the response property holds over cases that a counter builds" {
     }
 }
 
-/// The cases the counter pass builds, and the constants that spread a counter over the octets.
+/// The cases the counter pass builds, and the constants that spread a counter over the bytes.
 const case_count = 512;
 const mix: usize = 2654435761;
 const mix_shift = 7;

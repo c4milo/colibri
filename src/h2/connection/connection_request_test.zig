@@ -17,7 +17,7 @@ const Error = connection_request.Error;
 /// The reference: `validate_field_line` as it was.
 fn validate_field_line_by_two_passes(line: hpack.Field) Error!void {
     for (line.name) |octet| {
-        // RFC 9113 §8.2.1: a field name containing an octet in the range 0x41 to 0x5a is malformed.
+        // RFC 9113 §8.2.1: a field name containing a byte in the range 0x41 to 0x5a is malformed.
         if (octet >= 'A' and octet <= 'Z') return error.FieldLineInvalid;
     }
     // RFC 9113 §8.2.1: a field name that is not a token is malformed, so colibri sends none.
@@ -42,9 +42,9 @@ fn expect_same_verdict(name: []const u8) !void {
     return error.TestUnexpectedResult;
 }
 
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
-/// The longest name the tests vary one octet of.
+/// The longest name the tests vary one byte of.
 const varied_len_max = 40;
 const name_len_max = core.constants.limits.field_name_len_max;
 

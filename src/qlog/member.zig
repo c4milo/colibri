@@ -13,14 +13,14 @@ const TextWriter = @import("batch.zig").Batch;
 /// does not fit.
 pub const Error = json.TextWriter.Error;
 
-/// A string: colibri's own ASCII, or a peer's field line that is printable ASCII. Any other octets
+/// A string: colibri's own ASCII, or a peer's field line that is printable ASCII. Any other bytes
 /// of a peer's are a hexstring (decision 102 as amended).
 pub fn string(text: *TextWriter, name: []const u8, value: []const u8) Error!void {
     try text.name(name);
     try text.string(value);
 }
 
-/// Octets as lowercase hex digits, main schema §1.2's `hexstring`.
+/// Bytes as lowercase hex digits, main schema §1.2's `hexstring`.
 pub fn hex(text: *TextWriter, name: []const u8, octets: []const u8) Error!void {
     try text.name(name);
     try text.hex(octets);

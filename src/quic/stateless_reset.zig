@@ -2,19 +2,19 @@
 //!
 //! A Stateless Reset is what an endpoint sends when it has lost the state of a connection its
 //! peer is still talking to — after a crash or a restart. It is a UDP datagram whose last 16
-//! octets are a token the peer issued, and §10.3 shapes it to be indistinguishable from an
+//! bytes are a token the peer issued, and §10.3 shapes it to be indistinguishable from an
 //! ordinary short-header packet, so the two sides of it are not symmetric.
 //!
 //! **Detecting one is colibri's.** §10.3.1 states when the comparison must happen and against
 //! what, and both are rules rather than choices, so `Tokens` holds them.
 //!
 //! **Sending one is split, and every part that needs a secret is the caller's.** §10.3 requires
-//! the octets before the token to be indistinguishable from random, and colibri draws no random
+//! the bytes before the token to be indistinguishable from random, and colibri draws no random
 //! number (invariant 5). §10.3.2 derives the token from a static key over the connection ID, and
 //! colibri holds no key (non-negotiable 2). The datagram that provokes one is by definition one
 //! no connection could be found for, and colibri owns no socket to find that out with
 //! (non-negotiable 1). So the caller decides to send, supplies the entropy and the token, and
-//! `write` lays out the octets — the same division a Retry packet has, where colibri writes the
+//! `write` lays out the bytes — the same division a Retry packet has, where colibri writes the
 //! packet around a token it did not mint.
 //!
 //! **`write` takes no `Connection`, and that is load-bearing.** RFC 9000 §9 forbids answering a
@@ -25,8 +25,8 @@
 //! its declarations are called.
 //!
 //! The comparison runs in constant time, which §10.3.1 requires: one that stopped at the first
-//! differing octet would leak the token through timing. Writing it here does not break
-//! non-negotiable 2, which keeps ciphers and keys out of this tree; comparing two octet strings
+//! differing byte would leak the token through timing. Writing it here does not break
+//! non-negotiable 2, which keeps ciphers and keys out of this tree; comparing two byte strings
 //! without branching on their contents is arithmetic, and the caller has nothing to add to it.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -74,12 +74,12 @@ pub const Tokens = struct {
     }
 
     /// Whether `datagram` is a Stateless Reset for this connection (RFC 9000 §10.3.1): whether
-    /// its last 16 octets equal a token held here. A match means the peer has lost the
+    /// its last 16 bytes equal a token held here. A match means the peer has lost the
     /// connection's state, and §10.3.1 has this endpoint enter the draining period and send
     /// nothing further.
     ///
-    /// Every token is compared, and each comparison reads every octet, so the time taken
-    /// depends on how many tokens are held and not on which octets matched. §10.3.1 asks for
+    /// Every token is compared, and each comparison reads every byte, so the time taken
+    /// depends on how many tokens are held and not on which bytes matched. §10.3.1 asks for
     /// that, and adds that an endpoint is not expected to hide the number of tokens it holds.
     pub fn matches(tokens: *const Tokens, datagram: []const u8) bool {
         if (datagram.len < constants.protocol.stateless_reset_token_len) return false;
@@ -92,7 +92,7 @@ pub const Tokens = struct {
     }
 };
 
-/// Whether two tokens are equal, reading every octet whatever they hold (RFC 9000 §10.3.1).
+/// Whether two tokens are equal, reading every byte whatever they hold (RFC 9000 §10.3.1).
 fn equal_in_constant_time(held: *const Token, trailing: []const u8) bool {
     assert(trailing.len == constants.protocol.stateless_reset_token_len);
     var differences: u8 = 0;
@@ -100,8 +100,8 @@ fn equal_in_constant_time(held: *const Token, trailing: []const u8) bool {
     return differences == 0;
 }
 
-/// The lengths a Stateless Reset answering `triggered_by_len` octets may take (RFC 9000
-/// §10.3.3), or null when none may be sent. The caller fills the octets before the token,
+/// The lengths a Stateless Reset answering `triggered_by_len` bytes may take (RFC 9000
+/// §10.3.3), or null when none may be sent. The caller fills the bytes before the token,
 /// because §10.3 requires them to be indistinguishable from random.
 pub const PermittedLen = struct {
     /// The shortest that is still a Stateless Reset: the token, and enough before it to look
@@ -117,17 +117,17 @@ pub const PermittedLen = struct {
 /// Why no Stateless Reset was written.
 pub const Refused = enum {
     /// RFC 9000 §10.3.3: every Stateless Reset "is smaller than the packet that triggered it", so
-    /// a datagram at or under §10.3's 21-octet minimum leaves no room for one. This is what ends
+    /// a datagram at or under §10.3's 21-byte minimum leaves no room for one. This is what ends
     /// the loop §10.3.3 describes: "in the event of a loop, this results in packets eventually
     /// being too small to trigger a response".
     triggered_by_too_small,
-    /// The caller offered fewer unpredictable octets than §10.3's shape needs, or `output` cannot
+    /// The caller offered fewer unpredictable bytes than §10.3's shape needs, or `output` cannot
     /// hold the shortest Stateless Reset.
     too_short,
 };
 
 pub const Answer = union(enum) {
-    /// Octets of `output` the datagram occupies. A Stateless Reset "uses an entire UDP datagram",
+    /// Bytes of `output` the datagram occupies. A Stateless Reset "uses an entire UDP datagram",
     /// so this is the whole of what the caller sends.
     written: usize,
     refused: Refused,
@@ -136,7 +136,7 @@ pub const Answer = union(enum) {
 /// Lays out one Stateless Reset in the front of `output` (RFC 9000 §10.3's Figure 10).
 ///
 /// `triggered_by_len` is the datagram that provoked it, which §10.3.3 bounds the answer by.
-/// `unpredictable` is the octets the caller drew — §10.3 wants them "indistinguishable from
+/// `unpredictable` is the bytes the caller drew — §10.3 wants them "indistinguishable from
 /// random" and invariant 5 forbids colibri a random number — and how many are offered is what
 /// chooses the size within the bounds §10.3.3 admits. `token` is the one §10.3.2 derives from a
 /// static key colibri does not hold.
@@ -192,7 +192,7 @@ test "§10.3.1: a datagram ending in a held token is a Stateless Reset" {
     test_tokens.use(token_a);
     test_tokens.use(token_b);
     try testing.expectEqual(2, test_tokens.count());
-    // The comparison is of the last 16 octets, whatever comes before them.
+    // The comparison is of the last 16 bytes, whatever comes before them.
     const padded = [_]u8{0xff} ** 8 ++ token_b;
     try testing.expect(test_tokens.matches(&padded));
     try testing.expect(test_tokens.matches(&token_a));
@@ -236,7 +236,7 @@ test "§10.3.1: a token is checked only while its connection ID is used and not 
 
 test "§10.3.1: every held token is compared, so the time does not follow the match" {
     test_tokens.init();
-    // A token that differs in its last octet alone must still be found, which a comparison
+    // A token that differs in its last byte alone must still be found, which a comparison
     // stopping at the first difference would also do — what this pins is that the match does
     // not depend on where the difference is.
     var late: Token = @splat(octet_a);
@@ -244,7 +244,7 @@ test "§10.3.1: every held token is compared, so the time does not follow the ma
     test_tokens.use(late);
     try testing.expect(test_tokens.matches(&late));
     try testing.expect(!test_tokens.matches(&token_a));
-    // A token that differs in its first octet alone is refused too.
+    // A token that differs in its first byte alone is refused too.
     var early: Token = @splat(octet_a);
     early[0] = octet_c;
     try testing.expect(!test_tokens.matches(&early));
@@ -264,15 +264,15 @@ test "§10.3.3: a Stateless Reset is smaller than what triggered it" {
     // ends rather than continuing with ever smaller datagrams.
     try testing.expectEqual(null, permitted_len(constants.protocol.stateless_reset_len_min));
     try testing.expectEqual(null, permitted_len(0));
-    // One octet above it admits exactly the smallest.
+    // One byte above it admits exactly the smallest.
     const tightest = permitted_len(constants.protocol.stateless_reset_len_min + 1).?;
     try testing.expectEqual(tightest.min, tightest.max);
 }
 
-/// Octets a caller drew for the bits RFC 9000 §10.3 wants indistinguishable from random. Fixed
+/// Bytes a caller drew for the bits RFC 9000 §10.3 wants indistinguishable from random. Fixed
 /// here, because invariant 5 forbids colibri a random number and a test states what it uses.
 const bits_octet: u8 = 0xa5;
-/// More octets than any case below asks for, so what bounds an answer is the rule under test.
+/// More bytes than any case below asks for, so what bounds an answer is the rule under test.
 const bits_len_plenty: usize = 64;
 const bits_plenty: [bits_len_plenty]u8 = @splat(bits_octet);
 threadlocal var reset_output: [bits_len_plenty]u8 = undefined;
@@ -288,7 +288,7 @@ test "§10.3: a Stateless Reset is a short header, unpredictable bits and the to
     // Figure 10's "Fixed Bits (2) = 1": Header Form 0 and Fixed Bit 1, so it reads as a 1-RTT
     // packet to anything but its recipient.
     try testing.expectEqual(constants.protocol.fixed_bit, reset_output[0] & header_bits);
-    // The remainder of byte 0 is the caller's octets, untouched.
+    // The remainder of byte 0 is the caller's bytes, untouched.
     try testing.expectEqual(bits_octet & ~header_bits, reset_output[0] & ~header_bits);
     // §10.3: "The last 16 bytes of the datagram contain a stateless reset token."
     try testing.expectEqualSlices(u8, &token_a, reset_output[len - token_a.len ..][0..token_a.len]);
@@ -308,18 +308,18 @@ test "§10.3.3: the answer is bounded by what triggered it, and by what the call
         Refused.triggered_by_too_small,
         write(constants.protocol.stateless_reset_len_min, &bits_plenty, token_a, &reset_output).refused,
     );
-    // One octet above it admits exactly the shortest Stateless Reset.
+    // One byte above it admits exactly the shortest Stateless Reset.
     const tightest = write(constants.protocol.stateless_reset_len_min + 1, &bits_plenty, token_a, &reset_output);
     try testing.expectEqual(constants.protocol.stateless_reset_len_min, tightest.written);
 
-    // How many unpredictable octets the caller offered is what chooses the size under that bound.
+    // How many unpredictable bytes the caller offered is what chooses the size under that bound.
     const offered_len: usize = 8;
     const shorter = write(triggering_len, bits_plenty[0..offered_len], token_a, &reset_output);
     try testing.expectEqual(offered_len + constants.protocol.stateless_reset_token_len, shorter.written);
 }
 
 test "§10.3: a Stateless Reset that will not fit is not written" {
-    // Fewer unpredictable octets than §10.3's shape needs. "the Unpredictable Bits field needs to
+    // Fewer unpredictable bytes than §10.3's shape needs. "the Unpredictable Bits field needs to
     // include at least 38 bits of data (or 5 bytes, less the two fixed bits)."
     const bits_short = bits_plenty[0 .. constants.protocol.stateless_reset_unpredictable_len_min - 1];
     try testing.expectEqual(

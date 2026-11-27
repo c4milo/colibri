@@ -1,5 +1,5 @@
 //! How the input checks draw the values colibri's writers are given: often at a bound or a few
-//! inside it, where an edit that moves one octet takes the value past (`input_edit.zig`).
+//! inside it, where an edit that moves one byte takes the value past (`input_edit.zig`).
 //! `quic_input_check.zig` and `h2_input_check.zig` share it.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -35,7 +35,7 @@ pub const Draw = struct {
     }
 };
 
-/// A slice of `material` of `min` to `max` octets.
+/// A slice of `material` of `min` to `max` bytes.
 pub fn octets(random: *Random, material: []const u8, min: u64, max: u64) []const u8 {
     assert(min <= max and max <= material.len);
     const len = random.between(min, max);

@@ -26,7 +26,7 @@ The name is Spanish for hummingbird.
 | Protocols | h11 ([RFC 9112](https://www.rfc-editor.org/rfc/rfc9112), as [RFC 9931](https://www.rfc-editor.org/rfc/rfc9931) updates it), h2 ([RFC 9113](https://www.rfc-editor.org/rfc/rfc9113)) with HPACK ([RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)), h3 ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)) with QPACK ([RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)), and QUIC versions 1 and 2 ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [9001](https://www.rfc-editor.org/rfc/rfc9001), [9002](https://www.rfc-editor.org/rfc/rfc9002), [9369](https://www.rfc-editor.org/rfc/rfc9369)) |
 | Roles | Client and server, for every protocol |
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns every struct and buffer. Each size is a comptime constant, or a `memory_bytes` function of the counts your program sets. |
-| I/O | None. colibri parses octets you already read and writes into buffers you own. A call that would block returns what it needs instead. |
+| I/O | None. colibri parses bytes you already read and writes into buffers you own. A call that would block returns what it needs instead. |
 | Time | A value you pass. No source file reads a clock. |
 | TLS and packet protection | Vtables: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. The `tls` module fills all three from [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, and a program may fill them itself. |
 | Status | Before 1.0: each minor release can change the API. [The releases page](https://github.com/c4milo/colibri/releases) holds each release's notes, its breaking changes first. |
@@ -215,11 +215,11 @@ whole program for each, which `zig build examples` and CI run:
   each `turn` writes the operations it needs, and your program gives back a completion for each
   ([`examples/colibri_hosted.zig`](examples/colibri_hosted.zig)).
 - **The engine and the pool by themselves.** `server.Engine` and `client.ConnectionPool` own no
-  socket: your program moves the octets and the datagrams
+  socket: your program moves the bytes and the datagrams
   ([`examples/server_exchange.zig`](examples/server_exchange.zig),
   [`examples/client_exchange.zig`](examples/client_exchange.zig)).
 - **One protocol by itself.** `colibri.h11`, `colibri.h2`, `colibri.h3` and `colibri.quic` each
-  take octets in, give at most one event out, and write the frames colibri owes into your buffer
+  take bytes in, give at most one event out, and write the frames colibri owes into your buffer
   ([`examples/h11_exchange.zig`](examples/h11_exchange.zig)).
 
 ## Conformance
@@ -251,7 +251,7 @@ printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
   verdict, the request smuggling shapes of RFC 9112 included.
 - **Mutation testing.** Every check is broken on purpose, and a test must fail. Each result is
   recorded as `CAUGHT` or `NOT CAUGHT` in the commit or in [`docs/design.md`](docs/design.md).
-- **Fuzzing and line coverage.** Every reader of a peer's octets has a fuzz property. kcov counts
+- **Fuzzing and line coverage.** Every reader of a peer's bytes has a fuzz property. kcov counts
   the lines of the library that the tests run, and the badge above shows a named CI run's count.
 - **Lints.** `zig build lint` refuses a heap allocation, a system call, a clock or random read
   outside the test endpoints, an unbounded loop, a function above cognitive complexity 15, and a

@@ -311,7 +311,7 @@ ReadAnswer(r) ==
 
 (* The server's STOP_SENDING on a stream it refused arrives, and the       *)
 (* client's quic resets its side (RFC 9000 §3.5). It may arrive before or *)
-(* after the client reads the refusal, and a quic that has had every octet *)
+(* after the client reads the refusal, and a quic that has had every byte *)
 (* acknowledged sends no reset, so the action may never happen.            *)
 StopSending(r) ==
     /\ phase[r] = "abandoned" /\ reset[r] = "none"

@@ -46,7 +46,7 @@ pub fn first_initial(datagram: []const u8) ?quic.packet.header.Long {
 /// The Version Negotiation packet a server owes a datagram that asks for a version it does not
 /// speak, written into `output`, or null when it owes none. RFC 9000 §6.1: a server "SHOULD send
 /// a Version Negotiation packet" when the packet "is large enough to initiate a new connection
-/// for any supported version", which §14.1 makes 1,200 octets.
+/// for any supported version", which §14.1 makes 1,200 bytes.
 pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
     const invariant = quic.packet.invariant;
     const long = invariant.read_long(datagram) catch return null;
@@ -65,11 +65,11 @@ pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
 /// The seven bits RFC 8999 §6 leaves free, with RFC 9000 §17.2.1's 0x40 set.
 const version_negotiation_unused_bits: u7 = 0x40;
 
-/// Octets of the longest address a Retry token binds: an IPv6 address and a port.
+/// Bytes of the longest address a Retry token binds: an IPv6 address and a port.
 pub const token_address_len_max: usize = ipv6_octets + @sizeOf(u16);
 const ipv6_octets: usize = 16;
 
-/// The client's address as the opaque octets a Retry token binds. RFC 9000 §8.1.4: a token lets
+/// The client's address as the opaque bytes a Retry token binds. RFC 9000 §8.1.4: a token lets
 /// "the server verify that the source IP address and port in client packets remain constant", so
 /// it covers both: the address, then the port in network byte order.
 pub fn token_address(address: PeerAddress, into: *[token_address_len_max]u8) []const u8 {
@@ -115,7 +115,7 @@ test "RFC 9000 §6.1: an unknown version large enough to start a connection gets
     const written = version_negotiation(expanded, &answer).?;
     const parsed = try quic.packet.invariant.read_long(written);
     try testing.expect(parsed.is_version_negotiation());
-    // RFC 8999 §6: the connection IDs come back swapped, and here they are the same octets.
+    // RFC 8999 §6: the connection IDs come back swapped, and here they are the same bytes.
     try testing.expectEqualSlices(u8, &test_id, parsed.dcid);
     // RFC 9000 §6.1: it lists the versions the server accepts, both of them (decision 108).
     const listed = (try quic.packet.header.read(written, 0)).version_negotiation.supported;

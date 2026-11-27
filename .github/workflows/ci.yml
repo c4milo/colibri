@@ -101,7 +101,7 @@ jobs:
       - name: Install h2load
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nghttp2-client
       # Zig's caches are addressed by content, so a restored entry is reused only when its inputs
-      # are the same octets. A cache entry cannot be overwritten, so each commit saves its own and
+      # are the same bytes. A cache entry cannot be overwritten, so each commit saves its own and
       # a run restores the newest one.
       - name: Restore the Zig caches
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

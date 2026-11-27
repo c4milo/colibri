@@ -5,8 +5,8 @@ FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nghttp2-server nghttp2-client curl ca-certificates h2o caddy python3 \
  && rm -rf /var/lib/apt/lists/*
-# What the servers serve: a short file, one sixteen times the 65,535-octet window a stream starts
-# with (RFC 9113 §6.9.2), whose octet i is i % 251, the pattern the client's requests use, and a
+# What the servers serve: a short file, one sixteen times the 65,535-byte window a stream starts
+# with (RFC 9113 §6.9.2), whose byte i is i % 251, the pattern the client's requests use, and a
 # text file h2o codes in br and Caddy in zstd for a client that accepts them (decision 101 as
 # amended).
 RUN mkdir -p /www \

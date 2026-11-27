@@ -21,7 +21,7 @@ pub const greeting = "hello from colibri over TCP\n";
 pub const note = "a note the client posts, which the server sends back\n";
 pub const content_type = "text/plain; charset=utf-8";
 
-/// The octets the server writes before it sends them, at most.
+/// The bytes the server writes before it sends them, at most.
 const output_len = 16384;
 
 /// Events the server takes in one turn, and calls to `send_stream` one `send` event takes, at most.
@@ -38,7 +38,7 @@ const now_seconds = identity.now_seconds;
 pub const Error = error{
     /// What arrived is not what was sent.
     ExchangeWrong,
-    /// A connection still owed octets after `sends_per_event_max` calls to `send_stream`.
+    /// A connection still owed bytes after `sends_per_event_max` calls to `send_stream`.
     SendUnfinished,
 };
 
@@ -51,7 +51,7 @@ const routes = .{
     },
 };
 
-/// The octets of the router's copy of the POST's header, which the router keeps until the content
+/// The bytes of the router's copy of the POST's header, which the router keeps until the content
 /// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
 /// fields too.
 const header_bytes = 512;
@@ -115,7 +115,7 @@ pub fn accept() !void {
     accepted = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
 }
 
-/// One turn of the server: fire its deadlines, pass the engine the octets the socket read, and
+/// One turn of the server: fire its deadlines, pass the engine the bytes the socket read, and
 /// act on every event it reports.
 pub fn turn() !void {
     const input = try link.receive(.server);

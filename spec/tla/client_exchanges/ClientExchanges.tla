@@ -8,9 +8,9 @@
 (* The caller makes up to N exchanges, and may cancel one before its       *)
 (* event. The client holds an exchange itself until a connection is open,  *)
 (* then hands it to that connection, which writes its request and reads    *)
-(* its response. A QUIC stream may read the request's octets again until   *)
+(* its response. A QUIC stream may read the request's bytes again until   *)
 (* it closes or is reset (RFC 9000 §3.1), so an exchange whose stream      *)
-(* holds its octets is not reported, and a cancel resets its stream (RFC   *)
+(* holds its bytes is not reported, and a cancel resets its stream (RFC   *)
 (* 9114 §4.1.1).                                                           *)
 (*                                                                         *)
 (* The choice: when an exchange waits and no connection is open, the       *)
@@ -76,14 +76,14 @@
 (*                                                                         *)
 (* Each rule constant is a rule colibri keeps. A configuration that turns  *)
 (* one off must find a violation:                                          *)
-(*   ReleaseOnFail      a connection that fails releases the octets of     *)
+(*   ReleaseOnFail      a connection that fails releases the bytes of     *)
 (*                      every exchange it held. Step 17d's tests found it  *)
 (*                      broken before 35dfbde landed.                      *)
 (*   CloseWhenDrained   a connection that takes no new exchange closes     *)
 (*                      once it holds none. Step 17d's tests found it      *)
 (*                      broken before 35dfbde landed.                      *)
 (*   ReportWhenReleased an exchange is reported only once no stream holds  *)
-(*                      its octets (RFC 9000 §3.1).                        *)
+(*                      its bytes (RFC 9000 §3.1).                        *)
 (*   CancelReleases     a cancel resets every direction of the exchange's  *)
 (*                      stream still open (RFC 9114 §4.1.1), so nothing    *)
 (*                      reads its memory after. colibri broke it for an    *)
@@ -199,7 +199,7 @@ Outcomes == {"pending", "response", "refused", "closed", "failed"}
 
 VARIABLES
     \* Each exchange's stage, the transport of the connection holding it, whether a QUIC stream
-    \* may still read its octets, and how it ended there.
+    \* may still read its bytes, and how it ended there.
     stage, carrier, holds, outcome,
     \* The times it moved, whether the server of the connection holding it processed it, and
     \* how many servers did.
@@ -311,7 +311,7 @@ Assign(e, t) ==
     /\ UNCHANGED <<phase, opens, goaways, fallback, learned, shut, stale, quiet>>
 
 (* The connection writes the request. Over QUIC, its stream holds the      *)
-(* request's octets from now on (RFC 9000 §3.1).                           *)
+(* request's bytes from now on (RFC 9000 §3.1).                           *)
 Send(e) ==
     /\ stage[e] = "queued" /\ Live(carrier[e])
     /\ stage' = [stage EXCEPT ![e] = "sent"]
@@ -319,7 +319,7 @@ Send(e) ==
     /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
-(* The QUIC stream closes or is reset, and reads the exchange's octets no  *)
+(* The QUIC stream closes or is reset, and reads the exchange's bytes no  *)
 (* more (RFC 9000 §3.1). A server's STOP_SENDING can reset it before the   *)
 (* response ends (§3.5).                                                   *)
 Release(e) ==
@@ -349,7 +349,7 @@ Movable(e) ==
     /\ ResendBeforeTaken => ~taken[e]
 
 (* The connection reports exchange e's end once no stream holds its        *)
-(* octets and, with FinishWhenReleased, once the caller released each      *)
+(* bytes and, with FinishWhenReleased, once the caller released each      *)
 (* piece of its response. The client passes the event to the caller, which *)
 (* has a request piece it handed back. One the client sent again, or one a *)
 (* piece of whose request was taken, that a later connection refused ends  *)
@@ -418,7 +418,7 @@ Process(e) ==
     /\ UNCHANGED connectionVars
 
 (* The first of the response to a processed request arrives, and the rest  *)
-(* has not: over h11 an octet of it, over h2 and h3 a HEADERS frame.       *)
+(* has not: over h11 a byte of it, over h2 and h3 a HEADERS frame.       *)
 Answer(e) ==
     /\ stage[e] = "sent" /\ seen[e] /\ ~answered[e] /\ Live(carrier[e])
     /\ answered' = [answered EXCEPT ![e] = TRUE]
@@ -625,7 +625,7 @@ FailHandshake(t) ==
 FailedOutcome(e) == IF stage[e] = "queued" \/ ~SentFailsClosed THEN "refused" ELSE "closed"
 
 (* Live connection t fails. Each exchange it holds ends, with              *)
-(* ReleaseOnFail its streams read no exchange's octets any more, and it    *)
+(* ReleaseOnFail its streams read no exchange's bytes any more, and it    *)
 (* drops no response.                                                      *)
 Fail(t) ==
     /\ LET ending == {e \in Held(t) : stage[e] # "ended"} IN
@@ -774,7 +774,7 @@ FairSpec == Spec /\ Fairness
 
 -----------------------------------------------------------------------------
 (* Safe: nothing reads the memory of an exchange the caller has back, only *)
-(* a live QUIC connection's stream holds an exchange's octets, a           *)
+(* a live QUIC connection's stream holds an exchange's bytes, a           *)
 (* connection refuses only what its server did not process, the caller     *)
 (* hears `refused` only for an exchange no server processed, and a         *)
 (* connection closes holding no exchange and dropping no response. An      *)

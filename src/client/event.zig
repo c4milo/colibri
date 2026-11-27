@@ -103,7 +103,7 @@ pub const Streamed = struct {
 /// 123). The client writes it from `request` until the exchange's `finished` event.
 pub const Response = struct {
     /// The response's header section, copied into a buffer the program gives (decision 152).
-    /// Each field line takes its name, its value and four octets. An empty buffer drops it.
+    /// Each field line takes its name, its value and four bytes. An empty buffer drops it.
     headers: headers_module.Headers = .{},
     /// The response's trailer section (RFC 9110 §6.5), kept apart from its headers (§6.5.1), in
     /// the same way. With a buffer, the request says it accepts trailers with `te: trailers`
@@ -166,7 +166,7 @@ pub const Ended = struct {
     id: RequestId,
     request: *const Request,
     response: *Response,
-    /// Some of the response arrived: an octet of it over h11, or the header of a HEADERS frame on
+    /// Some of the response arrived: a byte of it over h11, or the header of a HEADERS frame on
     /// its stream over h2 and h3.
     response_began: bool,
 };
@@ -206,7 +206,7 @@ pub const Event = union(enum) {
 
 /// What one `receive` call took and reported.
 pub const ReceiveResult = struct {
-    /// Octets of the caller's input taken.
+    /// Bytes of the caller's input taken.
     consumed: usize,
     event: ?Event,
 };

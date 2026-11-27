@@ -6,7 +6,7 @@
 //! each datagram `send` writes, and calls `on_instant` once the instant `deadline_ns` names has
 //! come. colibri makes no system call and reads no clock (non-negotiable 3). It does the duties of
 //! a QUIC caller itself (decisions 57 and 62): it hands the provider the transport parameters,
-//! derives the Initial keys, and supplies each request stream's octets, the HEADERS frame and DATA
+//! derives the Initial keys, and supplies each request stream's bytes, the HEADERS frame and DATA
 //! frame header it keeps (decision 79), then the request's content. The pool draws the
 //! connection IDs and h3's grease value from the source its caller gives `start_quic` (decision
 //! 120, invariant 5). The receive pool is the caller's (decision 61), and its capacity sets every
@@ -48,7 +48,7 @@ pub const Request = event.Request;
 pub const Response = event.Response;
 pub const RequestError = connection_module.RequestError;
 pub const PeerAddress = quic.PeerAddress;
-/// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
+/// Where a QUIC connection's received bytes wait until h3 reads them (decision 61): the storage
 /// of a `quic.ReceivePool` the caller places.
 pub const ReceiveStorage = quic.ReceiveStorage;
 
@@ -150,7 +150,7 @@ pub const QuicConnection = struct {
     read_owed: bool,
 
     /// Prepares a connection whose first datagram `send` writes. `receive_pool` holds the server's
-    /// octets until h3 reads them (decision 61), and no other connection uses it while this one
+    /// bytes until h3 reads them (decision 61), and no other connection uses it while this one
     /// runs. Every draw the connection and its handshake make comes from the random source of the
     /// TLS configuration's context (decision 175), `now_seconds` is the instant a Web PKI chain is
     /// judged at, `now_ns` the instant the connection begins, and `resumption` offers a ticket an
@@ -236,7 +236,7 @@ pub const QuicConnection = struct {
 
     /// Hands exchange `id`'s streamed request its next `piece`, the last one when `end` is set
     /// (decision 153). `send` supplies it to QUIC, and the `body_taken` event comes once the server
-    /// acknowledged its last octet, since QUIC reads a lost octet again (RFC 9000 §13.3).
+    /// acknowledged its last byte, since QUIC reads a lost byte again (RFC 9000 §13.3).
     pub fn write_body(connection: *QuicConnection, id: RequestId, piece: []const u8, end: bool) error{BodyStopped}!void {
         // The pool hands a piece only to an exchange the connection holds.
         const slot = connection.slots.of_id(id).?;
@@ -259,7 +259,7 @@ pub const QuicConnection = struct {
     pub fn cancel(connection: *QuicConnection, id: RequestId) void {
         const slot = connection.slots.of_id(id) orelse return;
         // RFC 9114 §4.1.1: every direction still open is reset. The stream is live while it holds
-        // the request's octets, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
+        // the request's bytes, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
         // after the response ended too.
         if (slot.holds_octets) quic_h3.cancel_stream(connection, slot.stream_id);
         slots_module.release(slot);

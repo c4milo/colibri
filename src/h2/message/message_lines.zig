@@ -44,7 +44,7 @@ pub fn walk(section: *const FieldSection, kind: Kind) Error!Seen {
         error.PseudoHeaderRepeated => error.PseudoHeaderRepeated,
         // RFC 9113 §8.2.1: an invalid field name.
         error.FieldNameInvalid => error.FieldNameInvalid,
-        // RFC 9113 §8.2.1 states the forbidden octets and the whitespace position in two MUSTs,
+        // RFC 9113 §8.2.1 states the forbidden bytes and the whitespace position in two MUSTs,
         // and h2 answers one error to both.
         error.FieldValueCharacter, error.FieldValueWhitespace => error.FieldValueInvalid,
         // RFC 9113 §8.2.2: a connection-specific field, or TE outside a request.

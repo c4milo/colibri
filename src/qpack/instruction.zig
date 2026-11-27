@@ -10,10 +10,10 @@
 //! HPACK has ([decision 12](../../docs/decisions.md)).
 //!
 //! Four instructions run encoder to decoder (§4.3) and three run decoder to encoder (§4.4).
-//! Both sets are told apart by the high bits of the first octet, exactly as §4.5's field line
+//! Both sets are told apart by the high bits of the first byte, exactly as §4.5's field line
 //! representations are, and both reuse §4.1.1's prefixed integer and §4.1.2's string literal.
 //!
-//! Reading one consumes all of its octets or none, so a caller feeding a stream that has not
+//! Reading one consumes all of its bytes or none, so a caller feeding a stream that has not
 //! finished arriving can ask again with more.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -135,7 +135,7 @@ pub fn read_decoder(reader: *Reader) Error!Decoder {
     return found;
 }
 
-/// Writes one encoder instruction. All of the octets are written, or none.
+/// Writes one encoder instruction. All of the bytes are written, or none.
 pub fn write_encoder(writer: *Writer, held: Encoder) core.Writer.Error!void {
     var cursor = writer.*;
     switch (held) {
@@ -175,7 +175,7 @@ fn write_insert_literal(cursor: *Writer, line: Encoder.InsertLiteral) core.Write
     try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
-/// Writes one decoder instruction. All of the octets are written, or none.
+/// Writes one decoder instruction. All of the bytes are written, or none.
 pub fn write_decoder(writer: *Writer, held: Decoder) core.Writer.Error!void {
     switch (held) {
         .section_acknowledgment => |id| try prefixed_integer.encode(
@@ -239,7 +239,7 @@ fn round_trip_decoder(held: Decoder) !Decoder {
     return back;
 }
 
-/// Reads one encoder instruction from octets. Test-only.
+/// Reads one encoder instruction from bytes. Test-only.
 fn read_one(octets: []const u8) Error!Encoder {
     var reader = Reader.init(octets);
     var strings = Writer.init(&test_strings);
@@ -256,7 +256,7 @@ test "§4.3.1: Set Dynamic Table Capacity is 001 and a 5-bit capacity" {
     });
     try testing.expectEqual(0, (try read_one(&.{0x20})).set_capacity);
     try testing.expectEqual(30, (try read_one(&.{0x3e})).set_capacity);
-    // At the prefix maximum it continues into the octets that follow.
+    // At the prefix maximum it continues into the bytes that follow.
     try testing.expectEqual(0x1000, (try round_trip_encoder(.{ .set_capacity = 0x1000 })).set_capacity);
 }
 
@@ -316,7 +316,7 @@ test "§4.3.3: Insert with Literal Name carries both as string literals" {
 }
 
 test "§4.3: the four encoder instructions are told apart by their high bits" {
-    // The patterns do not overlap: 1xxxxxxx, 01xxxxxx, 001xxxxx and 000xxxxx cover every octet
+    // The patterns do not overlap: 1xxxxxxx, 01xxxxxx, 001xxxxx and 000xxxxx cover every byte
     // exactly once, so no instruction can be read as another.
     for (0..256) |value| {
         const first: u8 = @intCast(value);
@@ -342,7 +342,7 @@ test "§4.4: the three decoder instructions round trip and do not overlap" {
     try testing.expectEqual(5, (try round_trip_decoder(.{ .insert_count_increment = 5 })).insert_count_increment);
     var incremented = Reader.init(&.{0x05});
     try testing.expectEqual(5, (try read_decoder(&incremented)).insert_count_increment);
-    // Every octet reads as exactly one of the three.
+    // Every byte reads as exactly one of the three.
     for (0..256) |value| {
         const first: u8 = @intCast(value);
         var matches: usize = 0;
@@ -356,12 +356,12 @@ test "§4.4: the three decoder instructions round trip and do not overlap" {
 }
 
 test "an instruction cut short consumes nothing" {
-    // A value literal whose octets have not all arrived, after a name index that has.
+    // A value literal whose bytes have not all arrived, after a name index that has.
     var reader = Reader.init(&.{ 0xc1, 0x05, 'a' });
     var strings = Writer.init(&test_strings);
     try testing.expectError(error.Truncated, read_encoder(&reader, &strings));
     try testing.expectEqual(3, reader.remaining_len());
-    // A capacity whose continuation octets are missing.
+    // A capacity whose continuation bytes are missing.
     var capacity = Reader.init(&.{0x3f});
     try testing.expectError(error.Truncated, read_encoder(&capacity, &strings));
     try testing.expectEqual(1, capacity.remaining_len());

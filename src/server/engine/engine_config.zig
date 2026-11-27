@@ -33,7 +33,7 @@ pub const Config = struct {
     /// §3.1).
     tls: ?tls.Server = null,
     /// Room for the TLS sessions of the TCP connections over TLS that the engine holds at once:
-    /// `tls_buffer_len(n)` octets hold `n` of them, at any alignment (decision 167). A connection
+    /// `tls_buffer_len(n)` bytes hold `n` of them, at any alignment (decision 167). A connection
     /// over TLS takes one at `accept`, and gives it back when its slot is released. Empty by
     /// default, so no TCP connection speaks TLS, while a QUIC connection still does. A buffer with
     /// a null `tls` is a programmer error. The buffer stays the program's, and lives as long as the
@@ -96,7 +96,7 @@ pub const Config = struct {
     /// QUIC connections alone: RFC 9959 §5's max_jump and Lifetime for a connection that resumes.
     resume_bounds: quic.ResumeBounds = .{},
 
-    /// The octets `tls_buffer` takes to hold the sessions of `connections` TCP connections over
+    /// The bytes `tls_buffer` takes to hold the sessions of `connections` TCP connections over
     /// TLS at once (decision 167). A program declares a plain array of `u8` of this length.
     pub fn tls_buffer_len(connections: usize) usize {
         return tls_session.buffer_len(connections);
@@ -302,7 +302,7 @@ fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartErro
 }
 
 test "decision 110 as amended: units are judged only where a body may arrive in them" {
-    // h11 in cleartext reads a body octet by octet, so a rate no unit could meet is taken there.
+    // h11 in cleartext reads a body byte by byte, so a rate no unit could meet is taken there.
     const slow: deadline.Timeouts = .{ .body_rate_min = 1 };
     try start_tcp_only(null, slow);
     // Over TLS a body arrives a record at a time, and the same rate is refused.

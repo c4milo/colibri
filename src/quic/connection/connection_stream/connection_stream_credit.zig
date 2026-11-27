@@ -1,14 +1,14 @@
-//! How many more octets a stream can send before flow control stops them (decision 81). Part of
+//! How many more bytes a stream can send before flow control stops them (decision 81). Part of
 //! design §8 step 12.
 //!
 //! RFC 9204 §2.1.3 asks a QPACK encoder not to write an instruction "unless sufficient stream and
-//! connection flow-control credit is available for the entire instruction". An octet supplied now
-//! waits behind octets supplied earlier, and those spend credit first:
-//! - the stream's own octets not yet framed spend its stream's credit and the connection's;
+//! connection flow-control credit is available for the entire instruction". A byte supplied now
+//! waits behind bytes supplied earlier, and those spend credit first:
+//! - the stream's own bytes not yet framed spend its stream's credit and the connection's;
 //! - RFC 9000 §2.3's order (`set_priority`) frames a stream with a lower priority value first, and
-//!   streams of one value take turns, so their octets not yet framed spend the connection's credit.
+//!   streams of one value take turns, so their bytes not yet framed spend the connection's credit.
 //!
-//! A stream with a higher priority value frames after this one, so its octets spend nothing first.
+//! A stream with a higher priority value frames after this one, so its bytes spend nothing first.
 //! colibri keeps no state for it: it reads two limits and walks the stream table once, at most
 //! `streams_per_connection_max` entries.
 const std = @import("std");
@@ -19,11 +19,11 @@ const connection_module = @import("../connection.zig");
 const Connection = connection_module.Connection;
 const StreamId = stream_module.StreamId;
 
-/// The octets `id` can still send once everything supplied before them is framed: the smaller of
-/// its stream's flow-control credit and the connection's, each less the octets not yet framed
+/// The bytes `id` can still send once everything supplied before them is framed: the smaller of
+/// its stream's flow-control credit and the connection's, each less the bytes not yet framed
 /// that spend it first (RFC 9000 §4.1).
 ///
-/// Null when `id` sends no new octets: it is not one this endpoint sends on, it is closed, or it
+/// Null when `id` sends no new bytes: it is not one this endpoint sends on, it is closed, or it
 /// was reset or has sent its FIN (RFC 9000 §3.1).
 pub fn send_credit(connection: *Connection, id: StreamId) ?u64 {
     if (!id.is_sendable_by(connection.streams.role)) return null;
@@ -31,7 +31,7 @@ pub fn send_credit(connection: *Connection, id: StreamId) ?u64 {
         .live => |stream| stream,
         .closed, .unopened => return null,
     };
-    // RFC 9000 §3.1: new octets leave from "Ready" or "Send" alone.
+    // RFC 9000 §3.1: new bytes leave from "Ready" or "Send" alone.
     if (!stream.sending.may_send_data()) return null;
     const stream_credit = stream.send_flow.available() -| stream.outgoing.unframed_len();
     var ahead: u64 = 0;
@@ -43,7 +43,7 @@ pub fn send_credit(connection: *Connection, id: StreamId) ?u64 {
         if (!other.sending.may_send_data()) continue;
         ahead +|= other.outgoing.unframed_len();
     }
-    // The walk met `id` itself, so its own octets are among those ahead.
+    // The walk met `id` itself, so its own bytes are among those ahead.
     assert(ahead >= stream.outgoing.unframed_len());
     const connection_credit = connection.send_flow.available() -| ahead;
     return @min(stream_credit, connection_credit);
@@ -53,7 +53,7 @@ const testing = std.testing;
 const stream_send = @import("connection_stream_send.zig");
 const send_test = @import("connection_stream_send_test.zig");
 
-/// A window smaller than the other, and octets supplied inside it. Test-only.
+/// A window smaller than the other, and bytes supplied inside it. Test-only.
 const small_window: u64 = 100;
 const supplied_len: u64 = 30;
 /// A priority below the default, which goes first. Test-only.
@@ -87,7 +87,7 @@ test "RFC 9000 §2.3: the connection's credit goes first to streams framed befor
     // The default-priority stream counts everything ahead of or beside it.
     const later: StreamId = .{ .value = turn.value - stream_id_step };
     try testing.expectEqual(small_window - 2 * supplied_len, credit_of(later).?);
-    // A reset stream frames nothing more, so its octets spend nothing.
+    // A reset stream frames nothing more, so its bytes spend nothing.
     try stream_send.reset(&send_test.client, turn, test_error_code);
     try testing.expectEqual(small_window, credit_of(id).?);
 }

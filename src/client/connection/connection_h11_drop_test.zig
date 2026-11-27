@@ -45,7 +45,7 @@ fn peer_writes(octets: []const u8) !void {
     try support.client_receive();
 }
 
-/// The peer writes `len` octets of content in pieces, and the client reads each.
+/// The peer writes `len` bytes of content in pieces, and the client reads each.
 fn peer_writes_content(len: u64) !void {
     var left = len;
     // Bounded: each pass writes a piece, and a test's content is a few hundred pieces at most.
@@ -95,7 +95,7 @@ test "decision 146: a drop counts the chunked content that arrived" {
     }
     try peer_writes(piece[0..]);
     try testing.expect(!connection.failed);
-    // One octet more than a drop reads.
+    // One byte more than a drop reads.
     try peer_writes("\r\n1\r\nx");
     try expect_failed();
 }
@@ -136,7 +136,7 @@ test "decision 146: a drop's time runs from its start, and a later read does not
     const head = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel";
     @memcpy(support.to_client[0..head.len], head);
     var consumed: usize = 0;
-    // Bounded: a call takes the octets, or reports one of the few events the connection owes.
+    // Bounded: a call takes the bytes, or reports one of the few events the connection owes.
     for (0..support.events_max) |_| {
         if (consumed == head.len) break;
         consumed += connection.receive(support.to_client[consumed..head.len], later).consumed;

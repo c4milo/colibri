@@ -23,7 +23,7 @@ pub fn Allows(comptime layout: anytype) type {
     assert(count > 0 and count <= constants.limits.route_methods_max);
     return struct {
         /// The table's method tokens in decision 122 ruling 11's order: RFC 9110 §9.1's methods in
-        /// its order, then each token by octets.
+        /// its order, then each token by bytes.
         pub const order: [count][]const u8 = order_of(layout);
         /// The methods of each leaf.
         pub const leaf_masks: [layout.leaves.len]Mask = leaf_masks_of(layout, &order);

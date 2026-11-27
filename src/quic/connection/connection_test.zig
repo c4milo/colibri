@@ -32,7 +32,7 @@ const test_max_streams_bidi: u64 = 8;
 const test_max_streams_uni: u64 = 3;
 const test_idle_timeout_ms: u64 = 30_000;
 
-/// RFC 9000 §7.3's C1 and S1 as fixed octets: §5.1 wants a connection ID unpredictable and
+/// RFC 9000 §7.3's C1 and S1 as fixed bytes: §5.1 wants a connection ID unpredictable and
 /// invariant 5 forbids colibri a random number, so a test states them rather than drawing them.
 const local_id_octet: u8 = 0xc1;
 const original_id_octet: u8 = 0x51;
@@ -146,7 +146,7 @@ test "a connection holds no key and no socket, which is what makes it the caller
 
 test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not" {
     // A client has received nothing and must still be able to send its first Initial, which
-    // §14.1 makes 1,200 octets. §21.1.1.1: the limit "does not apply to clients when
+    // §14.1 makes 1,200 bytes. §21.1.1.1: the limit "does not apply to clients when
     // establishing a new connection".
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(0, test_connection.path.received);
@@ -158,7 +158,7 @@ test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not
     try testing.expectEqual(0, test_connection.path.send_allowance());
     try testing.expect(test_connection.path.is_amplification_limited(1));
 
-    // And the server's exemption arrives with the client's octets, not with its role.
+    // And the server's exemption arrives with the client's bytes, not with its role.
     test_connection.path.on_datagram_received(constants.protocol.datagram_len_min);
     const allowance = constants.protocol.anti_amplification_factor * constants.protocol.datagram_len_min;
     try testing.expectEqual(allowance, test_connection.path.send_allowance());
@@ -189,7 +189,7 @@ test "RFC 9000 §19.16: a zero-length connection ID reaches the set that refuses
         test_connection.local_ids.retire(0, null),
     );
 
-    // An endpoint whose connection IDs have octets answers the frame on its merits instead.
+    // An endpoint whose connection IDs have bytes answers the frame on its merits instead.
     // §5.1.1 makes its own Source Connection ID sequence number 0, so 1 is the unissued one.
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectError(
@@ -211,7 +211,7 @@ test "RFC 9000 §5.2: a packet belongs to the connection its Destination Connect
     // §7.2: the ID the client chose, which its Initial packets carry until the server answers.
     try testing.expect(test_connection.addressed_by(&original_id));
     // Another client's choice, which may arrive from the address this one used, and a shorter
-    // run of the same octets, which is a different ID.
+    // run of the same bytes, which is a different ID.
     const other: [test_id_len]u8 = @splat(0x99);
     try testing.expect(!test_connection.addressed_by(&other));
     try testing.expect(!test_connection.addressed_by(local_id[0 .. test_id_len - 1]));

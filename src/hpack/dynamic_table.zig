@@ -2,11 +2,11 @@
 //! accounted size never exceeds its capacity. The decoder and the encoder each keep one, and the
 //! encoder's is a mirror of what its peer's decoder holds.
 //!
-//! The table owns no memory (decision 35). Its entries' octets are stored in a fixed buffer of
-//! `dynamic_table_capacity_max` octets, oldest first, and its entry records in a ring of
-//! `dynamic_table_entries_max`. Eviction advances the start of the live octets; an insert that
-//! would run past the buffer's end first moves the live octets to its start, which happens at most
-//! once per buffer of octets inserted.
+//! The table owns no memory (decision 35). Its entries' bytes are stored in a fixed buffer of
+//! `dynamic_table_capacity_max` bytes, oldest first, and its entry records in a ring of
+//! `dynamic_table_entries_max`. Eviction advances the start of the live bytes; an insert that
+//! would run past the buffer's end first moves the live bytes to its start, which happens at most
+//! once per buffer of bytes inserted.
 //!
 //! Index 1 is the newest entry and `len()` the oldest (§2.3.2), before the static table's length
 //! is added to give the fused address space of §2.3.3, which the decoder does.
@@ -25,7 +25,7 @@ const entry_size = wire.table_size.entry_size;
 /// caller holds where they are, and no caller copies them into a second type first.
 pub const Field = http.Field;
 
-/// Where an entry's octets are: its name, then its value, at `offset`.
+/// Where an entry's bytes are: its name, then its value, at `offset`.
 const Entry = struct {
     offset: u32,
     name_len: u32,
@@ -45,7 +45,7 @@ pub const DynamicTable = struct {
     /// The oldest entry's slot in `entries`; the newest is `count - 1` slots after it, wrapping.
     first: u32,
     count: u32,
-    /// The live octets: `octets[octets_start..octets_end]`, oldest entry first.
+    /// The live bytes: `octets[octets_start..octets_end]`, oldest entry first.
     octets_start: u32,
     octets_end: u32,
     /// The size of RFC 7541 §4.1: the sum of `entry_size` over the entries.
@@ -138,7 +138,7 @@ pub const DynamicTable = struct {
         };
     }
 
-    /// Evicts oldest entries until `size` more octets fit under the capacity, or none are left.
+    /// Evicts oldest entries until `size` more bytes fit under the capacity, or none are left.
     fn evict_until_fits(table: *DynamicTable, size: u64) void {
         // Each pass evicts one entry, so the table's own count bounds the loop.
         for (0..constants.limits.dynamic_table_entries_max) |_| {
@@ -163,7 +163,7 @@ pub const DynamicTable = struct {
         table.check_accounting();
     }
 
-    /// Moves the live octets to the buffer's start when `needed` more would run past its end.
+    /// Moves the live bytes to the buffer's start when `needed` more would run past its end.
     fn make_room(table: *DynamicTable, needed: u32) void {
         if (table.octets_end + needed <= constants.limits.dynamic_table_capacity_max) return;
         const live = table.octets_end - table.octets_start;
@@ -174,8 +174,8 @@ pub const DynamicTable = struct {
         }
         table.octets_start = 0;
         table.octets_end = live;
-        // The accounted size bounds the live octets: every entry that fits under the capacity
-        // fits in the buffer once the dead octets before the oldest entry are gone.
+        // The accounted size bounds the live bytes: every entry that fits under the capacity
+        // fits in the buffer once the dead bytes before the oldest entry are gone.
         assert(table.octets_end + needed <= constants.limits.dynamic_table_capacity_max);
     }
 

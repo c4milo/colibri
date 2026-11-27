@@ -1,6 +1,6 @@
 //! The tests of `router_match.zig`'s search of a node's literal edges: the binary search finds
-//! the edge that a scan of each edge finds (decision 122), and a segment longer than eight octets
-//! orders a word at a time as its octets order. Split out for length. Test-only.
+//! the edge that a scan of each edge finds (decision 122), and a segment longer than eight bytes
+//! orders a word at a time as its bytes order. Split out for length. Test-only.
 const std = @import("std");
 const router_trie = @import("router_trie.zig");
 const router_trie_layout = @import("router_trie_layout.zig");
@@ -45,15 +45,15 @@ const search_tables = .{
         .{ .get, "/v", 0 },   .{ .get, "/zz", 0 },  .{ .get, "/Z", 0 },   .{ .get, "/0", 0 },
         .{ .get, "/:p", 0 },
     },
-    // Literals of 8 octets and more, of one length: they differ in their first 8 octets, past
-    // them, or in both, so the order of their heads and of their octets decides the search.
+    // Literals of 8 bytes and more, of one length: they differ in their first 8 bytes, past
+    // them, or in both, so the order of their heads and of their bytes decides the search.
     .{
         .{ .get, "/subscriptions", 0 }, .{ .get, "/notifications", 0 }, .{ .get, "/subscriptionz", 0 },
         .{ .get, "/aaaaaaaabbbbb", 0 }, .{ .get, "/aaaaaaabbbbbb", 0 }, .{ .get, "/zaaaaaaaaaaaa", 0 },
         .{ .get, "/abcdefgh", 0 },      .{ .get, "/abcdefgi", 0 },      .{ .get, "/bbcdefgh", 0 },
     },
-    // Literals past 16 octets, of one length and one head, as API groups and services are: they
-    // differ in a word between the first and the last, in the last word, or in one octet that two
+    // Literals past 16 bytes, of one length and one head, as API groups and services are: they
+    // differ in a word between the first and the last, in the last word, or in one byte that two
     // words share.
     .{
         .{ .get, "/admissionregistration.k8s.io", 0 }, .{ .get, "/admissionregistrationXk8s.io", 0 },
@@ -70,7 +70,7 @@ const search_tables = .{
 /// edge, and after the last edge.
 const outside_segments = [_][]const u8{ "", "!", "~", "!!", "~~", "~~~~~~~~", "aaaaaaaaaaaa" };
 
-/// The octets of a segment that the test builds from an edge, at most.
+/// The bytes of a segment that the test builds from an edge, at most.
 const probe_len_max = 40;
 
 /// Whether the two searches differ on `segment` at `node`. It prints the first difference.
@@ -91,7 +91,7 @@ fn same_child(left: ?usize, right: ?usize) bool {
 }
 
 /// Whether the two searches differ on `edge` at `node`, or on a segment that the test builds from
-/// it: one octet shorter, one octet longer, and the last octet one lower and one higher.
+/// it: one byte shorter, one byte longer, and the last byte one lower and one higher.
 fn edge_differs(comptime layout: anytype, node: usize, edge: []const u8) bool {
     var probe: [probe_len_max]u8 = undefined;
     @memcpy(probe[0..edge.len], edge);
@@ -125,7 +125,7 @@ fn search_tables_quota() u32 {
     return quota;
 }
 
-/// Segments of 9 to 40 octets with one head, and the octet that each differs in. Test-only.
+/// Segments of 9 to 40 bytes with one head, and the byte that each differs in. Test-only.
 const order_len_max = 40;
 
 test "a segment past eight octets orders a word at a time as its octets order" {

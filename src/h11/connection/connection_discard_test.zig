@@ -22,7 +22,7 @@ const test_input_len = 4096;
 /// The bound the tests give a connection. It is small, so a body can pass it in one buffer.
 const test_bound: u64 = 64;
 
-/// The head of a request with a body of `content_len` octets, which the tests answer early.
+/// The head of a request with a body of `content_len` bytes, which the tests answer early.
 fn post_head(buffer: []u8, content_len: u64) []const u8 {
     return std.fmt.bufPrint(buffer, "POST /a HTTP/1.1\r\nHost: h\r\nContent-Length: {d}\r\n\r\n", .{content_len}) catch unreachable;
 }
@@ -35,7 +35,7 @@ fn server(discard_len_max: u64) *Connection {
     return &test_connection;
 }
 
-/// Reads the request head at the start of `input`, and returns its octets.
+/// Reads the request head at the start of `input`, and returns its bytes.
 fn read_head(target: *Connection, input: []const u8) !usize {
     const received = try target.receive(input, &.{});
     try testing.expect(received.event.? == .request);
@@ -62,14 +62,14 @@ fn end_response(target: *Connection) !void {
     _ = try target.write_end(&test_output, &.{});
 }
 
-/// The passes of `read_to_end` that take no octet: the last data event, and the `end` event.
+/// The passes of `read_to_end` that take no byte: the last data event, and the `end` event.
 const end_passes = 2;
 
 /// Receives the request body at the start of `input` until its `end` event, as a program that
-/// reads it, and returns the octets consumed.
+/// reads it, and returns the bytes consumed.
 fn read_to_end(target: *Connection, input: []const u8) !usize {
     var offset: usize = 0;
-    // Bounded: each pass reports an event or takes an octet at least.
+    // Bounded: each pass reports an event or takes a byte at least.
     for (0..input.len + end_passes) |_| {
         const received = try target.receive(input[offset..], &.{});
         offset += received.consumed;
@@ -86,10 +86,10 @@ fn says_close(head: []const u8) bool {
 }
 
 /// Receives from `input` until the connection consumes nothing or reports an event. Returns the
-/// octets consumed and the event, if any.
+/// bytes consumed and the event, if any.
 fn receive_until_event(target: *Connection, input: []const u8) !struct { consumed: usize, event: ?Connection.Event } {
     var offset: usize = 0;
-    // Bounded: each pass that reports nothing takes an octet at least.
+    // Bounded: each pass that reports nothing takes a byte at least.
     for (0..input.len + 1) |_| {
         const received = try target.receive(input[offset..], &.{});
         offset += received.consumed;
@@ -175,7 +175,7 @@ test "decision 160: with no bound, a body a response did not wait for closes the
     for ([_][]const u8{ chunked_head, post_head(&head_buffer, 1) }) |head| {
         const target = server(0);
         _ = try read_head(target, head);
-        // RFC 9110 §10.1.1: no octet of the body is read, so the head says that the server closes.
+        // RFC 9110 §10.1.1: no byte of the body is read, so the head says that the server closes.
         try testing.expect(says_close(try answer_early(target)));
         try testing.expect(target.should_close());
     }
@@ -285,7 +285,7 @@ test "decision 160: a chunked rest that a program left, and that does not end wi
     try end_response(target);
     const rest = try receive_until_event(target, test_input[at..length]);
     try testing.expectEqual(null, rest.event);
-    // The body took every octet the bound allowed, and no more.
+    // The body took every byte the bound allowed, and no more.
     try testing.expectEqual(test_bound, rest.consumed);
     try testing.expect(target.should_close());
 }
@@ -303,7 +303,7 @@ test "decision 160: a known rest that a program left closes the connection when 
             try testing.expectEqual(past_len, received.event.?.data.len);
         }
         try end_response(target);
-        // RFC 9112 §9.3: the rest fits the bound only when the program read the octets past it.
+        // RFC 9112 §9.3: the rest fits the bound only when the program read the bytes past it.
         try testing.expectEqual(reads_past, target.phase == .discard);
         try testing.expectEqual(!reads_past, target.should_close());
     }

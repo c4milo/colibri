@@ -54,7 +54,7 @@ const idle_timeout_ms: u64 = 60_000;
 const authority = "sim.example";
 /// The ID step between a client's bidirectional streams (RFC 9000 §2.1).
 pub const request_stream_step: u64 = 4;
-/// The octets of the longest path or line value: a letter and an index.
+/// The bytes of the longest path or line value: a letter and an index.
 const value_len_max: usize = 8;
 /// The four pseudo-header fields of a request (RFC 9114 §4.3.1).
 const pseudo_lines: usize = 4;
@@ -241,7 +241,7 @@ pub const Endpoint = struct {
         }
     }
 
-    /// Writes `count` DATA frames on `id`, each carrying `h3_trace.data_len` octets.
+    /// Writes `count` DATA frames on `id`, each carrying `h3_trace.data_len` bytes.
     fn write_content(endpoint: *Endpoint, id: u64, count: u32, writer: *Writer) Error!void {
         const payload: [constants.h3_trace.data_len]u8 = @splat(content_octet);
         for (0..count) |_| {
@@ -281,7 +281,7 @@ fn line_value(plan: *const Plan, r: usize, value: *[value_len_max]u8) ?[]const u
     return std.fmt.bufPrint(value, "v{d}", .{source}) catch unreachable;
 }
 
-/// The octet every DATA frame's payload is made of.
+/// The byte every DATA frame's payload is made of.
 const content_octet: u8 = 0x74;
 
 /// The request a client's stream carries: the client opens one per request, in order.
@@ -314,8 +314,8 @@ fn parameters() quic.transport_parameters.Parameters {
 
 const kept_vtable: quic.StreamProvider.VTable = .{ .read = read_kept };
 
-/// A request stream's octets from `offset`: the frames the endpoint kept. Every call at one
-/// offset answers the same octets (RFC 9000 §2.2).
+/// A request stream's bytes from `offset`: the frames the endpoint kept. Every call at one
+/// offset answers the same bytes (RFC 9000 §2.2).
 fn read_kept(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const endpoint: *const Endpoint = @ptrCast(@alignCast(context));
     const kept = &endpoint.kept[index_of(stream_id)];

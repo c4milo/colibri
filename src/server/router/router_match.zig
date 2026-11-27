@@ -6,12 +6,12 @@
 //!   1. It sets `parameters.count` to 0, so no value of an earlier match is read.
 //!   2. A method that no route of the table names gives `not_implemented`, before the path is
 //!      read. A table that names GET names HEAD too.
-//!   3. A path of more than `path_len_max` octets, its query included, matches nothing.
+//!   3. A path of more than `path_len_max` bytes, its query included, matches nothing.
 //!   4. The path ends at the first "?". The query is not read.
 //!   5. A query alone, such as "?x", is the root with a query. Any other path that does not
 //!      start with "/" matches nothing: "*" and "".
-//!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
-//!      a segment holds an octet outside `path_octets` and "%", when a segment other than the
+//!   6. One pass reads each byte of the path once, before the walk. A path matches nothing when
+//!      a segment holds a byte outside `path_octets` and "%", when a segment other than the
 //!      root's and the last is empty, or when a segment is "." or "..", encoded or not (RFC 3986
 //!      §6.2.2.2).
 //!   6a. A segment that encodes "/", "\\" or NUL matches nothing (RFC 3986 §7.3). The walk splits
@@ -19,7 +19,7 @@
 //!      A "%" that two hex digits do not follow stays as written.
 //!   7. The path "/" is the root, with no segment.
 //!   8. The walk starts at the root. At each node it tries the literal edge that equals the
-//!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
+//!      segment, byte for byte, then the parameter child, then the wildcard child. The wildcard
 //!      matches the segment and each segment after it.
 //!   8a. Only a literal edge matches an empty last segment, as of a path that ends in "/". A
 //!      parameter does not match it, and the wildcard does not match a path that ends in "/".
@@ -27,7 +27,7 @@
 //!      the walk read every segment and the node holds no leaf. It tries each child kind of a node
 //!      once at most (INV-32). A walk that backs up from the root matches nothing.
 //!  10. The first node after the last segment whose leaf serves the method decides. A leaf serves
-//!      a method that one of its entries names, octet for octet, and a HEAD request when it names
+//!      a method that one of its entries names, byte for byte, and a HEAD request when it names
 //!      GET (RFC 9110 §9.3.2). The walk backs up past a leaf that does not serve the method, as it
 //!      backs up past a node with no leaf (decision 128).
 //!  11. The result is `found` with the value of the leaf's entry for the method, or of its GET entry
@@ -49,7 +49,7 @@ const router_path = @import("router_path.zig");
 const router_allow = @import("router_allow.zig");
 const percent = @import("http").uri;
 
-/// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
+/// The byte that starts a percent-encoded byte (RFC 3986 §2.1).
 const percent_sign = '%';
 
 /// What `match` gives for a method and a path.
@@ -204,7 +204,7 @@ const Walked = struct { node: usize, count: usize };
 /// with `none` has tried no child.
 const Tried = enum { none, literal, parameter, wildcard };
 
-/// One level of a walk: its node, the child kind it tried last, the first octet of its segment
+/// One level of a walk: its node, the child kind it tried last, the first byte of its segment
 /// in the path, and the count of parameters that the levels above it wrote.
 const Frame = struct { node: usize, tried: Tried, segment_first: usize, count: usize };
 
@@ -310,11 +310,11 @@ fn wildcard_step(comptime layout: anytype, path: []const u8, frame: *const Frame
     return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
 }
 
-/// `path[first..end]` percent-decoded (RFC 3986 §2.1): the path's own octets when they hold no
-/// "%", or else the decoded octets, written into `parameters.storage` at the same offset. A
+/// `path[first..end]` percent-decoded (RFC 3986 §2.1): the path's own bytes when they hold no
+/// "%", or else the decoded bytes, written into `parameters.storage` at the same offset. A
 /// decoded run is never longer than its encoded one, so it stays inside its own place. A "%" that
 /// two hex digits do not follow stays as written (decision 127). `plain` says the pass found no
-/// "%" there, so no octet is searched.
+/// "%" there, so no byte is searched.
 fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usize, plain: bool) []const u8 {
     assert(first <= end and end <= path.len and path.len <= parameters.storage.len);
     const encoded = path[first..end];
@@ -322,7 +322,7 @@ fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usi
     const out = parameters.storage[first..end];
     var written: usize = 0;
     var index: usize = 0;
-    // Bounded: each pass takes one octet of `encoded`, or three for a decoded "%".
+    // Bounded: each pass takes one byte of `encoded`, or three for a decoded "%".
     while (index < encoded.len) : (written += 1) {
         if (percent.decoded_at(encoded, index)) |value| {
             out[written] = value;
@@ -346,7 +346,7 @@ fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []co
 }
 
 /// The child of `node` after the literal edge that equals `segment`, or null. The edges of a node
-/// are sorted by length and then by octets (`router_trie_layout.segment_less`). So a binary search
+/// are sorted by length and then by bytes (`router_trie_layout.segment_less`). So a binary search
 /// in that order compares O(log k) edges of the k edges of the node.
 pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {
     const at = layout.nodes[node];
@@ -358,7 +358,7 @@ pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8)
     for (0..search_passes_max(layout.edges.len)) |_| {
         if (low >= high) return null;
         const middle = low + ((high - low) >> 1);
-        // RFC 9110 §4.2.3: a path compares case-sensitively, octet for octet.
+        // RFC 9110 §4.2.3: a path compares case-sensitively, byte for byte.
         switch (edge_order(layout, edges[middle], tails[middle], segment, head)) {
             .eq => return edges[middle].child,
             .lt => low = middle + 1,
@@ -379,8 +379,8 @@ pub fn search_passes_max(comptime edges: usize) usize {
 const search_passes_past_log = 2;
 
 /// The order of `edge` and `segment` in the order of `router_trie_layout.segment_less`: the
-/// shorter first, then by octets. The first octets compare as one integer, `head`, which the
-/// build wrote for each edge, so a segment of `head_len` octets or fewer compares no octet. A
+/// shorter first, then by bytes. The first bytes compare as one integer, `head`, which the
+/// build wrote for each edge, so a segment of `head_len` bytes or fewer compares no byte. A
 /// longer one compares a word at a time (`rest_order`), the last word being the edge's `tail`.
 fn edge_order(comptime layout: anytype, edge: anytype, tail: u64, segment: []const u8, head: u64) std.math.Order {
     if (edge.segment.len != segment.len) return std.math.order(edge.segment.len, segment.len);
@@ -389,14 +389,14 @@ fn edge_order(comptime layout: anytype, edge: anytype, tail: u64, segment: []con
     return rest_order(text_of(layout, edge.segment), tail, segment);
 }
 
-/// The order of an edge's text and `segment`, of one length past `head_len` octets, whose first
-/// `head_len` octets are equal. It compares the words between, eight octets at a time, then the
-/// last eight octets, which `edge_tail` holds for the edge. The last word overlaps the word
-/// before only where the two are equal, so the order is the order of the octets.
+/// The order of an edge's text and `segment`, of one length past `head_len` bytes, whose first
+/// `head_len` bytes are equal. It compares the words between, eight bytes at a time, then the
+/// last eight bytes, which `edge_tail` holds for the edge. The last word overlaps the word
+/// before only where the two are equal, so the order is the order of the bytes.
 pub fn rest_order(edge_text: []const u8, edge_tail: u64, segment: []const u8) std.math.Order {
     const word = router_trie_layout.head_len;
     assert(edge_text.len == segment.len and segment.len > word);
-    // The full words after the first and before the last eight octets: a segment bounds them.
+    // The full words after the first and before the last eight bytes: a segment bounds them.
     for (1..(segment.len - 1) / word) |index| {
         const edge_word = std.mem.readInt(u64, edge_text[index * word ..][0..word], .big);
         const segment_word = std.mem.readInt(u64, segment[index * word ..][0..word], .big);

@@ -1,7 +1,7 @@
 //! The check of design §8 step 5's colibri side: one h2 connection driven over the null TLS
 //! provider, with the records cut at places the seed draws.
 //!
-//! What it proves is the property step 2 proved for raw octets, now for records: where a record
+//! What it proves is the property step 2 proved for raw bytes, now for records: where a record
 //! ends changes nothing a connection decides. RFC 9846 §5.1 sizes records and RFC 9113 §4.1 sizes
 //! frames, and neither divides the other, so one frame may span records and one record may hold
 //! several frames. A run that cuts the same stream into different records must accept the same
@@ -32,7 +32,7 @@ pub const Violation = error{
     OutcomeUnexpected,
 } || connection_invariants.Violation;
 
-/// What one run of a seed produced: the events, in order, as one octet each.
+/// What one run of a seed produced: the events, in order, as one byte each.
 const Events = struct {
     held: [constants.tls_check_events_max]u8,
     len: usize,
@@ -64,7 +64,7 @@ pub const Storage = struct {
             constants.tls_check_records_max * constants.record_overhead_len
     ]u8,
     plaintext: [constants.tls_check_plaintext_len_max]u8,
-    /// Record octets delivered but not yet whole, which is what a socket read leaves behind.
+    /// Record bytes delivered but not yet whole, which is what a socket read leaves behind.
     pending: [
         constants.tls_check_stream_len_max +
             constants.tls_check_records_max * constants.record_overhead_len
@@ -121,7 +121,7 @@ fn write_frame(writer: *sim.core.Writer, frame_type: u8, flags: u8, stream_id: u
     writer.write_bytes(payload) catch unreachable;
 }
 
-/// Cuts `stream` into records at points `random` draws, and returns the octets. One record when
+/// Cuts `stream` into records at points `random` draws, and returns the bytes. One record when
 /// `cuts` is 0, which is the run every other run is compared against.
 fn cut_into_records(storage: *Storage, stream: []const u8, cuts: u64, random: *sim.Random) []const u8 {
     var writer = sim.core.Writer.init(&storage.records);
@@ -157,8 +157,8 @@ fn run_once(storage: *Storage, cuts: u64, chunked: bool, seed: u64) Violation!vo
     var held_len: usize = 0;
     var pending_len: usize = 0;
     var delivered: usize = 0;
-    // Each turn delivers at least one octet and then opens what it can, so the turns are at most
-    // one per octet of the stream and the loop is bounded (non-negotiable 4).
+    // Each turn delivers at least one byte and then opens what it can, so the turns are at most
+    // one per byte of the stream and the loop is bounded (non-negotiable 4).
     for (0..records.len + 1) |_| {
         if (delivered == records.len and pending_len == 0) break;
         if (delivered < records.len) {
@@ -173,12 +173,12 @@ fn run_once(storage: *Storage, cuts: u64, chunked: bool, seed: u64) Violation!vo
     assert(delivered == records.len and pending_len == 0);
 }
 
-/// Opens every whole record the pending octets hold, feeding what each yields to the connection.
+/// Opens every whole record the pending bytes hold, feeding what each yields to the connection.
 /// RFC 9846 §5.1: a record that is not whole yet is not an error, and the caller reads more.
 fn open_records(storage: *Storage, pending_len_in: usize, held_len_in: usize) Violation!struct { usize, usize } {
     var pending_len = pending_len_in;
     var held_len = held_len_in;
-    // The loop is bounded by the records the pending octets can hold (non-negotiable 4).
+    // The loop is bounded by the records the pending bytes can hold (non-negotiable 4).
     for (0..constants.tls_check_records_max + 1) |_| {
         const opened = h2.Connection.decrypt(
             &storage.connection,

@@ -4,7 +4,7 @@
 //!
 //! The states are the RFC's, and so are their names. `ready` accepts data from the application
 //! but has sent none; `send` has sent some; `data_sent` has sent the FIN and only retransmits;
-//! `data_recvd` is terminal and means every octet was acknowledged. `reset_sent` and
+//! `data_recvd` is terminal and means every byte was acknowledged. `reset_sent` and
 //! `reset_recvd` are the same pair for a stream abandoned with RESET_STREAM.
 //!
 //! An event that the current state does not admit is not an error here. RFC 9000 §3.3 decides
@@ -34,7 +34,7 @@ pub const Event = enum {
     sent_data,
     /// A STREAM frame carrying the FIN bit went out.
     sent_fin,
-    /// Every octet of the stream was acknowledged.
+    /// Every byte of the stream was acknowledged.
     all_data_acknowledged,
     /// The application abandoned the stream, or a STOP_SENDING frame arrived, so a
     /// RESET_STREAM frame went out (RFC 9000 §3.1, §3.5).

@@ -1,7 +1,7 @@
 //! The h11 cases of the golden corpus (design §8 step 15a): whole HTTP/1.1 messages, and the
 //! verdict h11 must return for each. A case's head is read by `h11.message`, and its body framed
 //! by the length RFC 9112 §6.3 gives it, through `h11.chunked` when the body is chunked. A case is
-//! accepted when every octet belongs to the message, and refused with the error h11 returns.
+//! accepted when every byte belongs to the message, and refused with the error h11 returns.
 //!
 //! The refusals are the shapes RFC 9112 §11.2 traces request smuggling to, one case each:
 //! Content-Length with Transfer-Encoding, chunked hidden or repeated, whitespace before a colon,
@@ -26,7 +26,7 @@ const Code = http.Status;
 pub const Error = h11.message.Error || h11.chunked.Error || ServerError || error{
     /// The message ended before its head, or before the body its length names.
     Truncated,
-    /// Octets follow the message's end.
+    /// Bytes follow the message's end.
     TrailingOctets,
 };
 
@@ -96,7 +96,7 @@ pub const request = [_]Case{
     // RFC 9112 §2.3 and §3.
     reject("h11_request_version_lowercase", "GET / http/1.1\r\nHost: a\r\n\r\n", error.VersionInvalid),
     reject("h11_request_two_spaces", "GET  / HTTP/1.1\r\nHost: a\r\n\r\n", error.TargetInvalid),
-    // The message ends before its body, or octets follow it.
+    // The message ends before its body, or bytes follow it.
     reject("h11_request_body_short", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\n\r\nhell", error.Truncated),
     reject("h11_request_trailing_octets", "GET / HTTP/1.1\r\nHost: a\r\n\r\nG", error.TrailingOctets),
 };
@@ -141,7 +141,7 @@ pub const server = [_]Case{
     // RFC 9112 §6.1: a transfer coding the server does not implement, and two stacked.
     reject("h11_server_coding_unknown", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: br, chunked\r\n\r\n", error.NotImplemented),
     reject("h11_server_codings_stacked", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, deflate, chunked\r\n\r\n", error.NotImplemented),
-    // RFC 9110 §9.3.6: a CONNECT request has no content, so the octets after its head are a
+    // RFC 9110 §9.3.6: a CONNECT request has no content, so the bytes after its head are a
     // tunnel's, and one that declares content is refused (decision 109).
     reject("h11_server_connect_content", "CONNECT a.example:443 HTTP/1.1\r\nHost: a.example:443\r\n" ++
         "Content-Length: 5\r\n\r\nhello", error.BadRequest),
@@ -165,10 +165,10 @@ var trailers: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 var connection: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var response_octets: [response_len_max]u8 = undefined;
 
-/// The octets of the 204 a server case answers each request with, at most.
+/// The bytes of the 204 a server case answers each request with, at most.
 const response_len_max = 64;
 
-/// Passes of the server's read loop per octet: one that consumes it, and one that ends a request.
+/// Passes of the server's read loop per byte: one that consumes it, and one that ends a request.
 const passes_per_octet = 2;
 
 /// 431 Request Header Fields Too Large (RFC 6585 §5), which RFC 9110 §15 does not define.
@@ -187,8 +187,8 @@ pub fn decode_server(octets: []const u8) Error!void {
 }
 
 fn serve(reader: *core.Reader) h11.Connection.Error!void {
-    // Every pass consumes an octet or ends a request, and a request takes at least one octet, so
-    // n octets take at most 2n passes, and one more finds them short.
+    // Every pass consumes a byte or ends a request, and a request takes at least one byte, so
+    // n bytes take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * reader.remaining_len() + 1) |_| {
         const received = try connection.receive(reader.peek_rest(), &.{});
         _ = reader.take(received.consumed) catch unreachable;
@@ -245,7 +245,7 @@ fn consume_body(role: h11.message.Role, length: Length, body: []const u8) Error!
 fn consume_chunked(role: h11.message.Role, body: []const u8) Error!void {
     var decoder: h11.chunked.Decoder = .{};
     var reader = core.Reader.init(body);
-    // Bounded: each call consumes an octet at least, or the coding stops.
+    // Bounded: each call consumes a byte at least, or the coding stops.
     for (0..body.len + 1) |_| {
         const decoded = try decoder.decode(role, reader.peek_rest(), &trailers);
         _ = reader.take(decoded.consumed) catch unreachable;

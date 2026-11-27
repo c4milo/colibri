@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 pub const status_code_min: u16 = 100;
 pub const status_code_max: u16 = 599;
 
-/// Octets in a status code written as text: RFC 9110 §15 makes it a three-digit integer.
+/// Bytes in a status code written as text: RFC 9110 §15 makes it a three-digit integer.
 pub const status_digits_len: u8 = 3;
 
 /// The base the status digits are written in: DIGIT is a decimal digit (RFC 5234 Appendix B.1).

@@ -1,18 +1,18 @@
 //! The prefixed integer of RFC 7541 §5.1, which RFC 9204 §4.1.1 uses unmodified: HPACK and QPACK
 //! read the same integers (decision 11).
 //!
-//! An integer starts inside an octet whose high `8 - N` bits belong to the field before it. A
+//! An integer starts inside a byte whose high `8 - N` bits belong to the field before it. A
 //! value below `2^N - 1` fits in the N-bit prefix. A larger value fills the prefix with ones and
-//! carries the remainder in continuation octets, seven bits each, least significant group first,
-//! with the high bit set on every octet but the last.
+//! carries the remainder in continuation bytes, seven bits each, least significant group first,
+//! with the high bit set on every byte but the last.
 //!
 //! The codec is generic over N in 1..8, because QPACK uses prefix widths HPACK never does
 //! (RFC 9204 §4.1.1), and it decodes up to 62 bits, which RFC 9204 §4.1.1 requires. Decoding
 //! checks, in order (invariant 7):
-//!   1. the prefix octet and every continuation octet are present, or `error.Truncated`;
-//!   2. no more than `integer_len_max` octets, or `error.IntegerTooLong`;
+//!   1. the prefix byte and every continuation byte are present, or `error.Truncated`;
+//!   2. no more than `integer_len_max` bytes, or `error.IntegerTooLong`;
 //!   3. the value is at most `integer_value_max`, or `error.IntegerTooLarge`.
-//! The high bits of the prefix octet are the caller's: the decoder masks them off and never reads
+//! The high bits of the prefix byte are the caller's: the decoder masks them off and never reads
 //! them. A failed decode consumes nothing.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -23,7 +23,7 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 
 pub const DecodeError = core.Reader.Error || error{
-    /// More continuation octets than `integer_len_max` allows.
+    /// More continuation bytes than `integer_len_max` allows.
     IntegerTooLong,
     /// A value above `integer_value_max`.
     IntegerTooLarge,
@@ -40,7 +40,7 @@ fn prefix_max(comptime prefix_size: u4) u8 {
     return @intCast((@as(u16, 1) << prefix_size) - 1);
 }
 
-/// Decodes one integer whose prefix is the low `prefix_size` bits of the next octet.
+/// Decodes one integer whose prefix is the low `prefix_size` bits of the next byte.
 pub fn decode(comptime prefix_size: u4, reader: *Reader) DecodeError!u64 {
     const mask = prefix_max(prefix_size);
     var cursor = reader.*;
@@ -55,19 +55,19 @@ pub fn decode(comptime prefix_size: u4, reader: *Reader) DecodeError!u64 {
         const octet = try cursor.take_byte();
         const shift: u6 = @intCast(group * constants.protocol.integer_continuation_bits);
         value += @as(u64, octet & continuation_value_mask) << shift;
-        // RFC 7541 §5.1: the continuation flag is clear on the last octet of the list.
+        // RFC 7541 §5.1: the continuation flag is clear on the last byte of the list.
         if (octet & continuation_flag != 0) continue;
         // RFC 9204 §4.1.1 requires 62 bits; RFC 7541 §5.1 makes a value past the limit an error.
         if (value > constants.protocol.integer_value_max) return error.IntegerTooLarge;
         reader.* = cursor;
         return value;
     }
-    // RFC 7541 §5.1: an encoding longer than the implementation's octet limit is a decoding error.
+    // RFC 7541 §5.1: an encoding longer than the implementation's byte limit is a decoding error.
     return error.IntegerTooLong;
 }
 
-/// Encodes `value` with its prefix in the low `prefix_size` bits of the first octet, whose high
-/// bits are `high_bits`. All of the octets are written, or none.
+/// Encodes `value` with its prefix in the low `prefix_size` bits of the first byte, whose high
+/// bits are `high_bits`. All of the bytes are written, or none.
 pub fn encode(
     comptime prefix_size: u4,
     writer: *Writer,
@@ -80,7 +80,7 @@ pub fn encode(
     // RFC 7541 §5.1: a value below 2^N - 1 is encoded within the prefix.
     if (value < mask) return writer.write_byte(high_bits | @as(u8, @intCast(value)));
     const rest = value - mask;
-    // RFC 7541 §5.1: a remainder of seven bits or fewer is one continuation octet, the last.
+    // RFC 7541 §5.1: a remainder of seven bits or fewer is one continuation byte, the last.
     if (rest <= continuation_value_mask) {
         return writer.write_int_big(u16, @as(u16, high_bits | mask) << @bitSizeOf(u8) | @as(u16, @intCast(rest)));
     }
@@ -88,14 +88,14 @@ pub fn encode(
 }
 
 /// Writes `first`, the caller's high bits over a prefix of ones, then `remainder` in two
-/// continuation octets or more. It takes no prefix size, so it is compiled once for every one.
+/// continuation bytes or more. It takes no prefix size, so it is compiled once for every one.
 fn encode_continued(writer: *Writer, first: u8, remainder: u64) core.Writer.Error!void {
     assert(remainder > continuation_value_mask);
     var octets: [constants.protocol.integer_len_max]u8 = @splat(0);
     octets[0] = first;
     var rest = remainder;
     for (1..constants.protocol.integer_len_max) |index| {
-        // RFC 7541 §5.1: the continuation flag is clear on the last octet of the list.
+        // RFC 7541 §5.1: the continuation flag is clear on the last byte of the list.
         if (rest <= continuation_value_mask) {
             octets[index] = @intCast(rest);
             return writer.write_bytes(octets[0 .. index + 1]);
@@ -137,7 +137,7 @@ test "the high bits belong to the caller and never change the value" {
 }
 
 test "continuation octets follow only while the remainder is 128 or more" {
-    // RFC 7541 §5.1's encoder loops while I >= 128, so a remainder of 127 is one octet.
+    // RFC 7541 §5.1's encoder loops while I >= 128, so a remainder of 127 is one byte.
     try expect_round_trip(5, 0, 31 + 127, &.{ 0x1f, 0x7f });
     try expect_round_trip(5, 0, 31 + 128, &.{ 0x1f, 0x80, 0x01 });
 }
@@ -167,7 +167,7 @@ test "an eleventh octet is IntegerTooLong even when every group is zero" {
     var reader = Reader.init(&too_long);
     try testing.expectError(error.IntegerTooLong, decode(5, &reader));
     try testing.expectEqual(0, reader.offset);
-    // Ten octets of zero-valued padding is still inside the limit.
+    // Ten bytes of zero-valued padding is still inside the limit.
     var inside = Reader.init(too_long[0..9] ++ [_]u8{0x00});
     try testing.expectEqual(31, try decode(5, &inside));
 }
@@ -180,7 +180,7 @@ test "a truncated integer consumes nothing" {
     }
 }
 
-/// Most octets a fuzz input carries: one more than the longest integer, so IntegerTooLong is
+/// Most bytes a fuzz input carries: one more than the longest integer, so IntegerTooLong is
 /// reachable.
 const fuzz_input_len_max = constants.protocol.integer_len_max + 1;
 
@@ -218,7 +218,7 @@ test "sweep: every input of up to two octets, at every prefix size, is bounded o
     try core.fuzz.sweep(fuzz_decode, .{ .min = 1, .max = 8 });
 }
 
-/// The octets of one vector line at most, the base its numbers are in, and the lines of each kind
+/// The bytes of one vector line at most, the base its numbers are in, and the lines of each kind
 /// `prefixed_integer_vectors.txt` holds. Test-only.
 const vector_octets_max = constants.protocol.integer_len_max + 1;
 const vector_radix = 10;
@@ -241,7 +241,7 @@ fn encode_at(prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.W
     };
 }
 
-/// `encode n high value octets`: `encode` writes the octets, and `decode` reads the value back
+/// `encode n high value octets`: `encode` writes the bytes, and `decode` reads the value back
 /// from all of them.
 fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     const prefix_size = try std.fmt.parseUnsigned(u4, fields.next().?, vector_radix);
@@ -307,7 +307,7 @@ test "the codec gives what the proved definitions give (spec/lean/Colibri/Wire/P
 
 // The tests below hold `encode` to the encoder it replaced, which built every encoding in an array
 // and wrote it with one call. It stays here as the reference: `encode` must return what it
-// returns and leave the same octets written, at every prefix size and in every room.
+// returns and leave the same bytes written, at every prefix size and in every room.
 
 /// The reference: `encode` as it was.
 fn encode_by_array(comptime prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.Writer.Error!void {
@@ -320,7 +320,7 @@ fn encode_by_array(comptime prefix_size: u4, writer: *Writer, high_bits: u8, val
     octets[0] = high_bits | mask;
     var rest = value - mask;
     for (1..constants.protocol.integer_len_max) |index| {
-        // RFC 7541 §5.1: the continuation flag is clear on the last octet of the list.
+        // RFC 7541 §5.1: the continuation flag is clear on the last byte of the list.
         if (rest <= continuation_value_mask) {
             octets[index] = @intCast(rest);
             return writer.write_bytes(octets[0 .. index + 1]);
@@ -334,16 +334,16 @@ fn encode_by_array(comptime prefix_size: u4, writer: *Writer, high_bits: u8, val
 /// What a buffer holds before a call.
 const untouched: u8 = 0xee;
 /// The values the tests walk through one by one: every value of up to `walked_bits` bits, which
-/// takes every prefix size through its one-octet, two-octet and three-octet encodings.
+/// takes every prefix size through its one-byte, two-byte and three-byte encodings.
 const walked_bits = 15;
 const walked_values = 1 << walked_bits;
-/// The rooms a value is encoded in: none, each up to the longest encoding, and one octet past.
+/// The rooms a value is encoded in: none, each up to the longest encoding, and one byte past.
 const rooms = constants.protocol.integer_len_max + room_past_longest + 1;
-/// The octets of room past the longest encoding the tests give.
+/// The bytes of room past the longest encoding the tests give.
 const room_past_longest = 1;
 
 /// Fails, printing both outcomes, when `encode` and the reference differ on `value` with `room`
-/// octets of output: in whether they fail, or in the octets they leave written.
+/// bytes of output: in whether they fail, or in the bytes they leave written.
 fn expect_same_encoding(comptime prefix_size: u4, high_bits: u8, value: u64, room: usize) !void {
     var changed_buffer: [constants.protocol.integer_len_max + 1]u8 = @splat(untouched);
     var reference_buffer: [constants.protocol.integer_len_max + 1]u8 = @splat(untouched);
@@ -359,12 +359,12 @@ fn expect_same_encoding(comptime prefix_size: u4, high_bits: u8, value: u64, roo
     return error.TestUnexpectedResult;
 }
 
-/// Compares on `value` in each room from none to one octet past what its encoding needs.
+/// Compares on `value` in each room from none to one byte past what its encoding needs.
 fn expect_same_in_every_room(comptime prefix_size: u4, high_bits: u8, value: u64) !void {
     for (0..rooms) |room| try expect_same_encoding(prefix_size, high_bits, value, room);
 }
 
-/// Compares at each value past the walked ones where an encoding gains an octet,
+/// Compares at each value past the walked ones where an encoding gains a byte,
 /// `2^N - 1 + 2^(7k)`, and at the values beside it, up to the ceiling.
 fn expect_same_at_boundaries(comptime prefix_size: u4, high_bits: u8) !void {
     var group: u64 = 1;

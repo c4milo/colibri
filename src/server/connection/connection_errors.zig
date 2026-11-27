@@ -41,7 +41,7 @@ pub const SendError = error{
     /// call again.
     NoSpaceLeft,
     /// `write_body` wrote nothing: no room, h2's flow-control window is closed (RFC 9113 §6.9), or
-    /// a coded response's ring is full. Or `write_trailers` found a coded response's octets not all
+    /// a coded response's ring is full. Or `write_trailers` found a coded response's bytes not all
     /// written. The request's `writable` says when to call again.
     Blocked,
     /// No request with this id waits for this call: it never arrived, is answered, or is cancelled.

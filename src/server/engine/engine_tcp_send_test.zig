@@ -118,7 +118,7 @@ test "decision 119: an h11 cancel ends the request, and then the connection" {
 test "RFC 9113 §5.4.1: an h2 connection error ends open requests, sends the GOAWAY, closes, and fails" {
     const handle = try start_h2(false);
     // RFC 9113 §6.1: a DATA frame on stream 0 is a connection error of type PROTOCOL_ERROR. Its
-    // header is a length of 1, type 0, no flags and stream 0, then one octet.
+    // header is a length of 1, type 0, no flags and stream 0, then one byte.
     _ = support.give(handle, "\x00\x00\x01\x00\x00\x00\x00\x00\x00x");
     support.collect();
     try testing.expectEqual(event.CancelReason.closed, support.nth(.cancelled, 0).?.reason.?);
@@ -140,7 +140,7 @@ test "decision 101: a coded response's ring owes octets, which a send writes out
     try engine.respond(id, .{ .status = ok, .end = false, .codable = true });
     _ = try engine.write_body(id, .{ .bytes = "coded through the ring", .end = true });
     support.collect();
-    // The ring's octets went out, so the response is whole and done.
+    // The ring's bytes went out, so the response is whole and done.
     try testing.expect(support.nth(.done, 0) != null);
 }
 
@@ -154,7 +154,7 @@ test "RFC 9112 §9.6: input after h11 closed is consumed and dropped" {
     try testing.expectEqual(0, support.give(handle, get_kept));
 }
 
-/// The client preface with SETTINGS_INITIAL_WINDOW_SIZE (0x4) of 100 octets (RFC 9113 §6.5.2),
+/// The client preface with SETTINGS_INITIAL_WINDOW_SIZE (0x4) of 100 bytes (RFC 9113 §6.5.2),
 /// then the acknowledgment of the server's SETTINGS.
 const preface_small_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
     "\x00\x04\x00\x00\x00\x64" ++ h2_support.settings_ack;
@@ -174,7 +174,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     try engine.respond(id, .{ .status = ok, .end = false, .codable = true });
     _ = try engine.write_body(id, .{ .bytes = tcp_support.incompressible[0..coded_len], .end = true });
     support.collect();
-    // The window took 100 octets of the ring, and the rest waits.
+    // The window took 100 bytes of the ring, and the rest waits.
     try testing.expectEqual(null, support.nth(.done, 0));
     var update: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&update);
@@ -184,7 +184,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     try testing.expect(support.nth(.done, 0) != null);
 }
 
-/// Incompressible content longer than the stream's window of 100 octets.
+/// Incompressible content longer than the stream's window of 100 bytes.
 const coded_len: usize = 2_048;
 
 test "decision 119: a pipelined h11 request held by the program is read once it is passed after done" {
@@ -199,7 +199,7 @@ test "decision 119: a pipelined h11 request held by the program is read once it 
     try engine.respond(id, .{ .status = ok, .headers = &length, .end = false });
     _ = try engine.write_body(id, .{ .bytes = "hello", .end = false });
     support.collect();
-    // The end writes no octet, so no `send` follows it: the `done` is the event to pass again on.
+    // The end writes no byte, so no `send` follows it: the `done` is the event to pass again on.
     _ = try engine.write_body(id, .{ .bytes = "", .end = true });
     support.collect();
     try testing.expect(support.nth(.done, 0) != null);

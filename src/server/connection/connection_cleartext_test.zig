@@ -1,5 +1,5 @@
 //! The tests of a server connection in cleartext that chooses between h11 and h2 by its first
-//! octets (`connection_cleartext.zig`, decision 117).
+//! bytes (`connection_cleartext.zig`, decision 117).
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
@@ -49,7 +49,7 @@ test "RFC 9113 §3.3: a prefix of the preface chooses nothing and consumes nothi
     // Nothing is said before a protocol is chosen.
     try testing.expectEqual(0, support.drain().len);
     try testing.expect(!connection.should_close());
-    // The caller passes the octets again with what it read next.
+    // The caller passes the bytes again with what it read next.
     const received = try support.receive_copy(preface_and_settings);
     try testing.expectEqual(preface_and_settings.len, received.consumed);
     try testing.expectEqual(.h2, connection.protocol().?);
@@ -62,7 +62,7 @@ test "decision 117: a version `versions` turns off is never chosen" {
     try testing.expectEqual(.h11, connection.protocol().?);
     _ = support.receive_copy(preface_and_settings) catch {};
     try testing.expectEqual(.h11, connection.protocol().?);
-    // h2 alone: other first octets are an invalid preface, which fails the connection (RFC 9113
+    // h2 alone: other first bytes are an invalid preface, which fails the connection (RFC 9113
     // §3.4).
     support.config = .{ .cpu_features = .none(), .protocols = support.only(.h2) };
     try connection.init(&support.config, null, 0, 0);
@@ -96,11 +96,11 @@ test "decision 117: a shutdown before the first octets ends the connection at on
 }
 
 test "decision 110 as amended: a body rate is judged by the version the first octets chose" {
-    // While the first octets may still choose h2, whose body arrives a DATA frame at a time, a
+    // While the first bytes may still choose h2, whose body arrives a DATA frame at a time, a
     // rate an honest peer can fall short of is refused.
     try start_both();
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
-    // h11 in cleartext reads a body octet by octet, so once it is chosen any rate stands.
+    // h11 in cleartext reads a body byte by byte, so once it is chosen any rate stands.
     _ = try support.receive_copy(h11_request);
     try testing.expectEqual(.h11, connection.protocol().?);
     try connection.set_timeouts(.{ .body_rate_min = 819 });

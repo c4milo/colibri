@@ -20,7 +20,7 @@ const Field = dynamic_table.Field;
 /// The encoder the tests run in, placed outside any stack frame.
 threadlocal var test_encoder: Encoder align(@alignOf(Encoder)) = undefined;
 
-/// Octets of block the tests write. Test-only.
+/// Bytes of block the tests write. Test-only.
 const test_block_len_max = 256;
 
 fn expect_block(lines: []const Field, expected: []const u8) !void {
@@ -264,7 +264,7 @@ test "RFC 7541 Appendix A: the static index finds nothing for a name one octet a
     var varied: [varied_len_max + 1]u8 = undefined;
     for (static_table.entries) |entry| {
         const name = entry.name;
-        // The name one octet shorter, one octet longer, and with each octet changed.
+        // The name one byte shorter, one byte longer, and with each byte changed.
         if (name.len > 0) try expect_same_match(name[0 .. name.len - 1], entry.value);
         @memcpy(varied[0..name.len], name);
         varied[name.len] = 'x';

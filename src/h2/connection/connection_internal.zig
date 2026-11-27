@@ -12,10 +12,10 @@ const Error = connection_module.Connection.Error;
 const Limit = connection_module.Limit;
 const Writer = @import("core").Writer;
 
-/// Writes the preface: the client's 24 octets, then colibri's SETTINGS, each once and whole.
+/// Writes the preface: the client's 24 bytes, then colibri's SETTINGS, each once and whole.
 pub fn write_preface(connection: *Connection, writer: *Writer, now_ns: u64) void {
     if (connection.role == .client and !connection.preface_written) {
-        // RFC 9113 §3.4: a client starts the connection with these 24 octets.
+        // RFC 9113 §3.4: a client starts the connection with these 24 bytes.
         writer.write_bytes(constants.protocol.client_preface) catch return;
         connection.preface_written = true;
     }

@@ -2,7 +2,7 @@
 # Careful Resume's arithmetic (RFC 9959, decision 149)
 
 `src/quic/recovery/recovery_resume_phases.zig` computes the jump of §3.3 and the retreat of §3.5
-in octets. The definitions follow the Zig line for line; the theorems are about them:
+in bytes. The definitions follow the Zig line for line; the theorems are about them:
 
 - `jump_le_half` and `jump_le_max`: the jump is at most half the saved window and at most
   max_jump (§3.3: "jump_cwnd is less than or equal to Min(max_jump,(saved_cwnd/2))").

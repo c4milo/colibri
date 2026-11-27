@@ -230,7 +230,7 @@ const Match = struct {
 };
 
 /// The lowest static index holding the whole line, and the lowest holding its name. Appendix A
-/// orders the entries so the commonest field lines take the fewest octets, and the lowest index
+/// orders the entries so the commonest field lines take the fewest bytes, and the lowest index
 /// is the shortest to encode, so the first match of each is the one to take. The name finds its
 /// entries through `static_names`, and the value is compared with those entries alone (design §8
 /// step 29d.8).
@@ -293,7 +293,7 @@ const static_names_len: usize = count: {
 const static_quota: u32 = 1_000_000;
 
 comptime {
-    // An index of Appendix A fits the octet `static_names` holds it in.
+    // An index of Appendix A fits the byte `static_names` holds it in.
     assert(static_table.entries.len <= std.math.maxInt(u8) + 1);
 }
 

@@ -40,7 +40,7 @@ const rows = [_]Row{
     .{ .name = "server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })", .size = @sizeOf(server.Engine(one_tcp)), .holds = "an engine that holds one TCP connection" },
     .{ .name = "server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })", .size = @sizeOf(server.Engine(one_quic)), .holds = "an engine that holds one QUIC connection, with its receive pool" },
     .{ .name = "std.meta.Elem(@FieldType(server.Engine(.{}), \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))), .holds = "the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS, with no TLS session" },
-    .{ .name = "server.Config.tls_buffer_len(1)", .size = server.Config.tls_buffer_len(1), .holds = "the octets of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167)" },
+    .{ .name = "server.Config.tls_buffer_len(1)", .size = server.Config.tls_buffer_len(1), .holds = "the bytes of `Config.tls_buffer` that hold the TLS session of one TCP connection over TLS (decision 167)" },
     .{ .name = "std.meta.Elem(@FieldType(server.Engine(.{}), \"quic\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))), .holds = "the connection each QUIC slot of an engine holds, without its receive pool" },
     .{ .name = "server.EncoderPool(.{})", .size = @sizeOf(server.EncoderPool(.{})), .holds = "the encoders a program gives a server's connections, at the default options" },
     .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool(.{}), \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))), .holds = "each TCP connection of a pool: h11 or h2, in cleartext or over TLS" },

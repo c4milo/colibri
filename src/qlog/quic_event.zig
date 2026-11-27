@@ -33,7 +33,7 @@ pub const name = struct {
 /// A time span in nanoseconds, which `fields` writes as milliseconds (main schema §1.2).
 pub const Duration = struct { ns: u64 };
 
-/// Octets that `fields` writes as a hexstring (main schema §1.2).
+/// Bytes that `fields` writes as a hexstring (main schema §1.2).
 pub const Hex = struct { octets: []const u8 };
 
 /// Quic-events §8.6.
@@ -164,7 +164,7 @@ pub const VersionInformation = struct {
     }
 };
 
-/// Quic-events §5.2's ALPNIdentifier, as octets (decision 102).
+/// Quic-events §5.2's ALPNIdentifier, as bytes (decision 102).
 pub const AlpnIdentifier = struct { byte_value: Hex };
 
 /// Quic-events §5.2, once the handshake chose a protocol.
@@ -202,7 +202,7 @@ pub const ParametersSet = struct {
 };
 
 /// Quic-events §8.5: one half of a four-tuple. colibri knows the peer's half alone, as the caller
-/// names it, and writes the address's octets as a hexstring, which §8.4 allows.
+/// names it, and writes the address's bytes as a hexstring, which §8.4 allows.
 pub const TupleEndpointInfo = struct {
     ip_v4: ?Hex = null,
     port_v4: ?u16 = null,

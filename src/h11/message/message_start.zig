@@ -8,7 +8,7 @@
 //! reading "can result in request smuggling security vulnerabilities", and §4 that it can result
 //! in response splitting.
 //!
-//! The request-target is read as a run of visible octets here. Which of §3.2's four forms it
+//! The request-target is read as a run of visible bytes here. Which of §3.2's four forms it
 //! takes, and whether that form suits the method, is `message_target.zig`'s concern.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -24,7 +24,7 @@ pub const Error = error{
     StartLineInvalid,
     /// A method that is not a token (RFC 9112 §3.1, RFC 9110 §9.1).
     MethodInvalid,
-    /// A request-target that is empty or holds an octet other than a visible one (RFC 9112 §3.2).
+    /// A request-target that is empty or holds a byte other than a visible one (RFC 9112 §3.2).
     TargetInvalid,
     /// An HTTP-version that is not `HTTP/` DIGIT `.` DIGIT, compared case-sensitively
     /// (RFC 9112 §2.3).
@@ -33,7 +33,7 @@ pub const Error = error{
     VersionUnsupported,
     /// A status code that is not three digits (RFC 9112 §4, RFC 9110 §15).
     StatusInvalid,
-    /// A reason phrase holding an octet other than HTAB, SP, VCHAR or obs-text (RFC 9112 §4).
+    /// A reason phrase holding a byte other than HTAB, SP, VCHAR or obs-text (RFC 9112 §4).
     ReasonInvalid,
 };
 
@@ -43,24 +43,24 @@ pub const Version = struct {
     minor: u8,
 };
 
-/// A request line. The slices point into the caller's octets.
+/// A request line. The slices point into the caller's bytes.
 pub const RequestLine = struct {
     method: []const u8,
     target: []const u8,
     version: Version,
 };
 
-/// A status line. The reason phrase points into the caller's octets, and may be empty.
+/// A status line. The reason phrase points into the caller's bytes, and may be empty.
 pub const StatusLine = struct {
     version: Version,
     status: http.Status,
     reason: []const u8,
 };
 
-/// The one octet between the elements of a start line (RFC 9112 §3, §4).
+/// The one byte between the elements of a start line (RFC 9112 §3, §4).
 const separator = ' ';
 
-/// The octet between the major and the minor version (RFC 9112 §2.3).
+/// The byte between the major and the minor version (RFC 9112 §2.3).
 const version_dot = '.';
 
 /// `request-line = method SP request-target SP HTTP-version` (RFC 9112 §3).
@@ -134,10 +134,10 @@ fn parse_version(octets: []const u8) Error!Version {
     return version;
 }
 
-/// A request-target is one run of visible octets: RFC 9112 §3.2 allows no whitespace in it, and
+/// A request-target is one run of visible bytes: RFC 9112 §3.2 allows no whitespace in it, and
 /// each of its four forms is built from URI characters, none of them a control or obs-text.
 fn check_target(target: []const u8) Error!void {
-    // RFC 9112 §3.2: every form has at least one octet.
+    // RFC 9112 §3.2: every form has at least one byte.
     if (target.len == 0) return error.TargetInvalid;
     for (target) |octet| {
         // RFC 9112 §3.2: no whitespace is allowed in the request-target.
@@ -160,7 +160,7 @@ fn is_visible(octet: u8) bool {
     return octet >= '!' and octet <= '~';
 }
 
-/// The first octet of obs-text, which runs %x80-FF (RFC 9110 §5.6.4).
+/// The first byte of obs-text, which runs %x80-FF (RFC 9110 §5.6.4).
 const obs_text_first: u8 = 0x80;
 
 /// obs-text: %x80-FF (RFC 9110 §5.6.4).
@@ -231,7 +231,7 @@ test "a status line reads into its version, status and reason, and the reason ma
 
 test "RFC 9112 §4: the SP after the status code is required, and the elements are one SP apart" {
     try testing.expectError(error.StartLineInvalid, parse_status_line("HTTP/1.1 200"));
-    // A second SP is read as the first octet of the status code.
+    // A second SP is read as the first byte of the status code.
     try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1  200 OK"));
     try testing.expectError(error.StartLineInvalid, parse_status_line("HTTP/1.1 2000 OK"));
     try testing.expectError(error.StartLineInvalid, parse_status_line("HTTP/1.1x200 OK"));

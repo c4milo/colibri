@@ -22,7 +22,7 @@ const alert_body_len: usize = 2;
 const level_fatal: u8 = 2;
 /// An alert record in the clear: the record header, then the alert.
 const clear_alert_len = record_header_len + alert_body_len;
-/// RFC 9846 §4: a handshake message's type is the octet after the record header, and 2 is a
+/// RFC 9846 §4: a handshake message's type is the byte after the record header, and 2 is a
 /// ServerHello, which a server never reads.
 const server_hello_type: u8 = 2;
 
@@ -91,7 +91,7 @@ test "RFC 9846 §6.2: a server that refuses the client's Finished sends the aler
     to_client.take(finished.consumed);
     to_server.len += finished.written;
     try testing.expect(finished.complete);
-    // RFC 9846 §5.2: a record changed in its last octet fails authentication.
+    // RFC 9846 §5.2: a record changed in its last byte fails authentication.
     to_server.held()[to_server.len - 1] ^= 1;
     try testing.expectError(error.HandshakeFailed, server.handshake(to_server.held(), to_client.free()));
     try testing.expectEqual(record.alert_record_len, server.failure_written());

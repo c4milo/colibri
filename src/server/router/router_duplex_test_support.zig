@@ -1,5 +1,5 @@
 //! What the tests of a stream route that answers while its client still sends share (decision 127
-//! as amended, design §8 step 46). The route owes `App.reply_len` octets for each request octet,
+//! as amended, design §8 step 46). The route owes `App.reply_len` bytes for each request byte,
 //! and writes them from `on_data` and `next`. The route table names it beside a function route,
 //! which answers once the body ended (decision 163 ruling 4). Test-only.
 const std = @import("std");
@@ -10,7 +10,7 @@ const RequestBodyStream = @import("../request_body_stream.zig").RequestBodyStrea
 const RequestContext = @import("../request_context.zig").RequestContext;
 const Router = @import("router.zig").Router;
 
-/// Octets of the entry's response memory, body memory and header memory, and of each message the
+/// Bytes of the entry's response memory, body memory and header memory, and of each message the
 /// route writes. Test-only.
 pub const response_bytes = 256;
 const body_bytes = 16;
@@ -22,12 +22,12 @@ const pattern_period = 251;
 const writes_max = 4096;
 const internal_server_error: http.Status = .internal_server_error;
 
-/// The octet at `offset` of each test's response.
+/// The byte at `offset` of each test's response.
 pub fn octet_at(offset: usize) u8 {
     return @intCast(offset % pattern_period);
 }
 
-/// Whether `bytes` is the start of each test's response, `len` octets long.
+/// Whether `bytes` is the start of each test's response, `len` bytes long.
 pub fn is_reply(bytes: []const u8, len: usize) bool {
     if (bytes.len != len) return false;
     for (bytes, 0..) |octet, offset| {
@@ -38,22 +38,22 @@ pub fn is_reply(bytes: []const u8, len: usize) bool {
 
 /// What a test sets for its route, and what the route did.
 pub const App = struct {
-    /// Octets the route owes for each request octet, and at the request's head.
+    /// Bytes the route owes for each request byte, and at the request's head.
     reply_len: usize,
     head_len: usize = 0,
-    /// Octets the route wrote through `body()`, the calls of `next` while the request body was
+    /// Bytes the route wrote through `body()`, the calls of `next` while the request body was
     /// open, and those of them that wrote nothing.
     written: usize = 0,
     open_calls: usize = 0,
     idle_calls: usize = 0,
     /// Whether the route ended its response.
     ended: bool = false,
-    /// The calls of the function route, and the octets of the body it read.
+    /// The calls of the function route, and the bytes of the body it read.
     whole_calls: usize = 0,
     body_len: usize = 0,
 };
 
-/// Owes `App.head_len` octets at the head and `App.reply_len` for each request octet, writes what
+/// Owes `App.head_len` bytes at the head and `App.reply_len` for each request byte, writes what
 /// it owes from each of its calls, and ends the response once the request body ended and it owes nothing.
 pub const Duplex = struct {
     pub const State = struct { owed: usize = 0, body_ended: bool = false };
@@ -65,7 +65,7 @@ pub const Duplex = struct {
     }
 
     pub fn on_data(app: *App, _: *RequestContext, state: *State, body: *RequestBodyStream, response: *Response) !void {
-        // Bounded: each pass takes one piece of the octets that arrived.
+        // Bounded: each pass takes one piece of the bytes that arrived.
         for (0..writes_max) |_| {
             const piece = body.next() orelse break;
             state.owed += piece.len * app.reply_len;
@@ -83,7 +83,7 @@ pub const Duplex = struct {
     }
 };
 
-/// Reads the whole body in its one call, and owes `App.head_len` octets, which it writes before it
+/// Reads the whole body in its one call, and owes `App.head_len` bytes, which it writes before it
 /// ends the response. The engine takes a part of them, and the router writes the rest once the
 /// engine has room.
 pub fn whole(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {

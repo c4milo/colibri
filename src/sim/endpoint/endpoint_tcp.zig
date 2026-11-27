@@ -52,7 +52,7 @@ pub fn Stream(comptime len: usize) type {
             return stream.octets[stream.consumed..stream.delivered];
         }
 
-        /// Delivers up to `count` octets written and not yet delivered, and returns whether any
+        /// Delivers up to `count` bytes written and not yet delivered, and returns whether any
         /// moved.
         pub fn deliver(stream: *Self, count: usize) bool {
             const moved = @min(count, stream.written - stream.delivered);
@@ -215,7 +215,7 @@ fn connect(peer: *Peer, now_ns: u64) Error!void {
     unreachable;
 }
 
-/// The events of a connection's start with no octet read: `connected` in cleartext, and `send`.
+/// The events of a connection's start with no byte read: `connected` in cleartext, and `send`.
 const connect_events_max = 2;
 
 /// Whether the peer's exchanges go one at a time: an upload's, so each request's body has the whole
@@ -225,7 +225,7 @@ fn one_at_a_time(plan: *const TcpPeer) bool {
 }
 
 /// How a peer's client speaks: in cleartext the plan's protocol alone, which the endpoint chooses
-/// from the client's first octets (RFC 9113 §3.3), and over TLS the plan's protocol alone, which
+/// from the client's first bytes (RFC 9113 §3.3), and over TLS the plan's protocol alone, which
 /// ALPN selects.
 fn way_of(plan: *const TcpPeer) Way {
     const h2 = plan.behaviour.protocol == .h2;
@@ -259,14 +259,14 @@ pub fn note_read(peer: *Peer, now_ms: u64) void {
     peer.reads += 1;
 }
 
-/// The octets of each upload: letters alone.
+/// The bytes of each upload: letters alone.
 const letters = "abcdefghijklmnopqrstuvwxyz";
 
 pub fn fill(random: *Random, buffer: []u8) void {
     for (buffer) |*octet| octet.* = @truncate(random.next());
 }
 
-/// The peer writes what is due at `now_ms`, each octet into `wire` as it writes it, and what it
+/// The peer writes what is due at `now_ms`, each byte into `wire` as it writes it, and what it
 /// wrote is delivered as its pace allows. Returns whether anything moved.
 pub fn write(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64, wire: *std.hash.Crc32) Error!bool {
     assert(peer.state == .served and !peer.closed);
@@ -310,7 +310,7 @@ pub fn read(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) Error!b
         if (reads_frames) peer.hostile.read_h2(stream.octets[0..stream.delivered], peer.connection_ms(now_ms));
         return moved;
     }
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..limits.to_client_len + limits.events_per_pass_max) |_| {
         const received = peer.client.receive(.{ .stream = .{ .connection = peer.connection, .bytes = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
@@ -385,7 +385,7 @@ fn reset_ms(peer: *const Peer, plan: *const TcpPeer) ?u64 {
 }
 
 /// Whether the peer closes its socket at `now_ms`: an early-closing peer once its delay passed,
-/// and colibri's client once its pool reported `close` and the endpoint consumed every octet
+/// and colibri's client once its pool reported `close` and the endpoint consumed every byte
 /// it wrote.
 pub fn closes(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
     if (plan.overlay == .early_closing and now_ms >= close_ms(peer, plan)) return true;

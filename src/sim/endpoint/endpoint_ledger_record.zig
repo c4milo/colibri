@@ -8,7 +8,7 @@ const server = @import("server");
 
 const Handle = server.ConnectionHandle;
 
-/// Octets of one event's record in the CRC of the events: its kind, a detail, its slot and
+/// Bytes of one event's record in the CRC of the events: its kind, a detail, its slot and
 /// generation, the request's number, its word, a length, and the instant.
 const record_len: usize = 40;
 

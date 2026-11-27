@@ -12,7 +12,7 @@
 //! invariant 6's rule that no branch reads a pointer value stays intact. A provider without an
 //! exporter supplies one that answers `error.Unsupported`.
 //!
-//! Every octet lives in a slice the caller owns. colibri declares no TLS buffer of its own and
+//! Every byte lives in a slice the caller owns. colibri declares no TLS buffer of its own and
 //! names only the smallest sizes that never refuse (`constants.zig`). Both handshake members take
 //! the instant as a parameter, because a certificate's validity period needs one and no source
 //! file in this repository may read a clock (non-negotiable 3).
@@ -23,11 +23,11 @@ const alert = @import("alert.zig");
 const Alert = alert.Alert;
 const AlertReport = alert.AlertReport;
 
-/// Why a provider refused the peer's handshake octets. One error, because there is one recovery:
+/// Why a provider refused the peer's handshake bytes. One error, because there is one recovery:
 /// RFC 9846 §6 forbids sending or receiving data after an error alert, so colibri closes.
 pub const HandshakeReadError = error{TlsFailed};
 
-/// Why a provider did not write the handshake octets it owes.
+/// Why a provider did not write the handshake bytes it owes.
 pub const HandshakeWriteError = error{
     /// The provider gave up while producing its flight (RFC 9846 §6).
     TlsFailed,
@@ -40,7 +40,7 @@ pub const HandshakeWriteError = error{
 pub const SealError = error{
     TlsFailed,
     /// The output cannot hold the KeyUpdate the provider owes, if any, and then a header, one
-    /// octet of plaintext and the tag (RFC 9846 §5.2). Nothing was written, and the answer stays
+    /// byte of plaintext and the tag (RFC 9846 §5.2). Nothing was written, and the answer stays
     /// owed.
     NoSpaceLeft,
     /// There are no application traffic keys yet: RFC 9846 §7.1 derives them from the transcript
@@ -104,10 +104,10 @@ pub const ExportError = error{
 
 /// What `encrypt_record` protected and wrote.
 pub const Sealed = struct {
-    /// Octets of the plaintext that went into records, at most
+    /// Bytes of the plaintext that went into records, at most
     /// `constants.protocol.record_plaintext_len_max` per record (RFC 9846 §5.1).
     consumed: usize,
-    /// Octets of the output the records occupy.
+    /// Bytes of the output the records occupy.
     written: usize,
 };
 
@@ -136,10 +136,10 @@ pub const Content = enum {
 
 /// What `decrypt_record` opened.
 pub const Opened = struct {
-    /// Octets of the input the record occupied, its header and tag included. 0 when no whole
+    /// Bytes of the input the record occupied, its header and tag included. 0 when no whole
     /// record was present, and `content` is then `.incomplete`.
     consumed: usize,
-    /// Octets written into the plaintext buffer.
+    /// Bytes written into the plaintext buffer.
     plaintext_len: usize,
     /// What the record held.
     content: Content,
@@ -175,11 +175,11 @@ pub const KeyUpdateRequest = enum(u8) {
 
 /// The calls colibri makes on a TLS stack it does not own. Decision 8 fixes this list.
 pub const VTable = struct {
-    /// Gives the provider the peer's octets and returns how many it consumed. It consumes whole
+    /// Gives the provider the peer's bytes and returns how many it consumed. It consumes whole
     /// records only, so input holding no whole record returns 0, which is not an error.
     handshake_read: *const fn (context: *anyopaque, input: []const u8, now_ns: u64) HandshakeReadError!usize,
 
-    /// Writes the handshake octets the provider owes and returns how many. 0 means it owes
+    /// Writes the handshake bytes the provider owes and returns how many. 0 means it owes
     /// nothing. After the handshake it owes only the alert of a record that failed (RFC 9846 §6).
     /// `encrypt_record` writes the answer to a peer's KeyUpdate (§4.7.3).
     handshake_write: *const fn (context: *anyopaque, output: []u8, now_ns: u64) HandshakeWriteError!usize,
@@ -194,14 +194,14 @@ pub const VTable = struct {
     /// `Sealed.written` counts it. Empty plaintext writes nothing, and the answer stays owed.
     encrypt_record: *const fn (context: *anyopaque, plaintext: []const u8, output: []u8) SealError!Sealed,
 
-    /// The most plaintext one `encrypt_parts` seals into `output_len` octets: the records' headers
+    /// The most plaintext one `encrypt_parts` seals into `output_len` bytes: the records' headers
     /// and tags, and a KeyUpdate the provider owes (RFC 9846 §4.7.3), take the rest.
     writable_len: *const fn (context: *const anyopaque, output_len: usize) usize,
 
     /// Protects `head` and then `data` as one run of plaintext, in the records `encrypt_record`
     /// would write for the two joined, with no copy of them into one buffer (decision 139). It
     /// seals both whole or nothing: `error.NoSpaceLeft` when their lengths together pass
-    /// `writable_len(output.len)`. It returns the octets written, a KeyUpdate's answer included,
+    /// `writable_len(output.len)`. It returns the bytes written, a KeyUpdate's answer included,
     /// as `encrypt_record` does.
     encrypt_parts: *const fn (context: *anyopaque, head: []const u8, data: []const u8, output: []u8) SealError!usize,
 
@@ -231,7 +231,7 @@ pub const VTable = struct {
     take_alert: *const fn (context: *anyopaque) ?AlertReport,
 
     /// Writes the `close_notify` RFC 9846 §6.1 requires before closing the write side, and
-    /// returns how many octets. A second call returns 0, which is unambiguous because a short
+    /// returns how many bytes. A second call returns 0, which is unambiguous because a short
     /// buffer is an error and not a count. It writes no owed KeyUpdate first, because RFC 9846
     /// §4.7.3 requires the answer only before application data.
     send_close_notify: *const fn (context: *anyopaque, output: []u8) CloseError!usize,
@@ -265,7 +265,7 @@ pub const Provider = struct {
     /// Anything else, a missing selection included, is the same answer: h2 does not run here.
     pub fn speaks_h2(provider: Provider) bool {
         const selected = provider.negotiated_alpn() orelse return false;
-        // RFC 9113 §3.1: "h2" is the two-octet sequence 0x68, 0x32.
+        // RFC 9113 §3.1: "h2" is the two-byte sequence 0x68, 0x32.
         return std.mem.eql(u8, selected, &constants.protocol.alpn_h2);
     }
 

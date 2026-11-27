@@ -109,7 +109,7 @@ readonly probe_rate=10
 readonly probe_parallel=16
 
 # The profiles: the bottleneck's netem arguments, and the netem arguments of every other packet.
-# The path holds 20 Mbit/s for a round trip of 50 ms, about 125,000 octets, and the queue holds
+# The path holds 20 Mbit/s for a round trip of 50 ms, about 125,000 bytes, and the queue holds
 # 1,000 packets, about 12 times that. `rate 10gbit` keeps the second band's packets in order
 # under its delay, as in step 13i.
 readonly profiles=(bottleneck bottleneck-lossy)

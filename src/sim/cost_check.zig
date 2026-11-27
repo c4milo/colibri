@@ -1,10 +1,10 @@
 //! The counted-cost check of design §8 step 6: what one request costs, in calls across colibri's
-//! boundary and octets moved through them, committed as exact numbers.
+//! boundary and bytes moved through them, committed as exact numbers.
 //!
 //! What it counts is what a caller can see from outside, because the library counts nothing
 //! itself: CLAUDE.md's performance rules forbid a statistic that costs a branch on the per-frame
-//! path. So the numbers here are calls to `receive` and `write_pending`, the octets each carried,
-//! and — over TLS — the calls to the provider and the octets it copied, which the null provider of
+//! path. So the numbers here are calls to `receive` and `write_pending`, the bytes each carried,
+//! and — over TLS — the calls to the provider and the bytes it copied, which the null provider of
 //! `null_provider.zig` counts because it is the simulator's and not the library's.
 //!
 //! Allocations are not counted. [Decision 35](../../docs/decisions.md) makes them zero and
@@ -27,9 +27,9 @@ pub const Cost = struct {
     receive_calls: u32 = 0,
     /// Calls to `write_pending`. Each is one write the caller would have made.
     write_calls: u32 = 0,
-    /// Octets the caller handed to `receive` and that it consumed.
+    /// Bytes the caller handed to `receive` and that it consumed.
     octets_in: u32 = 0,
-    /// Octets `write_pending` and the send path wrote into the caller's buffer.
+    /// Bytes `write_pending` and the send path wrote into the caller's buffer.
     octets_out: u32 = 0,
     /// Calls to the provider's `decrypt_record` and `encrypt_record`, zero without one.
     provider_calls: u32 = 0,
@@ -86,7 +86,7 @@ pub const Storage = struct {
 /// what it took (design §4.1).
 fn drive(storage: *Storage, input: []const u8, cost: *Cost) !void {
     var offset: usize = 0;
-    // The loop is bounded by the octets fed: every turn consumes one or ends the loop
+    // The loop is bounded by the bytes fed: every turn consumes one or ends the loop
     // (non-negotiable 4).
     for (0..constants.cost_check_buffer_len) |_| {
         if (storage.connection.has_pending()) {
@@ -103,7 +103,7 @@ fn drive(storage: *Storage, input: []const u8, cost: *Cost) !void {
     assert(offset == input.len);
 }
 
-/// Builds the octets a client sends: the preface, its SETTINGS and one request that ends its
+/// Builds the bytes a client sends: the preface, its SETTINGS and one request that ends its
 /// stream (RFC 9113 §3.4, §6.5, §8.3.1).
 fn client_octets(storage: *Storage) []const u8 {
     var writer = sim.core.Writer.init(&storage.scratch);
@@ -124,7 +124,7 @@ fn client_octets(storage: *Storage) []const u8 {
     return writer.written();
 }
 
-/// Builds the octets a server sends back: its SETTINGS and one response that ends the stream.
+/// Builds the bytes a server sends back: its SETTINGS and one response that ends the stream.
 fn server_octets(storage: *Storage) []const u8 {
     var writer = sim.core.Writer.init(&storage.scratch);
     write_frame(&writer, h2_constants.protocol.frame_type_settings, 0, 0, &.{});
@@ -187,7 +187,7 @@ pub fn measure_client_cleartext(storage: *Storage) !Cost {
 }
 
 /// What one request and its response cost at a server running over the null provider. The peer's
-/// octets arrive as one record, which is the cheapest shape and the one the number is for.
+/// bytes arrive as one record, which is the cheapest shape and the one the number is for.
 pub fn measure_server_tls(storage: *Storage) !Cost {
     var cost: Cost = .{};
     storage.provider = .{};

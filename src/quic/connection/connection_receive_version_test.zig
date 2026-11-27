@@ -69,7 +69,7 @@ test "RFC 9369 §4.1: a client switches at the first long header in another vers
 }
 
 test "RFC 9369 §4.1: once the version is settled, a packet in another version is dropped and the walk goes on" {
-    // A client that read the server's CRYPTO octets in the original version switches no more.
+    // A client that read the server's CRYPTO bytes in the original version switches no more.
     fixture.open_connection();
     connection_version.settle(&fixture.test_connection);
     var writer = Writer.init(&fixture.datagram);

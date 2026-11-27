@@ -6,7 +6,7 @@
 //! engine, which routes it (RFC 9000 §5.2) or starts a connection from it, fires every deadline,
 //! answers each event the engine reports, by its connection's slot, and sends what the engine
 //! owes. A sent datagram's
-//! octets belong to Rotor until its send's event (Rotor's rule 3), so each goes into a batch of its
+//! bytes belong to Rotor until its send's event (Rotor's rule 3), so each goes into a batch of its
 //! peer's, which holds it until then, and a datagram Rotor has no room for is one lost on the way,
 //! which RFC 9002 recovers.
 //!

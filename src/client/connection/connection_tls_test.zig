@@ -306,11 +306,11 @@ test "RFC 9846 §4.2.2: the ClientHello goes out on the first send, before any r
     _ = h11;
 }
 
-/// A POST's content of several records, within the 65,535 octets a stream's window starts with
+/// A POST's content of several records, within the 65,535 bytes a stream's window starts with
 /// (RFC 9113 §6.9.2). Test-only.
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 60_000;
-/// The octets at the end of what the server opened that must be the content's. Test-only.
+/// The bytes at the end of what the server opened that must be the content's. Test-only.
 const content_tail_len: usize = 1024;
 
 test "decision 139: a content queued before the handshake fills the record after the client's Finished" {

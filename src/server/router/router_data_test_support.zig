@@ -11,17 +11,17 @@ const RequestContext = @import("../request_context.zig").RequestContext;
 const Next = @import("../middleware.zig").Next;
 const Router = @import("router.zig").Router;
 
-/// The calls of `on_data` a test records, the pieces one call takes at most, and octets of each
+/// The calls of `on_data` a test records, the pieces one call takes at most, and bytes of each
 /// text a test records. Test-only.
 pub const calls_max = 8;
 const pieces_max = 16;
 const piece_len_max = 32;
-/// Octets of the buffer of each wrapper of the request body, and of the window that a wrapper
+/// Bytes of the buffer of each wrapper of the request body, and of the window that a wrapper
 /// like std's flate decompressor keeps in its buffer.
 pub const small_buffer_len = 4;
 const large_buffer_len = 8;
 const window_len = 4;
-/// Octets of the buffer of a wrapper that passes many octets a read: more than `body_bytes`.
+/// Bytes of the buffer of a wrapper that passes many bytes a read: more than `body_bytes`.
 const batch_buffer_len = 32;
 
 /// A copy of a short text. Test-only.
@@ -54,9 +54,9 @@ pub const App = struct {
     firsts: [calls_max]Text = @splat(.{}),
     pieces: [calls_max]usize = @splat(0),
     ended_at: [calls_max]bool = @splat(false),
-    /// Every octet the pieces gave, without the octets they gave again after a `keep`.
+    /// Every byte the pieces gave, without the bytes they gave again after a `keep`.
     collected: Text = .{},
-    /// Octets of each piece that `Collect` keeps, and whether it then calls `keep(0)`.
+    /// Bytes of each piece that `Collect` keeps, and whether it then calls `keep(0)`.
     keep_len: usize = 0,
     keep_none: bool = false,
     /// The pieces that `Collect` takes in one call at most.
@@ -68,11 +68,11 @@ pub const App = struct {
     /// The last piece that `Whole` got.
     whole: Text = .{},
     /// The entry's body memory, which a test names, and for each call of `on_data` the pieces that
-    /// lie in it: the router copied their octets there.
+    /// lie in it: the router copied their bytes there.
     storage: []const u8 = &.{},
     copies: [calls_max]usize = @splat(0),
 
-    /// Records that call `call` of `on_data` got `piece`, of which the first `given_again` octets
+    /// Records that call `call` of `on_data` got `piece`, of which the first `given_again` bytes
     /// came before.
     fn record(app: *App, call: usize, piece: []const u8, given_again: usize) void {
         if (app.pieces[call] == 0) app.firsts[call].set(piece);
@@ -95,7 +95,7 @@ pub const App = struct {
     }
 };
 
-/// Records each piece of the body, and keeps `App.keep_len` octets of each.
+/// Records each piece of the body, and keeps `App.keep_len` bytes of each.
 const Collect = struct {
     pub const State = struct { kept: usize = 0 };
 
@@ -121,7 +121,7 @@ const Collect = struct {
     }
 };
 
-/// Reads messages of one octet of length and that many octets, as Connect and gRPC frame theirs
+/// Reads messages of one byte of length and that many bytes, as Connect and gRPC frame theirs
 /// with a longer prefix. A message that a piece holds a part of stays unread.
 const Framed = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
@@ -138,10 +138,10 @@ const Framed = struct {
         app.ended_at[call] = body.ended();
     }
 
-    /// Reads each whole message at the start of `piece`, and returns the octets after them.
+    /// Reads each whole message at the start of `piece`, and returns the bytes after them.
     fn read_messages(app: *App, call: usize, piece: []const u8) []const u8 {
         var rest = piece;
-        // Bounded: each pass takes one message of one octet at least.
+        // Bounded: each pass takes one message of one byte at least.
         for (0..piece.len) |_| {
             if (rest.len == 0 or rest.len <= rest[0]) break;
             app.messages.add(rest[1..][0..rest[0]]);
@@ -154,7 +154,7 @@ const Framed = struct {
 };
 
 /// Reads a body with no length whole, as Connect's unary call sends one: it keeps each piece
-/// whole, so at the body's end the last piece holds every octet. Its `keep` of that last piece
+/// whole, so at the body's end the last piece holds every byte. Its `keep` of that last piece
 /// keeps nothing.
 const Whole = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
@@ -222,10 +222,10 @@ const Brand = struct {
     }
 };
 
-/// A wrapper of the request body's reader with a buffer of `buffer_len` octets, which passes the
-/// octets as they are, `read_max` octets a read at most. Its `rebase` asserts, as std's flate
-/// decompressor does, that it is asked for no more than the buffer less `window` octets, which
-/// flate keeps for its history. It then moves the buffered octets to the buffer's start.
+/// A wrapper of the request body's reader with a buffer of `buffer_len` bytes, which passes the
+/// bytes as they are, `read_max` bytes a read at most. Its `rebase` asserts, as std's flate
+/// decompressor does, that it is asked for no more than the buffer less `window` bytes, which
+/// flate keeps for its history. It then moves the buffered bytes to the buffer's start.
 fn Passing(comptime buffer_len: usize, comptime window: usize, comptime read_max: usize) type {
     return struct {
         pub const State = struct {
@@ -297,7 +297,7 @@ pub const routes = .{
     },
 };
 
-/// Octets of each entry's response memory and body memory. Test-only.
+/// Bytes of each entry's response memory and body memory. Test-only.
 pub const response_bytes = 128;
 pub const body_bytes = 16;
 

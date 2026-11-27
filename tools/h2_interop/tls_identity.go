@@ -10,7 +10,7 @@
 // ecdsa_secp256r1_sha256 one, which srv_cfg.h describes as a 32-byte big-endian private scalar
 // and a 64-byte uncompressed public point, with the end-entity certificate first in the chain.
 //
-// Six files are raw DER or raw octets, never PEM, because chapulin reads bytes and parses no
+// Six files are raw DER or raw bytes, never PEM, because chapulin reads bytes and parses no
 // container:
 //
 //	<prefix>.leaf.der   the end-entity certificate
@@ -73,7 +73,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// The private scalar, left-padded to 32 octets. FillBytes does the padding, which matters
+	// The private scalar, left-padded to 32 bytes. FillBytes does the padding, which matters
 	// because a scalar with leading zero bytes is shorter than the fixed length chapulin reads.
 	priv := make([]byte, privLen)
 	leafKey.D.FillBytes(priv)

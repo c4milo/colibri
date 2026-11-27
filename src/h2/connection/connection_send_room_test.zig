@@ -45,7 +45,7 @@ fn opens_with_size_update(frames: []const u8) bool {
     return block_len > 0 and frames[constants.protocol.frame_header_len] & size_update_mask == size_update_pattern;
 }
 
-/// Octets of a frame header's Length field (RFC 9113 §4.1). Test-only.
+/// Bytes of a frame header's Length field (RFC 9113 §4.1). Test-only.
 const frame_length_len: usize = 3;
 /// A trailer section of one field line, so its block is never empty. Test-only.
 const trailers = [_]@import("hpack").Field{.{ .name = "grpc-status", .value = "0" }};
@@ -115,7 +115,7 @@ const indexed_lines = [_]@import("hpack").Field{
     .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
     .{ .name = "x-a", .value = "b" },
 };
-/// The block of a response whose `:status` is 200 and whose lines both tables hold: one octet
+/// The block of a response whose `:status` is 200 and whose lines both tables hold: one byte
 /// each (RFC 7541 §6.1). Test-only.
 const indexed_block_len: usize = 1 + indexed_lines.len;
 
@@ -147,7 +147,7 @@ test "decision 132: a response's lines go into the table, so the next response s
 }
 
 /// Room for a frame header and a block that holds `:status` and the first line, but not the
-/// second: `:status` 200 is one octet, and "x-new: 1" with its name and value as literals nine.
+/// second: `:status` 200 is one byte, and "x-new: 1" with its name and value as literals nine.
 /// Test-only.
 const block_one_line_len: usize = 12;
 const room_one_line: usize = constants.protocol.frame_header_len + block_one_line_len;
@@ -186,6 +186,6 @@ test "decision 132: a status the static table lacks goes into the table too" {
         _ = try test_connection.write_response(test_output, stream_id, created, &.{}, true);
         try @import("hpack").decoder.expect_lines(block_of(test_output), &status);
     }
-    // RFC 7541 §6.1: the second response's status is one octet, an index into the dynamic table.
+    // RFC 7541 §6.1: the second response's status is one byte, an index into the dynamic table.
     try testing.expectEqual(1, block_of(test_output).len);
 }

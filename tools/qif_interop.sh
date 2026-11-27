@@ -4,7 +4,7 @@
 # through pylsqpack, the QPACK of aioquic, in both directions, over the qpackers/qifs inputs.
 # For each input and setting:
 # - colibri encodes, in both acknowledgment modes, and ls-qpack decodes;
-# - ls-qpack encodes, with each section ahead of its encoder stream octets when streams may
+# - ls-qpack encodes, with each section ahead of its encoder stream bytes when streams may
 #   block, and colibri decodes;
 # - colibri encodes and colibri decodes.
 # Every decoded file must hold the input's header sets, in stream order.

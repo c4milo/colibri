@@ -14,7 +14,7 @@ const Recorder = support.Recorder;
 
 const testing = std.testing;
 
-/// Octets of the lines and the body a test's state keeps. Test-only.
+/// Bytes of the lines and the body a test's state keeps. Test-only.
 const kept_len = 64;
 
 const App = struct {
@@ -34,7 +34,7 @@ const App = struct {
     error_read: ?anyerror = null,
 };
 
-/// Keeps each whole line of the body, one call of `on_data` at a time. The octets after a piece's
+/// Keeps each whole line of the body, one call of `on_data` at a time. The bytes after a piece's
 /// last line stay unread, and start the next piece.
 const Lines = struct {
     pub const State = struct { kept: [kept_len]u8 = undefined, len: usize = 0 };
@@ -144,7 +144,7 @@ const routes = .{
 
 const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
 
-/// Octets of each entry's response, body and header memory, and the status the error function
+/// Bytes of each entry's response, body and header memory, and the status the error function
 /// chooses. Test-only.
 const response_bytes = 128;
 const body_bytes = 16;
@@ -179,7 +179,7 @@ test "decision 163 ruling 6: on_data reads what arrived, and the octets it keeps
     fixture.head("POST", "/lines", false);
     fixture.body("ab\ncd", false);
     try testing.expectEqualStrings("ab\n", fixture.state().kept[0..fixture.state().len]);
-    // The octets that arrived ran out, and the body has not ended.
+    // The bytes that arrived ran out, and the body has not ended.
     try testing.expectEqual(0, fixture.app.ends);
     fixture.body("e\nf", true);
     try testing.expectEqual(1, fixture.app.ends);

@@ -60,11 +60,11 @@
 (*   - with Weighted, the channel counts units, not frames: a DATA frame   *)
 (*     takes its units and one more for its header, any other frame one,   *)
 (*     and a DATA frame is cut to the room left (sendable). A reply then   *)
-(*     costs far less room than a DATA frame, as its 13 octets do beside   *)
+(*     costs far less room than a DATA frame, as its 13 bytes do beside   *)
 (*     16,384. Without Weighted every frame takes one of ChannelMax slots. *)
 (*                                                                         *)
 (* Numbers are small stand-ins: Max for 2^31-1 (§6.9.1), InitialWindow for *)
-(* the 65,535-octet initial window, Threshold for window_update_threshold, *)
+(* the 65,535-byte initial window, Threshold for window_update_threshold, *)
 (* Floor for data_frame_len_min and FrameMax for SETTINGS_MAX_FRAME_SIZE.  *)
 (***************************************************************************)
 EXTENDS Integers, Sequences, FiniteSets

@@ -213,16 +213,16 @@ Every change design §8 step 16b asked of chapulin is in:
 - `df428cd` adds `ch_alert_sent` and `ch_alert_received`, so a failed read names the alert it sent
   or received, and colibri's `take_alert` reports both.
 - `9bf41c9` has pins alone read the leaf, and each entry after it, up to
-  `CH_WEBPKI_LEAF_PIN_CERT_MAX`, 16,375 octets, where the walk with anchors keeps
+  `CH_WEBPKI_LEAF_PIN_CERT_MAX`, 16,375 bytes, where the walk with anchors keeps
   `CH_WEBPKI_CERT_MAX`, 3,072. The QUIC Interop Runner's `amplificationlimit` case sends a leaf of
-  5,514 octets, which colibri's client, pinning the runner's key, now reads. A session's buffer,
-  `receive_len`, is 20 KiB, above the 16,410 octets chapulin's `docs/webpki.md` gives for the
+  5,514 bytes, which colibri's client, pinning the runner's key, now reads. A session's buffer,
+  `receive_len`, is 20 KiB, above the 16,410 bytes chapulin's `docs/webpki.md` gives for the
   largest Certificate message over TCP.
 - `157d2ac`, which colibri did not ask for, has each driver write a failed handshake's alert
   itself: in the clear before the failing side's write key is installed, sealed after it. It drops
   `ch_record_alert`. colibri's sessions count the alert in `failure_written`.
 - `19d6a13` sends a KeyUpdate before an AES-GCM write key reaches 2^24 records, under RFC 9846
-  §5.5's limit of 2^24.5. `ch_writable_len` counts the 27-octet record, and colibri's
+  §5.5's limit of 2^24.5. `ch_writable_len` counts the 27-byte record, and colibri's
   `encrypt_record` sizes every write through it. A KeyUpdate the caller starts over TCP is not
   offered, so `initiate_key_update` answers `Unsupported` there.
 

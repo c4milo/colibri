@@ -250,7 +250,7 @@ test "design §8 step 42: a chain is judged at the program's instant, from its n
     try testing.expectEqual(client.Result.refused, try fetch_at(testdata.not_before_seconds - 1));
 }
 
-/// The octets a raw peer reads at once, and the response it answers with (RFC 9112 §6.3).
+/// The bytes a raw peer reads at once, and the response it answers with (RFC 9112 §6.3).
 const raw_read_len = 1024;
 const raw_response = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nhi";
 
@@ -321,7 +321,7 @@ const h2_frame_head_len = 9;
 const h2_length_len = 3;
 const h2_headers: u8 = 0x1;
 const h2_goaway: u8 = 0x7;
-/// The room an h2 peer reads the client's octets into.
+/// The room an h2 peer reads the client's bytes into.
 const h2_received_len = raw_read_len;
 
 /// What an h2 peer writes once it reads the request: its SETTINGS with no parameter, the ACK of the
@@ -331,7 +331,7 @@ const h2_answer = "\x00\x00\x00\x04\x00\x00\x00\x00\x00" ++
     "\x00\x00\x00\x04\x01\x00\x00\x00\x00" ++
     "\x00\x00\x01\x01\x05\x00\x00\x00\x01\x88";
 
-/// Whether `bytes`, the client's octets from its preface on, hold a frame of `kind`. A frame whose
+/// Whether `bytes`, the client's bytes from its preface on, hold a frame of `kind`. A frame whose
 /// head is whole counts, though its payload may still be on the way.
 fn has_frame(bytes: []const u8, kind: u8) bool {
     var at: usize = h2_preface_len;
@@ -359,7 +359,7 @@ fn h2_peer(listener: *std.Io.net.Server, read_goaway: *bool) void {
     var received: [h2_received_len]u8 = undefined;
     var len: usize = 0;
     var answered = false;
-    // Bounded: each pass reads at least one octet into `received`.
+    // Bounded: each pass reads at least one byte into `received`.
     for (0..h2_received_len) |_| {
         const read = reader.interface.peekGreedy(1) catch break;
         const taken = @min(read.len, received.len - len);

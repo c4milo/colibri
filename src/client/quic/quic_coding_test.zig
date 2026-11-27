@@ -85,7 +85,7 @@ test "decision 101: an h3 response whose coded stream is cut short ends malforme
     try start_coding();
     gzip_encoder.init(.none());
     const coded = coded_room[0..try gzip_encoder.encode_all(text, &coded_room)];
-    // RFC 1952 §2.3: the member's last octet, of its trailer, never arrives.
+    // RFC 1952 §2.3: the member's last byte, of its trailer, never arrives.
     support.answer_content = coded[0 .. coded.len - 1];
     support.answer_coding = "gzip";
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };

@@ -208,7 +208,7 @@ fn serve(run: anytype, now_ns: u64) void {
     }
 }
 
-/// Steps the socket at `index`: its unread octets go in, and it takes what its connection lends.
+/// Steps the socket at `index`: its unread bytes go in, and it takes what its connection lends.
 /// A socket the host has finished with, whose connection has ended, frees its entry.
 fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     const state = run;
@@ -221,9 +221,9 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     state.touched.set(index);
     if (socket.stopped()) return;
     pump.step(run, index, socket, now_ns);
-    // The engine closed the connection: the socket closes once its octets are out.
+    // The engine closed the connection: the socket closes once its bytes are out.
     if (state.entries[index].closing) socket.closing = true;
-    // The engine closes in stages: the socket's write side closes once its octets are out.
+    // The engine closes in stages: the socket's write side closes once its bytes are out.
     if (state.entries[index].half_closing) socket.half_closing = true;
 }
 

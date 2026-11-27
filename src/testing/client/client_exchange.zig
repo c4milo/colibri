@@ -4,7 +4,7 @@
 //! places.
 //!
 //! The content is a pattern and not a file, so a run reads nothing from disk and two runs send the
-//! same octets. A peer that echoes a request returns octets whose checksum `content_crc32` gives,
+//! same bytes. A peer that echoes a request returns bytes whose checksum `content_crc32` gives,
 //! which is how a run tells an echo from a reordered or truncated one.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -19,7 +19,7 @@ pub const Plan = struct {
     method: []const u8,
     /// The `:path` in h2 (RFC 9113 §8.3.1), and the origin-form target in h11 (RFC 9112 §3.2.1).
     path: []const u8,
-    /// Octets of request content. 0 sends none: in h2 the HEADERS frame carries END_STREAM
+    /// Bytes of request content. 0 sends none: in h2 the HEADERS frame carries END_STREAM
     /// (RFC 9113 §8.1).
     content_len: u32,
 };
@@ -89,7 +89,7 @@ pub const Exchange = struct {
 const line_format = "protocol={s} exchange={d} {s} {s} status={d} interim={d} sent={d} " ++
     "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d} coding={s}\n";
 
-/// The request content: octet `i` is `i % request_content_period`, as long as the longest content
+/// The request content: byte `i` is `i % request_content_period`, as long as the longest content
 /// a plan may ask for. Every exchange's content is a prefix of it. `fill_content` writes it once,
 /// before the first connection opens.
 var content: [constants.request_content_len_max]u8 = undefined;
@@ -98,7 +98,7 @@ pub fn fill_content() void {
     for (&content, 0..) |*octet, index| octet.* = @intCast(index % constants.request_content_period);
 }
 
-/// The checksum of the first `len` octets of the request content, which is what a peer that echoes
+/// The checksum of the first `len` bytes of the request content, which is what a peer that echoes
 /// a request returns.
 pub fn content_crc32(len: u32) u32 {
     assert(len <= constants.request_content_len_max);

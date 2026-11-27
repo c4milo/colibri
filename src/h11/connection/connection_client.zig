@@ -26,7 +26,7 @@ const Field = http.Field;
 const Code = http.Status;
 
 pub const Error = error{
-    /// Octets other than CRLF with no request outstanding (RFC 9112 §9.2).
+    /// Bytes other than CRLF with no request outstanding (RFC 9112 §9.2).
     ResponseUnexpected,
     /// 101 Switching Protocols, which h11 does not implement (RFC 9110 §15.2.2).
     UpgradeUnsupported,
@@ -134,7 +134,7 @@ fn read_response(target: *Connection, input: []const u8) connection.Connection.E
     target.trailers.init();
     target.reader = connection_body.Reader.start(response.body.length);
     if (response.body.length == .tunnel) {
-        // RFC 9112 §6.3 rule 2: after a 2xx to CONNECT, every octet each way is the tunnel's.
+        // RFC 9112 §6.3 rule 2: after a 2xx to CONNECT, every byte each way is the tunnel's.
         pop(target);
         target.phase = .tunnel;
         target.writer = .{ .kind = .tunnel };
@@ -146,7 +146,7 @@ fn read_response(target: *Connection, input: []const u8) connection.Connection.E
     return .{ .consumed = response.head_len, .event = .{ .response = .{ .line = response.line, .body = response.body } } };
 }
 
-/// Octets that arrived with no request outstanding (RFC 9112 §9.2).
+/// Bytes that arrived with no request outstanding (RFC 9112 §9.2).
 fn read_unrequested(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     if (input.len == 0) return .{ .consumed = 0, .event = null };
     // RFC 9112 §2.2 and §9.2: CRLF alone may be discarded; anything else is no valid response.

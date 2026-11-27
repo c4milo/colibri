@@ -25,12 +25,12 @@ const routes = .{
         .{ .get, "/stream", Stream },
     },
 };
-/// The octets `/stream` writes: twice what a connection's output holds, so its second half waits
+/// The bytes `/stream` writes: twice what a connection's output holds, so its second half waits
 /// for a send to free room (design §8 step 46).
 const stream_len = stream_outputs * server.constants.limits.output_len;
 const stream_outputs = 2;
 
-/// Writes `stream_len` octets through `body()`, a message of `response_bytes` at a time. A message
+/// Writes `stream_len` bytes through `body()`, a message of `response_bytes` at a time. A message
 /// that does not fit waits for the next `writable`.
 const Stream = struct {
     pub const State = struct { written: usize = 0 };

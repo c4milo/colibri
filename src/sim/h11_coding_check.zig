@@ -11,7 +11,7 @@
 //! planted defect meets. So:
 //!   1. the two runs in pieces must write the same trace and draw the same values (invariant 5);
 //!   2. their trace must be the one-piece run's: neither a split nor the room changes what decodes;
-//!   3. every body must decode to the plan's octets, a defect must meet the refusal decision 91
+//!   3. every body must decode to the plan's bytes, a defect must meet the refusal decision 91
 //!      gives it after every message before it read whole, and the decoder must be back in the pool
 //!      when the run ends.
 //!
@@ -48,18 +48,18 @@ pub const Violation = sim.trace.Error || error{
     ReplayDiverged,
     /// A run in pieces read something other than the run in one piece read.
     SplitChangedResult,
-    /// A body decoded to octets other than the plan's.
+    /// A body decoded to bytes other than the plan's.
     BodyDiffers,
     /// The run ended other than the plan says it must.
     OutcomeUnexpected,
 };
 
-/// Octets of the scratch buffer the client's requests and the server's responses are written
+/// Bytes of the scratch buffer the client's requests and the server's responses are written
 /// into, which nothing reads: a request head, or a 204 head.
 const scratch_len = 256;
 
-/// Passes of a read per octet held: one that consumes it, one that ends its message, and those a
-/// message's decoding takes past its last octet, one for each octet of room it fills.
+/// Passes of a read per byte held: one that consumes it, one that ends its message, and those a
+/// message's decoding takes past its last byte, one for each byte of room it fills.
 const passes_per_octet = passes_per_octet_framing + limits.body_len_max;
 const passes_per_octet_framing = 2;
 
@@ -175,7 +175,7 @@ const Run = struct {
     pieces: u64 = 0,
     calls: u64 = 0,
 
-    /// Delivers the next piece. Returns whether any octet was left to deliver.
+    /// Delivers the next piece. Returns whether any byte was left to deliver.
     fn deliver(run: *Run) bool {
         const left = run.storage.stream_len - run.delivered;
         if (left == 0) return false;
@@ -185,7 +185,7 @@ const Run = struct {
         return true;
     }
 
-    /// Reads what is held until the connection needs more octets. Returns false when it refused.
+    /// Reads what is held until the connection needs more bytes. Returns false when it refused.
     fn read_held(run: *Run) Violation!bool {
         const passes = passes_per_octet * (run.delivered - run.consumed) + 1;
         for (0..passes) |_| {

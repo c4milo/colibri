@@ -1,5 +1,5 @@
 //! The tests that hold `message_scan.zig`'s `Scanner.scan` to the scan it replaced (design §8 step
-//! 17). That scan loaded and stored the scanner's fields through its pointer for each octet. It
+//! 17). That scan loaded and stored the scanner's fields through its pointer for each byte. It
 //! stays here as the reference. `scan` must return what the reference returns and leave the same
 //! fields, for each input and for each split of it into two calls.
 const std = @import("std");
@@ -132,7 +132,7 @@ fn outcome_of(result: Error!?Span) Outcome {
 }
 
 /// Fails when `scan` and the reference differ on `input` split at `split`, and prints both
-/// outcomes. The first call reads `input[0..split]`. When it needs more octets, a second call
+/// outcomes. The first call reads `input[0..split]`. When it needs more bytes, a second call
 /// reads the whole input from where the first stopped. Each call must return the same span, the
 /// same null or the same error, and leave the same fields. Returns the outcome of the last call.
 fn expect_same(role: Role, input: []const u8, split: usize) !Outcome {
@@ -143,7 +143,7 @@ fn expect_same(role: Role, input: []const u8, split: usize) !Outcome {
     return expect_same_call(&changed, &reference, role, input);
 }
 
-/// Most octets of an input that a difference prints.
+/// Most bytes of an input that a difference prints.
 const printed_len_max = 96;
 
 /// One call of each scan, which must return the same outcome and leave the same fields.
@@ -165,7 +165,7 @@ fn expect_same_at_each_split(input: []const u8, seen: *Seen) !void {
     }
 }
 
-/// The kinds of octet the scan tells apart: CR, LF, SP, a tchar ('G'), and two octets that are
+/// The kinds of byte the scan tells apart: CR, LF, SP, a tchar ('G'), and two bytes that are
 /// not tchar ('/' and NUL, RFC 9110 §5.6.2).
 const letters = "\r\n G/\x00";
 
@@ -217,10 +217,10 @@ test "scan does what the reference does on each short word inside a head, at eac
     try std.testing.expect(seen.eql(short_outcomes));
 }
 
-/// Octets on each side of a limit where `expect_same_near` splits an input.
+/// Bytes on each side of a limit where `expect_same_near` splits an input.
 const near_len = 2;
 
-/// Runs `expect_same` on `input` in both roles, at each split within `near_len` octets of
+/// Runs `expect_same` on `input` in both roles, at each split within `near_len` bytes of
 /// `offset`, and at the whole input when `offset` is past it.
 fn expect_same_near(input: []const u8, offset: usize, seen: *Seen) !void {
     const last = @min(offset + near_len, input.len);
@@ -233,14 +233,14 @@ test "scan does what the reference does at start_line_len_max and each role's he
     const limits = [_]usize{ 1, constants.limits.start_line_len_max, constants.limits.head_len_max };
     var seen: Seen = .initEmpty();
     var input: [constants.limits.head_len_max + 2]u8 = @splat('a');
-    // A start line of start_line_len_max octets, then of one octet more.
+    // A start line of start_line_len_max bytes, then of one byte more.
     for (0..2) |extra| {
         const line_len = constants.limits.start_line_len_max + extra;
         @memcpy(input[line_len..][0..4], "\r\n\r\n");
         for (limits) |limit| try expect_same_near(input[0 .. line_len + 4], limit, &seen);
         @memset(input[line_len..][0..4], 'a');
     }
-    // A head that ends at each role's limit, then one octet later, then one with no end
+    // A head that ends at each role's limit, then one byte later, then one with no end
     // (decision 166 as amended: a server reads a shorter head than a client).
     const start = "GET / HTTP/1.1\r\nX: ";
     @memcpy(input[0..start.len], start);
@@ -256,7 +256,7 @@ test "scan does what the reference does at start_line_len_max and each role's he
     try std.testing.expect(seen.eql(.initMany(&.{ .span, .start_line_too_long, .head_too_large })));
 }
 
-/// Most octets one fuzz input carries: room for a start line and a few field lines.
+/// Most bytes one fuzz input carries: room for a start line and a few field lines.
 const fuzz_input_len_max = 96;
 
 /// Reads the input in both roles, at each split, through `scan` and through the reference.

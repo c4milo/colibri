@@ -17,13 +17,13 @@ pub const Config = struct {
     /// `h2` and `http/1.1` in the order it prefers them (RFC 7301 §3.2).
     tls: ?*const tls.record.ServerConfig = null,
     /// The versions the server speaks (decision 117). A connection in cleartext that may speak
-    /// both h11 and h2 chooses by its first octets (RFC 9113 §3.3). Over TLS, ALPN chooses
+    /// both h11 and h2 chooses by its first bytes (RFC 9113 §3.3). Over TLS, ALPN chooses
     /// (decision 88).
     protocols: protocols_module.Protocols = .{},
     /// h11's decoders of the `gzip` and `deflate` transfer codings, which connections may share
     /// (decision 91). With none, h11 answers a request carrying either coding 501.
     decoders: ?h11.coding.Storage = null,
-    /// Where h11 decodes a body carrying `gzip` or `deflate` (decision 98). A `body` event's octets
+    /// Where h11 decodes a body carrying `gzip` or `deflate` (decision 98). A `body` event's bytes
     /// point into it until the next `receive` of any connection sharing it. Empty with no decoders.
     decoded: []u8 = &.{},
     /// The h3 endpoint each connection over TLS advertises (decision 100): an Alt-Svc line on each
@@ -45,7 +45,7 @@ pub const Config = struct {
 
 /// Whether a request body may arrive in units, which decision 110 as amended bounds the body rate
 /// by: over TLS a record at a time, and in h2 a DATA frame at a time, which a connection in
-/// cleartext speaks when `versions` allows h2. h11 in cleartext reads a body octet by octet.
+/// cleartext speaks when `versions` allows h2. h11 in cleartext reads a body byte by byte.
 pub fn whole_units(config: *const Config) bool {
     return config.tls != null or config.protocols.h2;
 }

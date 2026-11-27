@@ -3,11 +3,11 @@
 
 `src/server/rate.zig`'s `Meter`, and `src/server/deadline.zig`'s `quota`, which the server checks a
 body's rate with. A peer sends a body a unit at a time, an h2 DATA frame or a TLS record of up to
-16,384 octets, and a unit arrives whole. The theorems give the exact condition under which a peer
+16,384 bytes, and a unit arrives whole. The theorems give the exact condition under which a peer
 that sends whole units at twice the minimum rate or more is never short in a window: twice the rate
-over one window is a whole unit or more, before the quota rounds the octets up
+over one window is a whole unit or more, before the quota rounds the bytes up
 (`never_short_iff`). A quota that rounds up to half a unit is not enough
-(`half_unit_quota_short`); one of half a unit and one octet is (`half_unit_and_one_enough`).
+(`half_unit_quota_short`); one of half a unit and one byte is (`half_unit_and_one_enough`).
 
 The definitions follow `rate.zig` and `deadline.zig` line for line; the theorems are about them.
 https://github.com/c4milo/colibri/issues/87 asked for them.
@@ -18,13 +18,13 @@ namespace Colibri.Server.RateMeter
 /-- `nanoseconds_per_second` in `src/server/constants.zig`. -/
 def nanosecondsPerSecond : Nat := 1000000000
 
-/-- `quota` in `deadline.zig`: the octets `rate` octets a second bring over `window` nanoseconds,
+/-- `quota` in `deadline.zig`: the bytes `rate` bytes a second bring over `window` nanoseconds,
 rounded up so a window always owes one at least. -/
 def quota (rate window : Nat) : Nat :=
   (rate * window + nanosecondsPerSecond - 1) / nanosecondsPerSecond
 
 /-- `Meter` in `rate.zig`: the instant the current window ends, `none` while the meter is stopped,
-and the octets the current window has brought. -/
+and the bytes the current window has brought. -/
 structure Meter where
   windowEnd : Option Nat
   octets : Nat
@@ -66,7 +66,7 @@ A meter started at `t0` looks at windows that follow one another: the first ends
 and a window after `t0`, and each later one a window after the one before. Window `k` holds the
 instants from the end of window `k - 1`, window 0 ending at `t0`, up to its own end and not
 including it. The caller moves the meter to each instant with `short` before it counts what
-arrived then, so octets that arrive at a window's end count in the next one. -/
+arrived then, so bytes that arrive at a window's end count in the next one. -/
 
 /-- The instant window `k` ends; window 0 ends at the start. -/
 def windowEnd (t0 grace window k : Nat) : Nat :=
@@ -97,7 +97,7 @@ theorem short_of_window_short (e octets now quota window : Nat) (hend : e ≤ no
   simp [Meter.short, hnot, hshort]
 
 /-- A window `k` that brought its quota gives way at its end to window `k + 1`, with nothing
-counted, so a peer cannot bank octets from one window for the next. -/
+counted, so a peer cannot bank bytes from one window for the next. -/
 theorem short_next_window (t0 grace window k octets now quota : Nat) (hk : 1 ≤ k)
     (hquota : quota ≤ octets) (hend : windowEnd t0 grace window k ≤ now)
     (hbefore : now < windowEnd t0 grace window (k + 1)) :
@@ -111,8 +111,8 @@ theorem short_next_window (t0 grace window k octets now quota : Nat) (hk : 1 ≤
 
 /-! ## An honest peer
 
-A peer that sends `peerRate` octets a second from the instant `peerStart`, in units of `unit`
-octets, delivers each unit at the first instant by which it has sent the unit's last octet. -/
+A peer that sends `peerRate` bytes a second from the instant `peerStart`, in units of `unit`
+bytes, delivers each unit at the first instant by which it has sent the unit's last byte. -/
 
 /-- The instant unit `m` arrives, counting from 1. -/
 def arrival (peerRate unit peerStart m : Nat) : Nat :=
@@ -147,7 +147,7 @@ theorem arrival_lt_iff (peerRate unit peerStart m t : Nat) (hp : 0 < peerRate) (
         omega
       omega
 
-/-- The octets window `k` brings: the units that arrived before its end and not before its start. -/
+/-- The bytes window `k` brings: the units that arrived before its end and not before its start. -/
 def brought (peerRate unit peerStart t0 grace window k : Nat) : Nat :=
   unit * (unitsBefore peerRate unit peerStart (windowEnd t0 grace window k) -
     unitsBefore peerRate unit peerStart (windowEnd t0 grace window (k - 1)))
@@ -251,7 +251,7 @@ theorem quota_le_units (rate window unit : Nat) (hu : 0 < unit)
   unfold quota
   generalize 2 * (rate * window) / (unit * nanosecondsPerSecond) = j at hj hlo hhi ⊢
   generalize hP : rate * window = P at h hlo hhi ⊢
-  -- Every product left is a multiple of the unit's octets times a second.
+  -- Every product left is a multiple of the unit's bytes times a second.
   have e1 : j * (unit * nanosecondsPerSecond) = unit * j * nanosecondsPerSecond := by
     rw [Nat.mul_comm j, Nat.mul_right_comm]
   have e2 : unit * nanosecondsPerSecond * (j + 1) =
@@ -282,7 +282,7 @@ theorem never_short (rate window grace unit peerRate peerStart t0 k : Nat) (hu :
     _ ≤ brought peerRate unit peerStart t0 grace window k :=
         brought_ge peerRate unit peerStart t0 grace window k hs hk
 
-/-- A window owes one octet at least. -/
+/-- A window owes one byte at least. -/
 theorem quota_pos (rate window : Nat) (hr : 0 < rate) (hw : 0 < window) :
     0 < quota rate window := by
   have := Nat.mul_pos hr hw
@@ -326,7 +326,7 @@ theorem never_short_iff (rate window grace unit t0 : Nat) (hr : 0 < rate) (hw : 
     exact never_short rate window grace unit peerRate peerStart t0 k hu hpeer hs hk h
 
 /-- Whether twice `rate` over one `window` is a whole `unit` or more: `never_short_iff`'s condition,
-which `deadline.zig`'s `fits_unit` computes for units of 16,384 octets, and which a server whose
+which `deadline.zig`'s `fits_unit` computes for units of 16,384 bytes, and which a server whose
 bodies arrive in units requires of its body rate (decision 110 as amended). -/
 def fitsUnit (rate window unit : Nat) : Bool :=
   decide (unit * nanosecondsPerSecond ≤ 2 * (rate * window))
@@ -340,8 +340,8 @@ theorem fitsUnit_iff (rate window grace unit t0 : Nat) (hr : 0 < rate) (hw : 0 <
   rw [never_short_iff rate window grace unit t0 hr hw hg hu]
   simp [fitsUnit]
 
-/-- A quota that rounds up to half a unit is not enough. At 8,192 octets a second over windows of
-999,999,999 nanoseconds a window owes 8,192 octets, half of 16,384, yet a peer at twice the rate
+/-- A quota that rounds up to half a unit is not enough. At 8,192 bytes a second over windows of
+999,999,999 nanoseconds a window owes 8,192 bytes, half of 16,384, yet a peer at twice the rate
 can bring its first window nothing. -/
 theorem half_unit_quota_short :
     2 * quota 8192 999999999 = 16384 ∧
@@ -349,7 +349,7 @@ theorem half_unit_quota_short :
   ⟨by decide, first_window_short 8192 999999999 1 16384 0 (by decide) (by decide) (by decide)
     (by decide)⟩
 
-/-- A quota of half a unit and one octet or more is enough. -/
+/-- A quota of half a unit and one byte or more is enough. -/
 theorem half_unit_and_one_enough (rate window unit : Nat)
     (h : unit ≤ 2 * (quota rate window - 1)) :
     unit * nanosecondsPerSecond ≤ 2 * (rate * window) := by

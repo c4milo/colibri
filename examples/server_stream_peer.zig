@@ -5,7 +5,7 @@
 //! prior knowledge (decision 117). It sends one gRPC-shaped POST whose request body and response
 //! body are streamed (decision 153). The request body holds three messages, which the client hands
 //! the pool in three pieces:
-//! 1. the first message, and the first octets of the second;
+//! 1. the first message, and the first bytes of the second;
 //! 2. the rest of the second message;
 //! 3. the third message, which ends the body.
 //!
@@ -24,7 +24,7 @@ const Link = link_module.Link;
 pub const path = "/greeter.Greeter/Greet";
 pub const content_type = "application/grpc";
 
-/// The prefix of each gRPC message: a flag octet, then the payload's length in four octets, most
+/// The prefix of each gRPC message: a flag byte, then the payload's length in four bytes, most
 /// significant first.
 pub const prefix_len = 1 + @sizeOf(u32);
 
@@ -32,7 +32,7 @@ pub const prefix_len = 1 + @sizeOf(u32);
 pub const names = [_][]const u8{ "Ada Lovelace", "Grace Hopper", "Barbara Liskov" };
 pub const greeting = "hello, ";
 
-/// The message that two pieces cut, and the octets of its payload in the first piece.
+/// The message that two pieces cut, and the bytes of its payload in the first piece.
 const cut_message = 1;
 const cut_payload_len = 5;
 
@@ -61,8 +61,8 @@ const server_port = 80;
 const server_host = [_]u8{ 192, 0, 2, 1 };
 const server_addresses = [_]client.Address{.init(&server_host, 0)};
 
-/// The octets of the response body the client holds at a time: fewer than a reply, so a reply
-/// comes in more than one piece. The octets of the response's headers, and of its trailers.
+/// The bytes of the response body the client holds at a time: fewer than a reply, so a reply
+/// comes in more than one piece. The bytes of the response's headers, and of its trailers.
 const piece_len = 16;
 const section_len = 256;
 
@@ -83,8 +83,8 @@ var link: *Link = undefined;
 /// What `send_stream` writes, which the link then sends.
 var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 
-/// Calls of `receive` for one read of the socket, at most. Each call takes one octet or more of
-/// the link's queue, or reports an event and takes no octet, or ends the loop.
+/// Calls of `receive` for one read of the socket, at most. Each call takes one byte or more of
+/// the link's queue, or reports an event and takes no byte, or ends the loop.
 const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(.{}) + 1);
 
 /// The call. Both of its bodies go in pieces, so `body` is empty and the response's `body` holds
@@ -108,7 +108,7 @@ var call_id: client.RequestId align(@alignOf(client.RequestId)) = @enumFromInt(0
 /// The connection of the socket, once the pool opened it.
 var socket: ?client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = null;
 
-/// What the client saw: the pieces it handed and the pool took, the octets of the replies, and
+/// What the client saw: the pieces it handed and the pool took, the bytes of the replies, and
 /// whether the call finished, the socket closed and the shut-down pool is over.
 var handed: usize = 0;
 var taken: usize = 0;
@@ -193,7 +193,7 @@ fn on_headers(id: client.RequestId) !void {
     heard_headers = true;
 }
 
-/// `body` holds a piece of the replies. It must be the next octets the server owes, and come
+/// `body` holds a piece of the replies. It must be the next bytes the server owes, and come
 /// only from a reply to a message the server could read whole. The client then releases it.
 fn on_piece(held: client.Event.Piece) !void {
     if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
@@ -260,14 +260,14 @@ pub fn check() bool {
     return false;
 }
 
-/// The octets of the first `count` messages, each a prefix and `before` and a name.
+/// The bytes of the first `count` messages, each a prefix and `before` and a name.
 fn messages_len(comptime before: []const u8, count: usize) usize {
     var len: usize = 0;
     for (names[0..count]) |name| len += prefix_len + before.len + name.len;
     return len;
 }
 
-/// Each name after `before` as a gRPC message, one after another, at comptime. The flag octet is
+/// Each name after `before` as a gRPC message, one after another, at comptime. The flag byte is
 /// 0, for no compression.
 fn frame_all(comptime before: []const u8) [messages_len(before, names.len)]u8 {
     var all: [messages_len(before, names.len)]u8 = undefined;

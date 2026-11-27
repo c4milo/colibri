@@ -6,7 +6,7 @@
 //! RRset is made. It checks the DS digest the same way (RFC 4034 §5.1.4). Nothing allocates or
 //! does I/O.
 //!
-//! The program checks that the signature verifies, that one changed octet of the data makes it
+//! The program checks that the signature verifies, that one changed byte of the data makes it
 //! fail, and that the DS digest is the one the RFC prints. Anything else exits with an error,
 //! which is how `zig build examples` and CI know the example still works.
 //!

@@ -1,5 +1,5 @@
 //! The tests of `Router.init` (decision 158 ruling 1, https://github.com/c4milo/colibri/issues/148).
-//! Each test fills a router's octets with `filler`, as a program's memory may hold anything, then
+//! Each test fills a router's bytes with `filler`, as a program's memory may hold anything, then
 //! starts it with `init`.
 const std = @import("std");
 const builtin = @import("builtin");
@@ -8,7 +8,7 @@ const router_call = @import("router_call.zig");
 
 const testing = std.testing;
 
-/// What the tests write over a router's octets before `init`.
+/// What the tests write over a router's bytes before `init`.
 const filler: u8 = 0x55;
 
 /// The entries of each router the tests start: more than one, so `init` writes past the first.

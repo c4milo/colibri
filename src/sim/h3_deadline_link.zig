@@ -1,8 +1,8 @@
 //! The link from the server to the peer of an h3 deadline run (`h3_deadline_run.zig`). Most plans
 //! give it no rate, and it carries each datagram at the instant the server wrote it. A slow link
-//! carries `rate` octets a second, one datagram at a time, behind a queue of `link_queue_len`
+//! carries `rate` bytes a second, one datagram at a time, behind a queue of `link_queue_len`
 //! datagrams, and drops the datagram that finds the queue full, as a router with a short buffer
-//! does. So the server's octets wait on the link and not on the peer, which is honest.
+//! does. So the server's bytes wait on the link and not on the peer, which is honest.
 //!
 //! The link from the peer to the server has no rate: the peer's acknowledgments arrive at once.
 const std = @import("std");
@@ -11,12 +11,12 @@ const sim = @import("sim");
 
 const limits = sim.constants.h3_deadline;
 
-/// Octets of the largest datagram the link carries, as the simulator's network does. colibri
+/// Bytes of the largest datagram the link carries, as the simulator's network does. colibri
 /// writes none longer than RFC 9000 §14.1's 1,200.
 pub const datagram_len_max: usize = sim.constants.network_datagram_len_max;
 
 pub const Link = struct {
-    /// Octets a second, or 0 for a link with no rate.
+    /// Bytes a second, or 0 for a link with no rate.
     rate: u32,
     datagrams: [limits.link_queue_len][datagram_len_max]u8,
     lens: [limits.link_queue_len]usize,
@@ -54,7 +54,7 @@ pub const Link = struct {
         link.held += 1;
     }
 
-    /// The oldest datagram, when it has arrived by `now_ms`. The octets stay until the next `take`.
+    /// The oldest datagram, when it has arrived by `now_ms`. The bytes stay until the next `take`.
     pub fn next(link: *Link, now_ms: u64) ?[]u8 {
         if (link.held == 0 or link.arrives_ms[link.first] > now_ms) return null;
         const slot = link.first;
@@ -69,7 +69,7 @@ pub const Link = struct {
     }
 };
 
-/// How long a link of `rate` octets a second takes to carry `len` octets, in milliseconds,
+/// How long a link of `rate` bytes a second takes to carry `len` bytes, in milliseconds,
 /// rounded up. A link with no rate takes none.
 pub fn carry_ms(rate: u32, len: usize) u64 {
     if (rate == 0) return 0;
@@ -78,7 +78,7 @@ pub fn carry_ms(rate: u32, len: usize) u64 {
 
 const testing = std.testing;
 
-/// The rate and the datagram of the tests: 1,000 octets a second and 250 octets, so the link
+/// The rate and the datagram of the tests: 1,000 bytes a second and 250 bytes, so the link
 /// carries one datagram in 250 ms.
 const test_rate: u32 = 1_000;
 const test_len: usize = 250;

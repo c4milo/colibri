@@ -1,5 +1,5 @@
 //! The three frames that carry a field block fragment (RFC 9113 §4.3): HEADERS (§6.2),
-//! PUSH_PROMISE (§6.6) and CONTINUATION (§6.10). Each parser returns the fragment as the octets
+//! PUSH_PROMISE (§6.6) and CONTINUATION (§6.10). Each parser returns the fragment as the bytes
 //! it is: decoding it is hpack's job, and joining fragments across CONTINUATION frames is the
 //! connection's.
 //!
@@ -8,7 +8,7 @@
 //!      PROTOCOL_ERROR (§6.2, §6.6, §6.10);
 //!   2. for HEADERS and PUSH_PROMISE, the padding rule of frame_padding.zig (§6.2, §6.6);
 //!   3. the fields before the fragment are present, or `error.LengthInvalid`: the five priority
-//!      octets the PRIORITY flag announces (§6.2) and the Promised Stream ID (§6.6). §4.2 makes
+//!      bytes the PRIORITY flag announces (§6.2) and the Promised Stream ID (§6.6). §4.2 makes
 //!      a frame too small for its mandatory data a FRAME_SIZE_ERROR, and a connection error for
 //!      any frame that carries a field block;
 //!   4. for PUSH_PROMISE, the promised identifier is even and not 0, or
@@ -40,7 +40,7 @@ pub const Error = frame_padding.Error || error{
     PromisedStreamIdInvalid,
 };
 
-/// The fields and flags of a HEADERS frame (RFC 9113 §6.2), with the Pad Length octet and the
+/// The fields and flags of a HEADERS frame (RFC 9113 §6.2), with the Pad Length byte and the
 /// padding removed.
 pub const Headers = struct {
     /// The Field Block Fragment, as sent: hpack decodes it.
@@ -53,7 +53,7 @@ pub const Headers = struct {
 };
 
 /// The fields and the END_HEADERS flag of a PUSH_PROMISE frame (RFC 9113 §6.6), with the Pad
-/// Length octet and the padding removed and the reserved bit masked off the promised identifier.
+/// Length byte and the padding removed and the reserved bit masked off the promised identifier.
 pub const PushPromise = struct {
     promised_stream_id: u32,
     fragment: []const u8,
@@ -135,7 +135,7 @@ pub fn parse_continuation(header: Header, payload: []const u8) Error!Continuatio
 }
 
 /// Writes one HEADERS frame, all of it or nothing. `priority` is null from colibri (decision 18)
-/// and set only by the corpus round trip; `padding_len` zero octets of padding follow the
+/// and set only by the corpus round trip; `padding_len` zero bytes of padding follow the
 /// fragment when it is not 0.
 pub fn write_headers(
     writer: *Writer,
@@ -299,7 +299,7 @@ test "PUSH_PROMISE with padding of the payload length is PaddingTooLong (RFC 911
 test "PUSH_PROMISE shorter than its Promised Stream ID is LengthInvalid (RFC 9113 §4.2)" {
     try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 3, 0, 1), "\x00\x00\x02"));
     try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 0, 0, 1), ""));
-    // Five octets, but two of them are padding: the fields left are too short for the identifier.
+    // Five bytes, but two of them are padding: the fields left are too short for the identifier.
     try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 5, constants.protocol.flag_padded, 1), "\x02\x00\x00\x00\x02"));
 }
 

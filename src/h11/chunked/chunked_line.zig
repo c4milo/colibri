@@ -28,11 +28,11 @@ pub const Error = error{
 /// The base of a chunk-size (RFC 9112 §7.1).
 const hex_radix = 16;
 
-/// The octet before each chunk extension, and between its name and value (RFC 9112 §7.1.1).
+/// The byte before each chunk extension, and between its name and value (RFC 9112 §7.1.1).
 const extension_start = ';';
 const extension_equals = '=';
 
-/// The octet that opens and closes a quoted-string, and the one that quotes the next octet
+/// The byte that opens and closes a quoted-string, and the one that quotes the next byte
 /// (RFC 9110 §5.6.4).
 const double_quote = '"';
 const backslash = '\\';
@@ -132,7 +132,7 @@ fn quoted_octet(reader: *Reader) Error!bool {
     const octet = reader.take_byte() catch return error.ChunkExtensionInvalid;
     if (octet == double_quote) return true;
     if (octet == backslash) {
-        // RFC 9110 §5.6.4: quoted-pair = "\" ( HTAB / SP / VCHAR / obs-text ), so an octet follows.
+        // RFC 9110 §5.6.4: quoted-pair = "\" ( HTAB / SP / VCHAR / obs-text ), so a byte follows.
         const quoted = reader.take_byte() catch return error.ChunkExtensionInvalid;
         // RFC 9110 §5.6.4: what a quoted-pair quotes is HTAB, SP, VCHAR or obs-text.
         if (!is_quoted_pair_octet(quoted)) return error.ChunkExtensionInvalid;

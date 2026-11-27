@@ -1,5 +1,5 @@
 //! The fuzz property of the h3 frame reader, and the sweep that runs it over every input of up to
-//! two octets (decision 29, https://github.com/c4milo/colibri/issues/53). Every octet of a control
+//! two bytes (decision 29, https://github.com/c4milo/colibri/issues/53). Every byte of a control
 //! stream and a request stream is a peer's, so the header and the payload readers take hostile
 //! input.
 //!
@@ -21,11 +21,11 @@ const Smith = std.testing.Smith;
 const testing = std.testing;
 const varint = wire.varint;
 
-/// Most octets one fuzz input carries: a header and a SETTINGS payload of several pairs.
+/// Most bytes one fuzz input carries: a header and a SETTINGS payload of several pairs.
 const fuzz_input_len_max = 64;
 
-/// Where an accepted payload is written again. Room for a header of two 8-octet varints, and a
-/// SETTINGS payload of three settings at 8 octets each for its identifier and its value.
+/// Where an accepted payload is written again. Room for a header of two 8-byte varints, and a
+/// SETTINGS payload of three settings at 8 bytes each for its identifier and its value.
 const fuzz_written_len_max = 64;
 var fuzz_written: [fuzz_written_len_max]u8 = @splat(0);
 
@@ -34,7 +34,7 @@ fn fuzz_frame(_: void, smith: *Smith) anyerror!void {
     const octets = input[0..smith.slice(&input)];
     var reader = Reader.init(octets);
     const header = frame.read_header(&reader) catch |failure| {
-        // RFC 9114 §7.1: a header whose octets have not all arrived is read again once they
+        // RFC 9114 §7.1: a header whose bytes have not all arrived is read again once they
         // have, so nothing is consumed.
         try testing.expectEqual(error.Truncated, failure);
         try testing.expectEqual(0, reader.offset);
@@ -44,7 +44,7 @@ fn fuzz_frame(_: void, smith: *Smith) anyerror!void {
     const payload = reader.take(@intCast(header.length)) catch unreachable;
     const read = frame.read_payload(header.frame_type, payload) catch |failure| {
         // The payload is whole, so a short field in it is H3_FRAME_ERROR (RFC 9114 §7.1). A
-        // `Truncated` here would have the caller wait for octets that are not coming.
+        // `Truncated` here would have the caller wait for bytes that are not coming.
         try testing.expect(failure != error.Truncated);
         return;
     };
@@ -100,7 +100,7 @@ fn expect_settings(payload: []const u8, settings: frame.Settings) !void {
     try testing.expectEqual(null, settings.reserved);
     var pairs = Reader.init(payload);
     var known_count: [known_settings.len]u8 = @splat(0);
-    // Bounded: every pair takes at least two octets.
+    // Bounded: every pair takes at least two bytes.
     for (0..payload.len / pair_len_min + 1) |_| {
         if (pairs.remaining_len() == 0) break;
         const identifier = (try varint.decode(&pairs)).value;
@@ -116,7 +116,7 @@ fn expect_settings(payload: []const u8, settings: frame.Settings) !void {
     for (known_count) |count| try testing.expect(count <= 1);
 }
 
-/// Fewest octets a SETTINGS pair takes: an identifier and a value of one octet each (RFC 9114
+/// Fewest bytes a SETTINGS pair takes: an identifier and a value of one byte each (RFC 9114
 /// §7.2.4).
 const pair_len_min = 2;
 
@@ -159,7 +159,7 @@ fn expect_round_trip(read: frame.Payload) !void {
 test "fuzz: a frame the reader accepts keeps RFC 9114 §7's rules, and reads back the same" {
     try testing.fuzz({}, fuzz_frame, .{
         .corpus = &.{
-            // SETTINGS with every known setting, one in a two-octet varint, and an unknown one.
+            // SETTINGS with every known setting, one in a two-byte varint, and an unknown one.
             core.fuzz.input("\x04\x0a\x06\x41\x00\x01\x05\x07\x10\x40\x99\x01"),
             // SETTINGS with a known setting twice, and with an HTTP/2 identifier (§7.2.4.1).
             core.fuzz.input("\x04\x04\x06\x01\x06\x02"),
@@ -167,10 +167,10 @@ test "fuzz: a frame the reader accepts keeps RFC 9114 §7's rules, and reads bac
             // SETTINGS with one known setting alone, and with a pair cut after its identifier.
             core.fuzz.input("\x04\x02\x07\x10"),
             core.fuzz.input("\x04\x01\x06"),
-            // GOAWAY of one integer, then one with an octet after it (§7.1).
+            // GOAWAY of one integer, then one with a byte after it (§7.1).
             core.fuzz.input("\x07\x01\x08"),
             core.fuzz.input("\x07\x02\x08\x00"),
-            // MAX_PUSH_ID and CANCEL_PUSH in two-octet varints, and one with its integer cut short.
+            // MAX_PUSH_ID and CANCEL_PUSH in two-byte varints, and one with its integer cut short.
             core.fuzz.input("\x0d\x02\x41\x00"),
             core.fuzz.input("\x03\x02\x41\x00"),
             core.fuzz.input("\x03\x01\x41"),

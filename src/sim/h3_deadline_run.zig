@@ -160,7 +160,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.record.app.init();
 }
 
-/// The octets of each answer's content: letters alone.
+/// The bytes of each answer's content: letters alone.
 const content_letters = "abcdefghijklmnopqrstuvwxyz";
 
 fn fill(random: *Random, buffer: []u8) void {
@@ -223,7 +223,7 @@ fn peer_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
 /// The application reads every event the endpoint reports.
 fn server_read(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     var moved = false;
-    // Bounded: every event reads an octet the pool holds, or ends a request.
+    // Bounded: every event reads a byte the pool holds, or ends a request.
     for (0..limits.events_per_pass_max) |_| {
         var received_result: server.ReceiveResult = undefined;
         storage.endpoint.receive(.none, now_ns, &received_result);
@@ -319,7 +319,7 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
             .ended_ms = fetch.ended_ms,
         };
         if (index >= plan.requests_count or !plan.honest()) continue;
-        // An honest peer's exchange is whole: 200, every octet of its content, and its end.
+        // An honest peer's exchange is whole: 200, every byte of its content, and its end.
         const whole = fetch.status == ok_status and fetch.ended_ms != null and fetch.received_len == plan.content_len[index];
         if (whole) record.requests_done += 1;
     }

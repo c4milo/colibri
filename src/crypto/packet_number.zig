@@ -1,5 +1,5 @@
 //! Recovering a packet number (RFC 9000 §17.1, Appendix A.3). A header carries the 1 to 4 least
-//! significant octets of a number that is 0 to 2^62-1 (§12.3), and the receiver rebuilds the rest
+//! significant bytes of a number that is 0 to 2^62-1 (§12.3), and the receiver rebuilds the rest
 //! from the largest number it has processed.
 //!
 //! This is here and not in `quic` because decision 48 makes it the suite's step: RFC 9001 §9.5
@@ -13,11 +13,11 @@ const constants = @import("constants.zig");
 
 const Reader = core.Reader;
 
-/// The octets of a packet number as a header carries them.
+/// The bytes of a packet number as a header carries them.
 pub const Truncated = struct {
-    /// The `len` least significant octets of the full packet number.
+    /// The `len` least significant bytes of the full packet number.
     value: u32,
-    /// Octets of the Packet Number field, 1 to 4 (RFC 9000 §17.1).
+    /// Bytes of the Packet Number field, 1 to 4 (RFC 9000 §17.1).
     len: u8,
 };
 
@@ -48,13 +48,13 @@ pub fn decode(largest: ?u64, truncated: Truncated) u64 {
     return candidate;
 }
 
-/// The count of values `len` octets carry.
+/// The count of values `len` bytes carry.
 pub fn window_of(len: u8) u64 {
     assert(len >= 1 and len <= constants.protocol.packet_number_len_max);
     return @as(u64, 1) << @intCast(@as(u8, @bitSizeOf(u8)) * len);
 }
 
-/// Reads a Packet Number field of `len` octets, which header protection has been removed from.
+/// Reads a Packet Number field of `len` bytes, which header protection has been removed from.
 pub fn read(reader: *Reader, len: u8) core.Reader.Error!Truncated {
     assert(len >= 1 and len <= constants.protocol.packet_number_len_max);
     const octets = try reader.take(len);

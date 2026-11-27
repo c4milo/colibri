@@ -86,7 +86,7 @@ test "an http or https :path that does not start with / is PathInvalid, and a sc
 }
 
 test "RFC 9113 §8.3.1: an http or https :path is an absolute-path and a query of RFC 3986, as h11 holds a target" {
-    // RFC 3986 §3.3 and §3.4: no SP, "#", DQUOTE, backslash, "{", "|", "^", "`", "<", octet above
+    // RFC 3986 §3.3 and §3.4: no SP, "#", DQUOTE, backslash, "{", "|", "^", "`", "<", byte above
     // 0x7F, or "%" without two hex digits, in the path or in the query.
     const refused = [_][]const u8{ "/a b", "/a#b", "/a\"b", "/a\\b", "/a{b", "/a|b", "/a^b", "/a`b", "/a<b", "/\x80", "/a%zz", "/a%2", "/a?b c", "/a?b#c" };
     for (refused) |path| try expect_request(error.PathInvalid, try request_of("GET", "https", "example.org", path));

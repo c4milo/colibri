@@ -5,7 +5,7 @@
 //!
 //! h11 cannot end one exchange alone: a response the caller cancelled, or one whose content did not
 //! fit, is read to its end and dropped, and the connection goes on. A cancel while the request's
-//! content is going out ends the connection, because the server waits for the octets the head
+//! content is going out ends the connection, because the server waits for the bytes the head
 //! declared (RFC 9112 §6.2). A final response that ends, or that the client drops, while the
 //! content is going out ends the connection too, and the rest of the content is not written (RFC
 //! 9112 §9.5, decision 124). A drop is bounded (decision 146): it fails the connection when the
@@ -29,25 +29,25 @@ const Connection = connection_module.Connection;
 const Header = event.Header;
 const Slot = slots_module.Slot;
 
-/// Passes of the reading per octet of input: one that consumes it, and one that ends a response.
+/// Passes of the reading per byte of input: one that consumes it, and one that ends a response.
 const passes_per_octet: usize = 2;
 
-/// Reads responses from `plaintext` until an exchange ends or the octets run out, and returns the
-/// octets taken.
+/// Reads responses from `plaintext` until an exchange ends or the bytes run out, and returns the
+/// bytes taken.
 pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     const session = &connection.session.h11;
-    // h11 requires each call's octets to start with every octet it left unconsumed. The caller
+    // h11 requires each call's bytes to start with every byte it left unconsumed. The caller
     // passes them again, so a call with none waits for that one.
     if (plaintext.len == 0 and connection.unread_len > 0) return 0;
     var consumed: usize = 0;
     defer connection.unread_len = plaintext.len - consumed;
     // A drop's time starts once its response is the one being read (decision 146).
     defer start_drop_time(connection, now_ns);
-    // The octets left after a response that ended are the next response's.
+    // The bytes left after a response that ended are the next response's.
     defer note_arrival(connection, plaintext.len - consumed);
     note_arrival(connection, plaintext.len);
-    // Every pass consumes an octet or ends a response, and a response takes at least one octet,
-    // so n octets take at most 2n passes, and one more finds them short.
+    // Every pass consumes a byte or ends a response, and a response takes at least one byte,
+    // so n bytes take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * plaintext.len + 1) |_| {
         const received = session.receive(plaintext[consumed..], &.{}) catch {
             fail(connection);
@@ -56,7 +56,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
         consumed += received.consumed;
         const h11_event = received.event orelse return consumed;
         if (record(connection, h11_event, now_ns)) {
-            // Decision 153: the run's octets after a piece that `Response.body` holds are the
+            // Decision 153: the run's bytes after a piece that `Response.body` holds are the
             // last h11 took, and wait for the next call.
             consumed -= connection.tail.len;
             return consumed;
@@ -65,7 +65,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
     return consumed;
 }
 
-/// Notes that some of a response arrived when `left` octets wait to be read, whether or not h11
+/// Notes that some of a response arrived when `left` bytes wait to be read, whether or not h11
 /// takes them yet. RFC 9112 §9.2: they answer the oldest request that awaits a response, so the
 /// pool does not send that request again (decision 124).
 fn note_arrival(connection: *Connection, left: usize) void {
@@ -275,8 +275,8 @@ fn fail(connection: *Connection) void {
 pub fn transport_closed(connection: *Connection) void {
     const session = &connection.session.h11;
     if (session.end_owed and !connection.tail.pending()) {
-        // RFC 9112 §6.3: the body's last octet arrived, and the caller has every octet of it, so
-        // the response is whole. h11 reports its end with no octets.
+        // RFC 9112 §6.3: the body's last byte arrived, and the caller has every byte of it, so
+        // the response is whole. h11 reports its end with no bytes.
         const received = session.receive(&.{}, &.{}) catch unreachable;
         assert(received.event.? == .end);
         _ = on_end(connection, connection.slots.oldest_awaiting().?);

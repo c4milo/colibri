@@ -1,10 +1,10 @@
 /-!
 # NewReno's integer arithmetic (RFC 9002 §7.3 and Appendix B, decision 133 as amended)
 
-`src/quic/recovery/recovery_congestion_newreno.zig` grows and cuts the window in octets. The
+`src/quic/recovery/recovery_congestion_newreno.zig` grows and cuts the window in bytes. The
 definitions follow the Zig line for line; the theorems are about them:
 
-- `grow_conserves`: one acknowledgment's increase in congestion avoidance loses no octet. What
+- `grow_conserves`: one acknowledgment's increase in congestion avoidance loses no byte. What
   it adds to the window, times the window, plus the carry it leaves, is the carry before plus
   `max_datagram_size × acknowledged` (Appendix B.5).
 - `grow_carry_lt`: the carry stays below the window.
@@ -21,7 +21,7 @@ namespace Colibri.Quic.NewReno
 def lossReductionNumerator : Nat := 1
 def lossReductionDenominator : Nat := 2
 
-/-- `grow_in_avoidance`: the octets the window gains, and the carry it keeps. -/
+/-- `grow_in_avoidance`: the bytes the window gains, and the carry it keeps. -/
 def grow (window datagram carry acknowledged : Nat) : Nat × Nat :=
   ((carry + datagram * acknowledged) / window, (carry + datagram * acknowledged) % window)
 

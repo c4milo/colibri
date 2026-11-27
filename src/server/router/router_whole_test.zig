@@ -206,7 +206,7 @@ fn start_tls() !event.ConnectionHandle {
     return handle;
 }
 
-/// How a test's octets go to the connection: as they are, or as the TLS client's records.
+/// How a test's bytes go to the connection: as they are, or as the TLS client's records.
 const Carried = enum { cleartext, sealed };
 
 /// Passes `octets` to the connection, and requires the engine to consume each one.
@@ -219,7 +219,7 @@ fn give_h11(handle: event.ConnectionHandle, carried: Carried, octets: []const u8
 const h11_parts_rest = std.fmt.comptimePrint(" HTTP/1.1\r\nHost: example.com\r\nContent-Length: {d}\r\n\r\n", .{whole.full_body.len});
 
 /// Passes `head`, and then the body in a later call, and requires the late call to answer with
-/// `parts`. The later call writes the body over the head's first octets. In cleartext the
+/// `parts`. The later call writes the body over the head's first bytes. In cleartext the
 /// fixture's buffer holds them, as a program's read buffer does. Over TLS the connection's
 /// `plain_in` holds them.
 fn expect_h11_parts(handle: event.ConnectionHandle, carried: Carried, head: []const u8, parts: []const u8) !void {
@@ -228,7 +228,7 @@ fn expect_h11_parts(handle: event.ConnectionHandle, carried: Carried, head: []co
     try testing.expectEqualStrings("POST", engine_app.head_method);
     try give_h11(handle, carried, whole.full_body);
     try testing.expectEqual(1, engine_app.calls);
-    // The engine's octets of the method hold the body's first octets now.
+    // The engine's bytes of the method hold the body's first bytes now.
     try testing.expectEqualStrings(whole.full_body[0.."POST".len], engine_app.head_method);
     const sent = if (carried == .sealed) try tcp_support.open_sent(handle.slot) else tcp_support.sent_of(handle.slot);
     try testing.expect(std.mem.indexOf(u8, sent, parts) != null);
@@ -236,7 +236,7 @@ fn expect_h11_parts(handle: event.ConnectionHandle, carried: Carried, head: []co
 
 test "decision 163 ruling 5: a late call reads the method, the target, the path and the query, over h11" {
     const handle = try start_tcp();
-    // RFC 9112 §3.2.1: the origin-form. Its method and target lie in the octets h11 read.
+    // RFC 9112 §3.2.1: the origin-form. Its method and target lie in the bytes h11 read.
     const head = "POST /parts?mark=a" ++ h11_parts_rest;
     try expect_h11_parts(handle, .cleartext, head, "POST /parts?mark=a /parts mark=a http example.com");
 }
@@ -322,10 +322,10 @@ test "decision 163 ruling 5: a GET that ends in an empty DATA frame takes a copy
     const handle = try start_h2();
     _ = tcp_support.give(handle, try h2_support.request_frame_with(whole.first_stream, "GET", "/empty", &.{}, false));
     try testing.expectEqual(0, engine_app.calls);
-    // RFC 9113 §8.1: a DATA frame with END_STREAM and no octets ends the request.
+    // RFC 9113 §8.1: a DATA frame with END_STREAM and no bytes ends the request.
     try give_data(handle, whole.first_stream, "", true);
     try testing.expectEqual(1, engine_app.calls);
-    // The router read the body it held, which holds no octet.
+    // The router read the body it held, which holds no byte.
     try testing.expectEqual(error.EndOfStream, engine_app.empty_read.?);
     try testing.expect(engine_app.empty_body.? == &engine_router.entries[0].body.cursor.reader);
 }

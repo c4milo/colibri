@@ -1,4 +1,4 @@
-//! One seed's messages for the h11 coding check (design §8 step 15c), and the octets a peer sends
+//! One seed's messages for the h11 coding check (design §8 step 15c), and the bytes a peer sends
 //! for them. No colibri writer codes a body (decision 91), so the plan writes each message itself:
 //! a head naming `gzip, chunked`, `deflate, chunked` or `chunked`, the body coded by stdx's
 //! encoders in chunks of seeded lengths, and the last chunk (RFC 9112 §7.1).
@@ -36,9 +36,9 @@ pub const Defect = enum {
     none,
     /// The stream's checksum one bit off (RFC 1950 §2.2, RFC 1952 §2.3.1): corrupt.
     checksum,
-    /// The last coded octet left out, so the body ends inside the stream: corrupt.
+    /// The last coded byte left out, so the body ends inside the stream: corrupt.
     truncated,
-    /// An octet after a zlib stream, inside the body.
+    /// A byte after a zlib stream, inside the body.
     trailing,
     /// A zlib preset dictionary (RFC 1950 §2.2), which stdx refuses.
     dictionary,
@@ -49,15 +49,15 @@ pub const Defect = enum {
 /// A zlib header with FDICT set and a valid FCHECK, and a dictionary identifier (RFC 1950 §2.2).
 const dictionary_stream = "\x78\xbb\x00\x00\x00\x01";
 
-/// RFC 1952 §2.3: a gzip member ends with CRC32 and ISIZE, four octets each. RFC 1950 §2.2: a
-/// zlib stream ends with ADLER32, four octets.
+/// RFC 1952 §2.3: a gzip member ends with CRC32 and ISIZE, four bytes each. RFC 1950 §2.2: a
+/// zlib stream ends with ADLER32, four bytes.
 const gzip_checksum_from_end = 8;
 const zlib_checksum_from_end = 4;
 
 /// Two members code a body's two halves.
 const member_halves = 2;
 
-/// The octets a copy repeats at least, DEFLATE's shortest match (RFC 1951 §3.2.5).
+/// The bytes a copy repeats at least, DEFLATE's shortest match (RFC 1951 §3.2.5).
 const copy_len_min = 3;
 /// One pass in this many copies a run rather than writing a letter.
 const copy_one_in = 2;
@@ -154,7 +154,7 @@ fn draw_coding(random: *Random) Coding {
 fn fill(random: *Random, octets: []u8) u32 {
     const len: usize = @intCast(random.between(1, octets.len));
     var index: usize = 0;
-    // Every pass writes at least one octet.
+    // Every pass writes at least one byte.
     for (0..len) |_| {
         if (index == len) break;
         const room = len - index;
@@ -226,7 +226,7 @@ fn code(message: Message, body: []const u8, encoders: *Encoders, storage: []u8) 
     }
 }
 
-/// The coded octets as the defect leaves them.
+/// The coded bytes as the defect leaves them.
 fn apply_defect(defect: Defect, coding: Coding, coded: []u8, storage: []u8) []u8 {
     switch (defect) {
         .none, .exhausted => return coded,
@@ -250,7 +250,7 @@ fn apply_defect(defect: Defect, coding: Coding, coded: []u8, storage: []u8) []u8
 /// `coded` in chunks of lengths drawn from `random`, then the last chunk (RFC 9112 §7.1).
 fn write_chunks(random: *Random, coded: []const u8, output: *Writer) !void {
     var offset: usize = 0;
-    // Every pass writes at least one octet of the body.
+    // Every pass writes at least one byte of the body.
     for (0..coded.len) |_| {
         if (offset == coded.len) break;
         const len: usize = @intCast(random.between(1, @min(coded.len - offset, limits.chunk_len_max)));

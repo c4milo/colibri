@@ -57,7 +57,7 @@ const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_addresses = [_]client.Address{.init(&loopback, 0)};
 const server_address: client.Address = .init(&loopback, server_port);
 
-/// The octets the TCP peer writes before it sends them, at most.
+/// The bytes the TCP peer writes before it sends them, at most.
 const output_len = 16384;
 
 /// Events a peer takes after one input, and datagrams it reads or writes in one turn, at most.
@@ -199,8 +199,8 @@ fn tcp_turn() !void {
     try drain_stream(now_ns);
 }
 
-/// Passes the TCP peer's pool the octets the stream link holds, until it consumes nothing and
-/// reports nothing. At a `close`, the peer drops the octets it holds.
+/// Passes the TCP peer's pool the bytes the stream link holds, until it consumes nothing and
+/// reports nothing. At a `close`, the peer drops the bytes it holds.
 fn drain_stream(now_ns: u64) !void {
     const input = try stream_link.receive(.client);
     var consumed: usize = 0;

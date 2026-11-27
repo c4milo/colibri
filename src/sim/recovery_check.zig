@@ -4,12 +4,12 @@
 //! One endpoint sends, the other acknowledges. The sender is `quic.recovery`, whole: the round
 //! trip estimator, the sent-packet tables, §6.1's two loss thresholds, §6.2's Probe Timeout,
 //! NewReno and the pacer. The receiver is `quic.space`, which suppresses duplicates and writes
-//! real ACK frames, so what the sender reads back is octets off the wire and not a struct handed
+//! real ACK frames, so what the sender reads back is bytes off the wire and not a struct handed
 //! across.
 //!
 //! What it proves is the part unit tests cannot: that the pieces agree over a whole transfer. No
 //! packet is ever both acknowledged and declared lost, nothing is left outstanding when the run
-//! drains, the octets in flight never pass the congestion window, and the window never falls
+//! drains, the bytes in flight never pass the congestion window, and the window never falls
 //! under RFC 9002 §7.2's minimum. A seed replays byte for byte, which is invariant 5.
 //!
 //! The module this file belongs to imports `sim` and `quic` and no HTTP module, which is the
@@ -44,7 +44,7 @@ pub const Violation = error{
     PacketCountedTwice,
     /// The run drained with packets still outstanding, so the sender would wait forever.
     NotDrained,
-    /// A packet went out that took the octets in flight past the congestion window. RFC 9002 §7
+    /// A packet went out that took the bytes in flight past the congestion window. RFC 9002 §7
     /// bounds what a sender adds, not what is already outstanding: halving the window on a
     /// congestion event leaves more in flight than it allows, and the sender waits rather than
     /// unsending anything.
@@ -96,7 +96,7 @@ pub const Result = struct {
     window_min: u64 = 0,
     /// The smoothed estimate at the end, or zero where no sample was taken.
     smoothed_rtt_ns: u64 = 0,
-    /// The digest of every octet the seed put on the path, so a change in what was sent moves
+    /// The digest of every byte the seed put on the path, so a change in what was sent moves
     /// the census even where the counts do not.
     octets_crc32: u32 = 0,
 };
@@ -131,7 +131,7 @@ pub const Storage = struct {
     pub const zeroed: Storage = sim.null_suite.zeroes_around_suites(Storage);
 };
 
-/// How many ack-eliciting packets of data one seed sends, and the octets each carries.
+/// How many ack-eliciting packets of data one seed sends, and the bytes each carries.
 pub const packets_per_seed: usize = 64;
 /// How many packet numbers a seed may use in all. The rest are RFC 9002 Appendix A.9's probes,
 /// which carry no new data and go out when the Probe Timeout fires. A run that needs more than
@@ -140,7 +140,7 @@ pub const numbers_max: usize = packets_per_seed * probe_numbers_factor;
 /// How many times a seed's data packets the number space is, leaving the rest for probes.
 pub const probe_numbers_factor: usize = 4;
 pub const datagram_len: u16 = @intCast(quic.constants.protocol.datagram_len_min);
-/// The first octet of a datagram says which of the two it is.
+/// The first byte of a datagram says which of the two it is.
 pub const kind_data: u8 = 0x01;
 pub const kind_ack: u8 = 0x02;
 /// One datagram in ten is dropped in the loss scenario, out of `schedule_denominator`.

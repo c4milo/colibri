@@ -1,6 +1,6 @@
 //! One worker's connections in design §9's server, with no socket in them (design §8 step 21b.6):
 //! one `server.Engine` serves every connection the worker holds, and this file is the program
-//! around it. The octets a socket read go in, the octets it sends come out, and every request is
+//! around it. The bytes a socket read go in, the bytes it sends come out, and every request is
 //! answered once it is read whole (`server_session_answer.zig`). `../server.zig` is the socket
 //! side.
 //!
@@ -50,10 +50,10 @@ pub const Routes = union(enum) {
 
 /// What one step did.
 pub const Step = struct {
-    /// Octets of the caller's input the connection consumed.
+    /// Bytes of the caller's input the connection consumed.
     consumed: usize,
     /// Whether the engine has reported the connection's `close`: the socket closes once the
-    /// octets lent so far are out.
+    /// bytes lent so far are out.
     done: bool,
 };
 
@@ -65,10 +65,10 @@ pub const Entry = struct {
     /// Whether the engine holds that connection: it has not reported its `ended`.
     attached: bool,
     /// The engine reported the connection's `close`: the program closes the socket once the
-    /// octets it holds are out. A connection whose peer closed first gets none.
+    /// bytes it holds are out. A connection whose peer closed first gets none.
     closing: bool,
     /// The engine reported the connection's `half_close`: the program closes the socket's write
-    /// side once the octets it holds are out, and reads on (decision 160).
+    /// side once the bytes it holds are out, and reads on (decision 160).
     half_closing: bool = false,
     answers: server_session_answer.Answers,
 };
@@ -155,7 +155,7 @@ pub fn Session(comptime connections_max: usize) type {
             return session.engine.output_stream(session.entries[index].handle, session.now_ns);
         }
 
-        /// The socket of entry `index` sent `sent_len` octets of what the engine lent, at
+        /// The socket of entry `index` sent `sent_len` bytes of what the engine lent, at
         /// `now_ns`: 0 for a send that failed or never went (decision 176). The engine ends a
         /// connection whose socket closed only after this call. The caller marks the entry.
         pub fn sent(session: *Self, index: usize, sent_len: usize, now_ns: u64) void {
@@ -187,7 +187,7 @@ pub fn Session(comptime connections_max: usize) type {
             return session.pending.toggleFirstSet();
         }
 
-        /// Names entry `index` for a step: its socket was accepted, read octets or has room again.
+        /// Names entry `index` for a step: its socket was accepted, read bytes or has room again.
         pub fn mark(session: *Self, index: usize) void {
             session.pending.set(index);
         }
@@ -249,7 +249,7 @@ const Read = struct { consumed: usize, moved: bool };
 
 /// Passes `input` to the entry's connection until the engine consumes nothing and reports
 /// nothing, routing each event. A connection the engine closed or ended reads nothing: the
-/// engine would consume and drop the octets.
+/// engine would consume and drop the bytes.
 fn read(session: anytype, entry: *Entry, input: []u8) Read {
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..session.events_max) |_| {
@@ -285,7 +285,7 @@ fn drain(session: anytype) void {
     session.undrained = true;
 }
 
-/// Notes what one event says in the entry of the connection it names. The event's octets are
+/// Notes what one event says in the entry of the connection it names. The event's bytes are
 /// valid until the engine's next call, so the echo copies them now.
 fn on_event(session: anytype, reported: *const server.Event) void {
     switch (session.routes) {
@@ -304,7 +304,7 @@ fn on_event(session: anytype, reported: *const server.Event) void {
             .cancelled => named(session, finished.id.connection).answers.forget(finished.id.number),
         },
         .writable => |writable| _ = named(session, writable.id.connection),
-        // The socket takes the octets when the caller arms it.
+        // The socket takes the bytes when the caller arms it.
         .send => |handle| _ = named(session, handle),
         .half_close => |handle| named(session, handle).half_closing = true,
         .close => |handle| named(session, handle).closing = true,

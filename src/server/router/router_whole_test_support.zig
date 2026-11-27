@@ -11,7 +11,7 @@ const router_pool = @import("router_pool.zig");
 const router_copy = @import("router_copy.zig");
 const handle_support = @import("router_handle_test_support.zig");
 
-/// Octets of each entry's body and response memory, and of the copy of a header over an engine.
+/// Bytes of each entry's body and response memory, and of the copy of a header over an engine.
 /// Then the longest text that the context keeps a copy of. Test-only.
 pub const body_bytes = 16;
 const response_bytes = 64;
@@ -75,7 +75,7 @@ pub const App = struct {
     /// router passes the engine's request with no copy.
     middleware_request: ?*const event.Request = null,
     empty_request: ?*const event.Request = null,
-    /// The method as the middleware got it at the head: the engine's octets, which a test reads
+    /// The method as the middleware got it at the head: the engine's bytes, which a test reads
     /// after a later event.
     head_method: []const u8 = "",
     /// The name and the path that the error function read of its request.
@@ -184,7 +184,7 @@ pub fn options_with(comptime header_bytes: usize) router_pool.Options {
     return .{ .requests = requests, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes };
 }
 
-/// Octets of the copy of `named_request("/echo", first_name, false)`. The copy holds its line's
+/// Bytes of the copy of `named_request("/echo", first_name, false)`. The copy holds its line's
 /// record, name and value, then its target, method, scheme and authority. Its path lies in its
 /// target, so it takes no more.
 pub const exact_header_bytes = router_copy.line_record_len + name_field.len + first_name.len + "POST".len +
@@ -205,8 +205,8 @@ pub fn named_request(target: []const u8, name: []const u8, end: bool) !event.Req
     return request;
 }
 
-/// Octets the router's copy of `request` takes (decision 163 ruling 5): its line records and their
-/// octets, and each part that lies neither in those octets nor in the target.
+/// Bytes the router's copy of `request` takes (decision 163 ruling 5): its line records and their
+/// bytes, and each part that lies neither in those bytes nor in the target.
 pub fn copy_len(request: *const event.Request) usize {
     const lines = request.headers.lines;
     var len = lines.lines.len * router_copy.line_record_len + lines.octets.len;

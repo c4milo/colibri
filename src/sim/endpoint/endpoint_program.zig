@@ -32,7 +32,7 @@ pub const Engine = server.Engine(.{
 pub const Violation = ledger_module.Violation || error{
     /// P5: `deadline_ns()` differs from the soonest deadline of the live slots.
     DeadlineWrong,
-    /// P6: a TCP connection with no `send` outstanding wrote octets.
+    /// P6: a TCP connection with no `send` outstanding wrote bytes.
     SendMissed,
     /// P6: `receive(.none)` reported an event once a pass moved nothing.
     EventMissed,

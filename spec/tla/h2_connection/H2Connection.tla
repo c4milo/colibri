@@ -29,7 +29,7 @@
 (* and never provoke a connection error, which is what Safe says.          *)
 (*                                                                         *)
 (* Each endpoint starts with its connection preface (§3.4): the client's  *)
-(* 24 octets and its SETTINGS, which the model carries as one frame, and   *)
+(* 24 bytes and its SETTINGS, which the model carries as one frame, and   *)
 (* the server's SETTINGS. Each reads the peer's first, and anything else   *)
 (* first is a connection error, so no frame of either goes before its      *)
 (* preface (NothingBeforePreface).                                         *)
@@ -97,7 +97,7 @@ RequestPhases == {"none", "head", "ended"}
 ResponsePhases == {"none", "interim", "final", "ended"}
 \* The frames a stream carries: a request's head or a response's final head, an interim head, DATA,
 \* a trailer section, and RST_STREAM. GOAWAY and the prefaces name the connection, stream 0: the
-\* client's preface is its 24 octets and its SETTINGS, and the server's is its SETTINGS.
+\* client's preface is its 24 bytes and its SETTINGS, and the server's is its SETTINGS.
 Kinds == {"head", "interim", "data", "trailers", "rst", "goaway", "preface", "settings"}
 
 Frame(i, kind, end) == [stream |-> i, kind |-> kind, end |-> end, last |-> 0]

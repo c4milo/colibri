@@ -12,7 +12,7 @@
 //! what six encoders made of them, one directory each, in files named
 //! `<input>.out.<capacity>.<blocked streams>.<acknowledgment mode>`. The QUIC working group's
 //! "QPACK Offline Interop" page defines those files: blocks of a 64-bit stream ID, a 32-bit length
-//! and the octets, all in network byte order, where stream 0 is the encoder stream.
+//! and the bytes, all in network byte order, where stream 0 is the encoder stream.
 //!
 //! For each file the tool starts colibri's decoder with the file's capacity and blocked-stream
 //! count, and delivers the blocks in file order. A request block that blocks is kept, and decoded
@@ -58,7 +58,7 @@ const file_bytes_max = 16 << 20;
 /// The encoder stream's ID in the offline format.
 pub const encoder_stream_id: u64 = 0;
 
-/// Room for every instruction the decoder may owe at once, each a few octets.
+/// Room for every instruction the decoder may owe at once, each a few bytes.
 const decoder_stream_room: usize = 4096;
 
 const exit_mismatch: u8 = 1;
@@ -108,7 +108,7 @@ pub const Counts = struct {
     /// Inputs colibri's own encoder wrote and its decoder read back, and their field lines.
     round_trips: u64 = 0,
     round_trip_lines: u64 = 0,
-    /// Octets colibri's encoder wrote in the immediate mode, sections and encoder stream
+    /// Bytes colibri's encoder wrote in the immediate mode, sections and encoder stream
     /// together, at each of the round trip's four settings.
     round_trip_octets: [round_trip_settings_count]u64 = @splat(0),
 };
@@ -245,7 +245,7 @@ pub fn run_file(arena: Allocator, encoded: []const u8, expected: []const []const
     decoder.table.set_capacity(name.capacity) catch unreachable;
     var run: Run = .{ .arena = arena };
     var blocks = Reader.init(encoded);
-    // Bounded by the file, since every block consumes at least its twelve-octet header.
+    // Bounded by the file, since every block consumes at least its twelve-byte header.
     while (blocks.remaining_len() > 0) {
         const stream_id = try blocks.take_int_big(u64);
         const len = try blocks.take_int_big(u32);
@@ -263,7 +263,7 @@ pub fn run_file(arena: Allocator, encoded: []const u8, expected: []const []const
 /// One file's decoding state beyond the decoder's own.
 const Run = struct {
     arena: Allocator,
-    /// Encoder stream octets not yet read: an instruction may span two blocks.
+    /// Encoder stream bytes not yet read: an instruction may span two blocks.
     unread: std.ArrayList(u8) = .empty,
     held: std.ArrayList(Held) = .empty,
     decoded: std.ArrayList(Decoded) = .empty,

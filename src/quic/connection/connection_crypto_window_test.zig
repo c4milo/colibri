@@ -1,6 +1,6 @@
 //! The tests of a handshake flight longer than `crypto_send_buffer_len`, as a server with an
 //! ML-DSA-87 identity sends (design §8 step 33e). RFC 9000 §13.3 resends CRYPTO data "until all
-//! data has been acknowledged", so the level's send window keeps every octet a packet in flight
+//! data has been acknowledged", so the level's send window keeps every byte a packet in flight
 //! carried, and forgets only what the peer acknowledged.
 const std = @import("std");
 const core = @import("core");
@@ -31,23 +31,23 @@ const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
 /// A server's Handshake flight with the ML-DSA-87 identity of `src/testing/testdata/`: two
-/// certificates of about 7,500 octets and a CertificateVerify of 4,631 (step 33c). Test-only.
+/// certificates of about 7,500 bytes and a CertificateVerify of 4,631 (step 33c). Test-only.
 const flight_len: usize = 20_000;
-/// Octets of one packet's room for its CRYPTO frame, as a datagram of 1,200 leaves. Test-only.
+/// Bytes of one packet's room for its CRYPTO frame, as a datagram of 1,200 leaves. Test-only.
 const frame_room_len: usize = 1_100;
 /// A flight longer than two windows, so the window fills twice. Test-only.
 const long_flight_len: usize = flight_len + flight_len;
-/// Fewer octets than any CRYPTO frame below carries. Test-only.
+/// Fewer bytes than any CRYPTO frame below carries. Test-only.
 const frame_payload_min_len: usize = 500;
 /// More frames than the longer flight needs, which bounds each loop below. Test-only.
 const frames_max: usize = long_flight_len / frame_payload_min_len;
-/// The flight's octets cycle through this many values, so an octet sent from the wrong place in
+/// The flight's bytes cycle through this many values, so a byte sent from the wrong place in
 /// the window shows. A prime does not divide the window. Test-only.
 const pattern_period: usize = 251;
 
 var output: [frame_room_len]u8 = undefined;
 
-/// A provider that owes `len` octets at the Handshake level and gives them up once, as RFC 9001
+/// A provider that owes `len` bytes at the Handshake level and gives them up once, as RFC 9001
 /// §4.1.3's `write_handshake` does. Test-only.
 const Flight = struct {
     len: usize = flight_len,
@@ -136,7 +136,7 @@ const Sent = struct {
 };
 
 /// Writes CRYPTO frames at the Handshake level, each in a packet in flight, until the window has
-/// nothing more to send. Each frame's octets must be the flight's own at its offset.
+/// nothing more to send. Each frame's bytes must be the flight's own at its offset.
 fn send_until_held(flight: *Flight) !Sent {
     var sent: Sent = .{};
     // Bounded by `frames_max`, which is more frames than one flight needs.
@@ -162,7 +162,7 @@ fn send_until_held(flight: *Flight) !Sent {
     return sent;
 }
 
-/// The frame in `octets` carries the flight's own octets at the offset it names.
+/// The frame in `octets` carries the flight's own bytes at the offset it names.
 fn expect_flight_octets(octets: []const u8) !void {
     var reader = core.Reader.init(octets);
     const read = try frame_module.read(&reader);
@@ -190,13 +190,13 @@ test "RFC 9000 §13.3: a PTO before any acknowledgment sends a long flight again
     // Decision 64: the PTO declares every Handshake packet in flight lost, the first included.
     const at_ns = recovery.loss_deadline_ns(&endpoint) orelse return error.NoTimer;
     try testing.expect(try recovery.on_loss_timer(&endpoint, at_ns, &scratch));
-    // No acknowledgment arrived, so the window held every octet in flight and the provider
+    // No acknowledgment arrived, so the window held every byte in flight and the provider
     // keeps the rest of its flight.
     const stream = connection_module.crypto_at(&endpoint, .handshake);
     try testing.expect(flight.written < flight_len);
     try testing.expectEqual(0, stream.sent_len);
     try testing.expectEqual(constants.limits.crypto_send_buffer_len, stream.unsent().len);
-    // The probe carries the flight from its first octet.
+    // The probe carries the flight from its first byte.
     const probe = try connection_crypto.write_crypto(&endpoint, flight.provider(), .handshake, &output);
     try testing.expectEqual(0, probe.offset);
     try expect_flight_octets(output[0..probe.len]);
@@ -206,7 +206,7 @@ test "RFC 9000 §13.3: an acknowledgment frees the window, and the rest of the f
     open_server();
     var flight: Flight = .{ .len = long_flight_len };
     const first = try send_until_held(&flight);
-    // Every packet but the last is acknowledged. The last still holds its octets in the window.
+    // Every packet but the last is acknowledged. The last still holds its bytes in the window.
     try take_ack(0, first.packets - 2);
     const second = try send_until_held(&flight);
     try testing.expect(second.packets > 0);
@@ -232,12 +232,12 @@ test "RFC 9000 §13.3: a resend of a lost packet keeps its octets while older pa
     const stream = connection_module.crypto_at(&endpoint, .handshake);
     try testing.expectEqual(0, stream.sent_len);
     // The resends fill the window again from offset 0. The resend at offset 0 is in flight, so
-    // the window keeps its octets.
+    // the window keeps its bytes.
     const resent = try send_until_held(&flight);
     try testing.expect(resent.packets > 0);
     try testing.expectEqual(0, stream.send_base);
     // An ACK of the last resend alone declares the resend at offset 0 lost, so the next frame
-    // carries the flight from its first octet again.
+    // carries the flight from its first byte again.
     const last = first.packets + resent.packets - 1;
     try take_ack(last, last);
     const again = try connection_crypto.write_crypto(&endpoint, flight.provider(), .handshake, &output);

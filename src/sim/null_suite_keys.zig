@@ -1,9 +1,9 @@
 //! The null suite's keys. A key here is a name, a 32-bit checksum of what a real key would be
 //! derived from, and this file holds everything done with one: the tag a sealed packet ends
 //! with, the mask over its header, and which key set opens a 1-RTT packet. Split off
-//! `null_suite.zig` for length. None of it is cryptography: the tag detects a changed octet and
+//! `null_suite.zig` for length. None of it is cryptography: the tag detects a changed byte and
 //! proves nothing else, and the mask hides nothing from anyone who reads this file. Every integer
-//! is taken octet by octet in network order, so one host's octets are every host's (invariant 5).
+//! is taken byte by byte in network order, so one host's bytes are every host's (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
@@ -65,7 +65,7 @@ pub const sample_offset = crypto.constants.protocol.header_protection_sample_off
 pub const mask_len = crypto.constants.protocol.header_protection_mask_len;
 
 /// Four CRC-32s over the key's name, the packet number and the packet, each seeded differently.
-/// `header_len` is part of what is checked, so moving an octet across the boundary changes it.
+/// `header_len` is part of what is checked, so moving a byte across the boundary changes it.
 pub fn write_tag(tag: *[tag_len]u8, name: u32, packet_number: u64, packet: []const u8, header_len: usize) void {
     const words = tag_len / @sizeOf(u32);
     for (0..words) |index| {
@@ -80,8 +80,8 @@ pub fn write_tag(tag: *[tag_len]u8, name: u32, packet_number: u64, packet: []con
     }
 }
 
-/// The mask of a packet whose Packet Number field starts at `offset`: the first octets of the
-/// sample RFC 9001 §5.4.2 places four octets past the field, under the name of the header
+/// The mask of a packet whose Packet Number field starts at `offset`: the first bytes of the
+/// sample RFC 9001 §5.4.2 places four bytes past the field, under the name of the header
 /// protection key.
 pub fn mask_of(name: u32, packet: []const u8, offset: usize) [mask_len]u8 {
     assert(packet.len >= offset + sample_offset + sample_len);
@@ -120,7 +120,7 @@ test "the tag covers the name, the packet number, the header's length and every 
     try testing.expect(!std.mem.eql(u8, &first, &other));
     write_tag(&other, 7, 3, "header and payload", 6);
     try testing.expect(!std.mem.eql(u8, &first, &other));
-    // The same octets with the header one octet longer are another packet.
+    // The same bytes with the header one byte longer are another packet.
     write_tag(&other, 7, 2, "header and payload", 7);
     try testing.expect(!std.mem.eql(u8, &first, &other));
     write_tag(&other, 7, 2, "header and paylaod", 6);
@@ -138,18 +138,18 @@ test "§5.4.1: the mask covers four bits of a long header's byte 0 and five of a
     apply_mask(&short, 2, 2, mask);
     // The connection ID between byte 0 and the Packet Number field is left alone.
     try testing.expectEqualSlices(u8, "\x5e\xaa\xfe\xfd", &short);
-    // Applying it twice gives the octets back, which is how a receiver removes it.
+    // Applying it twice gives the bytes back, which is how a receiver removes it.
     apply_mask(&short, 2, 2, mask);
     try testing.expectEqualSlices(u8, "\x41\xaa\x01\x02", &short);
 }
 
 test "§5.4.2: the sample starts four octets past the start of the Packet Number field" {
-    // Twenty-two octets: a one-octet header, then the field at offset 1, so the sample is the
-    // sixteen octets from offset 5.
+    // Twenty-two bytes: a one-byte header, then the field at offset 1, so the sample is the
+    // sixteen bytes from offset 5.
     const packet = "\x40\x01\x02\x03\x04" ++ "\xa0\xa1\xa2\xa3\xa4" ++ "\x00" ** 12;
     const mask = mask_of(0, packet, 1);
     try testing.expectEqualSlices(u8, "\xa0\xa1\xa2\xa3\xa4", &mask);
-    // The name of the header protection key is folded in, octet by octet, in network order.
+    // The name of the header protection key is folded in, byte by byte, in network order.
     const named = mask_of(0x01020304, packet, 1);
     try testing.expectEqualSlices(u8, "\xa1\xa3\xa1\xa7\xa5", &named);
 }

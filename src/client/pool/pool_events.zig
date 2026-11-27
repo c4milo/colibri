@@ -74,9 +74,9 @@ pub fn owed(pool: anytype) ?Event {
     return .closed;
 }
 
-/// A TCP connection's `send`, once for each debt (decision 125): the connection may owe octets,
+/// A TCP connection's `send`, once for each debt (decision 125): the connection may owe bytes,
 /// no `send` for them is outstanding, and no `send_stream` found it blocked since it last read
-/// octets or the program last made a call.
+/// bytes or the program last made a call.
 pub fn owed_send(pool: anytype) ?Event {
     for (pool.tcp_links, 0..) |*link, index| {
         if (link.state != .running or link.send_outstanding or link.send_blocked) continue;
@@ -89,7 +89,7 @@ pub fn owed_send(pool: anytype) ?Event {
 
 /// A request or a cancel may give a blocked connection a debt it can write, so its next `send` may
 /// go out (decision 125). A shutdown gives none: h2's GOAWAY waits until the exchanges end, which
-/// octets the connection reads end.
+/// bytes the connection reads end.
 pub fn unblock_sends(pool: anytype) void {
     for (pool.tcp_links) |*link| link.send_blocked = false;
 }
@@ -118,7 +118,7 @@ pub const Fed = struct {
     event: ?Event,
 };
 
-/// Passes `input` to the connection that read it, and handles what it reports. Octets for a slot
+/// Passes `input` to the connection that read it, and handles what it reports. Bytes for a slot
 /// with no running connection are dropped: its connection is over.
 pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
     switch (input) {
@@ -131,7 +131,7 @@ pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
         },
         .stream => |stream| {
             const octets = stream.bytes;
-            // Octets for a handle that names no running TCP connection are an earlier connection's.
+            // Bytes for a handle that names no running TCP connection are an earlier connection's.
             const slot = pool_handle.resolve(pool, stream.connection) orelse return .{ .len = octets.len, .event = null };
             // The program reads datagrams for the QUIC connection, so its handle names no stream.
             if (pool_handle.transport_of(pool, slot) != .tcp) return .{ .len = octets.len, .event = null };

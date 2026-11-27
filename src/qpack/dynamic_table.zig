@@ -14,7 +14,7 @@
 //! twice. §3.2.6's post-base index counts forwards from the Base. All three resolve to an
 //! absolute index here, and nothing else in the module resolves one.
 //!
-//! The caller owns the storage (decision 35): the octets and the entry slots are inside the
+//! The caller owns the storage (decision 35): the bytes and the entry slots are inside the
 //! struct, and `dynamic_table_capacity_max` bounds both.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -39,7 +39,7 @@ pub const Field = struct {
     value: []const u8,
 };
 
-/// Where an entry's octets are: its name, then its value, at `offset`.
+/// Where an entry's bytes are: its name, then its value, at `offset`.
 const Entry = struct {
     offset: u32,
     name_len: u32,
@@ -59,7 +59,7 @@ pub const DynamicTable = struct {
     /// The oldest entry's slot; the newest is `count - 1` slots after it, wrapping.
     first: u32,
     count: u32,
-    /// The live octets: `octets[octets_start..octets_end]`, oldest entry first.
+    /// The live bytes: `octets[octets_start..octets_end]`, oldest entry first.
     octets_start: u32,
     octets_end: u32,
     /// RFC 9204 §3.2.1's size, and §3.2.2's capacity, which starts at zero.
@@ -200,7 +200,7 @@ pub const DynamicTable = struct {
         };
     }
 
-    /// Evicts oldest entries until `size` more octets fit under the capacity, or none are left.
+    /// Evicts oldest entries until `size` more bytes fit under the capacity, or none are left.
     fn evict_until_fits(table: *DynamicTable, size: u64) void {
         // Each pass evicts one entry, so the entry count bounds the loop.
         for (0..constants.limits.dynamic_table_entries_max) |_| {
@@ -225,7 +225,7 @@ pub const DynamicTable = struct {
         }
     }
 
-    /// Moves the live octets to the front where `len` more will not fit after them. The entries
+    /// Moves the live bytes to the front where `len` more will not fit after them. The entries
     /// hold offsets rather than slices, so moving them is a copy and a rebase.
     fn make_room(table: *DynamicTable, len: u32) void {
         if (table.octets_end + len <= constants.limits.dynamic_table_capacity_max) return;
@@ -247,14 +247,14 @@ const testing = std.testing;
 /// The table the tests drive, placed outside any stack frame. Test-only.
 threadlocal var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefined;
 /// A capacity that holds a handful of small entries, and the size one of them takes: §3.2.1's
-/// overhead plus a one-octet name and a one-octet value.
+/// overhead plus a one-byte name and a one-byte value.
 const test_entries: u64 = 4;
 const test_capacity: u64 = test_entries * small_entry_len;
 const small_entry_len: u64 = constants.protocol.entry_overhead_len + test_name_len + test_value_len;
 const test_name_len: u64 = 1;
 const test_value_len: u64 = 1;
 
-/// Fills the table with `count` entries named `a`, `b`, … each with a one-octet value.
+/// Fills the table with `count` entries named `a`, `b`, … each with a one-byte value.
 fn fill(count: u8) !void {
     for (0..count) |step| {
         const name = [_]u8{'a' + @as(u8, @intCast(step))};
@@ -386,7 +386,7 @@ test "§3.2: duplicate entries are ordinary, and the newest is what a lookup fin
 test "§4.5.1.1: MaxEntries follows the advertised maximum" {
     test_table.init(constants.limits.dynamic_table_capacity_max);
     try testing.expectEqual(constants.limits.dynamic_table_entries_max, test_table.max_entries());
-    // §4.5.1.1's example: a table of 100 octets encodes the Required Insert Count modulo 6, so
+    // §4.5.1.1's example: a table of 100 bytes encodes the Required Insert Count modulo 6, so
     // MaxEntries is 3 and the full range is twice it.
     test_table.init(100);
     try testing.expectEqual(3, test_table.max_entries());
@@ -395,7 +395,7 @@ test "§4.5.1.1: MaxEntries follows the advertised maximum" {
 test "the octets survive wrapping, so an entry read after many inserts is still whole" {
     test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
-    // Enough inserts that the octet buffer is rebased more than once, with names long enough to
+    // Enough inserts that the byte buffer is rebased more than once, with names long enough to
     // tell apart. Each pass evicts one, so the live entries move through the storage.
     const rounds: u8 = 200;
     for (0..rounds) |step| {

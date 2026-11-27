@@ -44,11 +44,11 @@ pub const Run = struct {
     coded: bool,
 };
 
-/// How many octets an IPv4 address has (RFC 791 §3.1).
+/// How many bytes an IPv4 address has (RFC 791 §3.1).
 pub const ipv4_octets: usize = 4;
 
-/// The octets of every pool's memory in a run: a pool of one TCP connection for each socket the
-/// run may hold. Each TCP connection of a pool adds the same octets, so a run whose sockets fit
+/// The bytes of every pool's memory in a run: a pool of one TCP connection for each socket the
+/// run may hold. Each TCP connection of a pool adds the same bytes, so a run whose sockets fit
 /// fits this memory too.
 pub const pool_memory_len: usize = constants.client_sockets_max * client.ConnectionPool(.{}).memory_bytes(.{});
 

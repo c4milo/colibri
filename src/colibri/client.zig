@@ -105,13 +105,13 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         pool: Pool,
         pool_config: client.Config,
         pool_memory: [pool_memory_len]u8 align(Pool.memory_alignment),
-        /// The pool each QUIC connection holds the server's unread octets in (decision 61).
+        /// The pool each QUIC connection holds the server's unread bytes in (decision 61).
         receive_pool: ReceivePool,
         /// The UDP socket of each family that the host opened, which the client has when the pool
         /// offers QUIC, and whether its host sends segments (decision 156 ruling 13).
         udp: client_loop.Datagrams,
         datagram_segments: bool,
-        /// Each TCP slot's socket, the octets it holds to send (`socket_output.zig`), and what the
+        /// Each TCP slot's socket, the bytes it holds to send (`socket_output.zig`), and what the
         /// client holds for it (`client_tcp.zig`), and the operations in flight.
         sockets: [tcp_connections]socket_module.Socket,
         outputs: [tcp_connections]socket_output.Output,
@@ -242,7 +242,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// - `.private`: `cancel(id)`, at the instant of the last turn of colibri's loop.
         /// - `.hosted`: `cancel(id, now_ns)`, at the host's instant, which never goes back
         ///   (non-negotiable 3, decision 159 as amended on 2026-11-10). The host calls `turn`
-        ///   after it: a connection may owe octets for the end, such as h2's RST_STREAM (RFC 9113
+        ///   after it: a connection may owe bytes for the end, such as h2's RST_STREAM (RFC 9113
         ///   §8.1).
         pub const cancel = if (kind == .hosted) cancel_at else cancel_at_latest;
 
@@ -270,7 +270,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// addresses alive until the next `set_destination` or `deinit`. It calls
         /// `set_destination` on the object's thread, as it calls `request`. An open of QUIC to a
         /// family with no UDP socket ends, and the pool opens TCP (decision 156 ruling 13). The
-        /// pool copies `destination`, which is over 16 octets, so the call takes a pointer
+        /// pool copies `destination`, which is over 16 bytes, so the call takes a pointer
         /// (TigerStyle, decision 159 as amended on 2026-11-10).
         pub fn set_destination(self: *Self, destination: *const client.Destination) void {
             // The pool reports no event for the call, and each turn reads the pool's events

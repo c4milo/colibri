@@ -58,14 +58,14 @@ const sent_len_max: usize = 262_144;
 /// Whether the engine reported each slot's `close`.
 pub var closed: [tcp_slots]bool = @splat(false);
 /// Whether the fixture answers a `send` with `send_stream` at once, as a program whose socket
-/// takes every octet does. A test that clears it calls `flush` itself.
+/// takes every byte does. A test that clears it calls `flush` itself.
 pub var flushing: bool = true;
 /// Whether the TLS client opened an alert, such as the connection's close_notify.
 pub var client_saw_alert: bool = false;
 /// A program that takes each request's event after the fixture keeps it, as a router does
 /// (design §8 step 46), or none. `start` clears it.
 pub var program: ?*const fn (Event) void = null;
-/// Where a test's octets wait for the engine, which may open records in place.
+/// Where a test's bytes wait for the engine, which may open records in place.
 var input: [support.input_len]u8 = undefined;
 
 pub const now_ns = support.now_ns;
@@ -106,11 +106,11 @@ pub fn start_held(with: ?tls.Server, versions: protocols_module.Protocols, sessi
 }
 
 /// Passes `octets` as what the socket of `handle` read, again until the engine consumed them or
-/// stopped consuming, keeping each event and answering each `send`. Returns the octets left.
+/// stopped consuming, keeping each event and answering each `send`. Returns the bytes left.
 pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     @memcpy(input[0..octets.len], octets);
     var rest = input[0..octets.len];
-    // Bounded: each pass consumes octets or reports an event, or ends the loop.
+    // Bounded: each pass consumes bytes or reports an event, or ends the loop.
     for (0..rounds_max) |_| {
         var received: event.ReceiveResult = undefined;
         engine.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns, &received);
@@ -187,17 +187,17 @@ fn note(reported: Event) void {
     }
 }
 
-/// How `flush` hands the octets to the socket: `send_stream`'s copy, or a lend of
+/// How `flush` hands the bytes to the socket: `send_stream`'s copy, or a lend of
 /// `output_stream`, as a socket that sends from the connection's output takes them (decision
 /// 176). A lend stays in flight until `complete_lent`, as a send's completion comes in a later
 /// turn. With `.late`, `flush` lends nothing, and `complete_all` lends once at its instant, as a
 /// pump that lends once a turn does.
 pub const Lending = enum { copy, at_send, late };
 pub var lending: Lending align(@alignOf(Lending)) = .copy;
-/// The octets each slot's last lend gave, which `complete_lent` sends.
+/// The bytes each slot's last lend gave, which `complete_lent` sends.
 var lent: [tcp_slots][]const u8 = @splat(&.{});
 
-/// Sends the octets the last lend of the connection `handle` names gave, as the completion of
+/// Sends the bytes the last lend of the connection `handle` names gave, as the completion of
 /// that send, and hands back their count. A slot with nothing lent changes nothing.
 pub fn complete_lent(handle: ConnectionHandle) void {
     const slot = handle.slot;
@@ -306,7 +306,7 @@ pub fn give_sealed(handle: ConnectionHandle, plaintext: []const u8) !usize {
     const provider = support.client.provider();
     var sealed_len: usize = 0;
     var taken: usize = 0;
-    // Bounded: each record takes at least one octet of plaintext.
+    // Bounded: each record takes at least one byte of plaintext.
     for (0..plaintext.len) |_| {
         if (taken == plaintext.len) break;
         const sealed = try provider.encrypt_record(plaintext[taken..], records[sealed_len..]);

@@ -188,7 +188,7 @@ test "RFC 9000 §4.6: a stream past the advertised limit is STREAM_LIMIT_ERROR" 
 
 test "RFC 9000 §4.1: the stream's own limit is what a single stream is held to" {
     open_server();
-    // 32 octets were advertised per stream, so reaching 33 on one passes it.
+    // 32 bytes were advertised per stream, so reaching 33 on one passes it.
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     const past: u64 = test_max_stream_data - data_len + 1;
     try testing.expectError(
@@ -204,13 +204,13 @@ test "RFC 9000 §4.1: the stream's own limit is what a single stream is held to"
 test "RFC 9000 §4.1: the connection-level limit counts every stream together" {
     open_server();
     // Neither stream passes its own limit, and together they reach the connection's exactly:
-    // two bidirectional streams at 32 octets each is the 64 this endpoint advertised.
+    // two bidirectional streams at 32 bytes each is the 64 this endpoint advertised.
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     _ = try run(&.{stream_frame(client_bidi_first, test_bidi_remote - data_len, data_len, false)});
     _ = try run(&.{stream_frame(client_bidi_second, 0, data_len, false)});
     _ = try run(&.{stream_frame(client_bidi_second, test_bidi_remote - data_len, data_len, false)});
     try testing.expectEqual(test_max_data, test_connection.receive_flow.used);
-    // A third stream has all 16 octets of its own limit and the connection has none left.
+    // A third stream has all 16 bytes of its own limit and the connection has none left.
     try testing.expectError(
         error.FlowControl,
         run(&.{stream_frame(client_uni_first, 0, 1, false)}),
@@ -221,7 +221,7 @@ test "RFC 9000 §4.1: a retransmission spends the connection's credit once" {
     open_server();
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     try testing.expectEqual(data_len, test_connection.receive_flow.used);
-    // The same octets again reach no further, so nothing new is counted: §4.1's limits are
+    // The same bytes again reach no further, so nothing new is counted: §4.1's limits are
     // high-water marks and not credit counters (invariant 19).
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     try testing.expectEqual(data_len, test_connection.receive_flow.used);
@@ -254,7 +254,7 @@ test "RFC 9000 §4.5: a RESET_STREAM's final size counts against flow control" {
     open_server();
     const reset_at: u64 = 20;
     // "The receiver MUST use the final size of the stream to account for all bytes sent on the
-    // stream in its connection-level flow controller", though none of those octets arrived.
+    // stream in its connection-level flow controller", though none of those bytes arrived.
     _ = try run(&.{.{ .reset_stream = .{
         .stream_id = client_bidi_first,
         .error_code = 0,
@@ -339,7 +339,7 @@ test "RFC 9000 §18.2: a stream data limit of zero admits nothing" {
         .now_ns = test_now_ns,
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
     });
-    // One octet is one too many, and the stream still exists: §3.2 created it before §4.1
+    // One byte is one too many, and the stream still exists: §3.2 created it before §4.1
     // refused what arrived on it.
     try testing.expectError(
         stream_frames.Error.FlowControl,

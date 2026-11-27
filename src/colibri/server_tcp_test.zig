@@ -163,7 +163,7 @@ fn start_loop() !u64 {
     return now_ns;
 }
 
-/// One pass of the server's loop at `now_ns`, an instant that the test names. Returns the octets
+/// One pass of the server's loop at `now_ns`, an instant that the test names. Returns the bytes
 /// that the receives of the first socket read in the pass. Test-only.
 fn pass_at(now_ns: u64) !usize {
     const host = &test_server.host;
@@ -179,7 +179,7 @@ fn pass_at(now_ns: u64) !usize {
 }
 
 /// What a test waits for in the server's first socket: the end of the shutdown of its write
-/// side, a receive that read octets, the end of its connection, or its own end.
+/// side, a receive that read bytes, the end of its connection, or its own end.
 const Wait = enum { shut_down, read, ended, freed };
 
 /// Runs passes of the loop at `now_ns` until `wait` holds, and fails after `passes_max` passes.
@@ -233,11 +233,11 @@ test "decision 160: after the half-close the socket receives again, and the peer
     try testing.expect(std.mem.endsWith(u8, answer, "\r\n\r\n"));
     // RFC 9110 §10.1.1: the Content-Length is past the bound, so the 501 says that the server closes.
     try testing.expect(std.mem.indexOf(u8, answer, "\r\nConnection: close\r\n") != null);
-    // RFC 9112 §9.6: the client writes on, and the socket reads the octets and then receives again.
+    // RFC 9112 §9.6: the client writes on, and the socket reads the bytes and then receives again.
     try writer.interface.writeAll("more of the body");
     try writer.interface.flush();
     try pass_until(.read, now_ns);
-    // The turn of the next pass steps the socket: the engine discards the octets, and the socket
+    // The turn of the next pass steps the socket: the engine discards the bytes, and the socket
     // receives again.
     _ = test_server.host.submit_turn(&test_server, server_loop, now_ns);
     try testing.expect(socket.receiving and socket.unread().len == 0);

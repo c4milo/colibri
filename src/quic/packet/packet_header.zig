@@ -11,7 +11,7 @@
 //! a Version Negotiation packet carry no Length and always end the datagram.
 //!
 //! Every rule of versions 1 and 2 that RFC 8999 does not state is applied here and never below:
-//! this is the only file that names the 20-octet connection ID maximum, and the comptime block at
+//! this is the only file that names the 20-byte connection ID maximum, and the comptime block at
 //! the end holds `invariant.zig` to that (invariant 22).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -58,12 +58,12 @@ pub const Error = invariant.Error || error{
     /// RFC 9000 §17.2, §17.3.1: a packet with a zero Fixed Bit is not valid in this version and
     /// MUST be discarded.
     FixedBitClear,
-    /// RFC 9000 §17.2: a version 1 long header whose connection ID is longer than 20 octets MUST
+    /// RFC 9000 §17.2: a version 1 long header whose connection ID is longer than 20 bytes MUST
     /// be dropped.
     ConnectionIdTooLong,
-    /// The Length field counts more octets than the datagram holds, so the packet is not whole.
+    /// The Length field counts more bytes than the datagram holds, so the packet is not whole.
     LengthPastDatagram,
-    /// RFC 9000 §17.2.5: a Retry packet ends with a 16-octet Retry Integrity Tag, and this one is
+    /// RFC 9000 §17.2.5: a Retry packet ends with a 16-byte Retry Integrity Tag, and this one is
     /// too short to hold it.
     RetryTagMissing,
     /// RFC 9000 §17.2.5.2: a client MUST discard a Retry packet with a zero-length Retry Token.
@@ -81,9 +81,9 @@ pub const Long = struct {
     scid: []const u8,
     /// The Token of an Initial packet (RFC 9000 §17.2.2), and empty in every other type.
     token: []const u8,
-    /// Octets from the start of the packet to its Packet Number field.
+    /// Bytes from the start of the packet to its Packet Number field.
     packet_number_offset: usize,
-    /// Octets of the whole packet, which is where the next one of the datagram starts (§12.2).
+    /// Bytes of the whole packet, which is where the next one of the datagram starts (§12.2).
     packet_len: usize,
 };
 
@@ -151,7 +151,7 @@ pub fn read(datagram: []const u8, short_dcid_len: usize) Error!Packet {
     if (header.first_octet & constants.protocol.fixed_bit == 0) return error.FixedBitClear;
     const longest = @max(header.dcid.len, header.scid.len);
     // RFC 9000 §17.2, which RFC 9369 §3 keeps for version 2: neither connection ID length may
-    // exceed 20 octets, and an endpoint that receives a larger value MUST drop the packet.
+    // exceed 20 bytes, and an endpoint that receives a larger value MUST drop the packet.
     if (longest > constants.protocol.connection_id_len_max) return error.ConnectionIdTooLong;
     const bits: u2 = @intCast((header.first_octet & constants.protocol.long_packet_type_mask) >> constants.protocol.long_packet_type_shift);
     const long_type = type_of(version, bits);
@@ -205,7 +205,7 @@ fn read_long(long_type: LongType, header: invariant.Long, version: Version) Erro
 fn read_retry(datagram: []const u8, header: invariant.Long, version: Version) Error!Retry {
     const tag_len = constants.protocol.retry_integrity_tag_len;
     // RFC 9000 §17.2.5: the Retry Token, then the 128-bit Retry Integrity Tag, and no Length: the
-    // tag is the last 16 octets of the datagram.
+    // tag is the last 16 bytes of the datagram.
     if (header.rest.len < tag_len) return error.RetryTagMissing;
     const token = header.rest[0 .. header.rest.len - tag_len];
     // RFC 9000 §17.2.5.2: a client MUST discard a Retry packet with a zero-length Retry Token.
@@ -250,7 +250,7 @@ pub fn unprotected_short(first_octet: u8) UnprotectedError!UnprotectedShort {
     };
 }
 
-/// RFC 9000 §17.2: the Packet Number Length is one less than the field's length in octets.
+/// RFC 9000 §17.2: the Packet Number Length is one less than the field's length in bytes.
 fn packet_number_len_of(first_octet: u8) u8 {
     return (first_octet & constants.protocol.packet_number_len_mask) + 1;
 }
@@ -277,7 +277,7 @@ const testing = std.testing;
 const sample_retry = "\xff\x00\x00\x00\x01\x00\x08\xf0\x67\xa5\x50\x2a\x42\x62\xb5token" ++
     "\x04\xa2\x65\xba\x2e\xff\x4d\x82\x90\x58\xfb\x3f\x0f\x24\x96\xba";
 
-/// A version 1 Handshake packet: connection IDs of 2 and 1 octets, a Length of 5. Test-only.
+/// A version 1 Handshake packet: connection IDs of 2 and 1 bytes, a Length of 5. Test-only.
 const sample_handshake = "\xe0\x00\x00\x00\x01\x02\xaa\xbb\x01\xcc\x05\x01\x02\x03\x04\x05";
 
 test "RFC 9001 Appendix A.4: the published Retry packet reads into its fields" {
@@ -319,7 +319,7 @@ test "§17.2.5: a Retry too short for its tag, or with no token before it, is di
     for (header_len..header_len + constants.protocol.retry_integrity_tag_len) |len| {
         try testing.expectError(error.RetryTagMissing, read(sample_retry[0..len], 0));
     }
-    // Sixteen octets after the connection IDs are all tag, which leaves a zero-length token.
+    // Sixteen bytes after the connection IDs are all tag, which leaves a zero-length token.
     const no_token = sample_retry[0..header_len] ++ sample_retry[20..];
     try testing.expectError(error.RetryTokenEmpty, read(no_token, 0));
 }
@@ -329,14 +329,14 @@ test "§17.2.1: a long header of another version is handed over whatever its con
     const packet = try read(&other, 0);
     try testing.expectEqual(0xfaceb00c, packet.other_version.version);
     try testing.expectEqual(21, packet.other_version.dcid.len);
-    // The same octets under version 1 are dropped, by either connection ID.
+    // The same bytes under version 1 are dropped, by either connection ID.
     var version_1 = other;
     version_1[0] |= constants.protocol.fixed_bit;
     @memcpy(version_1[1..5], &[_]u8{ 0, 0, 0, 1 });
     try testing.expectError(error.ConnectionIdTooLong, read(&version_1, 0));
     const long_scid = [_]u8{ 0xc0, 0, 0, 0, 1, 0, 21 } ++ [_]u8{0x5c} ** 21 ++ [_]u8{ 0, 1, 0 };
     try testing.expectError(error.ConnectionIdTooLong, read(&long_scid, 0));
-    // Twenty octets is the most version 1 permits, and is read.
+    // Twenty bytes is the most version 1 permits, and is read.
     const at_limit = [_]u8{ 0xc0, 0, 0, 0, 1, 20 } ++ [_]u8{0xd1} ** 20 ++ [_]u8{ 0, 0, 1, 9 };
     try testing.expectEqual(20, (try read(&at_limit, 0)).long.dcid.len);
 }
@@ -359,7 +359,7 @@ test "§12.2: the Length ends the packet, and one past the datagram is refused" 
     try testing.expectEqual(sample_handshake.len, first.packet_len);
     const second = (try read(two[first.packet_len..], 0)).long;
     try testing.expectEqual(sample_handshake.len, second.packet_len);
-    // One octet short of what the Length counts.
+    // One byte short of what the Length counts.
     try testing.expectError(error.LengthPastDatagram, read(two[0 .. sample_handshake.len - 1], 0));
     try testing.expectError(error.Truncated, read(sample_handshake[0..10], 0));
 }
@@ -372,10 +372,10 @@ test "§17.2.2: an Initial packet's token is read, and one past the datagram is 
     try testing.expectEqual(12, packet.packet_number_offset);
     try testing.expectEqual(initial.len, packet.packet_len);
     try testing.expectError(error.Truncated, read(initial[0..10], 0));
-    // A Token Length of eight octets that names more than any datagram holds.
+    // A Token Length of eight bytes that names more than any datagram holds.
     const huge = [_]u8{ 0xc0, 0, 0, 0, 1, 0, 0 } ++ [_]u8{0xff} ** 8 ++ [_]u8{ 1, 2, 3 };
     try testing.expectError(error.Truncated, read(&huge, 0));
-    // A 0-RTT packet carries no token: the octet after the connection IDs is its Length.
+    // A 0-RTT packet carries no token: the byte after the connection IDs is its Length.
     const zero_rtt = [_]u8{ 0xd0, 0, 0, 0, 1, 0, 0, 2, 7, 7 };
     try testing.expectEqual(0, (try read(&zero_rtt, 0)).long.token.len);
 }
@@ -390,7 +390,7 @@ test "§17.2, §17.3.1: Reserved Bits that are set are refused once protection i
     try testing.expectError(error.ReservedBitsSet, unprotected_short(0x50));
 }
 
-/// Most octets a fuzz input carries: a long header with both connection IDs at their longest.
+/// Most bytes a fuzz input carries: a long header with both connection IDs at their longest.
 const fuzz_input_len_max = 600;
 
 fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {

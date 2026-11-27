@@ -56,7 +56,7 @@ fn open_as(role: connection_module.Role) void {
     });
 }
 
-/// Writes `list` into `payload` and returns the octets, which is what one opened packet holds.
+/// Writes `list` into `payload` and returns the bytes, which is what one opened packet holds.
 fn frames_of(list: []const Frame) []const u8 {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
@@ -191,7 +191,7 @@ test "RFC 9000 §12.4: every frame of the packet is read, not only the first" {
 test "RFC 9000 §19: a frame that will not parse is a FRAME_ENCODING_ERROR" {
     open_as(.client);
     // §12.4: "An endpoint MUST treat the receipt of a frame of unknown type as a connection
-    // error of type FRAME_ENCODING_ERROR." 0x40 is a two-octet varint of 0, so it reads as a
+    // error of type FRAME_ENCODING_ERROR." 0x40 is a two-byte varint of 0, so it reads as a
     // type this version does not define rather than as PADDING.
     const unknown = [_]u8{ 0x3f, 0x00 };
     try testing.expectError(

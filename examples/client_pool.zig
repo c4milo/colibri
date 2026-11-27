@@ -10,7 +10,7 @@
 //!
 //! Each connection the pool opens is a socket of its own. Each `open` names the connection, by its
 //! slot and its generation, and each later event about it names it too: `send`, when it owes
-//! octets, and `close`, when it is over. The program keeps one socket for each slot.
+//! bytes, and `close`, when it is over. The program keeps one socket for each slot.
 //!
 //! The run goes in this order:
 //! 1. The program requests two GETs. The pool says `open` twice, to the address of the first DNS
@@ -25,7 +25,7 @@
 //! The server is in `client_pool_peer.zig`: one engine with four TCP slots. The link of
 //! `link_streams.zig` stands where a program's sockets would be, one stream for each socket.
 //!
-//! The program checks each greeting octet for octet, two opens to each address, four closes and
+//! The program checks each greeting byte for byte, two opens to each address, four closes and
 //! the `closed` event. Anything else exits with an error, which is how `zig build examples` and CI
 //! know the example still works.
 //!
@@ -86,8 +86,8 @@ var link: StreamsLink align(@alignOf(StreamsLink)) = undefined;
 /// What `send_stream` writes, which the link then sends.
 var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 
-/// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
-/// link's queue, or reports an event and takes no octet, or ends the loop.
+/// Calls of `receive` for one read of a socket, at most. Each call takes one byte or more of the
+/// link's queue, or reports an event and takes no byte, or ends the loop.
 const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(.{ .tcp_connections = tcp_connections }) + 1);
 
 /// The connection of each slot's socket, or null when the slot holds none. A slot's socket is
@@ -127,7 +127,7 @@ pub fn main() !void {
         try client_turn();
         try peer.turn();
         if (pool_closed and peer.over(opens_first + opens_second)) return check();
-        // No octet waits for either side. A program sleeps here until a socket has octets or a
+        // No byte waits for either side. A program sleeps here until a socket has bytes or a
         // deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.client, sleep_ns());
     }
@@ -144,14 +144,14 @@ fn request(count: u32) !void {
 }
 
 /// One turn of the client: pass the pool what each socket read, and then what it owes with no
-/// octets.
+/// bytes.
 fn client_turn() !void {
     try link.receive(.client);
     const now_ns = link.now_ns(.client);
     for (0..link_module.streams_max) |slot| try drain(@intCast(slot), now_ns);
 }
 
-/// Passes the pool the octets the socket of `slot` read, until it consumes nothing and reports
+/// Passes the pool the bytes the socket of `slot` read, until it consumes nothing and reports
 /// nothing. With no socket in the slot it passes `.none`, which reports what the pool owes.
 fn drain(slot: u32, now_ns: u64) !void {
     const socket = sockets[slot];
@@ -159,7 +159,7 @@ fn drain(slot: u32, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
-        // An event may close this socket, or open another in its slot: its octets then go to no
+        // An event may close this socket, or open another in its slot: its bytes then go to no
         // connection.
         const current = socket != null and std.meta.eql(sockets[slot], socket);
         const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
@@ -171,7 +171,7 @@ fn drain(slot: u32, now_ns: u64) !void {
         };
         try report(event, now_ns);
     }
-    // A socket closed during the read dropped its octets with it.
+    // A socket closed during the read dropped its bytes with it.
     if (socket != null and std.meta.eql(sockets[slot], socket)) link.consume(slot, .client, consumed);
 }
 
@@ -179,7 +179,7 @@ fn drain(slot: u32, now_ns: u64) !void {
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_socket(open),
-        // The connection owes octets, which the program writes into its socket.
+        // The connection owes bytes, which the program writes into its socket.
         .send => |connection| try send_owed(connection, now_ns),
         // The connection is over: the program closes its socket.
         .close => |connection| close_socket(connection),
@@ -222,7 +222,7 @@ fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {
     return error.ExchangeWrong;
 }
 
-/// Closes the socket of `connection`. The octets it held are dropped with it, and the server
+/// Closes the socket of `connection`. The bytes it held are dropped with it, and the server
 /// hears the close.
 fn close_socket(connection: client.ConnectionHandle) void {
     const slot = connection.slot;

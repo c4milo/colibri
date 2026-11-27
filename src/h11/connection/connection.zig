@@ -1,8 +1,8 @@
-//! One h11 connection (design §8 step 15b): the caller's octets in, at most one event per call
+//! One h11 connection (design §8 step 15b): the caller's bytes in, at most one event per call
 //! out, and the heads and bodies the caller sends written into the caller's buffer (design §4.1).
 //!
-//! `receive` consumes the octets of at most one event: a head, a run of body data, or the end of
-//! a body. A count of 0 with no event means the connection needs more octets, or, at a server,
+//! `receive` consumes the bytes of at most one event: a head, a run of body data, or the end of
+//! a body. A count of 0 with no event means the connection needs more bytes, or, at a server,
 //! that the current request's final response must be written before the next request is read
 //! (decision 92). The caller loops over `receive` until it returns 0 with no event.
 //!
@@ -64,7 +64,7 @@ pub const Phase = enum {
     /// the rest of the body to discard it, so the connection serves the next request (RFC 9112
     /// §9.3, decision 160).
     discard,
-    /// A tunnel: every octet is the application's.
+    /// A tunnel: every byte is the application's.
     tunnel,
     /// Nothing more is read or written.
     closed,
@@ -91,7 +91,7 @@ pub const Connection = struct {
     end_owed: bool,
     /// The connection closes after the current exchange (RFC 9112 §9.3, §9.6).
     close_after: bool,
-    /// A server: `Options.discard_len_max`, and the octets of the current request's body it may
+    /// A server: `Options.discard_len_max`, and the bytes of the current request's body it may
     /// still read in the `discard` phase (decision 160).
     discard_len_max: u64,
     discard_left: u64,
@@ -157,7 +157,7 @@ pub const Connection = struct {
         /// the CPU itself, and the field has no default, so no program keeps the build target's
         /// features by mistake.
         cpu_features: coding.CpuFeatures,
-        /// A server: the most octets of a request body it reads and discards after its final
+        /// A server: the most bytes of a request body it reads and discards after its final
         /// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A
         /// body whose rest has a known length past them, or is chunked, closes the connection
         /// after the response, whose head says so, unless the program set `request_body` to
@@ -175,7 +175,7 @@ pub const Connection = struct {
     pub const Failure = message.Error || connection_body.ReadError || coding.Error || connection_tls.Failure || error{
         /// A body carries a coding the connection does not decode (RFC 9112 §6.1, §7.4).
         CodingUndecoded,
-        /// Octets other than CRLF arrived at a client with no request outstanding (RFC 9112 §9.2).
+        /// Bytes other than CRLF arrived at a client with no request outstanding (RFC 9112 §9.2).
         ResponseUnexpected,
         /// A 101 (Switching Protocols), which h11 does not implement (decision 109).
         UpgradeUnsupported,
@@ -196,12 +196,12 @@ pub const Connection = struct {
         interim: message.StatusLine,
         /// A final response to the oldest outstanding request, at a client.
         response: Response,
-        /// Body octets: a slice of the caller's input valid until the next call, or, for a body
+        /// Body bytes: a slice of the caller's input valid until the next call, or, for a body
         /// carrying `gzip` or `deflate`, a slice of the `decoded` buffer passed to `receive`.
         data: []const u8,
         /// The body ended. A chunked body's trailer fields are in `Connection.trailers`.
         end,
-        /// Octets of a tunnel after a 2xx to CONNECT (RFC 9112 §6.3 rule 2), a slice of the input.
+        /// Bytes of a tunnel after a 2xx to CONNECT (RFC 9112 §6.3 rule 2), a slice of the input.
         tunnel: []const u8,
     };
 
@@ -213,7 +213,7 @@ pub const Connection = struct {
         body: message.Body,
     };
 
-    /// What `receive` returns: the octets of `input` it read, and the event they made, if any.
+    /// What `receive` returns: the bytes of `input` it read, and the event they made, if any.
     pub const Received = struct {
         consumed: usize,
         event: ?Event,
@@ -292,12 +292,12 @@ pub const Connection = struct {
     }
 
     /// Attaches the TLS provider h11 runs over, after checking the finished handshake
-    /// (`connection_tls.zig`). Called once, before any octet of HTTP moves.
+    /// (`connection_tls.zig`). Called once, before any byte of HTTP moves.
     pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 
-    /// Consumes the octets of at most one event from the start of `input`. The octets of a body
+    /// Consumes the bytes of at most one event from the start of `input`. The bytes of a body
     /// carrying `gzip` or `deflate` are decoded into `decoded`, which a caller that placed no
     /// decoder pool passes empty (decision 98).
     pub fn receive(connection: *Connection, input: []const u8, decoded: []u8) Error!Received {
@@ -324,7 +324,7 @@ pub const Connection = struct {
         return connection_server.write_response(connection, output, status, reason, fields);
     }
 
-    /// Writes body octets, framed as the head the caller wrote declared.
+    /// Writes body bytes, framed as the head the caller wrote declared.
     pub fn write_body(connection: *Connection, output: []u8, data: []const u8) SendError!usize {
         const closed = connection.phase == .closed and connection.role == .server;
         // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
@@ -334,8 +334,8 @@ pub const Connection = struct {
         return connection_body.write(&connection.writer, output, data);
     }
 
-    /// Counts `len` body octets the caller sends from its own buffer, in place of `write_body`'s
-    /// copy, and writes nothing (decision 95). The caller sends them next, before any other octet
+    /// Counts `len` body bytes the caller sends from its own buffer, in place of `write_body`'s
+    /// copy, and writes nothing (decision 95). The caller sends them next, before any other byte
     /// of this connection. In a chunked body they are the data of the chunk whose head
     /// `write_chunk_head` wrote.
     pub fn count_body(connection: *Connection, len: u64) SendError!void {
@@ -347,10 +347,10 @@ pub const Connection = struct {
         return connection_body.count(&connection.writer, len);
     }
 
-    /// Writes the head of a chunk of `len` octets into `output`, after the CRLF that ends the chunk
+    /// Writes the head of a chunk of `len` bytes into `output`, after the CRLF that ends the chunk
     /// before (RFC 9112 §7.1). The caller sends the chunk's data next from its own buffer and
-    /// counts it with `count_body`, so no octet of it is copied (decision 139). `write_end` writes
-    /// the last chunk. Returns the octets written.
+    /// counts it with `count_body`, so no byte of it is copied (decision 139). `write_end` writes
+    /// the last chunk. Returns the bytes written.
     pub fn write_chunk_head(connection: *Connection, output: []u8, len: u64) SendError!usize {
         const closed = connection.phase == .closed and connection.role == .server;
         // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
@@ -369,12 +369,12 @@ pub const Connection = struct {
         return written;
     }
 
-    /// Whether colibri owes octets `write_pending` writes.
+    /// Whether colibri owes bytes `write_pending` writes.
     pub fn has_pending(connection: *const Connection) bool {
         return connection.reply_status != null;
     }
 
-    /// Writes the error response a server owes (decision 92). Returns the octets written.
+    /// Writes the error response a server owes (decision 92). Returns the bytes written.
     pub fn write_pending(connection: *Connection, output: []u8) message.WriteError!usize {
         const status = connection.reply_status orelse return 0;
         const written = try connection_server.write_error_response(output, status);
@@ -429,7 +429,7 @@ pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error
     try connection.decoding.start(storage, body.coding, connection.cpu_features);
 }
 
-/// Reads body octets from `input`, decoding them into `decoded` when the body carries a
+/// Reads body bytes from `input`, decoding them into `decoded` when the body carries a
 /// compression coding (decision 98).
 pub fn read_body(connection: *Connection, role: message.Role, input: []const u8, decoded: []u8) (connection_body.ReadError || coding.Error)!connection_body.Read {
     if (!connection.decoding.active()) {

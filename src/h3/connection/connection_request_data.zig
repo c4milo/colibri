@@ -53,7 +53,7 @@ pub fn read_data(connection: *Connection, transport: *QuicConnection, request: *
     return .{ .event = .{ .data = .{ .stream_id = request.id, .octets = window[0..read.len] } } };
 }
 
-/// Reports what has arrived of the current DATA frame's payload, and copies none of it: the octets
+/// Reports what has arrived of the current DATA frame's payload, and copies none of it: the bytes
 /// stay unread in `quic` until `release_data` (RFC 9000 §4.1). The caller copies them with
 /// `peek_data` straight into its own memory (decision 153 ruling 12).
 pub fn hold_arrived(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
@@ -76,7 +76,7 @@ fn arrived(transport: *QuicConnection, id: StreamId) ?quic.Connection.StreamRead
         .closed, .unopened => return null,
     };
     const consumed = stream.receive_flow.consumed;
-    // Design §8 step 29d.9: no octet past `consumed` arrived, so the pool holds none.
+    // Design §8 step 29d.9: no byte past `consumed` arrived, so the pool holds none.
     const end = if (stream.receive_flow.used > consumed) stream.incoming.contiguous_end(transport.receive_storage.?, id.value, consumed) else consumed;
     assert(end >= consumed);
     const final_size = stream.receiving.final_size orelse return .{ .len = @intCast(end - consumed), .fin = false };
@@ -85,7 +85,7 @@ fn arrived(transport: *QuicConnection, id: StreamId) ?quic.Connection.StreamRead
 }
 
 /// Copies the content the last `data_available` event on `stream_id` reported into `output`, as
-/// much as it holds, and returns the octets copied. They stay unread in `quic` until
+/// much as it holds, and returns the bytes copied. They stay unread in `quic` until
 /// `release_data` takes them. It copies none on a stream that holds none: one reset, refused or
 /// closed since the event.
 pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
@@ -93,18 +93,18 @@ pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id:
     if (request.held_len == 0) return 0;
     assert(request.hold_data);
     const id: StreamId = .{ .value = stream_id };
-    // RFC 9000 §19.4: a reset stream delivers no octets, and a peek here would say the reset
+    // RFC 9000 §19.4: a reset stream delivers no bytes, and a peek here would say the reset
     // first and lose it.
     if (quic.Connection.reset_code(transport, id) != null) return 0;
     const window = output[0..@intCast(@min(output.len, request.held_len))];
     // `hold_arrived` found the stream live, and only a reset or a close ends it since.
     const peeked = quic.Connection.peek(transport, id, window) catch return 0;
-    // `hold_arrived` measured every held octet as arrived.
+    // `hold_arrived` measured every held byte as arrived.
     assert(peeked.len == window.len);
     return peeked.len;
 }
 
-/// Takes the first `len` octets of the content a `data_available` event reported on `stream_id`,
+/// Takes the first `len` bytes of the content a `data_available` event reported on `stream_id`,
 /// which gives the peer credit for them (RFC 9000 §4.1). It does nothing on a stream that holds
 /// none: one reset, refused or closed since the event.
 pub fn release_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, len: u64) void {
@@ -167,7 +167,7 @@ threadlocal var held_content: [held_content_len]u8 = undefined;
 /// FIN, so the stream stays open. Returns the stream's ID once the client has read the response's
 /// head. Test-only.
 fn held_exchange(content: []const u8) !u64 {
-    // Each octet differs from the one before it, so a slice taken from the wrong offset differs.
+    // Each byte differs from the one before it, so a slice taken from the wrong offset differs.
     for (&held_content, 0..) |*octet, index| octet.* = @truncate(index);
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
@@ -187,7 +187,7 @@ fn held_exchange(content: []const u8) !u64 {
     return id;
 }
 
-/// The octets of stream `id` that arrived and the client has not taken. Credit is measured from
+/// The bytes of stream `id` that arrived and the client has not taken. Credit is measured from
 /// what it took (RFC 9000 §4.1).
 fn unread(id: u64) u64 {
     const flow = &client.transport.streams.lookup(.{ .value = id }).live.receive_flow;
@@ -202,7 +202,7 @@ fn stream_credit_due(id: u64) bool {
 /// Where the tests copy held content with `peek_data`. Test-only.
 threadlocal var copied: [held_content_len]u8 = undefined;
 
-/// The octet `receive`'s buffer is filled with, which no held stream may change. Test-only.
+/// The byte `receive`'s buffer is filled with, which no held stream may change. Test-only.
 const untouched_octet: u8 = 0xa5;
 
 test "RFC 9000 §4.1: a held stream gives no credit before release_data, and owes a MAX_STREAM_DATA after it" {
@@ -216,7 +216,7 @@ test "RFC 9000 §4.1: a held stream gives no credit before release_data, and owe
     try testing.expect(std.mem.allEqual(u8, &client.body, untouched_octet));
     try testing.expectEqual(held_content_len, client.h3.peek_data(&client.transport, id, &copied));
     try testing.expectEqualSlices(u8, &held_content, &copied);
-    // A smaller output takes the first octets.
+    // A smaller output takes the first bytes.
     try testing.expectEqual(10, client.h3.peek_data(&client.transport, id, copied[0..10]));
     // The stream reads nothing more while the caller holds its content.
     try testing.expectEqual(null, try next(client));
@@ -247,7 +247,7 @@ test "RFC 9000 §19.4: a reset while content is held is reported once the conten
     try quic.Connection.reset_stream(&server.transport, .{ .value = id }, constants.protocol.error_internal);
     try exchange();
     try testing.expectEqual(null, try next(client));
-    // The reset stream delivers no octets, and a peek keeps the reset to report.
+    // The reset stream delivers no bytes, and a peek keeps the reset to report.
     try testing.expectEqual(0, client.h3.peek_data(&client.transport, id, &copied));
     client.h3.release_data(&client.transport, id, 10);
     const reset = (try next(client)).?.reset;
@@ -265,7 +265,7 @@ test "§7.1: a held stream that ends inside a DATA frame is H3_FRAME_ERROR" {
     try exchange();
     var answer = server.writer_for(id);
     try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &harness.ok_lines), &.{}, &answer, harness.test_now_ns);
-    // A DATA frame whose header promises five octets, two of them, and then the stream's end.
+    // A DATA frame whose header promises five bytes, two of them, and then the stream's end.
     try answer.write_bytes(&.{ constants.protocol.frame_data, 0x05, 'a', 'b' });
     try server.commit(id, answer.written(), true);
     try exchange();
@@ -287,12 +287,12 @@ test "§4.1.1: a cancel while content is held drops the hold, and the stream's s
     client.h3.release_data(&client.transport, id, 10);
 }
 
-/// Two DATA frames of five octets each, as the server's content. Test-only.
+/// Two DATA frames of five bytes each, as the server's content. Test-only.
 const two_frames = [_]u8{ constants.protocol.frame_data, frame_payload_len } ++ "hello" ++ [_]u8{ constants.protocol.frame_data, frame_payload_len } ++ "world";
 const frame_payload_len: u8 = 5;
 
 /// Has the client's QUIC receive `two_frames[from..to]` on stream `id`, after the `head_len`
-/// octets of the response's head, in a STREAM frame of its own (RFC 9000 §19.8). Test-only.
+/// bytes of the response's head, in a STREAM frame of its own (RFC 9000 §19.8). Test-only.
 fn arrive(id: u64, head_len: usize, from: usize, to: usize) !void {
     try quic.connection_stream_frames.apply(&client.transport, .{ .stream = .{
         .stream_id = id,

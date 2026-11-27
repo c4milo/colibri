@@ -1,9 +1,9 @@
-//! The frames that carry octets: STREAM (RFC 9000 §19.8), CRYPTO (§19.6), NEW_TOKEN (§19.7) and
+//! The frames that carry bytes: STREAM (RFC 9000 §19.8), CRYPTO (§19.6), NEW_TOKEN (§19.7) and
 //! PADDING (§19.1). Split off `frame.zig` because each one ends in a payload whose length comes
 //! from somewhere different — a Length field, an implicit run to the end of the packet, or the
 //! frame's own repetition.
 //!
-//! Every payload is a slice of the caller's octets. Nothing is copied here and nothing is held
+//! Every payload is a slice of the caller's bytes. Nothing is copied here and nothing is held
 //! past the call (design §4.1).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -72,7 +72,7 @@ pub fn write_stream(writer: *Writer, stream: Stream) core.Writer.Error!void {
 }
 
 /// A STREAM frame's header, for data the caller places directly after it (RFC 9000 §19.8). The
-/// Length field is `length_len` octets wide, chosen before the data's length is known: RFC 9000
+/// Length field is `length_len` bytes wide, chosen before the data's length is known: RFC 9000
 /// §16 says "Values do not need to be encoded on the minimum number of bytes necessary, with the
 /// sole exception of the Frame Type field".
 pub const StreamHeader = struct {
@@ -83,14 +83,14 @@ pub const StreamHeader = struct {
     fin: bool,
 };
 
-/// Octets a STREAM frame's header takes before its data: the type, the Stream ID, the Offset when
+/// Bytes a STREAM frame's header takes before its data: the type, the Stream ID, the Offset when
 /// it is not 0, and a Length field `length_len` wide (RFC 9000 §19.8).
 pub fn stream_header_len(stream_id: u64, offset: u64, length_len: u8) usize {
     const offset_len: usize = if (offset == 0) 0 else wire.varint.encoded_len_minimal(offset);
     return stream_type_len + wire.varint.encoded_len_minimal(stream_id) + offset_len + length_len;
 }
 
-/// A STREAM frame's type is 0x08 to 0x0f, one octet as a variable-length integer (RFC 9000 §19.8).
+/// A STREAM frame's type is 0x08 to 0x0f, one byte as a variable-length integer (RFC 9000 §19.8).
 const stream_type_len: usize = 1;
 
 /// Writes the header `stream_header_len` measured, with its Length field set.
@@ -141,19 +141,19 @@ pub fn write_token(writer: *Writer, token: []const u8) core.Writer.Error!void {
     try writer.write_bytes(token);
 }
 
-/// A length as a variable-length integer, then that many octets.
+/// A length as a variable-length integer, then that many bytes.
 fn read_sized(reader: *Reader) frame.Error![]const u8 {
     const len = try frame.read_varint(reader);
     if (len > reader.remaining_len()) return error.Truncated;
     return reader.take(@intCast(len)) catch unreachable;
 }
 
-/// Reads a run of PADDING frames as one (RFC 9000 §19.1). The type octet of the first has been
-/// consumed, so the run is one octet plus every zero after it. A packet is padded with many of
-/// these and reading them one at a time would cost a call per octet.
+/// Reads a run of PADDING frames as one (RFC 9000 §19.1). The type byte of the first has been
+/// consumed, so the run is one byte plus every zero after it. A packet is padded with many of
+/// these and reading them one at a time would cost a call per byte.
 pub fn read_padding(reader: *Reader) usize {
     var len: usize = 1;
-    // The octets present bound the run.
+    // The bytes present bound the run.
     for (0..reader.remaining_len()) |_| {
         const next = reader.peek_byte() catch return len;
         if (next != constants.protocol.frame_padding) return len;

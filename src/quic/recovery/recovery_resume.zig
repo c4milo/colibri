@@ -18,13 +18,13 @@ pub const state_version: u32 = 1;
 
 /// RFC 9959 §1.1's saved CC parameters: what one connection observed of its path, which a later
 /// connection to the same remote endpoint may start from. Its layout is fixed, so a program may
-/// store its octets as they are.
+/// store its bytes as they are.
 pub const ResumeState = extern struct {
     /// `state_version` when colibri wrote it.
     version: u32 = state_version,
-    /// The octets of the set, `@sizeOf(ResumeState)` when colibri wrote it.
+    /// The bytes of the set, `@sizeOf(ResumeState)` when colibri wrote it.
     size: u32 = @sizeOf(ResumeState),
-    /// §3.1's saved_cwnd: the octets the connection had in flight over one round trip.
+    /// §3.1's saved_cwnd: the bytes the connection had in flight over one round trip.
     window_len: u64,
     /// §3.1's saved_rtt: the minimum round trip the connection measured, in nanoseconds.
     rtt_ns: u64,
@@ -109,10 +109,10 @@ pub const Resume = struct {
     /// The saved set, which only the phases after `off` read.
     saved: ResumeState,
     bounds: ResumeBounds,
-    /// The application octets acknowledged in the Reconnaissance Phase, which confirm the path
+    /// The application bytes acknowledged in the Reconnaissance Phase, which confirm the path
     /// once they cover the initial window (§3.2).
     acknowledged_len: u64,
-    /// §3.3's PipeSize: the octets in flight when the Unvalidated Phase started, and every octet
+    /// §3.3's PipeSize: the bytes in flight when the Unvalidated Phase started, and every byte
     /// acknowledged since.
     pipe_len: u64,
     /// When the Unvalidated Phase started, which §3.3 limits to one round trip.

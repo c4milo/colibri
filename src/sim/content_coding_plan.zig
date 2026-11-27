@@ -42,7 +42,7 @@ pub const Exchange = struct {
     content_len: u32,
     /// Content DEFLATE shrinks: runs of text. Otherwise the tests' source, which it cannot.
     compressible: bool,
-    /// The body memory is one octet shorter than the content.
+    /// The body memory is one byte shorter than the content.
     body_short: bool,
 };
 
@@ -126,7 +126,7 @@ pub const Expected = struct {
     too_large: bool,
 };
 
-/// Whether the plan's body memory for `exchange` is one octet short of its content: only for
+/// Whether the plan's body memory for `exchange` is one byte short of its content: only for
 /// content the client decodes or takes as it came, which fits a body sized to the content.
 pub fn expect_short(exchange: *const Exchange) bool {
     return exchange.body_short and !exchange.head and exchange.content_len > 0 and exchange.own_offer == .none;

@@ -16,7 +16,7 @@ const testing = std.testing;
 const App = stream.App;
 const engine = &quic_support.engine_support.engine;
 
-/// Octets of the entry's response memory, of the response, sixteen times as many, and of each
+/// Bytes of the entry's response memory, of the response, sixteen times as many, and of each
 /// message. Test-only.
 const response_bytes = 512;
 const stream_turns = 16;
@@ -26,8 +26,8 @@ const message_len = 100;
 const rounds_max = 512;
 const client_loss_every = 3;
 const server_loss_every = 5;
-/// Octets of the response memory of a route that flushes each small message, and the messages it
-/// writes, of 7 to 128 octets each (the owner's ruling of 2026-11-09).
+/// Bytes of the response memory of a route that flushes each small message, and the messages it
+/// writes, of 7 to 128 bytes each (the owner's ruling of 2026-11-09).
 const long_response_bytes = 8192;
 const long_messages = stream.messages_max;
 /// The rounds the long response takes at most, and the rounds from one datagram of the client
@@ -92,7 +92,7 @@ test "design §8 step 46: a struct route sends sixteen times response_bytes over
 
 test "design §8 step 46: a struct route writes after a write that failed, over h3" {
     // A message finds no room, so the response asks the engine for a `writable` at a release. The
-    // route then writes one octet, which fits, and flushes it. The engine takes that run whole,
+    // route then writes one byte, which fits, and flushes it. The engine takes that run whole,
     // which ends the wait it held (`State.write_body`), so the response asks again. Before it did,
     // no `writable` came and the response stopped.
     try quic_support.start_engine(null);
@@ -118,7 +118,7 @@ test "design §8 step 46: a struct route writes after a write that failed, over 
 test "design §8 step 46: a struct route flushes 1,000 small messages over h3, acknowledged late" {
     // The owner's ruling of 2026-11-09: an h3 response holds about seven runs until the peer
     // acknowledges them, and a `Response` has sixteen slots. A flush that finds a run in each slot
-    // adds its octets to the newest run the engine has not taken, so no flush fails.
+    // adds its bytes to the newest run the engine has not taken, so no flush fails.
     try quic_support.start_engine(null);
     try quic_support.connect();
     long_router = .{};
@@ -141,7 +141,7 @@ test "design §8 step 46: a struct route flushes 1,000 small messages over h3, a
     try testing.expectEqual(ok_code, fetch.status);
     try testing.expect(stream.is_stream(quic_support.content_of(fetch), long_stream_len));
     try testing.expectEqual(0, app.failed_flushes);
-    // The memory held the octets in flight, so the route waited for acknowledgments.
+    // The memory held the bytes in flight, so the route waited for acknowledgments.
     try testing.expect(app.failed_writes > 0);
     try testing.expectEqual(0, app.roomless_calls);
 }

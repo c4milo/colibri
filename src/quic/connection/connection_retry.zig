@@ -50,7 +50,7 @@ pub const Token = struct {
     }
 
     /// RFC 9000 §17.2.5.3: "The value of the Token field is copied to all subsequent Initial
-    /// packets", so a client keeps the octets rather than the packet they came in.
+    /// packets", so a client keeps the bytes rather than the packet they came in.
     pub fn take(token: *Token, octets: []const u8) void {
         assert(octets.len <= constants.limits.token_len_max);
         // §17.2.5.2: a client acts on one Retry per connection attempt, so this is written once.
@@ -84,7 +84,7 @@ pub const Discarded = enum {
     /// be validated" (RFC 9001 §5.8).
     tag_invalid,
     /// §17.2.5.3 has a client repeat the cryptographic handshake message it already sent, and its
-    /// first flight was longer than the send window colibri keeps, so those octets are gone.
+    /// first flight was longer than the send window colibri keeps, so those bytes are gone.
     flight_forgotten,
 };
 
@@ -149,7 +149,7 @@ fn refuse(connection: *const Connection, retry: header.Retry) ?Discarded {
 }
 
 /// RFC 9001 §5.8: the Retry Integrity Tag covers the Retry Pseudo-Packet, which is the Original
-/// Destination Connection ID with its length octet followed by the Retry packet less its tag.
+/// Destination Connection ID with its length byte followed by the Retry packet less its tag.
 fn tag_valid(
     connection: *const Connection,
     suite: Suite,
@@ -157,7 +157,7 @@ fn tag_valid(
     pseudo: *[constants.limits.retry_pseudo_packet_len_max]u8,
 ) bool {
     var writer = Writer.init(pseudo);
-    // `refuse` bounded the token and the reader bounds both connection IDs at 20 octets
+    // `refuse` bounded the token and the reader bounds both connection IDs at 20 bytes
     // (RFC 9000 §17.2), so `retry_pseudo_packet_len_max` holds every Retry that reaches here.
     header_write.write_retry_pseudo_packet(
         &writer,
@@ -170,7 +170,7 @@ fn tag_valid(
 
 /// What a server needs to write a Retry (RFC 9000 §17.2.5.1). colibri chooses none of it: §5.1
 /// wants a connection ID unpredictable and invariant 5 forbids colibri a random number, and it
-/// owns no socket, so the address is the caller's opaque octets.
+/// owns no socket, so the address is the caller's opaque bytes.
 pub const Request = struct {
     /// The version of the client's Initial, its original version, which RFC 9369 §4.1 has the
     /// Retry use.
@@ -206,7 +206,7 @@ pub const Refused = enum {
 };
 
 pub const Answer = union(enum) {
-    /// Octets of `output` the Retry packet occupies.
+    /// Bytes of `output` the Retry packet occupies.
     written: usize,
     refused: Refused,
 };
@@ -269,7 +269,7 @@ fn write_packet(
         .token = token,
     }) catch return .{ .refused = .no_space };
     var pseudo_writer = Writer.init(pseudo);
-    // The token is bounded above and both connection IDs at 20 octets (RFC 9000 §17.2), so
+    // The token is bounded above and both connection IDs at 20 bytes (RFC 9000 §17.2), so
     // `retry_pseudo_packet_len_max` holds every packet this writes.
     header_write.write_retry_pseudo_packet(
         &pseudo_writer,

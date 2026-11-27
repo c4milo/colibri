@@ -48,7 +48,7 @@ pub const rounds_before_fallback: usize = 8;
 /// initial RTT of 333 ms makes it about a second.
 pub const rounds_past_probe: usize = 48;
 pub const datagrams_per_round_max: usize = 64;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -86,8 +86,8 @@ pub fn receive_storage() pool_module.ReceiveStorage {
 pub fn start_configured(server_protocols: []const []const u8, values: pool_module.Destination, given: pool_module.Config, given_pool: ?pool_module.ReceiveStorage) !void {
     try quic_support.prepare(&quic_support.alpn_h3, server_protocols, false);
     config = given;
-    // Every octet 1, so each flag of a connection the pool never started reads as set, and a
-    // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
+    // Every byte 1, so each flag of a connection the pool never started reads as set, and a
+    // read of one shows. A configuration `init` leaves unwritten keeps the byte too.
     @memset(std.mem.asBytes(&pool), unstarted_octet);
     const memory: []align(ConnectionPool.memory_alignment) u8 = if (given.tcp_connections == tcp_connections_two) &pool_memory_two else &pool_memory;
     try pool.init(memory, &config, &values, given_pool);

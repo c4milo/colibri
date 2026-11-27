@@ -39,7 +39,7 @@ fn zlib_of(content: []const u8) ![]u8 {
     return coded_room[0..try zlib_encoder.encode_all(content, &coded_room)];
 }
 
-/// Whether the octets the client sent and the peer has not read hold `wanted`. Test-only.
+/// Whether the bytes the client sent and the peer has not read hold `wanted`. Test-only.
 fn sent(wanted: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], wanted) != null;
 }
@@ -147,7 +147,7 @@ test "decision 101: corrupt coded content ends malformed, and decoded content pa
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 
-/// RFC 1952 §2.3: a member ends with its CRC32 and ISIZE, four octets each.
+/// RFC 1952 §2.3: a member ends with its CRC32 and ISIZE, four bytes each.
 const gzip_trailer_len: usize = 8;
 
 test "decision 101: with every decoder taken, the client offers nothing" {
@@ -227,7 +227,7 @@ test "decision 101: decoded content that fills the body exactly fits, and a stre
     try h11_exchange(&fitting, ok, &answer, coded);
     try testing.expectEqual(.response, fitting.response.result);
     try testing.expectEqualStrings(text, fitting.response.body_received());
-    // RFC 1952 §2.3: the member's last octets, its trailer, never arrive.
+    // RFC 1952 §2.3: the member's last bytes, its trailer, never arrive.
     try support.start_coding(.h11);
     var cut: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     const short = coded[0 .. coded.len - 1];

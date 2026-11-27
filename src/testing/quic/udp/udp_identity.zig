@@ -226,7 +226,7 @@ fn configure_server(asked: udp_arguments.Server) !void {
     try server_config.check();
 }
 
-/// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
+/// Reads a key file, which must fill `into` exactly: one byte more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
     var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);

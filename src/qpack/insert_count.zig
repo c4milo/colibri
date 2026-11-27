@@ -66,7 +66,7 @@ fn full_range_of(max_entries: u64) u64 {
 
 const testing = std.testing;
 
-/// RFC 9204 §4.5.1.1's own example: a dynamic table of 100 octets, so `MaxEntries` is 3 and the
+/// RFC 9204 §4.5.1.1's own example: a dynamic table of 100 bytes, so `MaxEntries` is 3 and the
 /// Required Insert Count is encoded modulo 6. Test-only.
 const example_max_entries: u64 = 3;
 const example_full_range: u64 = 6;

@@ -1,5 +1,5 @@
 //! The tests of the engine's TCP slots (`engine_state_tcp.zig`, decision 119): a connection the
-//! program accepted speaks h11 or h2, in cleartext as its first octets choose and over TLS as ALPN
+//! program accepted speaks h11 or h2, in cleartext as its first bytes choose and over TLS as ALPN
 //! does, every request ends once before its connection's `ended`, and a handle of a connection
 //! that ended names nothing.
 const std = @import("std");
@@ -28,7 +28,7 @@ test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, close
     try engine.respond(support.id_of(handle, request.number), .{ .status = ok, .end = true });
     support.collect();
     try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 200"));
-    // The response's octets go out before the engine reads the connection again, then the
+    // The response's bytes go out before the engine reads the connection again, then the
     // request ends, and INV-30: then the connection closes and ends.
     const done = support.index_of(.done).?;
     try testing.expect(support.index_of(.send).? < done);
@@ -40,7 +40,7 @@ test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, close
 test "decision 119 as amended: an h11 head in cleartext that two reads carry is read once whole" {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
-    // The engine polls the slot with no octets between the program's two passes.
+    // The engine polls the slot with no bytes between the program's two passes.
     const first = get_h11[0.."GET / HT".len];
     try testing.expectEqual(first.len, support.give(handle, first));
     try testing.expectEqual(null, support.nth(.request, 0));
@@ -104,12 +104,12 @@ test "decision 119: one engine holds a cleartext slot and a TLS slot, each read 
 test "decision 110: a read with no octets at a later instant asks the connection again" {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
-    // Half a head: the connection reads nothing of it at this instant, so a read with no octets
+    // Half a head: the connection reads nothing of it at this instant, so a read with no bytes
     // at this instant is not made.
     const half = get_h11[0.."GET / HT".len];
     try testing.expectEqual(half.len, support.give(handle, half));
     try testing.expectEqual(@as(?u64, support.now_ns), engine.state.empty_read_ns[handle.slot]);
-    // The head deadline passes, and the program passes no octets and calls no `on_instant`. The
+    // The head deadline passes, and the program passes no bytes and calls no `on_instant`. The
     // read at the new instant fires the deadline, and the connection answers 408.
     support.instant_ns = support.now_ns + server_constants.policy.head_timeout_ns;
     _ = support.give(handle, "");
@@ -124,13 +124,13 @@ test "decision 110: a read with no octets at the instant a linger passes reports
     support.instant_ns = support.now_ns + server_constants.policy.head_timeout_ns;
     _ = support.give(handle, "");
     try testing.expect(support.nth(.send, 0) != null);
-    // The program's socket takes 4 octets of the 408, so the rest waits in the output, and the
+    // The program's socket takes 4 bytes of the 408, so the rest waits in the output, and the
     // linger starts.
     var small: [4]u8 = undefined;
     try testing.expectEqual(small.len, engine.send_stream(handle, &small, support.instant_ns));
     support.collect();
     try testing.expectEqual(null, support.nth(.close, 0));
-    // Design §8 step 57: the linger passes, and the program reads with no octets and calls no
+    // Design §8 step 57: the linger passes, and the program reads with no bytes and calls no
     // `on_instant`. The read ends the linger, so the engine reports `close`.
     support.instant_ns += server_constants.policy.close_linger_ns;
     _ = support.give(handle, "");
@@ -249,7 +249,7 @@ test "RFC 9846 §6.1: a TLS connection shut down with no request sends its close
     try testing.expect(support.client_saw_alert);
 }
 
-/// An application_data header over octets no key sealed (RFC 9846 §5.2). Test-only.
+/// An application_data header over bytes no key sealed (RFC 9846 §5.2). Test-only.
 const forged_record = "\x17\x03\x03\x00" ++ [_]u8{forged_len} ++ "\x00" ** forged_len;
 const forged_len: u8 = 32;
 
@@ -304,7 +304,7 @@ const retry_key: [tls.quic.token_key_len]u8 = @splat(retry_key_octet);
 const retry_key_octet: u8 = 0x2e;
 const retry_lifetime_seconds: u64 = 10;
 threadlocal var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
-/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets, with a payload no key opens.
+/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 bytes, with a payload no key opens.
 threadlocal var initial: [quic.constants.protocol.datagram_len_max]u8 = undefined;
 const initial_id: [server_constants.policy.quic_id_len]u8 = @splat(initial_id_octet);
 const initial_id_octet: u8 = 0x5a;

@@ -1,10 +1,10 @@
-//! One h2 connection: the caller's octets in, at most one event per frame out, and the frames
+//! One h2 connection: the caller's bytes in, at most one event per frame out, and the frames
 //! colibri owes written back into the caller's buffer (decision 39, design §4.1).
 //!
-//! `receive` consumes at most one whole frame and returns how many octets it took and at most one
+//! `receive` consumes at most one whole frame and returns how many bytes it took and at most one
 //! event. A count of 0 means one of two things, and `has_pending` tells them apart: the slice
 //! holds no whole frame yet, or the replies must be written before more frames are read. The
-//! caller loops over `receive` until it returns 0, writes what is pending, and reads more octets.
+//! caller loops over `receive` until it returns 0, writes what is pending, and reads more bytes.
 //!
 //! `write_pending` writes, in order: the client connection preface at a client (RFC 9113 §3.4),
 //! colibri's own SETTINGS frame, then the replies `connection_reply.zig` holds, among them the
@@ -86,7 +86,7 @@ pub const Connection = struct {
     peer: settings.Values,
     /// The SETTINGS frames colibri sent and has not seen acknowledged (§6.5.3).
     pending: settings.Pending,
-    /// Octets of the client connection preface colibri has read, at a server (§3.4).
+    /// Bytes of the client connection preface colibri has read, at a server (§3.4).
     preface_read_len: u32,
     /// Whether the client connection preface has been written, at a client (§3.4).
     preface_written: bool,
@@ -295,7 +295,7 @@ pub const Connection = struct {
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
     }
 
-    /// Writes into `header` the header of the DATA frame that carries the next `consumed` octets
+    /// Writes into `header` the header of the DATA frame that carries the next `consumed` bytes
     /// of a payload `payload_len` long, which the caller sends after it from its own memory
     /// (decision 138): see `connection_send_data.zig`.
     pub fn write_data_header(
@@ -310,8 +310,8 @@ pub const Connection = struct {
         return connection_send_data.write_data_header(connection, header, room_len, stream_id, payload_len, end_stream);
     }
 
-    /// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
-    /// `room_len` octets: what both flow-control windows (RFC 9113 §6.9.1), the largest frame
+    /// The bytes of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
+    /// `room_len` bytes: what both flow-control windows (RFC 9113 §6.9.1), the largest frame
     /// (§4.2) and the floor of decision 110 allow. 0 for a stream that takes no DATA frame now.
     /// A server's endpoint asks it to say when a response takes more (decision 119).
     pub fn sendable_len(connection: *Connection, stream_id: u32, room_len: usize, payload_len: usize) usize {
@@ -350,7 +350,7 @@ pub const Connection = struct {
         connection.streams.peer_active_max = max;
     }
 
-    /// Gives back `len` octets of the receive credit of a stream opened with `hold_credit`, once
+    /// Gives back `len` bytes of the receive credit of a stream opened with `hold_credit`, once
     /// the caller has used them (RFC 9113 §6.9.1): see `connection_data_release.zig`. It does
     /// nothing on a closed stream (§5.1).
     pub fn release_stream(connection: *Connection, stream_id: u32, len: u32) void {
@@ -370,7 +370,7 @@ pub const Connection = struct {
     }
 
     /// Writes the preface colibri owes and the frames it has queued into `output`, and returns the
-    /// octets written. Frames that do not fit stay queued for the next call.
+    /// bytes written. Frames that do not fit stay queued for the next call.
     pub fn write_pending(connection: *Connection, output: []u8, now_ns: u64) usize {
         // RFC 9846 §6: after the record layer failed, no frame goes out.
         if (connection.tls_failed) return 0;
@@ -381,7 +381,7 @@ pub const Connection = struct {
     }
 
     /// Writes the frames colibri has queued into `output` once its preface is out, and returns the
-    /// octets written. A caller writes them before a frame of its own, so a full queue, which
+    /// bytes written. A caller writes them before a frame of its own, so a full queue, which
     /// stops the reading, empties whenever the caller writes (decision 39 as amended).
     pub fn write_replies(connection: *Connection, output: []u8) usize {
         // RFC 9113 §3.4: no frame goes ahead of the preface. RFC 9846 §6: after the record layer
@@ -440,7 +440,7 @@ pub const Connection = struct {
         return connection.pending.deadline_ns();
     }
 
-    /// Whether the preface colibri owes has been written: the client's 24 octets and the SETTINGS
+    /// Whether the preface colibri owes has been written: the client's 24 bytes and the SETTINGS
     /// frame of RFC 9113 §3.4.
     pub fn preface_done(connection: *const Connection) bool {
         return connection.settings_written and (connection.role == .server or connection.preface_written);

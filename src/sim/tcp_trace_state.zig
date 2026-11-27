@@ -2,14 +2,14 @@
 //! (https://github.com/c4milo/colibri/issues/79), in the h2 trace's `State`.
 //!
 //! Each stream's state comes from each connection's h2 stream table, as in the h2 trace. What each
-//! side wrote is parsed out of the protocol's octets it handed out and those its output still
+//! side wrote is parsed out of the protocol's bytes it handed out and those its output still
 //! holds, after its preface; the server's HEADERS frames are of the kinds its caller's calls wrote.
 //! What each side read comes from the events the server reported and the exchanges the client
 //! filled; the end of a request whose response is done, which the endpoint no longer reports, comes
 //! from the server's stream table. The frames in flight are the ones the writer wrote and the reader has not read: what the
 //! reader left of what was handed out, then the writer's output.
 //!
-//! Over TLS the protocol's octets are the plaintext of the records (`tcp_trace_direction.zig`), and
+//! Over TLS the protocol's bytes are the plaintext of the records (`tcp_trace_direction.zig`), and
 //! the reader has read what the records it opened held, less what it holds unread. Until a side's
 //! handshake completes it has no h2 connection, and the model's state for it is the initial one.
 //!
@@ -38,7 +38,7 @@ const Direction = direction_module.Direction;
 const Plan = plan_module.Plan;
 
 pub const Error = h2_trace_state.Error || error{
-    /// A send wrote the protocol's octets after it sealed some, or a reader stopped inside one
+    /// A send wrote the protocol's bytes after it sealed some, or a reader stopped inside one
     /// send's records, so the run cannot place the reader in the plaintext.
     PlaintextUnplaced,
 };
@@ -46,12 +46,12 @@ pub const Error = h2_trace_state.Error || error{
 /// The frames of one side's writes, at most: the model's kinds over a whole run.
 const Frames = [limits.frames_max]Frame;
 
-/// One side's writes: every octet it handed out, then what its output holds, which the reader takes
+/// One side's writes: every byte it handed out, then what its output holds, which the reader takes
 /// in that order.
 const Written = struct {
     handed: []const u8,
     output: []const u8,
-    /// The octets at the start that are its preface (RFC 9113 §3.4), or 0 while it wrote none.
+    /// The bytes at the start that are its preface (RFC 9113 §3.4), or 0 while it wrote none.
     preface_len: usize,
 
     fn init(direction: *const Direction, output: []const u8, magic_len: usize) Written {
@@ -63,7 +63,7 @@ const Written = struct {
         return .{ .handed = handed, .output = output, .preface_len = preface_len };
     }
 
-    /// The two parts with the first `skip` octets left out.
+    /// The two parts with the first `skip` bytes left out.
     fn after(written: Written, skip: usize) Parts {
         if (skip <= written.handed.len) return .{ .handed = written.handed[skip..], .output = written.output };
         return .{ .handed = "", .output = written.output[skip - written.handed.len ..] };
@@ -98,7 +98,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
         state.response_read[index] = response_read_of(response.result, @intFromEnum(response.status), response.interims);
     }
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
-    // what its last event pointed into, `plain_in_read` octets, until its next call.
+    // what its last event pointed into, `plain_in_read` bytes, until its next call.
     const server_read = try read_of(&world.to_server, world.tls, held.plain_in_len - held.plain_in_read);
     const client_read = try read_of(&world.to_client, world.tls, client_plain_in_len(world));
     state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, server_read, .preface, null, &state.to_server));
@@ -155,21 +155,21 @@ fn last_of(last_id: ?u32, no_goaway: u32) u32 {
     return if (last_id) |last| h2_trace_state.last_index(last) else no_goaway;
 }
 
-/// The protocol's octets a connection wrote that its caller has not handed out: what `output`
+/// The protocol's bytes a connection wrote that its caller has not handed out: what `output`
 /// holds after the records of the handshake.
 fn pending(connection: anytype) []const u8 {
     return connection.output[connection.records_len..connection.output_len];
 }
 
-/// The protocol's octets the reader of `direction` has read: what it opened, less the `unread`
-/// octets it holds.
+/// The protocol's bytes the reader of `direction` has read: what it opened, less the `unread`
+/// bytes it holds.
 fn read_of(direction: *const Direction, tls: bool, unread: usize) Error!usize {
     const opened = direction.opened_plaintext(tls) orelse return error.PlaintextUnplaced;
     assert(unread <= opened);
     return opened - unread;
 }
 
-/// The octets of the preface `start` begins with: `magic_len` octets and a whole SETTINGS frame
+/// The bytes of the preface `start` begins with: `magic_len` bytes and a whole SETTINGS frame
 /// (RFC 9113 §3.4), or 0 when it begins with anything else. A side that wrote another frame first
 /// has no preface at the start, and the state shows that frame for TLC to judge.
 fn preface_len_of(start: []const u8, magic_len: usize) usize {
@@ -259,7 +259,7 @@ fn note_response_frame(frame: Frame, state: *State) void {
     }
 }
 
-/// The model's frames in flight from a side whose reader consumed `consumed` octets: its preface,
+/// The model's frames in flight from a side whose reader consumed `consumed` bytes: its preface,
 /// as `preface` names it, while any of it is left, then the frames after. `heads` names the kinds
 /// of every HEADERS frame the side wrote, in order, or null when each is a head.
 fn in_flight(written: Written, consumed: usize, preface: Kind, heads: ?[]const HeadKind, frames: *[limits.frames_max]Frame) Error!u32 {

@@ -2,13 +2,13 @@
 //! `huffman.zig` for length.
 //!
 //! The decoder holds the next bits of input in a 64-bit buffer, the oldest at the top, and moves
-//! up to eight octets into it at a time. A comptime table, `window`, gives for each value of the
+//! up to eight bytes into it at a time. A comptime table, `window`, gives for each value of the
 //! top twelve bits the symbols whose codes those bits hold whole, and the bits the codes take. The
 //! shortest code is five bits, so twelve bits hold two codes at most. A code longer than twelve
 //! bits is read one bit at a time, through `huffman.Partial`.
 //!
-//! A read of the table writes two octets, and the second is scratch when one code is whole. When
-//! the output has room for the most octets the input can decode to, and one more, a read writes
+//! A read of the table writes two bytes, and the second is scratch when one code is whole. When
+//! the output has room for the most bytes the input can decode to, and one more, a read writes
 //! into that room with no check of its own. Otherwise each symbol goes through the writer's
 //! checked `write_byte`.
 //!
@@ -29,7 +29,7 @@ const window_bits = 12;
 const window_len = 1 << window_bits;
 const Index = std.meta.Int(.unsigned, window_bits);
 
-/// The input bits the decoder holds, and the octets one refill reads.
+/// The input bits the decoder holds, and the bytes one refill reads.
 const Bits = u64;
 const Shift = std.math.Log2Int(Bits);
 const refill_octets = @sizeOf(Bits);
@@ -102,7 +102,7 @@ fn build_window() [window_len]Entry {
 
 /// Decodes all of `encoded` into `output`, as `huffman.decode` does.
 pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
-    // A read writes two octets: room for the most symbols the input holds, and one octet more.
+    // A read writes two bytes: room for the most symbols the input holds, and one byte more.
     const room_len = huffman.decoded_len_max(encoded.len) + 1;
     if (output.writable_slice_greedy(room_len)) |free| {
         var room: Room = .{ .free = free.ptr };
@@ -121,14 +121,14 @@ noinline fn decode_checked(encoded: []const u8, output: *Writer) DecodeError!voi
     output.* = checked.cursor;
 }
 
-/// Where the symbols go when the room holds every one the input can decode to, and one octet
+/// Where the symbols go when the room holds every one the input can decode to, and one byte
 /// more. `decode` checked that room once, so a write here checks nothing.
 const Room = struct {
     free: [*]u8,
     count: usize = 0,
 
     inline fn write_entry(room: *Room, entry: Entry) Writer.Error!void {
-        // `first` is the low octet of the entry and `second` the next, so one store of sixteen
+        // `first` is the low byte of the entry and `second` the next, so one store of sixteen
         // bits, least significant first, writes both in order.
         const pair: u16 = @truncate(@as(u32, @bitCast(entry)));
         std.mem.writeInt(u16, room.free[room.count..][0..read_symbols_max], pair, .little);
@@ -159,7 +159,7 @@ const Checked = struct {
 inline fn read(comptime Sink: type, sink: *Sink, encoded: []const u8) DecodeError!void {
     var input: Input = .{ .encoded = encoded };
     input.refill();
-    // Each pass after the reads below writes a symbol, moves an octet or more into the buffer, or
+    // Each pass after the reads below writes a symbol, moves a byte or more into the buffer, or
     // ends the input.
     const passes_max = huffman.decoded_len_max(encoded.len) + encoded.len + 1;
     const ended = for (0..passes_max) |_| {
@@ -200,7 +200,7 @@ const Input = struct {
     bits: Bits = 0,
     /// The top bits of `bits` that are input not yet read. Fewer than 64.
     available: u32 = 0,
-    /// The octets of `encoded` counted in `available` or read.
+    /// The bytes of `encoded` counted in `available` or read.
     position: usize = 0,
 
     /// The value of the top bits, which indexes `window`.
@@ -215,7 +215,7 @@ const Input = struct {
         input.available -%= bit_count;
     }
 
-    /// Moves whole octets of input into `bits`, until fewer than eight bits are free or the input
+    /// Moves whole bytes of input into `bits`, until fewer than eight bits are free or the input
     /// ends.
     inline fn refill(input: *Input) void {
         const left = input.encoded.len - input.position;
@@ -265,14 +265,14 @@ noinline fn read_long_code(start: Input) DecodeError!LongRead {
     return .{ .input = input, .symbol = null };
 }
 
-/// The last eight octets of `encoded`, moved up so that its `left` unread octets are at the top.
+/// The last eight bytes of `encoded`, moved up so that its `left` unread bytes are at the top.
 fn last_word(encoded: []const u8, left: usize) Bits {
     assert(left > 0 and left < refill_octets and encoded.len >= refill_octets);
     const word = std.mem.readInt(Bits, encoded[encoded.len - refill_octets ..][0..refill_octets], .big);
     return word << @as(Shift, @truncate((refill_octets - left) * @bitSizeOf(u8)));
 }
 
-/// The octets of `rest`, fewer than eight, at the top of a word.
+/// The bytes of `rest`, fewer than eight, at the top of a word.
 fn short_word(rest: []const u8) Bits {
     assert(rest.len < refill_octets);
     var word: Bits = 0;

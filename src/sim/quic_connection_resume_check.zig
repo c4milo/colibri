@@ -14,7 +14,7 @@ const Census = check.Census;
 const Storage = check.Storage;
 
 /// The saved set's window for each controller, and the round trip of `light_loss`'s one delay each
-/// way, saved at the run's start. Under CUBIC and NewReno the window is 120,000 octets: its jump of
+/// way, saved at the run's start. Under CUBIC and NewReno the window is 120,000 bytes: its jump of
 /// 60,000 passes the window slow start has reached once the initial window is acknowledged, about
 /// 35,000, or §3.3 leaves nothing to jump. Under BBRv3 it is 60,000: Appendix C's window is twice the
 /// probing rate's BDP, and both fit the network's `network_in_flight_max` slots with the

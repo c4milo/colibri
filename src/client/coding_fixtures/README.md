@@ -19,12 +19,12 @@ brotli -q 5 --large_window=25 -c plain.txt > large_window.br
 
 | File | What it is | What the client does with it |
 |---|---|---|
-| `plain.txt` | 160 numbered lines, 7,840 octets | The content every other file codes |
+| `plain.txt` | 160 numbered lines, 7,840 bytes | The content every other file codes |
 | `plain.zst` | One Zstandard frame with its XXH64 check (RFC 8878 §3.1.1) | Decodes it |
-| `two_frames.zst` | Two frames, the text's first 3,000 octets and the rest (§3.1) | Decodes both, one after the other |
-| `skippable.zst` | A skippable frame of five octets, then `plain.zst` (§3.1.2) | Skips the first, decodes the second |
+| `two_frames.zst` | Two frames, the text's first 3,000 bytes and the rest (§3.1) | Decodes both, one after the other |
+| `skippable.zst` | A skippable frame of five bytes, then `plain.zst` (§3.1.2) | Skips the first, decodes the second |
 | `window_16mb.zst` | A frame whose Window_Size is 16 MiB, since `zstd` read an input of no known size | Refuses it: RFC 9659 §3 holds the `zstd` coding to 8 MB |
-| `plain.br` | A brotli stream with WBITS 24, a window of 16 MiB less 16 octets (RFC 7932 §9.1) | Decodes it |
+| `plain.br` | A brotli stream with WBITS 24, a window of 16 MiB less 16 bytes (RFC 7932 §9.1) | Decodes it |
 | `large_window.br` | A stream `brotli --large_window` wrote, whose first seven bits are the pattern RFC 7932 §9.1 calls invalid | Refuses it |
 
 | SHA-256 | File |

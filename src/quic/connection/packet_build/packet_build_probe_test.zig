@@ -122,7 +122,7 @@ fn record(built: packet_build.Built, sent_at_ns: u64) !void {
 }
 
 /// Fires the connection's Probe Timeout, which decision 64 answers by declaring the level's
-/// packets in flight lost, so the probes carry their CRYPTO octets.
+/// packets in flight lost, so the probes carry their CRYPTO bytes.
 fn fire_probe_timeout() !void {
     const at_ns = connection_recovery.loss_deadline_ns(&fixture.test_connection).?;
     try testing.expect(try connection_recovery.on_loss_timer(&fixture.test_connection, at_ns, &recovery_scratch));
@@ -158,7 +158,7 @@ test "decision 64 as amended: a flight longer than one probe sends its next octe
     const first = (try fixture.build_at(.handshake)).?;
     try testing.expectEqual(0, first.data_offset);
     // RFC 9002 §6.2.4: "An endpoint SHOULD include new data in packets that are sent on PTO
-    // expiration", and octets still waiting come before a repeat.
+    // expiration", and bytes still waiting come before a repeat.
     const second = (try fixture.build_at(.handshake)).?;
     try testing.expectEqual(first.data_len, second.data_offset);
 }
@@ -174,7 +174,7 @@ test "decision 64 as amended: a lone probe carries its level's octets once" {
     try testing.expectEqual(1, fixture.test_connection.probes_owed[handshake_at]);
     const probe = (try fixture.build_at(.handshake)).?;
     try testing.expectEqual(Carries.crypto, probe.carries);
-    // With no probe owed at that level, its octets are not sent a second time.
+    // With no probe owed at that level, its bytes are not sent a second time.
     try testing.expectEqual(null, try fixture.build_at(.handshake));
 }
 

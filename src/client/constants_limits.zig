@@ -23,23 +23,23 @@ pub const pool_tcp_connections_max: u16 = 64;
 /// at most this, and it bounds each loop over a pool's table of exchanges.
 pub const pool_requests_max: u16 = 1024;
 
-/// Octets of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
+/// Bytes of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
 /// §4.1, §4.2).
 pub const frame_len_max: usize = h2.constants.protocol.frame_header_len + h2.constants.limits.frame_size_max;
 
-/// Octets of the protocol's stream that records opened and `receive` has not read: the longest
+/// Bytes of the protocol's stream that records opened and `receive` has not read: the longest
 /// unit that is not whole yet, and room to open one more record after it. So the next record always
-/// opens while a unit waits for its last octets, as the owner ruled on 2026-10-17. A provider opens
+/// opens while a unit waits for its last bytes, as the owner ruled on 2026-10-17. A provider opens
 /// a record into room for all that follows its header, and not only for its plaintext. RFC 9846
 /// §5.2 bounds that room by `record_ciphertext_len_max`.
 pub const plaintext_in_len: usize = partial_unit_len_max + tls_provider.constants.protocol.record_ciphertext_len_max;
 
-/// The most octets of a unit that is not whole yet: an h11 head or an h2 frame, whichever is
-/// longer, one octet short of its limit. h11 reads a head again from its first octet until the head
+/// The most bytes of a unit that is not whole yet: an h11 head or an h2 frame, whichever is
+/// longer, one byte short of its limit. h11 reads a head again from its first byte until the head
 /// ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1).
 const partial_unit_len_max: usize = @max(h11.constants.limits.response_head_len_max, frame_len_max) - 1;
 
-/// Octets of the most the client's TLS handshake writes in one call: its largest ClientHello
+/// Bytes of the most the client's TLS handshake writes in one call: its largest ClientHello
 /// record, which a HelloRetryRequest may ask for again, then the alert a refused flight owes.
 pub const flight_len_max: usize = tls.record.Client.handshake_output_len_min + tls.record.alert_record_len;
 
@@ -47,7 +47,7 @@ pub const flight_len_max: usize = tls.record.Client.handshake_output_len_min + t
 /// after a HelloRetryRequest (RFC 9846 §4.2.4), and the Finished flight or an alert.
 pub const flights_max: usize = 3;
 
-/// Octets a connection writes before `send` takes them: a request's field block cut into frames
+/// Bytes a connection writes before `send` takes them: a request's field block cut into frames
 /// and a DATA frame after it, or the TLS flight, whichever is larger.
 pub const output_len: usize = @max(h2.constants.limits.send_block_len_max + frame_len_max, flight_len_max);
 
@@ -68,22 +68,22 @@ pub const added_fields_max: usize = 5;
 /// Field lines a request may carry, the ones the client adds included.
 pub const request_fields_max: usize = core.constants.limits.field_count_max;
 
-/// Octets of the decimal Content-Length the client writes: enough for any `usize`.
+/// Bytes of the decimal Content-Length the client writes: enough for any `usize`.
 pub const content_length_digits_max: usize = 20;
 
-/// Octets of a request stream's frames the QUIC client keeps until the stream closes (decision
+/// Bytes of a request stream's frames the QUIC client keeps until the stream closes (decision
 /// 79): the HEADERS frame, the longest field section h3 encodes behind a frame header, then the
 /// DATA frame's header. The request's content follows them from the caller's memory.
 pub const request_prefix_len_max: usize = h3.constants.limits.scratch_len + h3.constants.protocol.frame_header_len_max;
 
-/// Octets of the transport parameters the QUIC client sends, encoded (RFC 9000 §18): every
+/// Bytes of the transport parameters the QUIC client sends, encoded (RFC 9000 §18): every
 /// parameter RFC 9000 §18.2 defines fits.
 pub const transport_parameters_len_max: usize = 1024;
 
-/// Octets of content h3 copies out of the receive pool in one event (decision 80).
+/// Bytes of content h3 copies out of the receive pool in one event (decision 80).
 pub const quic_read_len: usize = 16_384;
 
-/// Events one read of h3 reports at most: one for each octet the receive pool holds, and a few
+/// Events one read of h3 reports at most: one for each byte the receive pool holds, and a few
 /// that consume none, such as a stream's end, for each exchange and for the connection.
 pub const h3_events_per_read_max: usize = quic.constants.limits.receive_pool_len_default + requests_max * h3_events_per_exchange_max + 1;
 const h3_events_per_exchange_max: usize = 4;
@@ -94,9 +94,9 @@ const h3_events_per_exchange_max: usize = 4;
 /// close is the caller's to judge.
 pub const moves_max: u8 = 1;
 
-/// Octets of content an h11 connection reads and drops of a response the caller no longer reads
+/// Bytes of content an h11 connection reads and drops of a response the caller no longer reads
 /// (decision 146): Go 1.27's bound. When more is left, the connection fails instead, since a new
-/// connection costs less than the octets left.
+/// connection costs less than the bytes left.
 pub const drop_len_max: u64 = 256 * 1024;
 
 /// Events the pool reads from its connections in one call at most: each connection's version,
@@ -105,50 +105,50 @@ pub const pool_events_per_poll_max: usize = transports_count * (requests_max + c
 const transports_count: usize = 2;
 const connection_events_max: usize = 4;
 
-/// Octets of the largest TLS record: its header and the most ciphertext RFC 9846 §5.2 lets a record
+/// Bytes of the largest TLS record: its header and the most ciphertext RFC 9846 §5.2 lets a record
 /// carry. A peer may send one, and a provider may write one.
 const record_len_max: usize = tls_provider.constants.protocol.record_header_len + tls_provider.constants.protocol.record_ciphertext_len_max;
 
-/// Octets a program holds of what the TCP socket read, from the first octet `receive` did not take
-/// (decision 124). With this many, the octets hold a whole unit, and `receive` takes some of them
+/// Bytes a program holds of what the TCP socket read, from the first byte `receive` did not take
+/// (decision 124). With this many, the bytes hold a whole unit, and `receive` takes some of them
 /// while `send_stream` has written what the connection owes.
 /// Each protocol takes some units whole, and this is the largest of them:
-/// - h11 reads a head again from its first octet until the head ends (RFC 9112 §2.1), so it needs
-///   the whole head, at most `h11.constants.limits.response_head_len_max` octets. A trailer section and a
+/// - h11 reads a head again from its first byte until the head ends (RFC 9112 §2.1), so it needs
+///   the whole head, at most `h11.constants.limits.response_head_len_max` bytes. A trailer section and a
 ///   chunk-size line are shorter.
-/// - h2 takes whole frames (RFC 9113 §4.1), at most `frame_len_max` octets with the frame size
+/// - h2 takes whole frames (RFC 9113 §4.1), at most `frame_len_max` bytes with the frame size
 ///   colibri advertises (RFC 9113 §4.2).
-/// - Over TLS, the connection opens whole records, at most `record_len_max` octets each (RFC 9846
+/// - Over TLS, the connection opens whole records, at most `record_len_max` bytes each (RFC 9846
 ///   §5.2). It holds an h11 head or an h2 frame that is not whole yet beside room for one more
 ///   record (`plaintext_in_len`), so a whole record always opens.
 pub const stream_input_len_min: usize = @max(h11.constants.limits.response_head_len_max, @max(frame_len_max, record_len_max));
 
 /// The least `output` with which `send_stream` writes some of what the TCP connection owes, when
-/// it owes octets (decision 124). In cleartext, one octet is enough: `send_stream` copies any part
+/// it owes bytes (decision 124). In cleartext, one byte is enough: `send_stream` copies any part
 /// of what h11 and h2 wrote. Over TLS, a provider writes whole records: the records that hold the
-/// protocol's octets, an alert, and the answer to a KeyUpdate. A provider never refuses an output of
-/// `tls_provider.constants.protocol.record_write_len_min` octets, which holds the largest record (RFC 9846
+/// protocol's bytes, an alert, and the answer to a KeyUpdate. A provider never refuses an output of
+/// `tls_provider.constants.protocol.record_write_len_min` bytes, which holds the largest record (RFC 9846
 /// §5.2). It may refuse a shorter output. chapulin seals a shorter record into a shorter output,
 /// but the client keeps to what every provider promises.
 pub const stream_output_len_min: usize = record_len_max;
 
-/// The events of one transport in a run of `receive` calls that take no octet, at most: its `open`
+/// The events of one transport in a run of `receive` calls that take no byte, at most: its `open`
 /// and its `close`, its connection's `connected` and `ticket`, and over TCP one `send`, which
 /// waits for the program's `send_stream`. A connection's `draining` and `closed` go to the pool
 /// alone. `ConnectionPool.receive_events_without_input_max` counts it for each transport (decision 124 as
 /// amended by decision 125).
 pub const transport_events_max: usize = 5;
 
-/// The events of one exchange in a run of `receive` calls that take no octet, at most: a streamed
+/// The events of one exchange in a run of `receive` calls that take no byte, at most: a streamed
 /// exchange's `headers`, `body` and `body_taken`, and its `finished` (decision 153 ruling 7).
 /// `ConnectionPool.receive_events_without_input_max` counts it for each exchange. A call of the
 /// program ends the run: after a `release_body`, over TLS and h3, the next piece may come with no
-/// octet, and a new run starts.
+/// byte, and a new run starts.
 pub const exchange_events_max: usize = 4;
 
 comptime {
-    // A unit that waits for its last octets never stops the next record from opening: an h11 head
-    // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
+    // A unit that waits for its last bytes never stops the next record from opening: an h11 head
+    // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one byte short of its limit, then room
     // for the most that follows a record's header (RFC 9846 §5.2).
     assert(plaintext_in_len >= h11.constants.limits.response_head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
     assert(plaintext_in_len >= frame_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);

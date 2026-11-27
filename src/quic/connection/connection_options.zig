@@ -35,7 +35,7 @@ pub const Options = struct {
     /// §5.1 wants them unpredictable and invariant 5 forbids colibri a random number, so a
     /// client's are the caller's and a server's come off the first Initial it accepted.
     identity: identity_module.Options,
-    /// RFC 9000 §21.4: one value the caller drew from its source, whose eight octets space out
+    /// RFC 9000 §21.4: one value the caller drew from its source, whose eight bytes space out
     /// the 1-RTT packet numbers the connection skips to catch a peer that acknowledges what it
     /// never received (invariant 5), or null to skip none.
     packet_number_skips: ?u64 = null,
@@ -51,7 +51,7 @@ pub const Options = struct {
     resumed_from: ?recovery_resume.ResumeState = null,
     /// RFC 9959 §5's bounds on a resumed connection: max_jump and the Lifetime.
     resume_bounds: recovery_resume.ResumeBounds = .{},
-    /// The pool the peer's stream octets wait in until the application reads them, which the
+    /// The pool the peer's stream bytes wait in until the application reads them, which the
     /// caller places (decision 61). Its capacity caps every receive window. A connection given
     /// none reads no stream: it checks STREAM frames and keeps nothing.
     receive: ?stream_incoming.Storage = null,

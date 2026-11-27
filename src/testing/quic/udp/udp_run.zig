@@ -6,7 +6,7 @@
 //! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
 //! connection its Destination Connection ID names (RFC 9000 §5.2), in Rotor's own buffer, which
 //! the suite opens in place. Then every live connection fires its deadlines, lets hq-interop read
-//! and answer, and sends what colibri owes. A sent datagram's octets belong to Rotor until its
+//! and answer, and sends what colibri owes. A sent datagram's bytes belong to Rotor until its
 //! send's event (Rotor's rule 3), so each is built in a slot of its own, and a datagram Rotor has
 //! no room for is one lost on the way, which RFC 9002 recovers.
 //!

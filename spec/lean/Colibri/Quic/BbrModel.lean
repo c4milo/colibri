@@ -10,7 +10,7 @@ definitions follow the Zig; the theorems are about them:
 - `updateRound_count`: the round count never falls, and rises by at most 1 on each ACK frame.
 - `updateMinRtt_le_probe`: BBR.min_rtt is never above BBR.probe_rtt_min_delay (§5.3.4.3).
 - `updateMinRtt_lower`: a sample below both estimates replaces both.
-- `updateAggregation_le_window` and `updateAggregation_reset`: the extra octets are never more
+- `updateAggregation_le_window` and `updateAggregation_reset`: the extra bytes are never more
   than the window, and after the interval starts again they are the frame's own (§5.5.9).
 
 The Zig adds with saturation, near 2^64, which no connection reaches; these definitions add
@@ -157,7 +157,7 @@ theorem updateMinRtt_lower (state : MinRtt) (sample now : Nat) (hprobe : sample 
       unfold updateMinRtt settle; split <;> simp [hp]
     omega
 
-/-- §5.5.9's `expected_delivered`: the octets `bw` octets a second deliver in `interval`. -/
+/-- §5.5.9's `expected_delivered`: the bytes `bw` bytes a second deliver in `interval`. -/
 def expectedDelivered (bw interval : Nat) : Nat :=
   min (bw * interval / nanosecondsPerSecond) u64Max
 
@@ -167,7 +167,7 @@ structure Aggregation where
   start : Nat
   deriving Repr, DecidableEq
 
-/-- §5.5.9's `UpdateACKAggregation` up to the filter: the new state and the extra octets. -/
+/-- §5.5.9's `UpdateACKAggregation` up to the filter: the new state and the extra bytes. -/
 def updateAggregation (state : Aggregation) (acknowledged now bw window : Nat) : Aggregation × Nat :=
   if state.delivered ≤ expectedDelivered bw (now - state.start) then
     (⟨acknowledged, now⟩, min acknowledged window)

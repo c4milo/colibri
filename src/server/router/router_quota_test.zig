@@ -2,14 +2,14 @@
 //! design §8 step 21e). `zig build router-hidden-check` compiles it from
 //! `../router_quota_check.zig`, in a test binary of its own.
 //!
-//! The check sets its quota from the octets that one walk reads (`router_hidden.zig`). A walk
+//! The check sets its quota from the bytes that one walk reads (`router_hidden.zig`). A walk
 //! reads the segment of each pass, so the quota counts the longest segment of the layout, and
 //! the check reads that length from the layout's edges. This table holds one segment of
-//! `long_segment_len` octets, and many walks read it at each node before it. The test proves
+//! `long_segment_len` bytes, and many walks read it at each node before it. The test proves
 //! that the quota covers those reads: the table compiles.
 //!
 //! The mutation "segment_len_max = other.len" in `view_refusal` reads no edge. The quota then
-//! counts only the octets of "other", and the compile fails with "evaluation exceeded ...
+//! counts only the bytes of "other", and the compile fails with "evaluation exceeded ...
 //! backwards branches". No smaller table of this kind catches it (design §8 step 21e).
 //!
 //! The compile takes about a minute on an M1 Pro at a load average of 5, and about three
@@ -26,7 +26,7 @@
 //!     it.
 //!
 //! An earlier experiment wrote this table out as a literal list with a script: 8 levels, a
-//! segment X of 8150 octets, and 7 parameters at most under "/b". The loops below build the same
+//! segment X of 8150 bytes, and 7 parameters at most under "/b". The loops below build the same
 //! table, in the same order.
 const std = @import("std");
 const router = @import("router_table.zig").table_of;
@@ -44,8 +44,8 @@ const levels = 8;
 /// set.
 const branch_routes = (1 << levels) - 1;
 
-/// The octets of the long segment X. Each pattern through it holds `constants.limits.path_len_max`
-/// octets at most, so a path can match it.
+/// The bytes of the long segment X. Each pattern through it holds `constants.limits.path_len_max`
+/// bytes at most, so a path can match it.
 const long_segment_len = 8150;
 
 /// The routes through X: one ends in a parameter, and one in the wildcard.

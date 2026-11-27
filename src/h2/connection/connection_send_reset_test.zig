@@ -14,7 +14,7 @@ const test_connection = &support.test_connection;
 const test_input = &support.test_input;
 const test_output = &support.test_output;
 
-/// Octets of one RST_STREAM frame: a header and an error code (RFC 9113 §6.4). Test-only.
+/// Bytes of one RST_STREAM frame: a header and an error code (RFC 9113 §6.4). Test-only.
 const rst_stream_frame_len = constants.protocol.frame_header_len + constants.protocol.rst_stream_len;
 
 /// A request with every pseudo-header field RFC 9113 §8.3.1 requires. Test-only.

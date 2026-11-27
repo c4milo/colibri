@@ -103,7 +103,7 @@ fn expect_custom_response(id: u64) !void {
 
 test "RFC 9204 §2.1.3: the encoder inserts nothing the encoder stream's credit cannot carry" {
     try harness.pair(table_client, .{ .role = .server });
-    // The client's MAX_STREAM_DATA leaves no room past the octets already supplied.
+    // The client's MAX_STREAM_DATA leaves no room past the bytes already supplied.
     const stream = server.transport.streams.lookup(.{ .value = server.h3.local.encoder_id.? }).live;
     stream.send_flow.limit = stream.send_flow.used + stream.outgoing.unframed_len();
     const id = try request_and_respond();
@@ -180,7 +180,7 @@ test "decision 78: h3's encoder stream drops what the peer acknowledged when roo
     try harness.transfer(server, client);
     const framed = local.encoder.end_offset();
     try testing.expectEqual(0, local.encoder.start_offset);
-    // No packet carried the octets here, so `quic` counts every framed one acknowledged.
+    // No packet carried the bytes here, so `quic` counts every framed one acknowledged.
     const room = try connection_local.encoder_room(&server.h3, &server.transport);
     try testing.expectEqual(framed, local.encoder.start_offset);
     try testing.expectEqual(constants.limits.encoder_buffer_len, room.remaining_len());

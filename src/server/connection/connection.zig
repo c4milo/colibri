@@ -1,5 +1,5 @@
-//! One connection of the server over TCP (decision 100, design §8 step 17a). The octets the caller
-//! read go in through `receive`, which returns at most one event a call, and the octets the
+//! One connection of the server over TCP (decision 100, design §8 step 17a). The bytes the caller
+//! read go in through `receive`, which returns at most one event a call, and the bytes the
 //! connection owes the peer come out through `send`. The caller answers a request by its id with
 //! `respond`, `write_body` and `write_trailers`, in h11 and h2 alike.
 //!
@@ -8,7 +8,7 @@
 //! selection while `Config.versions` allows h11 (decision 88); with h11 off, no selection is
 //! refused (RFC 9113 §3.3, decision 117). In cleartext, the connection speaks the version `Config.versions`
 //! allows. When it allows both h11 and h2, the connection preface chooses h2 and any other first
-//! octets h11 (RFC 9113 §3.3, `connection_cleartext.zig`).
+//! bytes h11 (RFC 9113 §3.3, `connection_cleartext.zig`).
 //!
 //! What the connection writes waits in `output` until `send` takes it, sealed into records over
 //! TLS. A call that finds no room fails with `error.NoSpaceLeft`, or `write_body` with
@@ -16,8 +16,8 @@
 //! lowercase, as h2 sends them (RFC 9113 §8.2), and h11 sends them as given.
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, keeping the
-//! octets an event points into until the next call. After each `send` it loops over `receive`
-//! again, even with no new octets: while the output was full, h2 read no frame past the replies it
+//! bytes an event points into until the next call. After each `send` it loops over `receive`
+//! again, even with no new bytes: while the output was full, h2 read no frame past the replies it
 //! owed (RFC 9113 §6.5.3), and those frames are read then. It closes the transport once
 //! `should_close` says so, after `send` has written everything. The caller owns the struct and
 //! colibri allocates nothing (decision 35).
@@ -25,8 +25,8 @@
 //! Decision 110's deadlines bound how long a peer holds the connection: `deadline_ns` names the
 //! soonest instant one passes, and the caller wakes then and calls `on_instant`. `receive` and
 //! `send` end the connection first when their instant is past a deadline. A deadline counts only
-//! what colibri has seen, so the caller hands `receive` every octet its socket holds and calls
-//! `send` whenever its socket takes octets, before it calls `on_instant`. `close_reason` names the
+//! what colibri has seen, so the caller hands `receive` every byte its socket holds and calls
+//! `send` whenever its socket takes bytes, before it calls `on_instant`. `close_reason` names the
 //! deadline that ended the connection, or the limit its peer passed, and `set_timeouts` changes
 //! one connection's limits.
 const std = @import("std");
@@ -85,7 +85,7 @@ const continue_status: u16 = @intFromEnum(http.Status.@"continue");
 const Phase = enum {
     /// The TLS handshake has not completed.
     handshake,
-    /// In cleartext, the first octets have not chosen between h11 and h2 (RFC 9113 §3.3).
+    /// In cleartext, the first bytes have not chosen between h11 and h2 (RFC 9113 §3.3).
     choosing,
     /// The protocol is serving the connection.
     open,
@@ -95,7 +95,7 @@ const Phase = enum {
 
 pub const Session = union(enum) {
     /// No protocol serves the connection: its TLS handshake has not completed or failed, or in
-    /// cleartext its first octets have not chosen one.
+    /// cleartext its first bytes have not chosen one.
     none,
     h11: h11.Connection,
     h2: h2.Connection,
@@ -104,7 +104,7 @@ pub const Session = union(enum) {
 pub const Connection = struct {
     config: *const Config,
     phase: Phase,
-    /// The protocol serving the connection: in cleartext from the start or once the first octets
+    /// The protocol serving the connection: in cleartext from the start or once the first bytes
     /// chose it, and over TLS once the handshake completes.
     session: Session,
     /// The lines of the field section of the last request or trailers event. The event's
@@ -112,21 +112,21 @@ pub const Connection = struct {
     header_lines: http.FieldSection.Slice = .{ .octets = &.{}, .lines = &.{} },
     /// The readers at which each request event points `body` (decision 163 ruling 4).
     body_readers: event.BodyReaders = .{},
-    /// Over TLS, the session and the opened octets the engine took from the program's buffer
+    /// Over TLS, the session and the opened bytes the engine took from the program's buffer
     /// (decision 167). Null in cleartext, so a cleartext slot holds no TLS state.
     tls_session: ?*TlsSession,
     plain_in_len: usize,
     plain_in_read: usize,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
-    /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
+    /// `records_len` bytes of them, then the protocol's bytes, which `send` seals over TLS.
     output: [constants.limits.output_len]u8,
     output_len: usize,
     records_len: usize,
-    /// The octets the last `output_stream` lent the socket, which stay in place until its
+    /// The bytes the last `output_stream` lent the socket, which stay in place until its
     /// `sent_stream` (decision 176): the first ones of `output` in cleartext, and of the TLS
     /// session's `sealed` over TLS. 0 while the socket holds none.
     lent_len: usize,
-    /// h2: the octets at the front of `output` that go out before the last WINDOW_UPDATE written
+    /// h2: the bytes at the front of `output` that go out before the last WINDOW_UPDATE written
     /// into it has gone. While any remain, a body's rate deadline waits (decision 110 as amended).
     update_held_len: usize,
     /// The peer's `close_notify` ended its data (RFC 9846 §6.1).
@@ -134,7 +134,7 @@ pub const Connection = struct {
     /// This side's `close_notify` is sealed.
     close_sent: bool,
     /// The connection failed, or the caller stopped it, so it reads nothing and finishes once its
-    /// last octets are out.
+    /// last bytes are out.
     stopped: bool,
     /// The caller asked the connection to end once its requests are answered.
     shutting_down: bool,
@@ -149,9 +149,9 @@ pub const Connection = struct {
     chunked_allowed: bool,
     /// h11: the request being answered is a HEAD (RFC 9110 §9.3.2).
     head_request: bool,
-    /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
+    /// h11: the bytes of the last call's input that h11 did not consume, such as half a head or
     /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
-    /// call with no octets, as the engine makes to poll a slot, reads nothing from h11 while any
+    /// call with no bytes, as the engine makes to poll a slot, reads nothing from h11 while any
     /// remain, not even the end of a body it owes.
     unread_len: usize,
     /// The responses made whole whose `done` event `receive` has not reported (decision 103).
@@ -214,8 +214,8 @@ pub const Connection = struct {
         connection.advert.init(config.tls != null, config.h3_alternative);
         connection.coding.init();
         // This stores the tag alone. Zig 0.16 stores `.none`, written as a constant, over every
-        // octet of the union, which is as large as `h2.Connection`: a zero fill of all of it for
-        // each connection accepted. `.none` has no payload, and no code reads a union's octets
+        // byte of the union, which is as large as `h2.Connection`: a zero fill of all of it for
+        // each connection accepted. `.none` has no payload, and no code reads a union's bytes
         // under another tag.
         connection.session = .{ .none = undefined };
         if (config.tls) |tls_config| {
@@ -229,7 +229,7 @@ pub const Connection = struct {
         assert(connection.output_len == 0 and connection.plain_in_len == 0);
     }
 
-    /// Reads at most one event from `input`, the octets the transport read. Over TLS it runs the
+    /// Reads at most one event from `input`, the bytes the transport read. Over TLS it runs the
     /// handshake first, and `input` is records, which chapulin may open in place. A deadline that
     /// has passed at `now_ns` ends the connection first (decision 110).
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
@@ -240,7 +240,7 @@ pub const Connection = struct {
         var failed = false;
         defer if (!failed) connection_deadline.observe(connection, now_ns);
         errdefer failed = true;
-        // Design §8 step 56: a call with no octets reads the protocol only where an event can
+        // Design §8 step 56: a call with no bytes reads the protocol only where an event can
         // wait.
         if (input.len == 0 and !connection_owed.reads_with_no_input(connection)) return .{ .consumed = 0, .event = null };
         return connection.receive_event(input, now_ns);
@@ -283,9 +283,9 @@ pub const Connection = struct {
 
     /// Writes content of the response to request `id`, as much of `content.octets` as the room
     /// and h2's windows allow, or for a coded response as much as its encoder's ring takes, and
-    /// returns the octets taken. With `end`, the content ends once every octet is taken; a call
+    /// returns the bytes taken. With `end`, the content ends once every byte is taken; a call
     /// that takes fewer leaves the rest, and the end, to the next call. A coded response's last
-    /// octets go out in `send`.
+    /// bytes go out in `send`.
     pub fn write_body(connection: *Connection, id: Number, content: event.ResponseBody) SendError!usize {
         try connection.check_writable();
         if (content.bytes.len == 0 and !content.end) return 0;
@@ -293,7 +293,7 @@ pub const Connection = struct {
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). A coded
-    /// response's trailer section waits, with `error.Blocked`, until its coded octets are written.
+    /// response's trailer section waits, with `error.Blocked`, until its coded bytes are written.
     pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
         try connection.check_writable();
         return connection_coding.write_trailers(connection, id, fields);
@@ -332,7 +332,7 @@ pub const Connection = struct {
     }
 
     /// Writes what the connection owes the peer into `output`, sealed over TLS, and returns the
-    /// octets written. What does not fit waits for the next call. A deadline that has passed at
+    /// bytes written. What does not fit waits for the next call. A deadline that has passed at
     /// `now_ns` ends the connection first (decision 110).
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
         _ = connection_deadline.fire(connection, now_ns);
@@ -403,7 +403,7 @@ pub const Connection = struct {
     }
 
     /// The protocol serving the connection, or null while the TLS handshake runs or after it failed,
-    /// and in cleartext until the first octets choose it.
+    /// and in cleartext until the first bytes choose it.
     pub fn protocol(connection: *const Connection) ?Protocol {
         return switch (connection.session) {
             .none => null,

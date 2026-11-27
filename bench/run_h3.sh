@@ -30,7 +30,7 @@ else
   h3_shell+=("$h3load_image" sh -c)
 fi
 readonly h3_shell
-# What an h3 input asks for: a file of the eight octets colibri's h2 server answers with, which
+# What an h3 input asks for: a file of the eight bytes colibri's h2 server answers with, which
 # each server reads from its directory. The servers of design §11.3 that colibri's is measured
 # against over h3 answer from files alone, so colibri's does the same work.
 readonly h3_file=colibri.txt

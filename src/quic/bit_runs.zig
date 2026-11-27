@@ -1,9 +1,9 @@
-//! Word-at-a-time scans of a `std.StaticBitSet` that marks which octets of a buffer arrived: the
-//! CRYPTO window (`crypto_stream.zig`) and each block of a stream's unread octets
+//! Word-at-a-time scans of a `std.StaticBitSet` that marks which bytes of a buffer arrived: the
+//! CRYPTO window (`crypto_stream.zig`) and each block of a stream's unread bytes
 //! (`stream/stream_incoming.zig`).
 //!
 //! `std.StaticBitSet.isSet` takes the set by value. In a loop over a set of 4,096 bits it copied
-//! 512 octets for each octet it tested, which was 19% of the server's CPU on the judge's h3-one
+//! 512 bytes for each byte it tested, which was 19% of the server's CPU on the judge's h3-one
 //! input (design §8 step 13h). These functions take the set by pointer and read 64 bits at a time.
 const std = @import("std");
 const assert = std.debug.assert;

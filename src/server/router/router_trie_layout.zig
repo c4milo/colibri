@@ -2,7 +2,7 @@
 //! `build` writes the trie of `router_trie.trie_of` into them, at compile time.
 //!
 //! Each node holds a run of edges, one for each literal segment after it, sorted by length and
-//! then by octets. A node holds one parameter child at most, with the parameter's name, and one
+//! then by bytes. A node holds one parameter child at most, with the parameter's name, and one
 //! wildcard child at most. A node where a pattern ends holds a leaf. A leaf holds a run of entries
 //! and its Allow value. The table's set of methods holds each method token of the table once. The
 //! arrays index one array of text, which holds every literal, every parameter name and every Allow
@@ -74,7 +74,7 @@ pub fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
     return sizes;
 }
 
-/// Counts the parameter names of `pattern`, the wildcard's included, and their octets.
+/// Counts the parameter names of `pattern`, the wildcard's included, and their bytes.
 fn count_names(pattern: []const u8, sizes: *Sizes) void {
     var segments = std.mem.splitScalar(u8, pattern[1..], router_pattern.separator);
     while (segments.next()) |segment| {
@@ -106,7 +106,7 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     return struct {
         nodes: [sizes.nodes]Node,
         edges: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]Edge,
-        /// The last octets of each edge's segment as `tail_of` gives them, in the order of
+        /// The last bytes of each edge's segment as `tail_of` gives them, in the order of
         /// `edges`. They sit apart from `edges`, so a step of the search over short segments
         /// reads what it read before.
         tails: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]u64,
@@ -127,7 +127,7 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
         /// and its leaf, an index of `leaves`.
         pub const Node = struct { edges_first: Index, edges_count: Index, parameter: ?Parameter, wildcard: ?Index, leaf: ?Index };
         /// A literal segment, and the node after it.
-        /// A literal edge: its segment, its first octets as `head_of` gives them, and its child.
+        /// A literal edge: its segment, its first bytes as `head_of` gives them, and its child.
         pub const Edge = struct { segment: Range, head: u64, child: Index };
         /// A parameter's name, and the node after it.
         pub const Parameter = struct { name: Range, child: Index };
@@ -181,7 +181,7 @@ pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime
     unreachable;
 }
 
-/// Whether an Allow value of `allow_len` octets is too long. Both loops of `allow_refusal` call
+/// Whether an Allow value of `allow_len` bytes is too long. Both loops of `allow_refusal` call
 /// it, so the two loops compare with one rule.
 fn allow_too_long(allow_len: usize) bool {
     // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the engine
@@ -265,34 +265,34 @@ fn add_wildcard(builder: anytype, trie: anytype, node: usize, child: usize) void
     builder.layout.nodes[node].wildcard = @intCast(child);
 }
 
-/// Orders two nodes by their segments: the shorter first, then by octets. A lookup then compares
-/// lengths first. The order reads octets, never a pointer (non-negotiable 5).
-/// The octets of a segment that `head_of` reads.
+/// Orders two nodes by their segments: the shorter first, then by bytes. A lookup then compares
+/// lengths first. The order reads bytes, never a pointer (non-negotiable 5).
+/// The bytes of a segment that `head_of` reads.
 pub const head_len = @sizeOf(u64);
 
-/// The first `head_len` octets of `segment` as one integer, the first octet highest, and 0 for
-/// each octet past its end. Two segments of one length order as their heads order, and then as
-/// their octets past `head_len` order (`segment_less`), so `router_match.literal_child` compares
-/// one integer where it compared octets.
+/// The first `head_len` bytes of `segment` as one integer, the first byte highest, and 0 for
+/// each byte past its end. Two segments of one length order as their heads order, and then as
+/// their bytes past `head_len` order (`segment_less`), so `router_match.literal_child` compares
+/// one integer where it compared bytes.
 pub fn head_of(segment: []const u8) u64 {
     if (segment.len >= head_len) return std.mem.readInt(u64, segment[0..head_len], .big);
     if (segment.len == 0) return 0;
     var head: u64 = 0;
     for (segment) |octet| head = (head << @bitSizeOf(u8)) | octet;
-    // The octets past the end are 0, below the last one.
+    // The bytes past the end are 0, below the last one.
     return head << @intCast((head_len - segment.len) * @bitSizeOf(u8));
 }
 
-/// The last `head_len` octets of `segment` as one integer, the first octet highest. A segment of
-/// fewer octets gives `head_of`. `router_match.literal_child` compares a segment longer than
-/// `head_len` octets a word at a time, and this word is the last.
+/// The last `head_len` bytes of `segment` as one integer, the first byte highest. A segment of
+/// fewer bytes gives `head_of`. `router_match.literal_child` compares a segment longer than
+/// `head_len` bytes a word at a time, and this word is the last.
 pub fn tail_of(segment: []const u8) u64 {
     if (segment.len < head_len) return head_of(segment);
     return std.mem.readInt(u64, segment[segment.len - head_len ..][0..head_len], .big);
 }
 
 /// The order of the edges of a node, which `router_match.literal_child` searches in: the shorter
-/// first, then the lower `head_of`, then by the octets past `head_len`. The search compares in
+/// first, then the lower `head_of`, then by the bytes past `head_len`. The search compares in
 /// this one order, so the two agree whatever `head_of` maps a segment to.
 fn segment_less(trie: anytype, left: usize, right: usize) bool {
     const left_segment = trie.segment[left];
@@ -324,7 +324,7 @@ fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void 
     var held: [trie.route_node.len]usize = undefined;
     @memcpy(held[0..count], of_node);
     // RFC 9110 §10.2.1: Allow lists the methods of the target. The standard methods come in RFC
-    // 9110 §9.1's order and the tokens after them by octets, so the table's order changes nothing.
+    // 9110 §9.1's order and the tokens after them by bytes, so the table's order changes nothing.
     sort(held[0..count], routes, method_less);
     // RFC 9110 §9.1's order puts GET first, so HEAD follows the first token.
     const head = head_added(routes, trie, node);

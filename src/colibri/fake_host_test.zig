@@ -332,7 +332,7 @@ test "decision 153 ruling 9: a connect is cancelled at its deadline under a host
         now_ns = @min(turned.wait.at_ns, now_ns + host_wait_ns);
         turned = test_client.turn(now_ns, &operations);
     } else return error.NoCancel;
-    // The connect ends cancelled, so the exchange ends refused: no octet of the request left.
+    // The connect ends cancelled, so the exchange ends refused: no byte of the request left.
     test_client.complete(&.{ .id = connect.id, .result = .canceled }, now_ns);
     turned = test_client.turn(now_ns, &operations);
     try testing.expectEqual(1, handler.finished);

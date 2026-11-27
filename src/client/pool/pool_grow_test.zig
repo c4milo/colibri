@@ -2,7 +2,7 @@
 //! exchange that no open connection has room for, a waiting exchange goes to the connection that
 //! frees, a slot that fails is not opened again in the same wait, and no second connection opens
 //! beside an h2 one (RFC 9113 §9.1). `set_destination` gives the connections that open after it new
-//! addresses. The responses are octets the tests write themselves.
+//! addresses. The responses are bytes the tests write themselves.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const pool_module = @import("pool.zig");
@@ -35,7 +35,7 @@ var wire: [support.buffer_len]u8 = undefined;
 var starts: bool = true;
 
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -62,7 +62,7 @@ fn start(versions: protocols_module.Protocols) !void {
     starts = true;
 }
 
-/// Reports every event the pool owes with no octets, starts each connection an `open` asks for
+/// Reports every event the pool owes with no bytes, starts each connection an `open` asks for
 /// while `starts`, and keeps the events.
 fn collect() !void {
     // Bounded: each pass reports an event, and they are finite.
@@ -81,7 +81,7 @@ fn give(connection: ConnectionHandle, octets: []const u8) !void {
     var held: [support.buffer_len]u8 = undefined;
     @memcpy(held[0..octets.len], octets);
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports an event.
+    // Bounded: each pass consumes a byte or reports an event.
     for (0..octets.len + support.events_max) |_| {
         const rest = held[consumed..octets.len];
         const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = connection, .bytes = rest } } else .none;

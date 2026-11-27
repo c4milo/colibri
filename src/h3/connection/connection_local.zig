@@ -1,7 +1,7 @@
 //! colibri's own three streams: the control stream (RFC 9114 §6.2.1) and QPACK's encoder and
 //! decoder streams (RFC 9204 §4.2). Part of design §8 step 12.
 //!
-//! h3 writes these streams and keeps their octets until the peer acknowledges them (decision
+//! h3 writes these streams and keeps their bytes until the peer acknowledges them (decision
 //! 79), each in a `SendBuffer`. Before a write that may not fit, it drops what `quic` reports
 //! acknowledged (decision 78). Asking scans `quic`'s sent records, so it is asked only then.
 //!
@@ -29,7 +29,7 @@ const StreamId = quic.StreamId;
 const StreamProvider = quic.StreamProvider;
 const QuicConnection = quic.Connection;
 
-/// The octets one QPACK insert takes at most (decision 76), which is the room the encoder
+/// The bytes one QPACK insert takes at most (decision 76), which is the room the encoder
 /// stream's buffer is cleared for before a section is encoded.
 const insert_len_max: usize = qpack.constants.limits.dynamic_table_capacity_max / qpack.constants.policy.insert_size_divisor;
 
@@ -138,12 +138,12 @@ fn supply(connection: *Connection, transport: *QuicConnection, id: u64, end: u64
         // The peer's STOP_SENDING reset it, though §6.2.1 says "the receiver MUST NOT request
         // that the sender close the control stream", and RFC 9204 §4.2 says the same of QPACK's.
         error.NotWritable => return connection.fail(transport, constants.protocol.error_closed_critical_stream),
-        // A buffer never holds more than 2^62 octets over a connection's life.
+        // A buffer never holds more than 2^62 bytes over a connection's life.
         error.OffsetTooLarge, error.NotReadable => unreachable,
     };
 }
 
-/// Drops the octets the peer has acknowledged from `buffer` when fewer than `wanted` octets are
+/// Drops the bytes the peer has acknowledged from `buffer` when fewer than `wanted` bytes are
 /// free (decision 78).
 fn make_room(connection: *Connection, transport: *QuicConnection, buffer: anytype, id: u64, wanted: usize) Error!void {
     if (buffer.free().remaining_len() >= wanted) return;
@@ -219,7 +219,7 @@ pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connect
     try supply(connection, transport, id, local.control.end_offset());
 }
 
-/// Whether the peer acknowledged the GOAWAY: every octet the control stream holds, the frame
+/// Whether the peer acknowledged the GOAWAY: every byte the control stream holds, the frame
 /// among them. RFC 9114 §5.2 has a server send one so that the client learns which requests it
 /// did not take, which a close that overtakes the frame would leave unsaid.
 pub fn goaway_acknowledged(connection: *const Connection, transport: *QuicConnection) bool {

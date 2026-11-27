@@ -37,19 +37,19 @@ pub fn close_transport(connection: *Connection) void {
     if (connection.tls_session) |session| session.server.close();
 }
 
-/// Makes h2 the session's protocol and leaves its payload's octets as they are. ReleaseSafe fills
-/// a payload written as `undefined` with 0xAA, which for `h2.Connection` is 163,384 octets on
+/// Makes h2 the session's protocol and leaves its payload's bytes as they are. ReleaseSafe fills
+/// a payload written as `undefined` with 0xAA, which for `h2.Connection` is 163,384 bytes on
 /// every connection; runtime safety is off in this function alone, at the owner's ruling of
 /// 2026-10-13, so only the tag is stored. `h2.Connection.init` then writes every field a read
-/// reaches, which `connection_internal_test.zig` holds: an h2 connection sends the same octets
+/// reaches, which `connection_internal_test.zig` holds: an h2 connection sends the same bytes
 /// whatever its storage held before.
 fn make_h2_session(connection: *Connection) void {
     @setRuntimeSafety(false);
     connection.session = .{ .h2 = undefined };
 }
 
-/// Makes h11 the session's protocol and leaves its payload's octets as they are, as
-/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,056 octets of `h11.Connection`
+/// Makes h11 the session's protocol and leaves its payload's bytes as they are, as
+/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,056 bytes of `h11.Connection`
 /// with 0xAA on every connection. `h11.Connection.init` then writes every field that code reads.
 /// h11's `connection_init_test.zig` and `connection_internal_test.zig` check it.
 fn make_h11_session(connection: *Connection) void {
@@ -100,8 +100,8 @@ pub fn shut_session(connection: *Connection) void {
 }
 
 /// Whether this connection's request bodies may arrive in units, which decision 110 as amended
-/// bounds the body rate by: over TLS, in h2, or while its first octets may still choose h2. h11 in
-/// cleartext reads a body octet by octet, so a connection that chose it keeps any rate.
+/// bounds the body rate by: over TLS, in h2, or while its first bytes may still choose h2. h11 in
+/// cleartext reads a body byte by byte, so a connection that chose it keeps any rate.
 pub fn whole_units(connection: *const Connection) bool {
     if (connection.config.tls != null) return true;
     return switch (connection.session) {
@@ -111,7 +111,7 @@ pub fn whole_units(connection: *const Connection) bool {
     };
 }
 
-/// Reads at most one event from the protocol's octets, and the octets before it that mean
+/// Reads at most one event from the protocol's bytes, and the bytes before it that mean
 /// nothing to the caller.
 pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ConnectionResult {
     if (connection.stopped) return .{ .consumed = 0, .event = null };
@@ -123,8 +123,8 @@ pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64
             // A call that discards the rest of a body may read the next request's head after it.
             const id = connection.current_id;
             const received = try connection_h11.receive(connection, plaintext);
-            // Decision 110: the octets h11 reads of a body, its framing included, are the
-            // body's, and so are the octets it discards (decision 160).
+            // Decision 110: the bytes h11 reads of a body, its framing included, are the
+            // body's, and so are the bytes it discards (decision 160).
             if (reading_body) connection_bodies.count(connection, id, received.consumed);
             // Decision 160: h11 reports no end of a body it discards, so its deadlines end here.
             if (discarding and session.phase != .discard) connection_bodies.remove(connection, id);
@@ -135,11 +135,11 @@ pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64
     };
 }
 
-/// Adds `written` octets the protocol owed to the output. When a WINDOW_UPDATE was owed, it is
+/// Adds `written` bytes the protocol owed to the output. When a WINDOW_UPDATE was owed, it is
 /// among them.
 pub fn take_owed(connection: *Connection, written: usize, update_owed: bool) void {
     connection.output_len += written;
-    // Decision 110 as amended: a WINDOW_UPDATE written now is out once these octets are.
+    // Decision 110 as amended: a WINDOW_UPDATE written now is out once these bytes are.
     if (update_owed and written > 0) connection.update_held_len = connection.output_len;
 }
 
@@ -151,7 +151,7 @@ pub fn fail(connection: *Connection) Error {
     return error.ConnectionFailed;
 }
 
-/// Drops the first `written` octets of `output`, which `send` has taken.
+/// Drops the first `written` bytes of `output`, which `send` has taken.
 pub fn take_output(connection: *Connection, written: usize) void {
     assert(written <= connection.output_len);
     @memmove(connection.output[0 .. connection.output_len - written], connection.output[written..connection.output_len]);
@@ -160,7 +160,7 @@ pub fn take_output(connection: *Connection, written: usize) void {
     connection.update_held_len -= @min(connection.update_held_len, written);
 }
 
-/// Drops the protocol's octets the last event pointed into.
+/// Drops the protocol's bytes the last event pointed into.
 pub fn drop_read_plaintext(connection: *Connection) void {
     const read = connection.plain_in_read;
     assert(read <= connection.plain_in_len);

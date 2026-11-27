@@ -25,7 +25,7 @@ pub const AttachError = error{
     HandshakeIncomplete,
     /// The handshake selected something other than "h2", or selected nothing. RFC 9113 §3.3:
     /// HTTP/2 connections over TLS MUST use protocol negotiation, and §3.1 makes the identifier
-    /// the two octets 0x68 and 0x32.
+    /// the two bytes 0x68 and 0x32.
     AlpnNotH2,
     /// The provider reports no version or suite although the handshake is complete.
     ParametersUnknown,
@@ -39,7 +39,7 @@ pub const AttachError = error{
 /// Checks a TLS connection against everything RFC 9113 requires of it before h2 runs, and stores
 /// the provider on success. The check order is the one §3.2 and §9.2 imply (invariant 7).
 pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!void {
-    // A provider is attached once, before any h2 octet moves in either direction.
+    // A provider is attached once, before any h2 byte moves in either direction.
     assert(target.provider == null);
     assert(!target.preface_written and target.preface_read_len == 0);
     try check(provider);
@@ -88,18 +88,18 @@ pub const RecordError = error{
     NoSpaceLeft,
     /// A protected record arrived or was asked for before the keys exist (RFC 9846 §7.1).
     HandshakeIncomplete,
-    /// No provider is attached: this is a cleartext connection and its octets need no record.
+    /// No provider is attached: this is a cleartext connection and its bytes need no record.
     NoProvider,
 };
 
-/// What `decrypt` took from the peer's octets.
+/// What `decrypt` took from the peer's bytes.
 pub const Decrypted = struct {
-    /// Octets of the input the record occupied, header and tag included. 0 means no whole record
+    /// Bytes of the input the record occupied, header and tag included. 0 means no whole record
     /// was there.
     consumed: usize,
-    /// Octets of plaintext written, which are h2's byte stream and are fed to `receive`.
+    /// Bytes of plaintext written, which are h2's byte stream and are fed to `receive`.
     plaintext_len: usize,
-    /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
+    /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No byte the peer
     /// sends afterwards is read.
     end_of_data: bool,
 };
@@ -109,7 +109,7 @@ pub const Decrypted = struct {
 pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Decrypted {
     _ = now_ns;
     // RFC 9113 §3.3: a prior-knowledge cleartext connection runs h2 directly over TCP, so its
-    // octets pass through no record layer at all.
+    // bytes pass through no record layer at all.
     const provider = target.provider orelse return error.NoProvider;
     // RFC 9846 §6: after a fatal alert, sent or received, no record is read.
     if (target.tls_failed) return error.TlsFailed;
@@ -120,7 +120,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
         error.TlsFailed => {
             end_tls(target);
             // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
-            // connection. Its last octets are the alert that the provider owes.
+            // connection. Its last bytes are the alert that the provider owes.
             return error.TlsFailed;
         },
         error.KeyUpdates => return past_key_updates(target),
@@ -234,7 +234,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     // RFC 9846 §6: after the record layer failed, the alert the provider owes is the last thing the
     // connection writes, and the connection seals no data.
     if (target.tls_failed) return .{ .consumed = 0, .written = try write_owed(target, provider, output, now_ns) };
-    // Only `end_tls` makes the provider owe handshake octets: the alert of the failure.
+    // Only `end_tls` makes the provider owe handshake bytes: the alert of the failure.
     assert(!target.handshake_owed);
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
     const sealed = provider.encrypt_record(plaintext, output) catch |failure|
@@ -243,7 +243,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     return sealed;
 }
 
-/// The most plaintext one `encrypt_parts` seals into `output_len` octets.
+/// The most plaintext one `encrypt_parts` seals into `output_len` bytes.
 pub fn writable_len(target: *const Connection, output_len: usize) usize {
     const provider = target.provider orelse return 0;
     return provider.writable_len(output_len);

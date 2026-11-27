@@ -153,7 +153,7 @@ test "a reserved frame on the control stream is logged where it is skipped" {
     harness.pair_unstarted(.{ .role = .client }, .{ .role = .server, .qlog = &server_log });
     try server.h3.start(&server.transport, harness.test_now_ns);
     // A control stream the client writes itself: its type, an empty SETTINGS frame, and RFC 9114
-    // §7.2.8's reserved type 0x21 with two octets.
+    // §7.2.8's reserved type 0x21 with two bytes.
     const id = try quic.Connection.open_stream(&client.transport, .unidirectional);
     try client.send_raw(id.value, &.{ 0x00, 0x04, 0x00, 0x21, 0x02, 'a', 'b' }, false);
     try harness.exchange();

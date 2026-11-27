@@ -1,5 +1,5 @@
 //! The TLS half of a client connection (decision 100): the handshake through `tls.record.Client`,
-//! then records opened into the protocol's octets and the protocol's octets sealed into records,
+//! then records opened into the protocol's bytes and the protocol's bytes sealed into records,
 //! through h11's or h2's `connection_tls`, which apply each protocol's rules to its records.
 //!
 //! A handshake that fails ends the connection with what chapulin wrote, the alert that says why
@@ -25,7 +25,7 @@ const Protocol = event.Protocol;
 /// Why a record did not open or go out, in either protocol. Both name the same five.
 const RecordError = h2.Connection.RecordError || h11.Connection.RecordError;
 
-/// Runs the handshake over what the transport read, and returns the octets taken. Once it
+/// Runs the handshake over what the transport read, and returns the bytes taken. Once it
 /// completes, the protocol ALPN selected takes the session, and the rest of `input` is read as its
 /// records.
 pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) usize {
@@ -61,7 +61,7 @@ pub fn attach_provider(connection: *Connection, provider: tls_provider.Provider)
     // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
     // selection of none is h11 only while `versions` allows it (decisions 88 and 117).
     internal.open_session(connection, protocol_of(provider.negotiated_alpn(), connection.config.protocols));
-    // RFC 9113 §3.2, §3.3, §9.2 and decision 88: the handshake is checked before any HTTP octet
+    // RFC 9113 §3.2, §3.3, §9.2 and decision 88: the handshake is checked before any HTTP byte
     // moves, and h2 refuses one that did not select it.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),
@@ -86,14 +86,14 @@ pub fn protocol_of(selected: ?[]const u8, versions: Protocols) Protocol {
     return if (std.mem.eql(u8, name, &tls_provider.constants.protocol.alpn_h2)) .h2 else .h11;
 }
 
-/// Opens the records of `input` that fit, one that carries the protocol's octets at a time, and
-/// has the protocol read all it can of each before the next one opens. Returns the octets of
+/// Opens the records of `input` that fit, one that carries the protocol's bytes at a time, and
+/// has the protocol read all it can of each before the next one opens. Returns the bytes of
 /// `input` taken. A record that fails ends the protocol's session (RFC 9846 §6), so the protocol
 /// reads what the records before it held first: some of a response arrived, and the pool does
 /// not send the request again (decision 124).
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
     var consumed: usize = 0;
-    // Bounded: each pass opens a record that carries octets of the input, or ends the loop.
+    // Bounded: each pass opens a record that carries bytes of the input, or ends the loop.
     for (0..input.len + 1) |_| {
         read_held(connection, now_ns);
         const taken = open_records(connection, input[consumed..], now_ns);
@@ -112,9 +112,9 @@ pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
 }
 
 /// Reads the protocol from what earlier records opened until it takes nothing more: it needs more
-/// octets, or it ended. Each exchange that ends is reported later, one a call.
+/// bytes, or it ended. Each exchange that ends is reported later, one a call.
 fn read_held(connection: *Connection, now_ns: u64) void {
-    // Bounded: each pass takes octets, or ends the loop.
+    // Bounded: each pass takes bytes, or ends the loop.
     for (0..connection.plain_in_len + 1) |_| {
         if (connection.plain_in_len == 0 and !h11_end_owed(connection)) return;
         const taken = internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
@@ -123,20 +123,20 @@ fn read_held(connection: *Connection, now_ns: u64) void {
     }
 }
 
-/// Whether h11 owes the end of a body after its last octets, which it reports with no octets. A
+/// Whether h11 owes the end of a body after its last bytes, which it reports with no bytes. A
 /// piece of a streamed response held that end back until its release (decision 153).
 fn h11_end_owed(connection: *const Connection) bool {
     return connection.session == .h11 and connection.session.h11.end_owed;
 }
 
-/// The server's `close_notify` arrived and every octet before it is read: a body that runs until
+/// The server's `close_notify` arrived and every byte before it is read: a body that runs until
 /// the close ends with it (RFC 9112 §9.8), and every other exchange ends.
 fn peer_ended(connection: *Connection) void {
     if (connection.session == .h11) connection_h11.transport_closed(connection);
     internal.fail(connection);
 }
 
-/// What `open_records` took: octets of the input, whether a record carried the protocol's octets,
+/// What `open_records` took: bytes of the input, whether a record carried the protocol's bytes,
 /// and whether a record failed.
 const Taken = struct {
     consumed: usize = 0,
@@ -144,7 +144,7 @@ const Taken = struct {
     failed: bool = false,
 };
 
-/// Opens whole records into the protocol's octets while one fits, up to the first that carries
+/// Opens whole records into the protocol's bytes while one fits, up to the first that carries
 /// some, and returns what it took. The caller ends the connection on a failed record, once the
 /// protocol read what the records before it held.
 fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
@@ -175,15 +175,15 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
     unreachable; // Each record takes at least its header, so the input ends first.
 }
 
-/// Keeps what an opened record held, and returns whether it carried the protocol's octets.
+/// Keeps what an opened record held, and returns whether it carried the protocol's bytes.
 fn keep(connection: *Connection, record: Opened) bool {
     connection.plain_in_len += record.plaintext_len;
     if (record.end_of_data) connection.peer_closed = true;
     return record.plaintext_len > 0;
 }
 
-/// Writes what the handshake owes, or the flight's records, then seals the protocol's octets, then
-/// the `close_notify` once the connection is over. Returns the octets written into `output`.
+/// Writes what the handshake owes, or the flight's records, then seals the protocol's bytes, then
+/// the `close_notify` once the connection is over. Returns the bytes written into `output`.
 pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     // The ClientHello is staged at `init`, and goes out whether or not `receive` ran first.
     if (connection.phase == .handshake) _ = handshake(connection, &.{}, now_ns);
@@ -202,7 +202,7 @@ pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     return written;
 }
 
-/// Seals as much of the protocol's octets as `output` holds. A provider that owes the answer to a
+/// Seals as much of the protocol's bytes as `output` holds. A provider that owes the answer to a
 /// KeyUpdate writes it in front of the first record. After a failure, it writes only its alert.
 fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     var written: usize = 0;
@@ -229,7 +229,7 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     return written;
 }
 
-/// Seals as much of `content`, the caller's own octets, as `output` holds, with no copy into the
+/// Seals as much of `content`, the caller's own bytes, as `output` holds, with no copy into the
 /// connection's output (https://github.com/c4milo/colibri/issues/105). A record that fails ends
 /// the connection, and the alert the provider owes is written in place of the content.
 pub fn seal_content(connection: *Connection, content: []const u8, output: []u8, now_ns: u64) tls_provider.provider.Sealed {

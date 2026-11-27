@@ -5,23 +5,23 @@
 //! it, and neither reads randomness (invariant 5):
 //!   1. `std.testing.fuzz` with a corpus. Under `zig build test` it runs the corpus and an empty
 //!      input; under `--fuzz` it runs the fuzzer.
-//!   2. `sweep`, which runs the same function once for every octet string of up to
-//!      `sweep_len_max` octets, so every short input is checked on every `zig build test`.
+//!   2. `sweep`, which runs the same function once for every byte string of up to
+//!      `sweep_len_max` bytes, so every short input is checked on every `zig build test`.
 //!
-//! A corpus entry is not the raw octets. Outside `--fuzz`, `std.testing.Smith` reads a slice as a
-//! 4-octet little-endian length and then the octets, and reads an integer as 8 little-endian octets.
+//! A corpus entry is not the raw bytes. Outside `--fuzz`, `std.testing.Smith` reads a slice as a
+//! 4-byte little-endian length and then the bytes, and reads an integer as 8 little-endian bytes.
 //! `input` and `input_with_value` write entries in that shape, so the property function reads a
-//! corpus entry as the octets it names.
+//! corpus entry as the bytes it names.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Smith = std.testing.Smith;
 
-/// The longest octet string `sweep` enumerates. Two octets is 65,793 inputs per value swept.
+/// The longest byte string `sweep` enumerates. Two bytes is 65,793 inputs per value swept.
 pub const sweep_len_max = 2;
 
-/// Octets `Smith` reads for a slice's length, and for an integer value.
+/// Bytes `Smith` reads for a slice's length, and for an integer value.
 const slice_length_octets = 4;
 const value_octets = 8;
 
@@ -42,7 +42,7 @@ fn little_endian(comptime T: type, comptime value: u64) [@sizeOf(T)]u8 {
     return octets;
 }
 
-/// Runs `property` once for every octet string of 0 to `sweep_len_max` octets, and, when `values`
+/// Runs `property` once for every byte string of 0 to `sweep_len_max` bytes, and, when `values`
 /// is not null, once more for each value in `values` read before the string.
 pub fn sweep(
     comptime property: fn (void, *Smith) anyerror!void,
@@ -85,7 +85,7 @@ fn write_little_endian(octets: []u8, value: u64) void {
 
 const testing = std.testing;
 
-/// Most octets `expect_slice` reads back. Test-only.
+/// Most bytes `expect_slice` reads back. Test-only.
 const expect_slice_len_max = 16;
 
 fn expect_slice(context: []const u8, smith: *Smith) anyerror!void {

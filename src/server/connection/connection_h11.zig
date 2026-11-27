@@ -42,15 +42,15 @@ const authority_prefix = "://";
 const path_empty = "/";
 
 /// Reads at most one event from `plaintext`. h11 reports one event a call at most, and takes the
-/// octets of none at times, such as an empty line before a request (RFC 9112 §2.2).
+/// bytes of none at times, such as an empty line before a request (RFC 9112 §2.2).
 pub fn receive(connection: *Connection, plaintext: []const u8) Error!ConnectionResult {
     const session = &connection.session.h11;
-    // h11 requires each call's octets to start with every octet it left unconsumed. The caller
+    // h11 requires each call's bytes to start with every byte it left unconsumed. The caller
     // passes them again (decision 119 as amended), so a call with none waits for that one.
     if (plaintext.len == 0 and connection.unread_len > 0) return .{ .consumed = 0, .event = null };
     var consumed: usize = 0;
     defer connection.unread_len = plaintext.len - consumed;
-    // Bounded: a pass that reports nothing takes an octet at least, or ends the loop.
+    // Bounded: a pass that reports nothing takes a byte at least, or ends the loop.
     for (0..plaintext.len + 1) |_| {
         const received = session.receive(plaintext[consumed..], connection.config.decoded) catch return internal.fail(connection);
         consumed += received.consumed;
@@ -162,8 +162,8 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     connection.output_len += session.write_end(internal.room(connection), &.{}) catch |failure| return send_error(connection, failure);
 }
 
-/// The array `respond` gives `complete`, with its octets left as they are. ReleaseSafe would
-/// fill all 4,096 octets with 0xAA on every response, whether `complete` adds a line or not.
+/// The array `respond` gives `complete`, with its bytes left as they are. ReleaseSafe would
+/// fill all 4,096 bytes with 0xAA on every response, whether `complete` adds a line or not.
 /// `complete` writes each line it returns, and code reads no other line. The owner ruled for
 /// this on 2026-10-18.
 fn unfilled_lines() [core.constants.limits.field_count_max]Field {
@@ -226,7 +226,7 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
     const session = &connection.session.h11;
     defer note_done(connection, id);
     // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. The final response
-    // ended with its head (RFC 9112 §6.3 rule 1), so the call takes the octets and writes none.
+    // ended with its head (RFC 9112 §6.3 rule 1), so the call takes the bytes and writes none.
     if (connection.head_request and session.responded) return octets.len;
     // RFC 9112 §6: content follows only a final response that declared some, and ends once. h11
     // refuses the rest with `NoBody`.

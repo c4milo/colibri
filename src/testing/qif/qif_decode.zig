@@ -38,7 +38,7 @@ pub const Counts = struct {
 var decoder: qpack.Decoder align(@alignOf(qpack.Decoder)) = undefined;
 var decoded: FieldSection align(@alignOf(FieldSection)) = undefined;
 var strings: [core.constants.limits.field_section_size_max]u8 = undefined;
-/// Encoder stream octets not yet read: an instruction may span two blocks.
+/// Encoder stream bytes not yet read: an instruction may span two blocks.
 var unread: [constants.file_len_max]u8 = undefined;
 var unread_len: usize = 0;
 var held: [qpack.constants.limits.blocked_streams_max]qif_block.Block align(@alignOf(qif_block.Block)) = undefined;

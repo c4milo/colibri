@@ -1,6 +1,6 @@
 # Contributing
 
-colibri holds a high bar because it runs inside other programs' hot paths and reads octets from
+colibri holds a high bar because it runs inside other programs' hot paths and reads bytes from
 strangers. This page is the contributor's summary. [CLAUDE.md](CLAUDE.md) holds the full rules,
 and a change follows them whoever writes it.
 
@@ -47,7 +47,7 @@ Some checks need more:
 - **Every RFC rule is cited.** A check that exists because an RFC requires it carries the RFC and
   the section in a comment on the line that makes it. Cite the RFC that states the rule. Read the
   copies in [`docs/rfcs/`](docs/rfcs/), never a summary or another implementation's source.
-- **Peer input fails closed.** A malformed octet, a short buffer or a limit reached returns an
+- **Peer input fails closed.** A malformed byte, a short buffer or a limit reached returns an
   error value. Assertions are for programmer error, at contract points.
 - **Parsing goes through the bounds-checked reader**, and output through the writer. No raw
   buffer arithmetic outside them.
@@ -63,8 +63,8 @@ purpose and confirm a test fails. Report each mutation as `CAUGHT` or `NOT CAUGH
 body or in the step's entry in `docs/design.md` §8. A `NOT CAUGHT` means a test is missing, so
 write it.
 
-A new reader of a peer's octets also gets a fuzz property and, where inputs longer than two
-octets matter, cases in the simulator's input checks.
+A new reader of a peer's bytes also gets a fuzz property and, where inputs longer than two
+bytes matter, cases in the simulator's input checks.
 
 ## Commits
 

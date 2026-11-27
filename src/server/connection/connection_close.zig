@@ -16,7 +16,7 @@ const Limit = close_reason_module.Limit;
 /// Whether the caller closes the transport now: the connection has finished and `send` has written
 /// everything, over TLS the `close_notify` too (RFC 9846 §6.1), or the alert of a failure.
 pub fn should_close(connection: *const Connection) bool {
-    // Decision 110: once its linger has passed, a connection closes with octets still owed.
+    // Decision 110: once its linger has passed, a connection closes with bytes still owed.
     if (connection.clock.lingered) return true;
     // Decision 176: the records a lent output sealed are the connection's until a send takes them.
     if (connection.output_len > 0 or connection_output.sealed_owed(connection)) return false;
@@ -81,7 +81,7 @@ pub fn finished(connection: *const Connection) bool {
     };
 }
 
-/// Whether the protocol owes octets `write_owed` has not written yet.
+/// Whether the protocol owes bytes `write_owed` has not written yet.
 fn protocol_pending(connection: *const Connection) bool {
     return switch (connection.session) {
         .h2 => connection.session.h2.has_pending(),

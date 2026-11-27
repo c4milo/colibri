@@ -105,7 +105,7 @@ pub fn on_transmit(recovery: *Recovery, now_ns: u64) void {
     recovery.congestion.latest_ns = @max(recovery.congestion.latest_ns, now_ns);
 }
 
-/// The pacer's rate under BBRv3: §5.6.2's pacing rate, in octets a second, with §5.6.3's send
+/// The pacer's rate under BBRv3: §5.6.2's pacing rate, in bytes a second, with §5.6.3's send
 /// quantum as the burst. Null under CUBIC, whose rate is RFC 9002 §7.7's.
 pub fn rate(recovery: *const Recovery) ?recovery_pacing.Rate {
     const state = switch (recovery.congestion.state) {

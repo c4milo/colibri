@@ -1,6 +1,6 @@
 //! The fixtures and helpers the tests of `field_block.zig`, `field_block_decode.zig` and
 //! `field_block_limit.zig` share: the slot, the decoder and encoder they run on, one frame of
-//! octets, and RFC 7541 Appendix C's first request. Test-only. They sit in their own file because
+//! bytes, and RFC 7541 Appendix C's first request. Test-only. They sit in their own file because
 //! a fixture several files share is a plain global, and `tools/lint/global_state.zig` refuses one
 //! in a library file.
 const std = @import("std");
@@ -21,7 +21,7 @@ pub var test_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
 pub var test_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 /// The encoder those tests build fragments with. Test-only.
 pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
-/// One frame of octets the tests write fragments into. Test-only.
+/// One frame of bytes the tests write fragments into. Test-only.
 pub var test_frame: [constants.limits.frame_size_max]u8 = @splat('v');
 /// A value as long as a value may be. Test-only.
 pub const long_value: [core.constants.limits.field_value_len_max]u8 = @splat('v');

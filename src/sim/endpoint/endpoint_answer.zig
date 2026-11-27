@@ -24,7 +24,7 @@ pub const status: u16 = 200;
 /// The trailer section an answer that has one ends with (RFC 9110 §6.5).
 const trailer_fields = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
 
-/// The octets of every answer's content: letters alone.
+/// The bytes of every answer's content: letters alone.
 pub const content_letters = "abcdefghijklmnopqrstuvwxyz";
 
 /// Where an answer is: waiting for its request to end, then its head, its content and its trailer

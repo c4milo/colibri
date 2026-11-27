@@ -2,10 +2,10 @@
 //! the peer another connection ID to send to (§19.15), and RETIRE_CONNECTION_ID, which tells it a
 //! connection ID of its own is no longer used (§19.16). Part of design §8 step 9e.
 //!
-//! The caller issues each new connection ID with its octets and its Stateless Reset Token.
-//! colibri draws no random number for the octets (invariant 5) and holds no key to derive the
+//! The caller issues each new connection ID with its bytes and its Stateless Reset Token.
+//! colibri draws no random number for the bytes (invariant 5) and holds no key to derive the
 //! token from (§10.3.2, non-negotiable 2). The caller routes a datagram to its connection by
-//! Destination Connection ID, and it chose the octets, so it knows every one this connection
+//! Destination Connection ID, and it chose the bytes, so it knows every one this connection
 //! answers to (§5.1.1: "When an endpoint issues a connection ID, it MUST accept packets that carry
 //! this connection ID").
 //!
@@ -31,7 +31,7 @@ pub const Error = error{
     /// send this frame if it currently requires that its peer send packets with a zero-length
     /// Destination Connection ID." Nothing changed.
     ZeroLength,
-    /// The octets are not the length of this endpoint's other connection IDs, which is the length
+    /// The bytes are not the length of this endpoint's other connection IDs, which is the length
     /// it reads a short header's Destination Connection ID by. Nothing changed.
     LengthDiffers,
     /// The peer already holds as many as its `active_connection_id_limit` (§5.1.1: "An endpoint

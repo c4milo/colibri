@@ -1,12 +1,12 @@
 //! The second half of `qpack_vectors.zig`: every qifs input written by colibri's own encoder and
 //! read back by colibri's decoder (decisions 75 and 76). Part of design §8 step 11.
 //!
-//! Each input runs at four settings, a table of 0 or 4,096 octets with 0 or 100 blocked streams,
+//! Each input runs at four settings, a table of 0 or 4,096 bytes with 0 or 100 blocked streams,
 //! and in the two acknowledgment modes of the "QPACK Offline Interop" format:
 //! - Immediate: after each section the decoder reads the encoder stream and the section, and its
 //!   decoder stream goes back to the encoder, so entries are acknowledged as they arrive.
 //! - None: the encoder hears nothing back, and the sections go into an offline file, all of them
-//!   ahead of the one block that holds every encoder stream octet. `qpack_vectors.run_file` then
+//!   ahead of the one block that holds every encoder stream byte. `qpack_vectors.run_file` then
 //!   decodes that file. It is the latest the encoder stream can arrive, so every section with a
 //!   dynamic reference blocks, and a section on a stream that may not block must have none.
 //!
@@ -32,7 +32,7 @@ const round_trip_settings = [vectors.round_trip_settings_count]qpack.Decoder.Set
 const table_capacity: u64 = 4096;
 const blocked_streams: u64 = 100;
 
-/// Room for one encoded section and the encoder stream octets written with it.
+/// Room for one encoded section and the encoder stream bytes written with it.
 const encoded_room: usize = 1 << 16;
 
 /// The encoder and its buffers, placed outside any stack frame.
@@ -114,7 +114,7 @@ fn encode(set: []const Line, stream_id: u64) !Written {
     return .{ .section = output.written(), .stream = encoder_stream.written() };
 }
 
-/// Hands one section to the decoder with its encoder stream octets, and its decoder stream back
+/// Hands one section to the decoder with its encoder stream bytes, and its decoder stream back
 /// to the encoder: the immediate acknowledgment mode.
 fn exchange(arena: Allocator, stream_id: u64, written: Written, set: []const Line) !void {
     var instructions = Reader.init(written.stream);

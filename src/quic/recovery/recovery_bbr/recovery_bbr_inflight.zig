@@ -1,7 +1,7 @@
-//! The volumes BBRv3's states compare with the octets in flight (draft-ietf-ccwg-bbr-06
+//! The volumes BBRv3's states compare with the bytes in flight (draft-ietf-ccwg-bbr-06
 //! §5.6.4.2, §5.3.3.9, §5.5.10.2). Part of design §8 step 29b.2.
 //!
-//! Each volume is in octets, from BBR's model of the path and the gains of the state. Every
+//! Each volume is in bytes, from BBR's model of the path and the gains of the state. Every
 //! product is taken in 128 bits and saturates at the largest `u64`, which is also the draft's
 //! "Infinity" for a volume that nothing bounds.
 const std = @import("std");

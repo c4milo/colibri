@@ -1,6 +1,6 @@
 //! The send deadlines of a server connection over TCP (decision 110, design §8 step 20b).
 //!
-//! While the connection holds octets its peer has not taken, the peer must take the minimum send
+//! While the connection holds bytes its peer has not taken, the peer must take the minimum send
 //! rate over each window: the connection's meter counts what `send` hands out. In h2 a stream
 //! whose response waits on a flow-control window has a meter of its own, which counts what the
 //! window lets through. It runs only while the connection holds nothing else to send, since a
@@ -36,7 +36,7 @@ const Blocked = struct {
 };
 
 pub const Sends = struct {
-    /// What the peer took of the connection's octets.
+    /// What the peer took of the connection's bytes.
     meter: rate.Meter,
     /// Only the first `written` entries hold what a stream wrote. `init` writes none of them, and
     /// a held stream writes the next entry whole when no freed entry is left, as a body does.
@@ -94,7 +94,7 @@ pub const Sends = struct {
     }
 };
 
-/// Notes an h2 write to request `id` that was offered `offered` octets: what the window let
+/// Notes an h2 write to request `id` that was offered `offered` bytes: what the window let
 /// through, and whether a window held it short.
 pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.Connection.DataWritten) void {
     assert(id != 0);
@@ -121,9 +121,9 @@ pub fn remove(connection: *Connection, id: Number) void {
     sends.used -= 1;
 }
 
-/// Starts or stops each meter as the connection's output holds octets or not, at `now_ns`. The
-/// connection's meter runs while the output holds any octet the peer has not taken, a lent one
-/// too. A stream's meter waits only on octets no lend gave the socket: octets a send carries now
+/// Starts or stops each meter as the connection's output holds bytes or not, at `now_ns`. The
+/// connection's meter runs while the output holds any byte the peer has not taken, a lent one
+/// too. A stream's meter waits only on bytes no lend gave the socket: bytes a send carries now
 /// are on their way, as a copy's were (decision 176).
 pub fn observe(connection: *Connection, now_ns: u64) void {
     const sends = &connection.sends;
@@ -154,7 +154,7 @@ fn start_or_pause(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const de
     if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
 }
 
-/// Counts the octets `send` handed out, which the connection's meter judges.
+/// Counts the bytes `send` handed out, which the connection's meter judges.
 pub fn count(connection: *Connection, written: usize) void {
     connection.sends.meter.count(written);
 }
@@ -202,8 +202,8 @@ fn cancel_stream(connection: *Connection, id: Number) void {
     connection_bodies.owe_cancelled(connection, .{ .id = id, .reason = .{ .timeout = .send_rate } });
 }
 
-/// Starts the linger of a connection that has ended with octets still to send, at `now_ns`, and
-/// ends it once `linger_ns` has passed: the connection then closes, octets or not.
+/// Starts the linger of a connection that has ended with bytes still to send, at `now_ns`, and
+/// ends it once `linger_ns` has passed: the connection then closes, bytes or not.
 pub fn linger(connection: *Connection, now_ns: u64) void {
     const clock = &connection.clock;
     if (clock.lingered) return;

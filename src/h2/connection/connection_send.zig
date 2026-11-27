@@ -1,13 +1,13 @@
 //! What the caller asks the connection to send: a response at a server, the DATA that follows it,
 //! the trailer section that may end it, a RST_STREAM that ends one stream and the GOAWAY that ends
 //! the connection.
-//! Every one writes into the caller's buffer and returns the octets it wrote (design §4.1); none
+//! Every one writes into the caller's buffer and returns the bytes it wrote (design §4.1); none
 //! of them touches a socket.
 //!
 //! A field section is encoded into the caller's buffer, after the HEADERS frame's header, and cut
 //! there into a HEADERS frame and as many CONTINUATION frames as it needs, each at most the peer's
 //! SETTINGS_MAX_FRAME_SIZE (RFC 9113 §4.2, §6.10): each later fragment moves after the frame
-//! headers before it (design §8 step 61b). A block holds at most `send_block_len_max` octets,
+//! headers before it (design §8 step 61b). A block holds at most `send_block_len_max` bytes,
 //! which the section limit colibri advertises bounds.
 //!
 //! DATA is bounded by four things at once: what the connection's send window holds, what the
@@ -38,8 +38,8 @@ const Connection = connection.Connection;
 const Stream = streams_table.Stream;
 const Writer = core.Writer;
 
-/// Why a send did not happen. Each leaves the connection as it was and counts no octet of the
-/// caller's buffer as written. A refused block may have been encoded into the buffer: octets past
+/// Why a send did not happen. Each leaves the connection as it was and counts no byte of the
+/// caller's buffer as written. A refused block may have been encoded into the buffer: bytes past
 /// what a call returns are scratch.
 pub const Error = error{
     /// RFC 9113 §5.1 does not let colibri send this frame on this stream, or the stream is not one
@@ -60,11 +60,11 @@ pub const Error = error{
     InterimEndsStream,
 };
 
-/// What `write_data` did: the octets of the payload it sent, and the octets it wrote.
+/// What `write_data` did: the bytes of the payload it sent, and the bytes it wrote.
 pub const DataWritten = struct {
-    /// Octets of the caller's payload that went into frames. 0 means no window or no room.
+    /// Bytes of the caller's payload that went into frames. 0 means no window or no room.
     consumed: usize,
-    /// Octets written into the caller's buffer, headers included.
+    /// Bytes written into the caller's buffer, headers included.
     written: usize,
     /// What held the frame short of the whole payload, if anything did.
     short_by: ShortBy,
@@ -133,7 +133,7 @@ fn validate_fields(fields: []const hpack.Field) Error!void {
 }
 
 /// Writes as much of `payload` as the windows, one frame and the caller's buffer allow, as DATA on
-/// `stream_id` (RFC 9113 §6.1). END_STREAM is set only on the frame that carries the last octet.
+/// `stream_id` (RFC 9113 §6.1). END_STREAM is set only on the frame that carries the last byte.
 pub fn write_data(
     target: *Connection,
     output: []u8,
@@ -205,7 +205,7 @@ fn encode_response(target: *Connection, buffer: []u8, code: http.Status, fields:
     const status_text = code.write_digits(&digits);
     // RFC 9113 §8.3.2: a response carries the `:status` pseudo-header field, and it comes first.
     // Decision 132: a response's lines go into the dynamic table, so a line the next response
-    // repeats is an index of one octet. The encoder empties both tables after a block it inserted
+    // repeats is an index of one byte. The encoder empties both tables after a block it inserted
     // into and the caller abandoned, as a response that does not fit the caller's buffer leaves.
     target.encoder.write_field(&writer, ":status", status_text, .incremental) catch return error.OutputTooSmall;
     for (fields) |field_line| {
@@ -232,7 +232,7 @@ fn encode_trailers(target: *Connection, buffer: []u8, fields: []const hpack.Fiel
     return writer.written();
 }
 
-/// Octets of the frames `write_block` cuts a block of `block_len` octets into: a HEADERS frame, the
+/// Bytes of the frames `write_block` cuts a block of `block_len` bytes into: a HEADERS frame, the
 /// CONTINUATION frames after it, and a frame header each (RFC 9113 §4.1, §6.10).
 pub fn block_frames_len(target: *const Connection, block_len: usize) usize {
     const limit = target.peer.max_frame_size;
@@ -243,14 +243,14 @@ pub fn block_frames_len(target: *const Connection, block_len: usize) usize {
 }
 
 /// Where a field block is encoded so that `frame_block` cuts it into frames where it lies: the
-/// caller's buffer after the HEADERS frame's header, at most `send_block_len_max` octets.
+/// caller's buffer after the HEADERS frame's header, at most `send_block_len_max` bytes.
 pub fn block_space(output: []u8) []u8 {
     if (output.len <= constants.protocol.frame_header_len) return output[0..0];
     const room = output[constants.protocol.frame_header_len..];
     return room[0..@min(room.len, constants.limits.send_block_len_max)];
 }
 
-/// Cuts the block of `block_len` octets that `block_space(output)` holds into a HEADERS frame and
+/// Cuts the block of `block_len` bytes that `block_space(output)` holds into a HEADERS frame and
 /// the CONTINUATION frames it needs, each at most the peer's SETTINGS_MAX_FRAME_SIZE (RFC 9113
 /// §4.2, §6.10). Each later fragment moves after the frame headers before it, and a block that
 /// fits one frame does not move.
@@ -265,7 +265,7 @@ pub fn frame_block(target: *Connection, output: []u8, stream_id: u32, block_len:
     // The block is bounded by `send_block_len_max` and a frame carries at least
     // `max_frame_size_min`, so it never needs more frames than `continuation_count_max` allows.
     assert(frames >= 1 and frames <= constants.limits.continuation_count_max + 1);
-    // The last fragment moves first, so each one moves into octets no fragment still holds.
+    // The last fragment moves first, so each one moves into bytes no fragment still holds.
     for (1..frames) |step| {
         const index = frames - step;
         const fragment_len = @min(limit, block_len - index * limit);
@@ -289,7 +289,7 @@ pub fn frame_block(target: *Connection, output: []u8, stream_id: u32, block_len:
     return total;
 }
 
-/// Takes `len` octets out of both send windows (RFC 9113 §6.9.1).
+/// Takes `len` bytes out of both send windows (RFC 9113 §6.9.1).
 pub fn spend_windows(target: *Connection, record: *Stream, len: u32) void {
     // `sendable` took the smaller of the two windows, so neither can be exceeded here.
     target.send_window.consume(len) catch unreachable;
@@ -380,7 +380,7 @@ test "the connection's window bounds a send as the stream's does (§6.9.1)" {
     try start_server();
     _ = try feed_request(1, "/", true);
     _ = try write_response(test_connection, test_output, 1, 200, &.{}, false);
-    // The stream has room for the whole body and the connection has room for three octets.
+    // The stream has room for the whole body and the connection has room for three bytes.
     test_connection.send_window = @import("../window.zig").Window.init(3);
     var body: [8]u8 = @splat('x');
     const sent = try write_data(test_connection, test_output, 1, &body, true);
@@ -395,7 +395,7 @@ test "the connection's window bounds a send as the stream's does (§6.9.1)" {
 test "a field block longer than one frame is cut into a HEADERS frame and a CONTINUATION" {
     try start_server();
     _ = try feed_request(1, "/", true);
-    // Values Huffman coding would not shorten, so the block is as long as its octets.
+    // Values Huffman coding would not shorten, so the block is as long as its bytes.
     var values: [5][4000]u8 = undefined;
     for (&values, 0..) |*value, index| value.* = @splat(@intCast(0x80 + index));
     var fields: [5]hpack.Field = undefined;
@@ -472,7 +472,7 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     _ = try support.feed(settings);
     _ = try write_response(test_connection, test_output, 1, 200, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes, which for 100 is two
-    // octets, the prefix full and the remainder 69.
+    // bytes, the prefix full and the remainder 69.
     try testing.expectEqual(0x3f, test_output[constants.protocol.frame_header_len]);
     try testing.expectEqual(0x45, test_output[constants.protocol.frame_header_len + 1]);
     _ = try feed_request(3, "/", true);

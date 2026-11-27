@@ -1,13 +1,13 @@
 //! colibri's server (decision 100, design §8 steps 17 and 21): HTTP responses behind one set of
 //! calls for h11, h2 and h3. An `Engine` holds the connections one thread serves (decision 119):
 //! the TCP connections a program accepts, which serve h11 or h2, the version chosen by ALPN over TLS and
-//! by a connection's first octets in cleartext (decision 117), and the QUIC connections behind one
+//! by a connection's first bytes in cleartext (decision 117), and the QUIC connections behind one
 //! UDP socket, which serve h3 (decision 103).
 //!
 //! A program makes one `Config` and one `Engine` for each thread that serves, in storage it
 //! owns. It calls `accept` for each TCP socket its listener accepts, and passes what each socket
 //! read, and each datagram its UDP socket read, to `receive`. `receive` returns at most one event:
-//! a request's head, octets of its content, its trailer section, its ending, or one of the
+//! a request's head, bytes of its content, its trailer section, its ending, or one of the
 //! engine's own events, which `event.zig` lists. The program answers each request by its id with `respond`, `write_body` and `write_trailers`, and
 //! sends what `send_stream` and `send_datagram` write. colibri makes no system call and reads no
 //! clock: time is a value the caller passes.

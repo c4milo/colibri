@@ -67,7 +67,7 @@ const keylog_mode: std.c.mode_t = 0o600;
 /// that holds ChaCha20 alone (decision 97).
 const sha384_len: usize = if (@hasDecl(c, "SHA384_LEN")) c.SHA384_LEN else c.SHA256_LEN;
 
-/// Hex writes each octet as two digits.
+/// Hex writes each byte as two digits.
 const hex_digits_per_octet: usize = 2;
 
 /// chapulin's `keylog.h` hook: one traffic secret as it was derived. A session with no log set
@@ -76,7 +76,7 @@ fn keylog_hook(io: ?*anyopaque, label: [*:0]const u8, client_random: [*]const u8
     // The hook's context is the session's provider state, where the endpoint set its log.
     const state: *tls.quic.State = @ptrCast(@alignCast(chapulin.hook_context(io) orelse return));
     const keylog: *Keylog = @ptrCast(@alignCast(state.keylog_context orelse return));
-    // `keylog.h`: the secret is as long as the suite's hash, 32 octets, or 48 in an object that
+    // `keylog.h`: the secret is as long as the suite's hash, 32 bytes, or 48 in an object that
     // holds TLS_AES_256_GCM_SHA384.
     assert(secret_len == c.SHA256_LEN or secret_len == sha384_len);
     keylog.append(std.mem.span(label), client_random[0..c.CH_KEYLOG_RANDOM_LEN], secret[0..secret_len]);

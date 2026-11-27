@@ -25,7 +25,7 @@ pub const Zstd = struct {
 /// The `br` coding (RFC 7932 §13): one stream, whose window reaches `brotli_window_bits_max`.
 pub const Brotli = struct {
     pub const Decoder = brotli.Decoder(.{ .window_bits_max = constants.protocol.brotli_window_bits_max });
-    /// RFC 7932 §9.2: the last meta-block ends the stream, so octets after it belong to none.
+    /// RFC 7932 §9.2: the last meta-block ends the stream, so bytes after it belong to none.
     pub const frames_repeat = false;
 };
 
@@ -35,7 +35,7 @@ pub const Error = error{
     CodingCorrupt,
 };
 
-/// Octets of one call: coded ones taken, and decoded ones written.
+/// Bytes of one call: coded ones taken, and decoded ones written.
 pub const Progress = h11.coding.Progress;
 
 /// A slot's place in the pool.
@@ -166,7 +166,7 @@ pub fn Held(comptime Codec: type) type {
             held.stream_ended = false;
         }
 
-        /// Decodes as much of the coded octets `input` into `output` as both allow. The next
+        /// Decodes as much of the coded bytes `input` into `output` as both allow. The next
         /// frame of a zstd content starts with `cpu_features`, as the first one did.
         pub fn decode(held: *Self, input: []const u8, output: []u8, cpu_features: CpuFeatures) Error!Progress {
             return decode_held(Codec, held, input, output, cpu_features);
@@ -194,8 +194,8 @@ pub fn Held(comptime Codec: type) type {
 fn decode_held(comptime Codec: type, held: *Held(Codec), input: []const u8, output: []u8, cpu_features: CpuFeatures) Error!Progress {
     assert(held.active and input.len > 0 and output.len > 0);
     if (held.stream_ended) {
-        // RFC 8878 §3.1: octets after a zstd frame start the next one. RFC 7932 §9.2: a br stream
-        // ends with its last meta-block, so octets after it are no coding's.
+        // RFC 8878 §3.1: bytes after a zstd frame start the next one. RFC 7932 §9.2: a br stream
+        // ends with its last meta-block, so bytes after it are no coding's.
         if (!Codec.frames_repeat) return error.CodingCorrupt;
         held.start_stream(cpu_features);
     }
@@ -220,7 +220,7 @@ pub fn BrotliDecoderPool(comptime count: usize) type {
 pub const BrotliDecoders = Storage(Brotli);
 
 comptime {
-    // RFC 7932 §9.1: a window of (1 << WBITS) - 16 octets, WBITS from 10 to 24.
+    // RFC 7932 §9.1: a window of (1 << WBITS) - 16 bytes, WBITS from 10 to 24.
     assert(constants.protocol.brotli_window_bits_max >= brotli.constants.window_bits_min);
     assert(constants.protocol.brotli_window_bits_max <= brotli.constants.window_bits_max);
 }

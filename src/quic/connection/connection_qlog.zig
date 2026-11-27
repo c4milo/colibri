@@ -86,7 +86,7 @@ pub fn init(connection: *Connection, log: ?*Log, now_ns: u64) void {
 }
 
 /// Quic-events §5.1: the versions this endpoint lists in its Version Information (RFC 9368 §3),
-/// and the one it chose, each as the octets a QuicVersion hexstring shows (§8.1).
+/// and the one it chose, each as the bytes a QuicVersion hexstring shows (§8.1).
 fn log_versions(connection: *const Connection, held: *Log, now_ns: u64) void {
     const info = &connection.local_parameters.version_information.?;
     var octets: [constants.limits.version_information_versions_max][@sizeOf(u32)]u8 = undefined;
@@ -109,7 +109,7 @@ fn log_versions(connection: *const Connection, held: *Log, now_ns: u64) void {
 }
 
 /// Quic-events §5.5 for one packet `send` sealed. `payload` is the plaintext it was sealed from,
-/// PADDING included, and `packet_len` the octets it occupies in the datagram. The event names the
+/// PADDING included, and `packet_len` the bytes it occupies in the datagram. The event names the
 /// tuple of the path it goes on (main schema §7.2), which is `connection.path`: `send` swaps the
 /// previous path in while it builds the PATH_CHALLENGE RFC 9000 §9.3.3 sends there.
 pub fn on_packet_sent(connection: *Connection, level: Level, packet_number: u64, packet_len: usize, payload: []const u8, now_ns: u64) void {
@@ -125,7 +125,7 @@ pub fn on_packet_sent(connection: *Connection, level: Level, packet_number: u64,
 }
 
 /// Quic-events §5.6 for a packet of a datagram that opened, or §5.7 for one that was dropped.
-/// `packet_len` is the octets the walk stepped over for it, and `from` the address the datagram
+/// `packet_len` is the bytes the walk stepped over for it, and `from` the address the datagram
 /// came from, whose tuple the event names (main schema §7.2).
 pub fn on_packet_read(connection: *Connection, outcome: receive_module.Outcome, packet_len: usize, from: *const PeerAddress, now_ns: u64) void {
     const log = connection.qlog.log orelse return;
@@ -341,7 +341,7 @@ fn parameters_event(initiator: quic_event.Initiator, parameters: *const Paramete
     };
 }
 
-/// A connection ID of `parameters` as a hexstring. By pointer, so the octets stay the
+/// A connection ID of `parameters` as a hexstring. By pointer, so the bytes stay the
 /// parameters' own until the event is written.
 fn hex_of(connection_id: *const ?transport_parameters.ConnectionId) ?quic_event.Hex {
     const held = if (connection_id.*) |*id| id else return null;

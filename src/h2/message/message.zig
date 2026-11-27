@@ -14,7 +14,7 @@
 //! and this file names h2's errors (decision 15). An undefined pseudo-header such as `:protocol` is
 //! a stream error, never a connection error (decision 19). Every assertion checks a value colibri
 //! computed, or a length `FieldSection.append` already asserted, and never a value the peer chose
-//! (invariant 24). message_fuzz.zig drives all three entry points with raw octets in every name and
+//! (invariant 24). message_fuzz.zig drives all three entry points with raw bytes in every name and
 //! every value, after any sequence of lines from its table, to show it.
 //!
 //! Every section is checked in this order (invariant 7). message_lines.zig holds steps 1 and 2,
@@ -28,9 +28,9 @@
 //!        `:status` (§8.3.2);
 //!      - a pseudo-header name already seen is `PseudoHeaderRepeated`.
 //!   2. Every line again in arrival order, against the field rules of §8.2. Within a line:
-//!      - a regular name that is empty, or holds an uppercase letter, a colon or another octet
+//!      - a regular name that is empty, or holds an uppercase letter, a colon or another byte
 //!        outside RFC 9110 §5.1's token, is `FieldNameInvalid` (§8.2.1);
-//!      - a value on any line that holds NUL, LF, CR or another control octet, or starts or ends
+//!      - a value on any line that holds NUL, LF, CR or another control byte, or starts or ends
 //!        with SP or HTAB, is `FieldValueInvalid` (§8.2.1);
 //!      - a connection-specific name is `ConnectionSpecificField` (§8.2.2), except TE in a
 //!        request, which is `TeNotTrailers` when its value holds a member other than "trailers".
@@ -57,11 +57,11 @@
 //! Where a rule leaves a choice, colibri takes the strict side:
 //!   - §8.2.1 says a recipient SHOULD check names and values against RFC 9110 §5.1 and §5.5.
 //!     colibri does, so it also refuses a name holding a delimiter such as `"` and a value holding
-//!     a control octet other than NUL, LF and CR.
+//!     a control byte other than NUL, LF and CR.
 //!   - RFC 9110 §8.6 lets a recipient either reject a content-length that repeats one decimal value
 //!     or read one instance of it. colibri reads one instance whether the repeats arrive on two
 //!     lines or as a list on one, because RFC 9110 §5.3 makes those the same message. It refuses a
-//!     repeat whose octets differ, and a value that does not fit a u64.
+//!     repeat whose bytes differ, and a value that does not fit a u64.
 //!
 //! Not checked here:
 //!   - whether content-length equals the sum of the DATA payload lengths (§8.1.1). That check is
@@ -93,10 +93,10 @@ const Seen = message_lines.Seen;
 /// Why a field section is a malformed message. Every one is a stream error of PROTOCOL_ERROR
 /// (RFC 9113 §8.1.1), which `verdict` holds.
 pub const Error = error{
-    /// A regular field name that is empty or holds an uppercase letter, a colon or another octet
+    /// A regular field name that is empty or holds an uppercase letter, a colon or another byte
     /// outside a token (RFC 9113 §8.2.1).
     FieldNameInvalid,
-    /// A field value that holds NUL, LF, CR or another control octet, or starts or ends with SP or
+    /// A field value that holds NUL, LF, CR or another control byte, or starts or ends with SP or
     /// HTAB (RFC 9113 §8.2.1).
     FieldValueInvalid,
     /// A pseudo-header field after a regular field line (RFC 9113 §8.3).

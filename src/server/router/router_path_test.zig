@@ -40,8 +40,8 @@ fn expect_same(target: []const u8) !void {
     try testing.expectEqual(index, segments.count);
 }
 
-/// The octets the exhaustive pass and the fuzz property build targets from: each class of the
-/// pass, a dot, the hex digits of "%2E", "%2F", "%5C" and "%00", and an octet outside pchar.
+/// The bytes the exhaustive pass and the fuzz property build targets from: each class of the
+/// pass, a dot, the hex digits of "%2E", "%2F", "%5C" and "%00", and a byte outside pchar.
 const alphabet = "/?%.a2EeF5C0 x";
 /// The longest target of the exhaustive pass: 14^5 targets.
 const exhaustive_len_max = 5;
@@ -51,7 +51,7 @@ fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const len = smith.slice(&input);
     try expect_same(input[0..len]);
-    // The same octets mapped onto the alphabet, so short inputs reach "%2e" and the dot-segments.
+    // The same bytes mapped onto the alphabet, so short inputs reach "%2e" and the dot-segments.
     var mapped: [fuzz_input_len_max]u8 = undefined;
     for (input[0..len], mapped[0..len]) |octet, *out| out.* = alphabet[octet % alphabet.len];
     try expect_same(mapped[0..len]);
@@ -88,7 +88,7 @@ test "every target of up to five octets of the alphabet reads as the replaced ch
 // 122's amendment of 2026-10-29.
 
 fn old_path_of(target: []const u8) ?[]const u8 {
-    // INV-8: `path_len_max` bounds the octets that one match reads.
+    // INV-8: `path_len_max` bounds the bytes that one match reads.
     if (target.len > constants.limits.path_len_max) return null;
     // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
     // and a query gives the query alone (`Request.path`), so its path is the root.
@@ -114,7 +114,7 @@ fn old_path_of(target: []const u8) ?[]const u8 {
 }
 
 /// Whether `octet` may stand in a path that a route matches: a pchar, or the "%" of a pct-encoded
-/// octet (RFC 3986 §2.1, §3.3).
+/// byte (RFC 3986 §2.1, §3.3).
 fn old_path_octet(octet: u8) bool {
     return router_pattern.path_octets[octet] or octet == percent_sign;
 }
@@ -146,7 +146,7 @@ fn old_segment_matches(segment: []const u8) bool {
 /// Whether `segment` holds a "%" whose two hex digits name "/", "\\" or NUL.
 fn old_encodes_refused_octet(segment: []const u8) bool {
     var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded one.
+    // Bounded: each pass takes one byte of the segment, or three for an encoded one.
     while (index < segment.len) {
         const octet = percent.decoded_at(segment, index) orelse {
             index += 1;
@@ -162,7 +162,7 @@ fn old_encodes_refused_octet(segment: []const u8) bool {
 fn old_is_dot_segment(segment: []const u8) bool {
     var dots: usize = 0;
     var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded dot.
+    // Bounded: each pass takes one byte of the segment, or three for an encoded dot.
     while (index < segment.len) {
         if (segment[index] == '.') {
             index += 1;

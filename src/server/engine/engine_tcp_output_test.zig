@@ -1,6 +1,6 @@
 //! The tests of a TCP socket that sends from its connection's output (decision 176, design §8
-//! step 79): `output_stream` lends the octets where the engine holds them, they stay in place until
-//! `sent_stream`, and the slot of a closed socket ends only after that call. Over TLS the octets
+//! step 79): `output_stream` lends the bytes where the engine holds them, they stay in place until
+//! `sent_stream`, and the slot of a closed socket ends only after that call. Over TLS the bytes
 //! are sealed records, and a `send_stream` after a partial send copies the records left first.
 const std = @import("std");
 const http = @import("http");
@@ -17,13 +17,13 @@ const ok: http.Status = .ok;
 const get_kept = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
 const get_closed = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
 
-/// The octets the transport of one slot carries in a test.
+/// The bytes the transport of one slot carries in a test.
 const carried_max = support.sent[0].len;
-/// A copy of what a lend held, made before the octets move.
+/// A copy of what a lend held, made before the bytes move.
 threadlocal var saved: [carried_max]u8 = undefined;
 
-/// Sends `sent` octets of what the connection lends, as a socket's send takes them: they join what
-/// the transport carried, and `sent_stream` returns the count. Returns the octets lent.
+/// Sends `sent` bytes of what the connection lends, as a socket's send takes them: they join what
+/// the transport carried, and `sent_stream` returns the count. Returns the bytes lent.
 fn send_lent(handle: event.ConnectionHandle, sent: usize) []const u8 {
     const lent = engine.output_stream(handle, support.now_ns);
     const slot = handle.slot;
@@ -48,7 +48,7 @@ fn sends() usize {
 }
 
 /// A cleartext h2 connection that read the client's preface and an open request on stream 1, with
-/// every octet it owed before the request sent. A `send` then lends nothing by itself.
+/// every byte it owed before the request sent. A `send` then lends nothing by itself.
 fn start_h2() !event.ConnectionHandle {
     try support.start(null, .{});
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
@@ -67,10 +67,10 @@ test "decision 176: output_stream lends the octets in place, and sent_stream dro
     const lent = engine.output_stream(handle, support.now_ns);
     try testing.expect(std.mem.endsWith(u8, lent, "first"));
     @memcpy(saved[0..lent.len], lent);
-    // While a send reads the octets, the connection writes after them and moves none.
+    // While a send reads the bytes, the connection writes after them and moves none.
     _ = try engine.write_body(id, .{ .bytes = "second", .end = true });
     try testing.expectEqualSlices(u8, saved[0..lent.len], lent);
-    // A send that took three octets: the rest moves to the front, and the octets written while
+    // A send that took three bytes: the rest moves to the front, and the bytes written while
     // it ran follow.
     engine.sent_stream(handle, 3, support.now_ns);
     const rest = engine.output_stream(handle, support.now_ns);
@@ -185,7 +185,7 @@ test "decision 176: over TLS a close waits for the sealed records, the close_not
     try testing.expect(support.client_saw_alert);
 }
 
-/// h11 content longer than a connection's output, by one octet.
+/// h11 content longer than a connection's output, by one byte.
 const long_content: [@import("../constants.zig").limits.output_len + 1]u8 = @splat('c');
 
 test "decision 176: h11 content past the output is writable once a send took the lent octets" {
@@ -229,7 +229,7 @@ test "decision 176: a TLS session that ended with sealed records left serves its
     try testing.expect(try support.handshake(next));
 }
 
-/// The head of a POST whose body is one octet past the bound, so the server closes in stages
+/// The head of a POST whose body is one byte past the bound, so the server closes in stages
 /// (decision 160).
 const past_bound_head = std.fmt.comptimePrint("POST /a HTTP/1.1\r\nHost: h\r\nContent-Length: {d}\r\n\r\n", .{@import("../constants.zig").limits.discard_len_max + 1});
 
@@ -256,7 +256,7 @@ test "decision 176: a lend before the send starts holds the earlier lend and wha
     const before = sends();
     const first = engine.output_stream(handle, support.now_ns);
     @memcpy(saved[0..first.len], first);
-    // A write after the lend brings a new `send`, for the octets no lend gave.
+    // A write after the lend brings a new `send`, for the bytes no lend gave.
     _ = try engine.write_body(id, .{ .bytes = "more", .end = true });
     support.collect();
     try testing.expectEqual(before + 1, sends());
@@ -264,7 +264,7 @@ test "decision 176: a lend before the send starts holds the earlier lend and wha
     try testing.expectEqual(@intFromPtr(first.ptr), @intFromPtr(second.ptr));
     try testing.expectEqualSlices(u8, saved[0..first.len], second[0..first.len]);
     try testing.expect(std.mem.endsWith(u8, second, "more"));
-    // Every octet owed is lent, so no `send` comes.
+    // Every byte owed is lent, so no `send` comes.
     support.collect();
     try testing.expectEqual(before + 1, sends());
     engine.sent_stream(handle, second.len, support.now_ns);

@@ -220,7 +220,7 @@ test "RFC 9000 §8.1.2: a Retry token returned from another address starts no co
     try testing.expect(!support.server_started);
 }
 
-/// An Initial packet of a few octets, which no datagram may start a connection with. Test-only.
+/// An Initial packet of a few bytes, which no datagram may start a connection with. Test-only.
 threadlocal var short_initial: [short_initial_len_max]u8 = undefined;
 const short_initial_len_max: usize = 64;
 const short_payload_len: usize = 20;
@@ -244,7 +244,7 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     try testing.expect(engine_support.live_connection() == null);
 }
 
-/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
+/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 bytes. Test-only.
 threadlocal var padded_initial: [padded_initial_len]u8 = undefined;
 const padded_initial_len: usize = quic.constants.protocol.datagram_len_max;
 const padded_payload_len: usize = quic.constants.protocol.datagram_len_min;
@@ -253,7 +253,7 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
     for ([_]bool{ false, true }) |with_retry| {
         retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
         try support.start_engine(if (with_retry) &retry else null);
-        // Seven octets is one under the RFC's eight, written apart from the constant it checks.
+        // Seven bytes is one under the RFC's eight, written apart from the constant it checks.
         for ([_]usize{ 0, short_id.len - 1 }) |dcid_len| {
             var writer = quic.core.Writer.init(&padded_initial);
             try quic.packet.header_write.write_long(&writer, .{
@@ -334,7 +334,7 @@ test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID und
     try support.start_engine(&retry);
     // A build that took a short first Destination Connection ID sealed it into its Retry token
     // under the same key, so the token opens: the start checks the ID it names (INV-24). Seven
-    // octets is one under the RFC's eight, written apart from the constant it checks.
+    // bytes is one under the RFC's eight, written apart from the constant it checks.
     for ([_]usize{ 0, short_id.len - 1 }) |original_len| {
         const token = try old_token(short_id[0..original_len]);
         var writer = quic.core.Writer.init(&padded_initial);
@@ -489,7 +489,7 @@ test "decision 110 as amended: an engine refuses, when it starts, deadlines a co
     // A limit of 0 is one `Timeouts.validate` refuses: null says no limit.
     config.timeouts.idle_ns = 0;
     try testing.expectError(error.TimeoutInvalid, engine_support.restart());
-    // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
+    // A body rate of one byte a second is one `validate_units` refuses: twice that rate over a
     // window brings less than a unit.
     config.timeouts = .{ .body_rate_min = 1 };
     try testing.expectError(error.TimeoutInvalid, engine_support.restart());

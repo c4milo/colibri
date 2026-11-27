@@ -27,7 +27,7 @@ pub const Error = peer_module.Error;
 /// Where a QUIC peer is: not yet arrived, running, or driven no more.
 pub const State = enum { away, running, detached };
 
-/// The octets every peer's client and original connection IDs are made of, the last octet of each
+/// The bytes every peer's client and original connection IDs are made of, the last byte of each
 /// naming the peer, and the address every peer sends from, from a port of its own.
 const client_octet: u8 = 0xc1;
 const original_octet: u8 = 0x0d;
@@ -51,7 +51,7 @@ pub const Peer = struct {
     closing: bool,
     random: Random,
 
-    /// The peer's connection IDs, the last octet of each naming it.
+    /// The peer's connection IDs, the last byte of each naming it.
     fn ids_of(index: usize) peer_module.Ids {
         var ids: peer_module.Ids = .{ .client = @splat(client_octet), .original = @splat(original_octet) };
         ids.client[peer_module.id_len - 1] = @intCast(index + 1);

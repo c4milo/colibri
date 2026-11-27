@@ -23,25 +23,25 @@ pub const frame_size_max: u32 = protocol.max_frame_size_initial;
 /// bound invariant 14 names; one past it is a connection error of ENHANCE_YOUR_CALM (§10.5).
 pub const continuation_count_max: u32 = 32;
 
-/// The longest representation of one field line the decoder accepts, in encoded octets. RFC 7541
+/// The longest representation of one field line the decoder accepts, in encoded bytes. RFC 7541
 /// §7.4 asks for limits on integers and on string literals, and colibri's are
 /// `wire.constants.protocol.integer_len_max` and hpack's `name_len_max` and `value_len_max`, in decoded
-/// octets. This is the longest line within all three:
+/// bytes. This is the longest line within all three:
 ///
 /// - two size updates (§4.2), which count toward the block's first line;
-/// - a literal with a literal name, whose first octet carries index 0 in its prefix and so has no
-///   continuation octets (§5.1, §6.2). An indexed name is shorter: one integer replaces that octet,
+/// - a literal with a literal name, whose first byte carries index 0 in its prefix and so has no
+///   continuation bytes (§5.1, §6.2). An indexed name is shorter: one integer replaces that byte,
 ///   the name's length and the name;
 /// - the name's and the value's lengths;
-/// - a name and a value at their limits, each octet at the longest Huffman code (Appendix B).
+/// - a name and a value at their limits, each byte at the longest Huffman code (Appendix B).
 ///
-/// Every integer is at its longest, because §5.1 does not forbid continuation octets that carry
+/// Every integer is at its longest, because §5.1 does not forbid continuation bytes that carry
 /// zeros. A line is measured from the end of the line before it. The measure does not depend on
 /// where the fragments were cut, because RFC 9113 §4.3 makes a field block logically equivalent to
 /// a single frame.
 ///
 /// No line the decoder accepts is longer, so this refuses nothing the field-length limits admit. It
-/// bounds the octets the field-block slot keeps of a line a fragment cut: a cut line whose octets
+/// bounds the bytes the field-block slot keeps of a line a fragment cut: a cut line whose bytes
 /// fed so far are longer is one the decoder would refuse once whole, and is a connection error of
 /// COMPRESSION_ERROR.
 pub const representation_len_max: u32 =
@@ -50,8 +50,8 @@ pub const representation_len_max: u32 =
     wire.huffman.encoded_len_max(hpack.constants.limits.name_len_max) +
     wire.huffman.encoded_len_max(hpack.constants.limits.value_len_max);
 
-/// Octets of the field-block slot's buffer (decision 40 as amended, invariant 14): the octets kept
-/// from a line the last fragment cut, and the octets of the next fragment that finish it, together
+/// Bytes of the field-block slot's buffer (decision 40 as amended, invariant 14): the bytes kept
+/// from a line the last fragment cut, and the bytes of the next fragment that finish it, together
 /// at most `representation_len_max`. Each fragment is decoded where it lies (design §8 step 61a).
 pub const field_block_buffer_len: u32 = representation_len_max;
 
@@ -62,7 +62,7 @@ pub const concurrent_streams_max: u32 = core.constants.limits.streams_per_connec
 
 /// The SETTINGS_MAX_HEADER_LIST_SIZE colibri advertises: the field section it can hold, measured
 /// the way §6.5.2 measures it. Advisory to the peer (§10.5.1); colibri enforces it on the decoded
-/// section and still decodes every octet (invariant 10).
+/// section and still decodes every byte (invariant 10).
 pub const header_list_size_max: u32 = core.constants.limits.field_section_size_max;
 
 /// Most SETTINGS frames colibri has sent and not yet seen acknowledged. A sender that could not

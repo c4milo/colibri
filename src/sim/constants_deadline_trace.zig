@@ -6,14 +6,14 @@ const assert = std.debug.assert;
 
 /// Streams a seed's client opens at most: the model's `StreamCount`.
 pub const streams_max: u32 = 3;
-/// The octets of DATA a request carries, and a response, at most: past two windows of 65,535, so
+/// The bytes of DATA a request carries, and a response, at most: past two windows of 65,535, so
 /// WINDOW_UPDATE frames go both ways and a window can hold a stream. A request may carry none.
 pub const body_len_max: u32 = 150_000;
-/// The octets the application offers write_body at once, at least and at most: the model's
+/// The bytes the application offers write_body at once, at least and at most: the model's
 /// `ProduceStep`.
 pub const produce_step_min: u32 = 1;
 pub const produce_step_max: u32 = 40_000;
-/// The octets in flight toward one endpoint at once, at least and at most: the model's
+/// The bytes in flight toward one endpoint at once, at least and at most: the model's
 /// `ChannelLen`. The least holds one DATA frame of the largest size with its header.
 pub const channel_len_min: u32 = 16_393;
 pub const channel_len_max: u32 = 70_000;
@@ -29,7 +29,7 @@ const actions_per_stream: u32 = 3;
 const actions_per_round_besides_streams: u32 = 4;
 pub const actions_per_round_max: u32 = actions_per_stream * streams_max + actions_per_round_besides_streams;
 /// Frames one direction, or colibri's output, holds at once at most. The run fails a seed that
-/// holds more: a frame is 9 octets at least, but an honest exchange never piles up that many.
+/// holds more: a frame is 9 bytes at least, but an honest exchange never piles up that many.
 pub const frames_max: u32 = 48;
 /// WINDOW_UPDATE frames about streams one endpoint owes at once at most.
 pub const stream_owed_max: u32 = 8;
@@ -40,7 +40,7 @@ pub const receives_per_frame_max: u32 = 8;
 const events_per_stream: u32 = 2;
 pub const events_per_action_max: u32 = events_per_stream * streams_max + 1;
 /// Calls to `write_body` one offer of a response's content makes at most. Each call writes one DATA
-/// frame, of one octet and its header at least, into colibri's output of `output_len` octets, which
+/// frame, of one byte and its header at least, into colibri's output of `output_len` bytes, which
 /// `deadline_trace_world.zig` asserts this covers.
 pub const writes_per_offer_max: u32 = 4_917;
 /// The model's states one run keeps, each differing from the one before: the first, one after
@@ -50,7 +50,7 @@ pub const states_max: u32 = 1 + actions_max + drain_rounds_max * actions_per_rou
 /// few seconds at most, so no deadline passes.
 pub const start_ns: u64 = 1_000_000;
 pub const action_ns: u64 = 1_000_000;
-/// Octets of the TLA+ module one seed's trace is written as: 8 MiB.
+/// Bytes of the TLA+ module one seed's trace is written as: 8 MiB.
 pub const module_len_max: u32 = 8_388_608;
 /// The seeds `sim --deadline-trace-write` writes for TLC, and the model's steps TLC may take
 /// between two logged states: an arrival reads one frame, a hand-out takes one, and the replies

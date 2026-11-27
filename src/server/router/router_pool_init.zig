@@ -1,7 +1,7 @@
 //! The start of a router in place (decision 158 ruling 1,
 //! https://github.com/c4milo/colibri/issues/148). `router.* = .{}` copies the router's whole
 //! default value from a constant of the program's image, each entry's response, body and state
-//! memory too. `init` writes each field that a request reads before it writes it, and no octet of
+//! memory too. `init` writes each field that a request reads before it writes it, and no byte of
 //! an entry's buffers outside Debug.
 const std = @import("std");
 const builtin = @import("builtin");

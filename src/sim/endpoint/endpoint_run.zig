@@ -3,10 +3,10 @@
 //! program that drives the endpoint as docs/usage.md says a program does, in simulated time.
 //!
 //! At each instant the run makes passes until one moves nothing. A pass hands the endpoint the
-//! instant, accepts the TCP peers that wait while a slot is free, passes the endpoint every octet
+//! instant, accepts the TCP peers that wait while a slot is free, passes the endpoint every byte
 //! a socket holds and every datagram a peer sent, reads every event, answers every request that
 //! can be answered, reads every event again, writes every datagram the endpoint owes, and lets
-//! each peer read. The octets a TCP connection did not consume are passed again on the next pass,
+//! each peer read. The bytes a TCP connection did not consume are passed again on the next pass,
 //! so after each event that names it. Every `send` is answered at once (P7). Once a pass moves
 //! nothing, the program checks P6 and P8 (`endpoint_program.zig`), and the run goes to the next
 //! instant something is due.
@@ -69,7 +69,7 @@ pub const Record = struct {
     unserved: u32 = 0,
     /// The endpoint's datagrams to a peer that was driven no more.
     dropped: u32 = 0,
-    /// The CRC-32 of every octet a peer wrote, every octet `send_stream` wrote and every datagram,
+    /// The CRC-32 of every byte a peer wrote, every byte `send_stream` wrote and every datagram,
     /// each before the endpoint or a peer opened it in place.
     wire: std.hash.Crc32 = .init(),
 };
@@ -174,7 +174,7 @@ fn pass_in(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Error
 }
 
 /// The second half: the program answers, makes a stale call now and then, reads the events that
-/// follow, and writes the endpoint's octets and datagrams to the peers, which read them.
+/// follow, and writes the endpoint's bytes and datagrams to the peers, which read them.
 fn pass_out(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
     var moved = try route_module.answer_all(storage);
     if (try stale_maybe(storage, now_ns, now_ms)) moved = true;
@@ -258,7 +258,7 @@ fn give(storage: *Storage, peer: *Peer, now_ns: u64, now_ms: u64) Error!bool {
     const connection = storage.ledger.connection_of(peer.handle).?;
     const stream = &peer.to_server;
     var moved = false;
-    // Bounded: each call consumes an octet or reports an event, or ends the loop.
+    // Bounded: each call consumes a byte or reports an event, or ends the loop.
     for (0..limits.receives_per_stream_max) |_| {
         if (connection.socket != .open or stream.held().len == 0) return moved;
         const input: server.Input = .{ .stream = .{ .connection = peer.handle, .bytes = stream.held() } };

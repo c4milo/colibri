@@ -27,10 +27,10 @@ var server: tls.record.Server align(@alignOf(tls.record.Server)) = undefined;
 var config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 /// The identity and the cookie key the server loads once.
 var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
-/// The octets this run reads from the socket, and the plaintext it opens them into.
+/// The bytes this run reads from the socket, and the plaintext it opens them into.
 var input: check_socket.Input align(@alignOf(check_socket.Input)) = .{};
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
-/// The octets the server writes: one record, or its whole handshake flight, which an ML-DSA-87
+/// The bytes the server writes: one record, or its whole handshake flight, which an ML-DSA-87
 /// identity makes longer than a record.
 var output_storage: [@max(constants.tls_record_buffer_len, constants.tls_flight_len_max)]u8 = undefined;
 
@@ -153,7 +153,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// handshake completes. The socket blocks, which decision 46 permits here: this check serves one
 /// connection and exits, and is not one of design §9's endpoints.
 fn run_handshake(socket: std.c.fd_t) !void {
-    // Bounded: each pass reads at least one octet, and a handshake is a few records.
+    // Bounded: each pass reads at least one byte, and a handshake is a few records.
     for (0..check_socket.handshake_reads_max) |_| {
         try input.read_more(socket);
         const progress = server.handshake(input.unread(), &output_storage) catch |failure| {
@@ -172,7 +172,7 @@ fn run_handshake(socket: std.c.fd_t) !void {
     std.process.exit(exit_failed);
 }
 
-/// Opens one record the peer sealed and seals the same octets back (RFC 9846 §5.2). It is the
+/// Opens one record the peer sealed and seals the same bytes back (RFC 9846 §5.2). It is the
 /// smallest exchange that drives both halves of the record phase.
 fn echo_once(socket: std.c.fd_t) !void {
     const held = server.provider();
@@ -255,9 +255,9 @@ fn usage() noreturn {
 
 /// The address the run listens on. The peer runs on this machine.
 const loopback: [ipv4_octets]u8 = .{ loopback_first, 0, 0, 1 };
-/// How many octets an IPv4 address has (RFC 791 §3.1).
+/// How many bytes an IPv4 address has (RFC 791 §3.1).
 const ipv4_octets: usize = 4;
-/// The first octet of 127.0.0.0/8, which RFC 1122 §3.2.1.3 reserves for the local host.
+/// The first byte of 127.0.0.0/8, which RFC 1122 §3.2.1.3 reserves for the local host.
 const loopback_first: u8 = 127;
 
 /// The radix every number on the command line is written in.

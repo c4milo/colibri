@@ -6,7 +6,7 @@
 //! module embeds at build time, so the check reads no file at run time:
 //!   1. each committed case file holds exactly what its constructor in `corpus_cases.zig` builds;
 //!   2. each committed manifest is exactly what `corpus.render_manifest` writes;
-//!   3. each corpus mutation of `mutations.zig`, applied to the committed octets, produces the
+//!   3. each corpus mutation of `mutations.zig`, applied to the committed bytes, produces the
 //!      verdict it names.
 //! A case added to the table with no file beside it does not compile, so a forgotten
 //! `zig build golden` fails the build.
@@ -21,7 +21,7 @@ pub const mutations = @import("mutations.zig");
 const Writer = core.Writer;
 const Format = corpus.cases.Format;
 
-/// The committed octets of one case, embedded when this module is built.
+/// The committed bytes of one case, embedded when this module is built.
 fn committed_case(comptime format: Format, comptime name: []const u8) []const u8 {
     return @embedFile(@tagName(format) ++ "/" ++ name ++ constants.case_file_extension);
 }
@@ -89,7 +89,7 @@ fn verdict_matches(rejection: ?anyerror, result: corpus.DecodeError!void) !void 
     return result;
 }
 
-/// The committed octets of the case a mutation names, looked up at run time.
+/// The committed bytes of the case a mutation names, looked up at run time.
 fn committed_octets(format: Format, name: []const u8) ![]const u8 {
     inline for (corpus.cases.all) |entry| {
         if (entry.format == format) {

@@ -31,7 +31,7 @@ pub const Error = error{
 const forbidden_trailers = [_][]const u8{ "Content-Length", "Transfer-Encoding", "Host" };
 
 /// `chunk = chunk-size CRLF chunk-data CRLF` around `data`, which is not empty: a zero-size chunk
-/// is the last chunk (RFC 9112 §7.1). Returns the octets written.
+/// is the last chunk (RFC 9112 §7.1). Returns the bytes written.
 pub fn write_chunk(output: []u8, data: []const u8) Error!usize {
     assert(data.len > 0);
     var writer = Writer.init(output);
@@ -47,9 +47,9 @@ fn write_chunk_octets(writer: *Writer, data: []const u8) core.Writer.Error!void 
     try writer.write_bytes("\r\n");
 }
 
-/// `chunk-size CRLF`: the size line of a chunk of `len` octets, whose data and CRLF the caller
+/// `chunk-size CRLF`: the size line of a chunk of `len` bytes, whose data and CRLF the caller
 /// writes after it (RFC 9112 §7.1). `len` is not 0: a zero-size chunk is the last chunk. Returns
-/// the octets written.
+/// the bytes written.
 pub fn write_chunk_size(output: []u8, len: u64) Error!usize {
     assert(len > 0);
     var writer = Writer.init(output);
@@ -64,7 +64,7 @@ fn write_size_octets(writer: *Writer, len: u64) core.Writer.Error!void {
 }
 
 /// `last-chunk trailer-section CRLF`, where `last-chunk = 1*("0") CRLF` (RFC 9112 §7.1, §7.1.2).
-/// Returns the octets written.
+/// Returns the bytes written.
 pub fn write_last_chunk(output: []u8, trailers: []const Field) Error!usize {
     for (trailers) |line| {
         // RFC 9110 §5.1: field-name = token.

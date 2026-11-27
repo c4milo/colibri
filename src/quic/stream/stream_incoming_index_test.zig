@@ -1,7 +1,7 @@
 //! The tests that hold `stream_incoming.zig`'s index to the list it replaced (decision 61 as
 //! amended on 2026-10-17). The list is kept here as the reference: each stream's blocks in offset
 //! order, found by a walk from its first. Random writes, reads, peeks, discards and releases over
-//! several streams must give the same octets, the same ends and the same free blocks from both,
+//! several streams must give the same bytes, the same ends and the same free blocks from both,
 //! and no bucket's chain may hold more blocks than there are streams that hold any.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -98,7 +98,7 @@ var sides: [streams_len]Side align(@alignOf(Side)) = undefined;
 var next_id: u64 = 0;
 const id_step: u64 = 4;
 
-/// The octet at each offset of each stream, so an octet read from the wrong place shows.
+/// The byte at each offset of each stream, so a byte read from the wrong place shows.
 fn octet_at(stream_id: u64, offset: u64) u8 {
     return @truncate(offset *% octet_stride +% stream_id);
 }
@@ -145,7 +145,7 @@ fn take_id() u64 {
     return id;
 }
 
-/// Writes octets inside the stream's window on both sides, as flow control admits them.
+/// Writes bytes inside the stream's window on both sides, as flow control admits them.
 fn write(storage: stream_incoming.Storage, side: *Side, draw: *Draw) !void {
     const offset = side.read + draw.below(capacity);
     const len = @min(1 + draw.below(write_len_max), side.read + capacity - offset);
@@ -154,7 +154,7 @@ fn write(storage: stream_incoming.Storage, side: *Side, draw: *Draw) !void {
     try side.list.write(side.id, side.read, offset, frame[0..len]);
 }
 
-/// Reads or peeks on both sides, and fails at the first octet that differs.
+/// Reads or peeks on both sides, and fails at the first byte that differs.
 fn copy(storage: stream_incoming.Storage, side: *Side, draw: *Draw, take: bool) !void {
     const len = 1 + draw.below(capacity);
     const got = if (take)

@@ -1,5 +1,5 @@
 //! QUIC packets: the version-independent reader of RFC 8999, packet number coding, and the
-//! version 1 headers of RFC 9000 §17. Frames are not here; a packet's payload is opaque octets
+//! version 1 headers of RFC 9000 §17. Frames are not here; a packet's payload is opaque bytes
 //! until its protection is removed.
 const std = @import("std");
 

@@ -12,7 +12,7 @@
 // connection resumed a session (RFC 9846 §2.2).
 //
 // It sends every request of its plan at once: GETs, and a POST whose content is past the
-// 65,535-octet window an h2 stream starts with (RFC 9113 §6.9.2), so in h2 it finishes only if
+// 65,535-byte window an h2 stream starts with (RFC 9113 §6.9.2), so in h2 it finishes only if
 // the server sends WINDOW_UPDATE frames. In h2 they share one connection; in HTTP/1.1 Go opens
 // as many as it needs. colibri's server answers every request with 200 and "colibri\n", in the
 // protocol asked for, and the run requires exactly that of each.
@@ -41,7 +41,7 @@ const expectedBody = "colibri\n"
 // allow at least.
 const gets = 64
 
-// Octets of the POST's content, whose octet i is i % 251.
+// Bytes of the POST's content, whose byte i is i % 251.
 const contentLen = 300000
 const period = 251
 

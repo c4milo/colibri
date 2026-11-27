@@ -21,7 +21,7 @@ pub const Format = enum {
     /// Negotiation packet.
     quic_invariant,
     /// A whole datagram, read packet by packet by the version 1 reader (RFC 9000 §17, §12.2), at
-    /// an endpoint whose connection IDs are the case's `connection_id_len` octets long.
+    /// an endpoint whose connection IDs are the case's `connection_id_len` bytes long.
     quic_packet,
     /// A whole datagram, walked by the version 1 receive path at a client in the case's
     /// `receive_state` (`corpus_receive.zig`). Its verdict is the first packet's discard, or the
@@ -54,9 +54,9 @@ pub const ReceiveState = enum {
     integrity_exhausted,
 };
 
-/// How a case's octets are made.
+/// How a case's bytes are made.
 pub const Construction = union(enum) {
-    /// Octets as the case gives them: an invalid encoding no encoder produces.
+    /// Bytes as the case gives them: an invalid encoding no encoder produces.
     literal: []const u8,
     /// `wire.varint.encode_with_len`.
     varint: struct { value: u64, encoded_len: u8 },
@@ -70,7 +70,7 @@ pub const Construction = union(enum) {
         coding: wire.string_literal.Coding,
         high_bits: u8 = 0,
     },
-    /// The octets of another case in the same format, less the last `drop`.
+    /// The bytes of another case in the same format, less the last `drop`.
     truncated: struct { case_name: []const u8, drop: u8 },
 };
 
@@ -82,18 +82,18 @@ pub const Case = struct {
     /// The dynamic table capacity an hpack case's decoder starts with. Unused by the other
     /// formats.
     capacity: u32 = 4096,
-    /// Octets of the connection IDs the endpoint reading a quic_packet case issued, which a short
+    /// Bytes of the connection IDs the endpoint reading a quic_packet case issued, which a short
     /// header does not carry (RFC 8999 §5.2). Unused by the other formats.
     connection_id_len: u8 = 0,
     /// The client a quic_receive case's datagram arrives at. Unused by the other formats.
     receive_state: ReceiveState = .complete,
     construction: Construction,
-    /// Null when the case must decode and consume every octet; otherwise the error its decoder
+    /// Null when the case must decode and consume every byte; otherwise the error its decoder
     /// must return.
     rejection: ?anyerror = null,
 };
 
-/// A case that must decode and consume every octet.
+/// A case that must decode and consume every byte.
 fn accept(name: []const u8, construction: Construction) Case {
     return .{ .name = name, .construction = construction };
 }
@@ -117,14 +117,14 @@ fn at_capacity(capacity: u32, case: Case) Case {
     return result;
 }
 
-/// `case`, read by an endpoint whose connection IDs are `connection_id_len` octets long.
+/// `case`, read by an endpoint whose connection IDs are `connection_id_len` bytes long.
 fn at_connection_id_len(connection_id_len: u8, case: Case) Case {
     var result = case;
     result.connection_id_len = connection_id_len;
     return result;
 }
 
-/// The octets of the case named `case_name`, less the last one.
+/// The bytes of the case named `case_name`, less the last one.
 fn truncated_from(case_name: []const u8) Construction {
     return .{ .truncated = .{ .case_name = case_name, .drop = 1 } };
 }
@@ -144,7 +144,7 @@ pub const varint = [_]Case{
     accept("varint_8_octets_max", .{
         .varint = .{ .value = wire.constants.protocol.varint_value_max, .encoded_len = 8 },
     }),
-    // One truncation per length: the first octet declares more octets than are present.
+    // One truncation per length: the first byte declares more bytes than are present.
     reject("varint_empty", .{ .literal = &.{} }, error.Truncated),
     reject("varint_2_octets_truncated", truncated_from("varint_2_octets_15293"), error.Truncated),
     reject(
@@ -180,7 +180,7 @@ pub const prefixed_integer = [_]Case{
     at_prefix(1, reject("prefixed_integer_1_bit_too_large", .{
         .literal = &.{ 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f },
     }, error.IntegerTooLarge)),
-    // A full prefix and nine zero-valued continuation octets that each set the continuation flag.
+    // A full prefix and nine zero-valued continuation bytes that each set the continuation flag.
     at_prefix(5, reject("prefixed_integer_5_bit_too_long", .{
         .literal = &.{ 0x1f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00 },
     }, error.IntegerTooLong)),
@@ -195,7 +195,7 @@ pub const huffman = [_]Case{
     // RFC 7541 Appendix C.4.1 and C.4.2.
     accept("huffman_www_example_com", .{ .huffman = "www.example.com" }),
     accept("huffman_no_cache", .{ .huffman = "no-cache" }),
-    // Octets 204 and 22: a run of thirty-four ones with no EOS in it (decision 11, invariant 12).
+    // Bytes 204 and 22: a run of thirty-four ones with no EOS in it (decision 11, invariant 12).
     accept("huffman_octets_204_22", .{ .huffman = &.{ 0xcc, 0x16 } }),
     accept("huffman_empty", .{ .huffman = "" }),
     // One case per decode error of RFC 7541 §5.2.
@@ -220,7 +220,7 @@ pub const string_literal = [_]Case{
     accept("string_literal_huffman_www_example_com", .{
         .string_literal = .{ .text = "www.example.com", .coding = .huffman },
     }),
-    // RFC 9204 §4.1.2's mid-octet form: a 4-bit prefix below four bits of the previous field, and
+    // RFC 9204 §4.1.2's mid-byte form: a 4-bit prefix below four bits of the previous field, and
     // the narrowest, a 2-bit prefix.
     at_prefix(4, accept("string_literal_4_bit_huffman_no_cache", .{
         .string_literal = .{ .text = "no-cache", .coding = .huffman, .high_bits = 0x20 },
@@ -263,19 +263,19 @@ pub const hpack = [_]Case{
     reject("hpack_size_update_above_limit", .{ .literal = "\x3f\xe2\x1f" }, error.SizeUpdateTooLarge),
 };
 
-/// A connection ID one octet past the 20 version 1 permits (RFC 9000 §17.2), and one at it.
+/// A connection ID one byte past the 20 version 1 permits (RFC 9000 §17.2), and one at it.
 const connection_id_21 = [_]u8{0xd1} ** 21;
 const connection_id_20 = [_]u8{0xd1} ** 20;
 
 /// A long header of version 0x00000002, which no endpoint here knows, with both connection IDs 21
-/// octets long. One octet away from version 1, so a mutation can move it there.
+/// bytes long. One byte away from version 1, so a mutation can move it there.
 const unknown_version_long_ids = [_]u8{ 0xc0, 0x00, 0x00, 0x00, 0x02, 21 } ++ connection_id_21 ++
     [_]u8{21} ++ [_]u8{0x5c} ** 21 ++ [_]u8{ 0x01, 0x02, 0x03 };
 
 /// A Version Negotiation packet offering version 1 and a reserved version (RFC 9000 §15).
 const version_negotiation_two = [_]u8{ 0x80, 0, 0, 0, 0, 1, 0xaa, 1, 0xbb, 0, 0, 0, 1, 0x1a, 0x2a, 0x3a, 0x4a };
 
-/// A version 1 Handshake packet: connection IDs of 2 and 1 octets, and a Length of 5.
+/// A version 1 Handshake packet: connection IDs of 2 and 1 bytes, and a Length of 5.
 const handshake_packet = [_]u8{ 0xe0, 0, 0, 0, 1, 2, 0xaa, 0xbb, 1, 0xcc, 5, 1, 2, 3, 4, 5 };
 
 /// RFC 9001 Appendix A.4's Retry packet, as published.
@@ -287,7 +287,7 @@ const retry_packet = [_]u8{
 
 pub const quic_invariant = [_]Case{
     // Invariant 22, RFC 9000 §17.2.1: before the version is known, no connection ID the length
-    // octet can carry is refused, because a version 1 rule must not decide whether a Version
+    // byte can carry is refused, because a version 1 rule must not decide whether a Version
     // Negotiation packet is sent.
     accept("quic_invariant_unknown_version_ids_21", .{ .literal = &unknown_version_long_ids }),
     accept("quic_invariant_reserved_version_dcid_21", .{
@@ -303,7 +303,7 @@ pub const quic_invariant = [_]Case{
         .literal = &.{ 0x80, 0, 0, 0, 0, 1, 0xaa, 1, 0xbb },
     }, error.NoSupportedVersion),
     reject("quic_invariant_version_negotiation_cut", truncated_from("quic_invariant_version_negotiation"), error.TruncatedSupportedVersion),
-    // RFC 8999 §5.1: a connection ID cut short of its length octet.
+    // RFC 8999 §5.1: a connection ID cut short of its length byte.
     reject("quic_invariant_scid_truncated", .{
         .truncated = .{ .case_name = "quic_invariant_unknown_version_ids_21", .drop = 4 },
     }, error.Truncated),
@@ -327,7 +327,7 @@ pub const quic_packet = [_]Case{
     // RFC 9000 §17.2.1: a long header of another version is handed over, whatever its
     // connection IDs, so the server can answer it.
     accept("quic_packet_other_version_ids_21", .{ .literal = &unknown_version_long_ids }),
-    // RFC 9000 §17.2: 20 octets is the most version 1 permits, and 21 MUST be dropped.
+    // RFC 9000 §17.2: 20 bytes is the most version 1 permits, and 21 MUST be dropped.
     accept("quic_packet_dcid_20", .{
         .literal = &([_]u8{ 0xc0, 0, 0, 0, 1, 20 } ++ connection_id_20 ++ [_]u8{ 0, 0, 1, 9 }),
     }),
@@ -344,20 +344,20 @@ pub const quic_packet = [_]Case{
     at_connection_id_len(4, reject("quic_packet_short_fixed_bit_clear", .{
         .literal = &.{ 0x01, 0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02 },
     }, error.FixedBitClear)),
-    // RFC 9001 Appendix A.2's client Initial header alone: its Length counts 1182 octets that
+    // RFC 9001 Appendix A.2's client Initial header alone: its Length counts 1182 bytes that
     // are not here (RFC 9000 §12.2).
     reject("quic_packet_length_past_datagram", .{
         .literal = "\xc3\x00\x00\x00\x01\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x44\x9e\x00\x00\x00\x02",
     }, error.LengthPastDatagram),
-    // RFC 9000 §17.2.2: a Token Length of 128 over three octets.
+    // RFC 9000 §17.2.2: a Token Length of 128 over three bytes.
     reject("quic_packet_token_past_datagram", .{
         .literal = &.{ 0xc0, 0, 0, 0, 1, 0, 0, 0x40, 0x80, 1, 2, 3 },
     }, error.Truncated),
-    // RFC 9000 §17.2.5: fifteen octets after the connection IDs cannot hold the 16-octet tag.
+    // RFC 9000 §17.2.5: fifteen bytes after the connection IDs cannot hold the 16-byte tag.
     reject("quic_packet_retry_tag_cut", .{
         .truncated = .{ .case_name = "quic_packet_retry_rfc9001_a4", .drop = 6 },
     }, error.RetryTagMissing),
-    // RFC 9000 §17.2.5.2: sixteen octets after them are all tag, which leaves no token.
+    // RFC 9000 §17.2.5.2: sixteen bytes after them are all tag, which leaves no token.
     reject("quic_packet_retry_token_empty", .{
         .truncated = .{ .case_name = "quic_packet_retry_rfc9001_a4", .drop = 5 },
     }, error.RetryTokenEmpty),
@@ -374,7 +374,7 @@ fn in_state(state: ReceiveState, case: Case) Case {
     return result;
 }
 
-/// The last octet of a quic_receive packet's 16-octet tag, which names the keys that open it
+/// The last byte of a quic_receive packet's 16-byte tag, which names the keys that open it
 /// (`corpus_receive.zig`). Any other value is a packet no key opens (RFC 9001 §5.5).
 pub const marker_current: u8 = 0x11;
 pub const marker_next: u8 = 0x22;
@@ -382,18 +382,18 @@ pub const marker_previous: u8 = 0x33;
 const marker_none: u8 = 0x44;
 
 /// The connection IDs quic_receive packets carry: the client's own, the server's, and another.
-/// One octet each, the least RFC 9000 §17.2 lets colibri issue, so two long headers and their
+/// One byte each, the least RFC 9000 §17.2 lets colibri issue, so two long headers and their
 /// tags fit in one case.
 pub const receive_client_id = [_]u8{0x0c};
 const receive_server_id = [_]u8{0x5e};
 const receive_other_id = [_]u8{0x77};
 
-/// The tag of a quic_receive packet: fifteen octets that say nothing and the marker.
+/// The tag of a quic_receive packet: fifteen bytes that say nothing and the marker.
 fn receive_tag(marker: u8) [16]u8 {
     return [_]u8{0} ** 15 ++ [_]u8{marker};
 }
 
-/// A version 1 Initial packet to the client: no token, a Length of eighteen, the number, one octet
+/// A version 1 Initial packet to the client: no token, a Length of eighteen, the number, one byte
 /// of PADDING and the tag (RFC 9000 §17.2.2).
 fn receive_initial(dcid: [1]u8, scid: [1]u8, number: u8, marker: u8) [29]u8 {
     return [_]u8{ 0xc0, 0, 0, 0, 1, 1 } ++ dcid ++ [_]u8{1} ++ scid ++ [_]u8{ 0, 18, number, 0 } ++ receive_tag(marker);

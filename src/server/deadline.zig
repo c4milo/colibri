@@ -19,7 +19,7 @@ pub const Timeout = enum {
     body_rate,
     /// A request body did not end within the cap on it.
     body,
-    /// The peer took the connection's octets, or in h2 opened a stream's window, under the
+    /// The peer took the connection's bytes, or in h2 opened a stream's window, under the
     /// minimum rate.
     send_rate,
     /// The h2 peer did not acknowledge colibri's SETTINGS within `settings_timeout_ns` (RFC 9113
@@ -31,30 +31,30 @@ pub const Timeout = enum {
 
 /// Each deadline's limit, or null to turn it off.
 ///
-/// A body arrives a unit at a time: an h2 DATA frame, or a TLS record, of up to 16,384 octets.
+/// A body arrives a unit at a time: an h2 DATA frame, or a TLS record, of up to 16,384 bytes.
 /// spec/lean/Colibri/Server/RateMeter.lean proves the exact bound. A peer that sends whole units at
 /// twice the minimum rate or more, and starts before the grace period ends, is never short in a
 /// window exactly when twice the rate over one window is a whole unit or more. The bound is on the
 /// rate times the window before the quota rounds it up: a quota rounded up to half a unit can fall
-/// short, and one of half a unit and one octet cannot. The defaults' 10,240 octets are past it. A
+/// short, and one of half a unit and one byte cannot. The defaults' 10,240 bytes are past it. A
 /// server whose bodies arrive in units refuses a body rate under the bound (`validate_units`,
-/// decision 110 as amended), and an h11 connection in cleartext, which reads a body octet by
-/// octet, keeps any rate.
+/// decision 110 as amended), and an h11 connection in cleartext, which reads a body byte by
+/// byte, keeps any rate.
 pub const Timeouts = struct {
     first_request_ns: ?u64 = constants.policy.first_request_timeout_ns,
     idle_ns: ?u64 = constants.policy.idle_timeout_ns,
     head_ns: ?u64 = constants.policy.head_timeout_ns,
-    /// The octets a second a request body brings at least, over each window.
+    /// The bytes a second a request body brings at least, over each window.
     body_rate_min: ?u32 = constants.policy.body_rate_min,
     /// The first window of a rate takes this more, and each window lasts this long.
     rate_grace_ns: u64 = constants.policy.rate_grace_ns,
     rate_window_ns: u64 = constants.policy.rate_window_ns,
     /// The longest a request body takes to arrive, from the end of its head.
     body_ns: ?u64 = constants.policy.body_timeout_ns,
-    /// The octets a second the peer takes of what the connection sends, at least, over each
+    /// The bytes a second the peer takes of what the connection sends, at least, over each
     /// window, and in h2 of what a stream's window lets through.
     send_rate_min: ?u32 = constants.policy.send_rate_min,
-    /// How long a connection that has ended waits for its last octets to go out before it closes.
+    /// How long a connection that has ended waits for its last bytes to go out before it closes.
     linger_ns: ?u64 = constants.policy.close_linger_ns,
     /// How long the requests a connection holds have after `shutdown` before it closes. Over
     /// QUIC it also bounds how long a connection its first-request or idle deadline ended waits
@@ -89,20 +89,20 @@ pub const Timeouts = struct {
         if (!fits_unit(rate, deadlines.rate_window_ns)) return error.TimeoutInvalid;
     }
 
-    /// The octets a window must bring for the body rate, at least 1, or null with no rate.
+    /// The bytes a window must bring for the body rate, at least 1, or null with no rate.
     pub fn body_quota(deadlines: *const Timeouts) ?u64 {
         const rate = deadlines.body_rate_min orelse return null;
         return quota(rate, deadlines.rate_window_ns);
     }
 
-    /// The octets the peer must take each window for the send rate, at least 1, or null.
+    /// The bytes the peer must take each window for the send rate, at least 1, or null.
     pub fn send_quota(deadlines: *const Timeouts) ?u64 {
         const rate = deadlines.send_rate_min orelse return null;
         return quota(rate, deadlines.rate_window_ns);
     }
 };
 
-/// The octets `rate` octets a second bring over `window_ns`, rounded up so a window always owes
+/// The bytes `rate` bytes a second bring over `window_ns`, rounded up so a window always owes
 /// one at least.
 pub fn quota(rate: u32, window_ns: u64) u64 {
     assert(rate > 0 and window_ns > 0);
@@ -122,8 +122,8 @@ pub fn quota(rate: u32, window_ns: u64) u64 {
     return octets;
 }
 
-/// Whether `honest_rate_factor` times `rate` octets a second over `window_ns` bring a whole unit
-/// of `body_unit_len` octets or more. spec/lean/Colibri/Server/RateMeter.lean's `never_short_iff`
+/// Whether `honest_rate_factor` times `rate` bytes a second over `window_ns` bring a whole unit
+/// of `body_unit_len` bytes or more. spec/lean/Colibri/Server/RateMeter.lean's `never_short_iff`
 /// proves an honest peer never falls short in a window exactly when they do (`fitsUnit`).
 pub fn fits_unit(rate: u32, window_ns: u64) bool {
     assert(rate > 0 and window_ns > 0);
@@ -153,13 +153,13 @@ test "decision 110: a window owes the rate times its length, rounded up" {
     try testing.expectEqual(10_240, (Timeouts{}).body_quota().?);
     try testing.expectEqual(10_240, (Timeouts{}).send_quota().?);
     try testing.expectEqual(null, (Timeouts{ .body_rate_min = null }).body_quota());
-    // Half an octet rounds up to one.
+    // Half a byte rounds up to one.
     try testing.expectEqual(1, quota(1, constants.nanoseconds_per_second / 2));
     try testing.expectEqual(3, quota(2, constants.nanoseconds_per_second + 1));
 }
 
 test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
-    // Twice 819 octets a second over 10 s windows is 16,380 octets, under a unit of 16,384, and
+    // Twice 819 bytes a second over 10 s windows is 16,380 bytes, under a unit of 16,384, and
     // twice 820 is over it.
     try testing.expect(!fits_unit(819, constants.policy.rate_window_ns));
     try testing.expect(fits_unit(820, constants.policy.rate_window_ns));
@@ -174,13 +174,13 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
 test "a quota whose product fits 64 bits but not its rounding takes the 128-bit form" {
     // 4,294,967,295 times 4,294,967,297 is 2^64 - 1, so adding the rounding would overflow.
     try testing.expectEqual(18_446_744_074, quota(std.math.maxInt(u32), std.math.maxInt(u32) + 2));
-    // One octet a second over a window one nanosecond short of the bound still fits.
+    // One byte a second over a window one nanosecond short of the bound still fits.
     try testing.expectEqual(18_446_744_073, quota(1, std.math.maxInt(u64) - constants.nanoseconds_per_second + 1));
 }
 
 test "decision 77: every quota vector of spec/lean is this quota" {
     // spec/lean/Colibri/Server/RateMeter.lean proves its theorems about this rounding, and its
-    // outputs over the rates and windows below are here: each side of an octet a window and of a
+    // outputs over the rates and windows below are here: each side of a byte a window and of a
     // second, the defaults, and the largest rate over a day.
     var lines = std.mem.splitScalar(u8, @embedFile("rate_vectors.txt"), '\n');
     var count: usize = 0;
@@ -200,7 +200,7 @@ test "decision 77: every quota vector of spec/lean is this quota" {
 
 test "decision 77: every unit vector of spec/lean is this bound" {
     // spec/lean/Colibri/Server/RateMeter.lean's `fitsUnit` is `never_short_iff`'s condition, for
-    // units of 16,384 octets, over the rates and windows of the quota vectors and each side of the
+    // units of 16,384 bytes, over the rates and windows of the quota vectors and each side of the
     // bound at the default window.
     var lines = std.mem.splitScalar(u8, @embedFile("rate_vectors.txt"), '\n');
     var count: usize = 0;

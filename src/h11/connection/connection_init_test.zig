@@ -1,5 +1,5 @@
 //! The test that `Connection.init` writes every field that code reads. A server's connection
-//! leaves its h11 session's payload unfilled (`server`'s `make_h11_session`). So the octets
+//! leaves its h11 session's payload unfilled (`server`'s `make_h11_session`). So the bytes
 //! `init` leaves are what the storage held before.
 const std = @import("std");
 const connection_module = @import("connection.zig");
@@ -10,7 +10,7 @@ const testing = std.testing;
 
 /// The parts of a connection that `init` leaves as they were. Code writes each part before it
 /// reads it. The ring of outstanding requests holds an entry once `outstanding_len` counts it.
-/// Each field section holds an octet once `octets_len` counts it, and a line once `count` does.
+/// Each field section holds a byte once `octets_len` counts it, and a line once `count` does.
 /// Test-only.
 const storage_left_by_init = [_][]const u8{
     "outstanding", "section.octets", "section.lines", "trailers.octets", "trailers.lines",
@@ -20,7 +20,7 @@ const storage_left_by_init = [_][]const u8{
 var over_zeros: Connection align(@alignOf(Connection)) = undefined;
 var over_ones: Connection align(@alignOf(Connection)) = undefined;
 
-/// Fails, naming the field, when a field of `T` at any depth holds different octets in `zeros`
+/// Fails, naming the field, when a field of `T` at any depth holds different bytes in `zeros`
 /// and `ones`, other than the storage `init` leaves.
 fn expect_written(comptime T: type, zeros: *const T, ones: *const T, comptime path: []const u8) !void {
     inline for (storage_left_by_init) |left| {

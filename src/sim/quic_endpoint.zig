@@ -9,7 +9,7 @@
 //! - It moves each later level's keys from the provider to the suite when the handshake reaches
 //!   that level (§4.1.4), which the null provider does through its `suite` field. colibri reads
 //!   them from the suite on its own (decision 62).
-//! - It keeps the octets of the stream it sends (decision 57), and places the pool the octets it
+//! - It keeps the bytes of the stream it sends (decision 57), and places the pool the bytes it
 //!   receives wait in (decision 61).
 //! - It names each datagram's peer address, and gives colibri PATH_CHALLENGE data when the path
 //!   moves (decision 72).
@@ -32,12 +32,12 @@ const StreamProvider = quic.StreamProvider;
 pub const Error = quic.Connection.ReceiveError || quic.Connection.SendError || quic.connection_recovery.Error ||
     quic.Connection.StreamSendError || quic.Connection.OpenStreamError || quic.Connection.StreamReadError ||
     error{
-        /// The server read an octet of the client's stream other than the one the client sent.
+        /// The server read a byte of the client's stream other than the one the client sent.
         TransferOctetWrong,
     };
 
 /// The connection IDs of the run: the client's, the server's, and the one the client addresses its
-/// first Initial to, which both derive the Initial keys from (RFC 9001 §5.2). Fixed octets, so a
+/// first Initial to, which both derive the Initial keys from (RFC 9001 §5.2). Fixed bytes, so a
 /// seed replays (invariant 5).
 const id_len: usize = 8;
 const client_octet: u8 = 0xc1;
@@ -57,14 +57,14 @@ pub const h3_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.htt
 /// connection ID, which quic-events §1.1 recommends.
 pub fn start_log(log: *quic.qlog.Log, buffer: []u8, role: Role, event_schemas: []const []const u8, now_ns: u64) void {
     // The simulator takes stdx's scalar paths, as its h11 coding check does. The records are the
-    // same octets for every value (stdx's invariant 5).
+    // same bytes for every value (stdx's invariant 5).
     log.* = quic.qlog.Log.init(buffer, quic.qlog.CpuFeatures.none());
     const trace: quic.qlog.Trace = .{
         .vantage_point = if (role == .client) .client else .server,
         .group_id = &original_id,
         .event_schemas = event_schemas,
     };
-    // `Log.init` asserts `log_len_min` octets, which the header of an 8-octet group ID fits.
+    // `Log.init` asserts `log_len_min` bytes, which the header of an 8-byte group ID fits.
     log.start(trace, now_ns) catch unreachable;
 }
 
@@ -75,7 +75,7 @@ const connection_window: u64 = 131_072;
 const streams_granted: u64 = 1;
 const idle_timeout_ms: u64 = 60_000;
 
-/// The octets of the one stream the client sends, and how the octet at each offset is chosen.
+/// The bytes of the one stream the client sends, and how the byte at each offset is chosen.
 /// A run may send fewer (`Endpoint.transfer_len`).
 pub const transfer_len_default: u64 = 16_384;
 /// A request that fits one packet, as an hq-interop or h3 request line does.
@@ -105,18 +105,18 @@ pub const Endpoint = struct {
     output: [sim.constants.network_datagram_len_max]u8,
     /// Whether the client has opened its stream, which it does once the handshake completes.
     transfer_started: bool,
-    /// Whether the peer acknowledged every octet of it, FIN included (RFC 9000 §3.1).
+    /// Whether the peer acknowledged every byte of it, FIN included (RFC 9000 §3.1).
     transfer_done: bool,
-    /// The pool the peer's stream octets wait in (decision 61), and what the server has read of
+    /// The pool the peer's stream bytes wait in (decision 61), and what the server has read of
     /// the client's stream.
     pool: quic.ReceivePool(.{}),
     read_buffer: [sim.constants.network_datagram_len_max]u8,
     transfer_read_len: u64,
     transfer_read: bool,
-    /// The octets of the client's stream, which both endpoints hold: the client supplies that
+    /// The bytes of the client's stream, which both endpoints hold: the client supplies that
     /// many and the server checks them.
     transfer_len: u64,
-    /// Makes the client supply its stream's first octet changed, which a fault test uses to show
+    /// Makes the client supply its stream's first byte changed, which a fault test uses to show
     /// the server's check fires (`quic_connection_check.Fault`).
     supplies_wrong_octet: bool,
     /// How many times the path moved (RFC 9000 §9.3), and how many PATH_CHALLENGE payloads this
@@ -221,14 +221,14 @@ pub const Endpoint = struct {
         return payload;
     }
 
-    /// The server reads what has arrived of the client's stream, and checks each octet against
+    /// The server reads what has arrived of the client's stream, and checks each byte against
     /// the one the client sent at that offset (decision 61).
     fn read_transfer(endpoint: *Endpoint) Error!void {
         if (endpoint.transfer_read) return;
-        // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
+        // Bounded: each read takes at least one byte, and the stream holds `transfer_len`.
         for (0..endpoint.transfer_len + 1) |_| {
             const read = quic.Connection.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
-                // The stream's first octets have not arrived, so the server has not opened it.
+                // The stream's first bytes have not arrived, so the server has not opened it.
                 error.NotReadable => return,
                 else => return failure,
             };
@@ -257,7 +257,7 @@ pub const Endpoint = struct {
         return sent;
     }
 
-    /// Each octet read against the one the client sent at that offset.
+    /// Each byte read against the one the client sent at that offset.
     fn check_octets(endpoint: *const Endpoint, octets: []const u8) Error!void {
         // Bounded by what one read took.
         for (octets, 0..) |octet, index| {
@@ -306,7 +306,7 @@ fn parameters() Parameters {
 
 const stream_vtable: quic.StreamProvider.VTable = .{ .read = supply_transfer };
 
-/// The client's stream, read back by offset. Every call at one offset answers the same octets,
+/// The client's stream, read back by offset. Every call at one offset answers the same bytes,
 /// which RFC 9000 §2.2 asks of a retransmission.
 fn supply_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const endpoint: *const Endpoint = @ptrCast(@alignCast(context));
@@ -318,7 +318,7 @@ fn supply_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u
     return len;
 }
 
-/// The octet of the client's stream at `offset`.
+/// The byte of the client's stream at `offset`.
 fn octet_at(offset: u64) u8 {
     return @truncate(offset *% octet_stride +% octet_seed);
 }
@@ -337,7 +337,7 @@ pub fn network_ecn(ecn: quic.Ecn) sim.network.Ecn {
     };
 }
 
-/// The network's address as colibri names a peer's (decision 72): the host as one octet.
+/// The network's address as colibri names a peer's (decision 72): the host as one byte.
 pub fn peer_address(address: sim.network.Address) quic.PeerAddress {
     return quic.PeerAddress.init(&.{address.host}, address.port);
 }

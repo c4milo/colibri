@@ -2,7 +2,7 @@
 //! values, their defaults and the writer.
 //!
 //! The sequence is read start to end, each parameter an identifier, a length and that many
-//! octets. A parameter colibri does not know is read past, which is what §7.4.2 requires and what
+//! bytes. A parameter colibri does not know is read past, which is what §7.4.2 requires and what
 //! §18.1's reserved identifiers exist to exercise.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -54,8 +54,8 @@ comptime {
 pub fn read(reader: *Reader, sender: Role) Error!Parameters {
     var parameters = Parameters.initial();
     var seen: Seen = .{};
-    // Bounded by the octets: every turn consumes an identifier and a length, each at least one
-    // octet, so the reader runs out.
+    // Bounded by the bytes: every turn consumes an identifier and a length, each at least one
+    // byte, so the reader runs out.
     while (reader.remaining_len() > 0) {
         const id: Id = @enumFromInt(try read_varint(reader));
         const body = try read_sized(reader);
@@ -91,13 +91,13 @@ fn apply(parameters: *Parameters, id: Id, body: []const u8) Error!void {
             parameters.stateless_reset_token = token;
         },
         .disable_active_migration => {
-            // RFC 9000 §18.2: this parameter is included with a zero-length value, so any octet
+            // RFC 9000 §18.2: this parameter is included with a zero-length value, so any byte
             // in it is a value the parameter does not have.
             if (body.len != 0) return Error.ParameterInvalid;
             parameters.disable_active_migration = true;
         },
         // RFC 9000 §9.6 makes using a preferred address a MAY, and decision 21 refuses migration
-        // in both directions, so its octets are read past like any parameter colibri does not use.
+        // in both directions, so its bytes are read past like any parameter colibri does not use.
         .preferred_address => {},
         // RFC 9000 §7.4.2: an endpoint must ignore a transport parameter it does not understand.
         else => {},
@@ -134,7 +134,7 @@ fn apply_connection_id(parameters: *Parameters, id: Id, body: []const u8) Error!
         .retry_source_connection_id => &parameters.retry_source_connection_id,
         else => return false,
     };
-    // RFC 9000 §17.2: a connection ID in version 1 is at most 20 octets, so a longer one is a
+    // RFC 9000 §17.2: a connection ID in version 1 is at most 20 bytes, so a longer one is a
     // value this parameter cannot carry.
     if (body.len > constants.protocol.connection_id_len_max) return Error.ParameterInvalid;
     slot.* = ConnectionId.init(body);
@@ -164,7 +164,7 @@ fn version_information_of(body: []const u8, sender: Role) Error!transport_parame
 /// (RFC 9368 §3), so each entry is checked whether or not it is kept.
 fn read_available(reader: *Reader, info: *transport_parameters.VersionInformation) Error!bool {
     var lists_chosen = false;
-    // Bounded by the octets: every turn takes four.
+    // Bounded by the bytes: every turn takes four.
     while (reader.remaining_len() > 0) {
         const available = reader.take_int_big(u32) catch unreachable;
         // RFC 9368 §4: any Available Version equal to zero is a parsing failure.
@@ -187,7 +187,7 @@ fn integer_of(body: []const u8) Error!u64 {
     var reader = Reader.init(body);
     const value = try read_varint(&reader);
     // RFC 9000 §18: the Length field is the length of the Value field, so an integer parameter
-    // whose length exceeds its integer carries octets the parameter does not define.
+    // whose length exceeds its integer carries bytes the parameter does not define.
     if (reader.remaining_len() != 0) return Error.ParameterInvalid;
     return value;
 }

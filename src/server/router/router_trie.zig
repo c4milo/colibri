@@ -40,9 +40,9 @@ pub const value_part = 2;
 const entry_parts = 3;
 
 /// The comptime branches that the checks and the build use, at most: a fixed part, a part for
-/// each octet of the patterns and of the method tokens times the count of routes, and a part for
+/// each byte of the patterns and of the method tokens times the count of routes, and a part for
 /// each pair of routes. The lookups of the trie, its sorts and the check of repeated routes use
-/// much less than the part for each pair. A test builds a table of 256 routes of 64 octets each
+/// much less than the part for each pair. A test builds a table of 256 routes of 64 bytes each
 /// within this quota (`router_test.zig`).
 const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
@@ -61,7 +61,7 @@ const quota_branches_per_route = 16;
 ///     most, and each pass costs a fixed part. Each pass also reads the segment of its frame to
 ///     find the end of the segment. The search of a literal edge then compares the segment with
 ///     `router_match.search_passes_max` edges at most. So each pass reads the longest segment
-///     once for each comparison and once more. The walk also reads each octet of its path once
+///     once for each comparison and once more. The walk also reads each byte of its path once
 ///     before its first pass. `octets` counts these reads for one walk.
 const quota_branches_per_pair_length_segment = 32;
 const quota_branches_per_walk_step = 32;
@@ -69,7 +69,7 @@ const quota_branches_per_walk_octet = 16;
 
 /// The quota of the check of hidden routes: `quota_of(table)`, the part for `pairs` pairs of
 /// leaves at `lengths` lengths of `segments` segments, and the part for `walks` walks of
-/// `walk_steps` passes each that read `octets` octets each. The value is the largest `u32` at
+/// `walk_steps` passes each that read `octets` bytes each. The value is the largest `u32` at
 /// most, which `@setEvalBranchQuota` takes.
 pub fn hidden_quota_of(comptime table: anytype, comptime counts: HiddenCounts) u32 {
     const compared: u64 = @as(u64, quota_branches_per_pair_length_segment) * counts.pairs * counts.lengths * counts.segments;
@@ -231,14 +231,14 @@ pub fn quota_of(comptime table: anytype) u32 {
     inline for (0..table.len) |index| {
         if (is_entry(@TypeOf(table[index]))) octets += table[index][pattern_part].len + token_len(table[index][method_part]);
     }
-    // The octets of the patterns and of the tokens bound the work of the checks and of the trie.
+    // The bytes of the patterns and of the tokens bound the work of the checks and of the trie.
     const routes = table.len;
     return quota_branches_base + quota_branches_per_octet_route * octets * (routes + 1) +
         quota_branches_per_route_pair * routes * routes;
 }
 
-/// The octets of `method` when it is text, or 0. The check of a token and the Allow value read
-/// each octet of it.
+/// The bytes of `method` when it is text, or 0. The check of a token and the Allow value read
+/// each byte of it.
 fn token_len(comptime method: anytype) usize {
     return if (router_pattern.is_text(@TypeOf(method))) method.len else 0;
 }
@@ -336,7 +336,7 @@ fn insert(merged: anytype, comptime pattern: []const u8) usize {
 }
 
 /// The slot that holds the child of `node` with `segment`, or the empty slot where
-/// `add_child` writes that child. The search starts at a hash of the segment's octets and of
+/// `add_child` writes that child. The search starts at a hash of the segment's bytes and of
 /// `node`, and never reads a pointer (non-negotiable 5).
 fn slot_of(merged: anytype, node: usize, segment: []const u8) usize {
     const start: usize = @intCast((std.hash.Fnv1a_64.hash(segment) ^ node) % merged.slots.len);

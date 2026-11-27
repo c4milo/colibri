@@ -31,7 +31,7 @@ pub const RandomSource = @FieldType(stdx.crypto.Context, "random");
 
 /// The context of one side of a run, whose draws come from `random` (decision 175). It describes
 /// a CPU with no feature, and reads nothing of the host: the simulator tests colibri
-/// deterministically, so one seed replays octet for octet on every host (non-negotiable 5). Every
+/// deterministically, so one seed replays byte for byte on every host (non-negotiable 5). Every
 /// session then holds ChaCha20 alone.
 pub fn crypto(random: RandomSource) stdx.crypto.Context {
     return stdx.crypto.init(.none(), random);

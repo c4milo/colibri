@@ -14,7 +14,7 @@ const recovery = @import("constants_recovery.zig");
 pub const version_information_versions_max: usize = 16;
 
 /// The longest peer address a caller names (decision 72): an IPv6 address, which RFC 4291 §2
-/// makes 128 bits. colibri compares these octets and never reads them otherwise.
+/// makes 128 bits. colibri compares these bytes and never reads them otherwise.
 pub const peer_address_len_max: usize = 16;
 
 /// The peer addresses a connection's qlog holds a tuple number for at once (quic-events §4.7).
@@ -41,52 +41,52 @@ pub const connection_ids_max: usize = 8;
 /// The most packets one datagram can hold (RFC 9000 §12.2), which is what bounds the loop that
 /// walks them. It over-counts on purpose: the divisor is only the Packet Number field, the
 /// payload RFC 9001 §5.4.2 requires beside it and the authentication tag, leaving out every
-/// header octet a real packet also carries. A datagram holds a handful in practice.
+/// header byte a real packet also carries. A datagram holds a handful in practice.
 pub const coalesced_packets_max: usize = @intCast(protocol.datagram_len_max / (protocol.protected_len_min + protocol.aead_tag_len));
 
 /// The most frames one packet can hold, which bounds the walk over a payload. RFC 9000 §19.1
-/// makes PADDING one octet, and no frame is shorter, so a payload holds at most its own length
+/// makes PADDING one byte, and no frame is shorter, so a payload holds at most its own length
 /// in frames. The reader takes a run of PADDING as one frame, so this over-counts too.
 pub const frames_per_packet_max: usize = @intCast(protocol.datagram_len_max);
 
-/// Octets of an Initial packet's Token field colibri will carry (RFC 9000 §17.2.2), and of a
+/// Bytes of an Initial packet's Token field colibri will carry (RFC 9000 §17.2.2), and of a
 /// Retry token a client repeats (§17.2.5.3). Both RFCs bound the field only by the packet that
 /// carries it, so there is nothing to derive it from and
 /// [decision 54](../../docs/decisions.md) rules it: 256 holds the authenticated, address-bound,
 /// expiring token §8.1.1 describes, and the number is a judgement rather than a rule.
 pub const token_len_max: usize = 256;
 
-/// Octets of a Retry packet colibri will act on (RFC 9000 §17.2.5), less its Integrity Tag: byte
-/// 0, the Version, both connection IDs with their length octets, and the Retry Token. It is
+/// Bytes of a Retry packet colibri will act on (RFC 9000 §17.2.5), less its Integrity Tag: byte
+/// 0, the Version, both connection IDs with their length bytes, and the Retry Token. It is
 /// derived from limits already ruled, not a limit of its own: a Retry carrying a longer token is
 /// one colibri could not repeat under §8.1.2, so it is discarded before this is needed.
 pub const retry_len_max: usize = 1 + @sizeOf(u32) + 2 * (1 + protocol.connection_id_len_max) + token_len_max;
 
-/// Octets of the Retry Pseudo-Packet of RFC 9001 §5.8: the Original Destination Connection ID
-/// with its length octet, then the Retry packet less its tag.
+/// Bytes of the Retry Pseudo-Packet of RFC 9001 §5.8: the Original Destination Connection ID
+/// with its length byte, then the Retry packet less its tag.
 pub const retry_pseudo_packet_len_max: usize = 1 + protocol.connection_id_len_max + retry_len_max;
 
-/// Octets of the longest packet header colibri writes (RFC 9000 §17.2): byte 0, the Version, both
-/// connection IDs with their length octets, an Initial's Token Length and Token, the Length field
+/// Bytes of the longest packet header colibri writes (RFC 9000 §17.2): byte 0, the Version, both
+/// connection IDs with their length bytes, an Initial's Token Length and Token, the Length field
 /// and the Packet Number field.
 pub const packet_header_len_max: usize = 1 + @sizeOf(u32) +
     2 * (1 + protocol.connection_id_len_max) +
     wire.constants.protocol.varint_len_max + token_len_max +
     wire.constants.protocol.varint_len_max + protocol.packet_number_len_max;
 
-/// Octets of out-of-order CRYPTO data colibri buffers per encryption level. RFC 9000 §7.5:
+/// Bytes of out-of-order CRYPTO data colibri buffers per encryption level. RFC 9000 §7.5:
 /// "Implementations MUST support buffering at least 4096 bytes of data received in out-of-order
 /// CRYPTO frames." It is the RFC's floor and not a choice of colibri's: in-order data is handed
 /// to the handshake as it arrives and never sits here, so this bounds only what a gap holds.
 /// More than this is a connection error of CRYPTO_BUFFER_EXCEEDED, which §7.5 names for it.
 pub const crypto_buffer_len: usize = 4096;
 
-/// Octets of a block of the receive pool (`stream_incoming.zig`, decision 61). A stream holding
-/// any unread octets holds at least one, so a smaller block wastes less on a stream with little
+/// Bytes of a block of the receive pool (`stream_incoming.zig`, decision 61). A stream holding
+/// any unread bytes holds at least one, so a smaller block wastes less on a stream with little
 /// waiting, and a larger one means fewer blocks for a read to walk.
 pub const stream_receive_block_len: usize = 1024;
 
-/// The receive pool a caller places when it asks for no size in particular, in octets. Decision
+/// The receive pool a caller places when it asks for no size in particular, in bytes. Decision
 /// 61 makes it the cap on the connection's receive window and on each stream's: at a 100 ms
 /// round trip it sustains about 80 Mbit/s per connection.
 pub const receive_pool_len_default: usize = 1_048_576;
@@ -94,16 +94,16 @@ pub const receive_pool_len_default: usize = 1_048_576;
 /// Starting windows of the receive pool that one stream's window leaves free (decision 49 as
 /// amended on 2026-11-06). A stream's receive window grows to the pool's capacity less this many
 /// of its own starting windows. While the connection's credit left to the peer is below as many
-/// starting windows, one consumed octet is worth a MAX_DATA frame. A held stream thus leaves the
+/// starting windows, one consumed byte is worth a MAX_DATA frame. A held stream thus leaves the
 /// other streams this reserve. The unit is the stream's starting window, so a program that sets
 /// a larger window keeps a larger reserve with no second setting.
 pub const stream_window_reserve_windows: u64 = 1;
 
-/// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
+/// Bytes of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
 /// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
 /// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it. The window forgets only
-/// octets the peer acknowledged, so a flight longer than this waits for acknowledgments before
-/// its last octets go out (design §8 step 33e). 16 KiB holds a server's Handshake flight with a
+/// bytes the peer acknowledged, so a flight longer than this waits for acknowledgments before
+/// its last bytes go out (design §8 step 33e). 16 KiB holds a server's Handshake flight with a
 /// 10 KB certificate chain, the one the QUIC Interop Runner's amplification case sends. Three
 /// levels of it sit in every connection, which `Connection` pays for once.
 pub const crypto_send_buffer_len: usize = 16 * 1024;
@@ -131,7 +131,7 @@ pub const stream_ranges_max: usize = 512;
 
 /// Lost stream ranges a connection keeps until they are framed again (RFC 9000 §13.3). Every
 /// range in flight may be lost at once: each packet's first range in its record, and the others
-/// in the ring (decision 131). New octets wait while any range is owed (decision 57). Merging
+/// in the ring (decision 131). New bytes wait while any range is owed (decision 57). Merging
 /// adjacent ranges absorbs the pieces that a smaller packet splits one into.
 pub const stream_lost_ranges_max: usize = sent_packets_max + stream_ranges_max;
 
@@ -140,11 +140,11 @@ pub const stream_lost_ranges_max: usize = sent_packets_max + stream_ranges_max;
 /// timeout is already far past RFC 9000 §10.1's idle timeout, which ends the connection first.
 pub const probe_timeout_backoff_max: u6 = 16;
 
-/// Branches the compiler may take per octet of source and of needle while a comptime check scans
+/// Branches the compiler may take per byte of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;
 
-/// The octets of the 1-RTT packets a server keeps while it waits for the Finished that completes
+/// The bytes of the 1-RTT packets a server keeps while it waits for the Finished that completes
 /// its handshake, and how many packets (RFC 9001 §5.7, https://github.com/c4milo/colibri/issues/153).
 /// The owner ruled them on 2026-11-23: RFC 9002 §7.2's initial congestion window, which bounds
 /// what a client has in flight before its window grows, and the packets of RFC 9000 §14.1's
@@ -164,7 +164,7 @@ comptime {
     assert(stream_frames_per_packet_max > 1 and stream_frames_per_packet_max - 1 <= std.math.maxInt(u8));
     assert(stream_ranges_max >= stream_frames_per_packet_max and stream_ranges_max < std.math.maxInt(u32) / 2);
     assert(stream_lost_ranges_max >= sent_packets_max + stream_ranges_max);
-    // `connection_early.zig` counts the kept packets in a `u8` and their octets in a `u16`.
+    // `connection_early.zig` counts the kept packets in a `u8` and their bytes in a `u16`.
     assert(early_packets_max > 0 and early_packets_max <= std.math.maxInt(u8));
     assert(early_packet_octets_max >= protocol.datagram_len_min and early_packet_octets_max <= std.math.maxInt(u16));
 }

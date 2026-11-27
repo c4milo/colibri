@@ -91,10 +91,10 @@ pub const Answer = struct {
     id: u64,
     path: [path_len_max]u8 = undefined,
     path_len: usize = 0,
-    /// Octets of the request's content the server read, the content-length it named, and whether
+    /// Bytes of the request's content the server read, the content-length it named, and whether
     /// its `:scheme` was https.
     received: usize = 0,
-    /// The CRC-32 of the octets of content the server read, in order.
+    /// The CRC-32 of the bytes of content the server read, in order.
     received_crc: std.hash.Crc32 = .init(),
     content_length: ?u64 = null,
     https: bool = false,
@@ -115,7 +115,7 @@ pub const Answer = struct {
     content: []const u8 = "",
 };
 const path_len_max: usize = 256;
-/// Octets of the server's encoded transport parameters, a content-length and a status code.
+/// Bytes of the server's encoded transport parameters, a content-length and a status code.
 const parameters_len_max: usize = 1024;
 const length_digits_max: usize = 20;
 const status_digits_len: usize = 3;
@@ -143,7 +143,7 @@ pub fn start(client_protocols: []const []const u8, server_protocols: []const []c
     try start_with_pool(client_pool.storage(), client_protocols, server_protocols, tickets);
 }
 
-/// As `start`, with the server's octets held in `receive_pool` until h3 reads them.
+/// As `start`, with the server's bytes held in `receive_pool` until h3 reads them.
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage, client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
     try prepare(client_protocols, server_protocols, tickets);
     try init_connection(receive_pool);

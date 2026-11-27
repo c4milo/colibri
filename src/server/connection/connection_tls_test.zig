@@ -15,14 +15,14 @@ const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04
 /// A HEADERS frame on stream 1 ending it, whose block is the static table's `:method: GET` (2),
 /// `:scheme: https` (7) and `:path: /` (4), each an indexed field line (RFC 7541 §6.1, Appendix A).
 const get_frame = "\x00\x00\x03\x01\x05\x00\x00\x00\x01\x82\x87\x84";
-/// The octets a forged record carries after its header: room for a content type and a 16-octet
+/// The bytes a forged record carries after its header: room for a content type and a 16-byte
 /// tag. Test-only.
 const forged_octets_len: usize = 32;
-/// Octets that are no record chapulin will open: an application_data header over octets no key
+/// Bytes that are no record chapulin will open: an application_data header over bytes no key
 /// sealed (RFC 9846 §5.2). Test-only.
 const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" ** forged_octets_len;
 
-/// A frame's header: a length of three octets, big-endian, then its type and its flags (RFC 9113
+/// A frame's header: a length of three bytes, big-endian, then its type and its flags (RFC 9113
 /// §4.1).
 const length_len: usize = 3;
 const type_index: usize = length_len;
@@ -249,7 +249,7 @@ const post_frame = "\x00\x00\x03\x01\x04\x00\x00\x00\x01\x83\x87\x84";
 test "RFC 9846 §5.2: records open while a frame waits for its last octets, so content arrives whole" {
     try support.start_tls(&support.protocols_both, &support.protocols_h2);
     // The DATA frames start a record, so a whole record holds all of a frame but its last 9
-    // octets, and the next record opens only into room for what follows its header.
+    // bytes, and the next record opens only into room for what follows its header.
     var sealed_len = try support.seal_all(0, client_preface ++ post_frame);
     var writer = h2.core.Writer.init(&upload);
     var content: [h2.constants.limits.frame_size_max]u8 = @splat('u');
@@ -293,7 +293,7 @@ test "RFC 9113 §6.8: a shutdown asked for during the handshake reaches the prot
 }
 
 /// A request whose head nears h11's limit, then its content, which the client seals in records of
-/// an odd size. After two records, 24,000 octets of the head wait in the connection, and the head
+/// an odd size. After two records, 24,000 bytes of the head wait in the connection, and the head
 /// ends in the third record. That record opens only while the connection holds the head's first two
 /// records beside room for a whole record (RFC 9112 §2.1, RFC 9846 §5.2). Test-only.
 /// A request head near the server's limit, `request_head_len_max` (decision 166 as amended), and
@@ -308,7 +308,7 @@ comptime {
 }
 var long_request: [long_head_len + long_content_len]u8 = undefined;
 
-/// The request of `long_head_len` octets of head and `long_content_len` of content. The whitespace
+/// The request of `long_head_len` bytes of head and `long_content_len` of content. The whitespace
 /// before its last field value fills the head: RFC 9112 §5 lets OWS stand there, and RFC 9110
 /// §5.6.3 lets OWS hold any number of SP.
 fn long_request_octets() []const u8 {
@@ -321,8 +321,8 @@ fn long_request_octets() []const u8 {
     return &long_request;
 }
 
-/// Seals `plaintext` as the client's records of `record_len` octets of plaintext, the last one
-/// shorter, from the start of the test input. Returns the octets they take.
+/// Seals `plaintext` as the client's records of `record_len` bytes of plaintext, the last one
+/// shorter, from the start of the test input. Returns the bytes they take.
 fn seal_in_records(plaintext: []const u8, record_len: usize) !usize {
     var sealed_len: usize = 0;
     // Bounded: each pass seals one record.

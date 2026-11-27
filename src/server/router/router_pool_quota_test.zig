@@ -23,7 +23,7 @@ const services = 16;
 const methods = 16;
 const route_count = services * methods;
 
-/// The entries of the pool, octets of each entry's response memory, and the requests the test
+/// The entries of the pool, bytes of each entry's response memory, and the requests the test
 /// sends. Test-only.
 const requests = 2;
 const response_bytes = 64;

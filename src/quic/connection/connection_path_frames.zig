@@ -59,7 +59,7 @@ pub fn apply(connection: *Connection, frame: frame_module.Frame, addressed_to: ?
         .new_connection_id => |held| try take_new_connection_id(connection, held),
         .retire_connection_id => |held| try take_retire(connection, held.sequence_number, addressed_to),
         // RFC 9000 §8.2.2: the response is the send path's to write, and it must carry these
-        // exact octets, so they are what the connection remembers.
+        // exact bytes, so they are what the connection remembers.
         .path_challenge => |held| connection.path.take_challenge(held.data.*),
         .path_response => |held| take_path_response(connection, held.data.*),
         else => {},
@@ -94,7 +94,7 @@ fn take_retire(connection: *Connection, sequence_number: u64, addressed_to: ?u64
     // §19.16: "The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
     // the Destination Connection ID field of the packet in which the frame is contained. The
     // peer MAY treat this as a connection error of type PROTOCOL_VIOLATION." colibri takes the
-    // MAY, because it holds the octets that answer it (§5.1.1) and design §8 step 9c already
+    // MAY, because it holds the bytes that answer it (§5.1.1) and design §8 step 9c already
     // settled that colibri answers an optional check it has the state for.
     try connection.local_ids.retire(sequence_number, addressed_to);
 }

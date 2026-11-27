@@ -3,13 +3,13 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// RFC 9846 §5.1: the length of TLSPlaintext.fragment MUST NOT exceed 2^14 octets.
+/// RFC 9846 §5.1: the length of TLSPlaintext.fragment MUST NOT exceed 2^14 bytes.
 pub const record_plaintext_len_max: u32 = 1 << 14;
 
 /// The ContentType, the legacy record version and the length (RFC 9846 §5.1).
 pub const record_header_len: u32 = 5;
 
-/// RFC 9846 §5.2: the length of TLSCiphertext.length MUST NOT exceed 2^14 + 256 octets, which is
+/// RFC 9846 §5.2: the length of TLSCiphertext.length MUST NOT exceed 2^14 + 256 bytes, which is
 /// the plaintext, the content type and the AEAD tag.
 pub const record_ciphertext_len_max: u32 = (1 << 14) + 256;
 
@@ -41,17 +41,17 @@ pub const group_secp256r1: u16 = 0x0017;
 pub const group_x25519: u16 = 0x001D;
 pub const group_x25519_mlkem768: u16 = 0x11EC;
 
-/// RFC 7301 §3.1: a ProtocolName is `opaque ProtocolName<1..2^8-1>`, so it is at most 255 octets.
+/// RFC 7301 §3.1: a ProtocolName is `opaque ProtocolName<1..2^8-1>`, so it is at most 255 bytes.
 pub const alpn_protocol_name_len_max: u32 = 255;
 
 /// RFC 9846 §4.7.3: a sender MUST NOT let its epoch, and so its count of key updates, exceed
 /// 2^48-1. A receiver MUST NOT enforce it, so this binds what a provider sends alone.
 pub const key_updates_max: u64 = (1 << 48) - 1;
 
-/// RFC 9113 §3.1: the "h2" protocol identifier, serialized as the two octets 0x68 and 0x32.
+/// RFC 9113 §3.1: the "h2" protocol identifier, serialized as the two bytes 0x68 and 0x32.
 pub const alpn_h2: [2]u8 = .{ 0x68, 0x32 };
 
-/// RFC 9114 §3.1: the "h3" protocol identifier, serialized as the two octets 0x68 and 0x33.
+/// RFC 9114 §3.1: the "h3" protocol identifier, serialized as the two bytes 0x68 and 0x33.
 /// RFC 9001 §8.1 makes ALPN mandatory in QUIC, so a connection carrying h3 always names it.
 pub const alpn_h3: [2]u8 = .{ 0x68, 0x33 };
 
@@ -59,13 +59,13 @@ pub const alpn_h3: [2]u8 = .{ 0x68, 0x33 };
 pub const alpn_http_1_1 = "http/1.1";
 
 comptime {
-    // RFC 9113 §3.1 and RFC 9114 §3.1 spell the two tokens, which differ in their last octet.
+    // RFC 9113 §3.1 and RFC 9114 §3.1 spell the two tokens, which differ in their last byte.
     assert(alpn_h2[0] == 'h' and alpn_h2[1] == '2');
     assert(alpn_h3[0] == 'h' and alpn_h3[1] == '3');
-    // RFC 9846 §5.2: the protected record is the plaintext, one content-type octet and the tag, so
+    // RFC 9846 §5.2: the protected record is the plaintext, one content-type byte and the tag, so
     // it is longer than the plaintext it carries.
     assert(record_ciphertext_len_max > record_plaintext_len_max);
-    // RFC 7301 §3.1: "h2" is two octets, well inside what a ProtocolName may carry.
+    // RFC 7301 §3.1: "h2" is two bytes, well inside what a ProtocolName may carry.
     assert(alpn_h2.len <= alpn_protocol_name_len_max);
     // RFC 9846 Appendix B.1: the codepoints order by version, which is what a floor compares.
     assert(version_tls_1_3 > version_tls_1_2);

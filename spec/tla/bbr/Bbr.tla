@@ -165,7 +165,7 @@ Apply(b) ==
 Now == Bundle(state, fullCount, fullNow, reached, drainRounds, cycleAge, roundsSince, probeAge,
               doneSet, doneAge, roundDone, sinceExit)
 
-(* One ACK frame, in the order of Bbr.on_ack. `small` says the octets in flight fit every    *)
+(* One ACK frame, in the order of Bbr.on_ack. `small` says the bytes in flight fit every    *)
 (* target the states compare them with; `start` is the Reno start a new wait draws.         *)
 Ack(elapsed, roundStart, grew, limited, small, lower, start) ==
     LET aged == Aged(Now, elapsed)

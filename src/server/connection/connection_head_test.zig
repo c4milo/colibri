@@ -59,14 +59,14 @@ test "RFC 9110 §9.3.2: h11 takes the content of a response to HEAD and writes n
 }
 
 /// Reads the HEADERS frame at the front of `sent` on `stream_id`, expects the program's
-/// Content-Length in it, and returns the octets after it.
+/// Content-Length in it, and returns the bytes after it.
 fn expect_head(sent: []const u8, stream_id: u32) ![]const u8 {
     try testing.expectEqual(constants.protocol.frame_type_headers, sent[h2_support.type_index]);
     try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.protocol.frame_header_len], .big));
     const head_len = h2_support.frame_len(sent);
     var block = test_decoder.block(sent[constants.protocol.frame_header_len..head_len]);
     var length: ?[]const u8 = null;
-    // Bounded by the block's field lines, each one octet at least.
+    // Bounded by the block's field lines, each one byte at least.
     for (0..head_len) |_| {
         const line = (try block.next()) orelse break;
         if (std.mem.eql(u8, line.name, "content-length")) length = line.value;
@@ -76,7 +76,7 @@ fn expect_head(sent: []const u8, stream_id: u32) ![]const u8 {
     return sent[head_len..];
 }
 
-/// Expects `sent` to be one DATA frame on `stream_id` that carries no octet and ends the stream.
+/// Expects `sent` to be one DATA frame on `stream_id` that carries no byte and ends the stream.
 fn expect_empty_end(sent: []const u8, stream_id: u32) !void {
     try testing.expectEqual(constants.protocol.frame_header_len, sent.len);
     try testing.expectEqual(constants.protocol.frame_type_data, sent[h2_support.type_index]);
@@ -84,7 +84,7 @@ fn expect_empty_end(sent: []const u8, stream_id: u32) !void {
     try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.protocol.frame_header_len], .big));
 }
 
-/// Where a frame header's stream identifier starts: its last four octets (RFC 9113 §4.1).
+/// Where a frame header's stream identifier starts: its last four bytes (RFC 9113 §4.1).
 const stream_id_at: usize = constants.protocol.frame_header_len - @sizeOf(u32);
 
 test "RFC 9113 §8.1.1: h2 takes the content of a response to HEAD and writes no DATA octet" {

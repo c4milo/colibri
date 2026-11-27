@@ -22,10 +22,10 @@ pub const coded_len_max: u32 = coded_len_factor * body_len_max + coded_len_margi
 const coded_len_factor: u32 = 2;
 const coded_len_margin: u32 = 64;
 
-/// The longest chunk of coded octets (RFC 9112 §7.1).
+/// The longest chunk of coded bytes (RFC 9112 §7.1).
 pub const chunk_len_max: u32 = 24;
 
-/// The most octets of room one call to `receive` gets for decoding, drawn from one up.
+/// The most bytes of room one call to `receive` gets for decoding, drawn from one up.
 pub const room_max: u32 = 48;
 
 /// One gzip body in this many is written as two members (RFC 1952 §2.2).
@@ -34,23 +34,23 @@ pub const two_members_one_in: u64 = 3;
 /// One seed in this many plants a defect in its last message.
 pub const defect_one_in: u64 = 2;
 
-/// Octets of a chunk's framing: its size in hex, at most four digits here, CRLF, and the CRLF
+/// Bytes of a chunk's framing: its size in hex, at most four digits here, CRLF, and the CRLF
 /// after its data (RFC 9112 §7.1).
 pub const chunk_framing_len_max: u32 = 8;
 
 /// The longest head the plan writes, a request's or a response's.
 pub const head_len_max: u32 = 128;
 
-/// The octets of the last chunk and the empty trailer section: `0`, CRLF, CRLF (RFC 9112 §7.1).
+/// The bytes of the last chunk and the empty trailer section: `0`, CRLF, CRLF (RFC 9112 §7.1).
 pub const last_chunk_len: u32 = 5;
 
-/// The longest message: its head, a chunk for every coded octet at the worst, and the last chunk.
+/// The longest message: its head, a chunk for every coded byte at the worst, and the last chunk.
 pub const message_len_max: u32 = head_len_max + coded_len_max * (1 + chunk_framing_len_max) + last_chunk_len;
 
 /// The longest stream one seed sends.
 pub const stream_len_max: u32 = messages_max * message_len_max;
 
-/// Most octets one trace holds: a record per message, and three more lines: a refusal, and the
+/// Most bytes one trace holds: a record per message, and three more lines: a refusal, and the
 /// first and last lines.
 pub const trace_len_max: u32 = (messages_max + trace_lines_beside_messages) * constants.trace_record_len_max;
 const trace_lines_beside_messages: u32 = 3;

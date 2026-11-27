@@ -6,10 +6,10 @@
 //! trailer section, the end of a message, a stream the peer reset or colibri refused, the peer's
 //! SETTINGS, or a GOAWAY.
 //!
-//! Who keeps which octets is decision 79:
+//! Who keeps which bytes is decision 79:
 //! - The control stream and QPACK's encoder and decoder streams are h3's. It keeps each in a
 //!   `SendBuffer` until the peer acknowledges it (decision 78).
-//! - A request stream's octets are the caller's. `write_request`, `write_response`,
+//! - A request stream's bytes are the caller's. `write_request`, `write_response`,
 //!   `write_trailers` and `write_data_header` write frames into the caller's buffer, and the caller
 //!   keeps them with the content it sends and tells `quic` how far the stream reaches.
 //! - `provider` wraps the caller's stream provider, so `quic` reads h3's three streams from h3 and
@@ -53,7 +53,7 @@ pub const Connection = struct {
     peer_settings: ?frame.Settings,
     encoder: qpack.Encoder,
     decoder: qpack.Decoder,
-    /// colibri's three streams and their octets (decision 79).
+    /// colibri's three streams and their bytes (decision 79).
     local: connection_local.Local,
     /// The peer's unidirectional streams and its control stream's state.
     peer: connection_peer.Peer,
@@ -107,7 +107,7 @@ pub const Connection = struct {
         response: Response,
         /// Content (§4.1, §7.2.1), written to the front of the buffer `receive` was given.
         data: Data,
-        /// Content of a stream opened with `hold_data`: `len` octets arrived and are unread in
+        /// Content of a stream opened with `hold_data`: `len` bytes arrived and are unread in
         /// `quic`, and none was copied. `peek_data` copies them into the caller's memory. The
         /// stream reports nothing more, and the peer gets no credit for them (RFC 9000 §4.1), until
         /// `release_data` takes them.
@@ -223,7 +223,7 @@ pub const Connection = struct {
     }
 
     /// Opens a request stream and writes a HEADERS frame carrying `head.section` into `output`,
-    /// at a client (RFC 9114 §4.1). The caller keeps the octets as the stream's first, and returns
+    /// at a client (RFC 9114 §4.1). The caller keeps the bytes as the stream's first, and returns
     /// the stream's ID to `quic`'s `supply`.
     pub fn write_request(
         connection: *Connection,
@@ -264,7 +264,7 @@ pub const Connection = struct {
         return connection_send.write_trailers(connection, transport, stream_id, section, output);
     }
 
-    /// Writes the header of a DATA frame of `len` octets on `stream_id` into `output` (RFC 9114
+    /// Writes the header of a DATA frame of `len` bytes on `stream_id` into `output` (RFC 9114
     /// §7.2.1). The caller writes the content after it.
     pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer, now_ns: u64) SendError!void {
         connection.now_ns = now_ns;
@@ -272,14 +272,14 @@ pub const Connection = struct {
     }
 
     /// Copies the content the last `data_available` event on `stream_id` reported into `output`,
-    /// as much as it holds, and returns the octets copied: the one copy of a held stream's content
-    /// (decision 153 ruling 12). The octets stay in `quic` until `release_data`. It copies none on
+    /// as much as it holds, and returns the bytes copied: the one copy of a held stream's content
+    /// (decision 153 ruling 12). The bytes stay in `quic` until `release_data`. It copies none on
     /// a stream reset, refused or closed since the event.
     pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
         return connection_request_data.peek_data(connection, transport, stream_id, output);
     }
 
-    /// Takes the first `len` octets of the content the last `data_available` event on `stream_id`
+    /// Takes the first `len` bytes of the content the last `data_available` event on `stream_id`
     /// reported, at most all of them, which gives the peer credit for them (RFC 9000 §4.1). The
     /// stream then reads on. It does nothing on a stream reset, refused or closed since the event.
     pub fn release_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, len: u64) void {
@@ -318,7 +318,7 @@ pub const Connection = struct {
         return connection_local.write_goaway(connection, transport);
     }
 
-    /// Whether the peer acknowledged colibri's GOAWAY, with every octet of the control stream
+    /// Whether the peer acknowledged colibri's GOAWAY, with every byte of the control stream
     /// before it. False until a GOAWAY went out.
     pub fn goaway_acknowledged(connection: *const Connection, transport: *QuicConnection) bool {
         return connection_local.goaway_acknowledged(connection, transport);

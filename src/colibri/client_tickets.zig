@@ -28,7 +28,7 @@ pub const Held = struct {
 };
 
 comptime {
-    // A check reads a cleared room's `Held` octet by octet. The padding of a struct is undefined,
+    // A check reads a cleared room's `Held` byte by byte. The padding of a struct is undefined,
     // so `Held` must add none to its ticket, whose own padding `tls.Ticket.wipe` zeroes.
     assert(@sizeOf(Held) == @sizeOf(tls.Ticket) + @sizeOf(u64));
 }
@@ -121,7 +121,7 @@ fn usable(held: *const Held, now_ns: u64) bool {
 
 const testing = std.testing;
 
-/// A ticket of `transport` whose identity's first octet is `mark`, which lives `lifetime_s`.
+/// A ticket of `transport` whose identity's first byte is `mark`, which lives `lifetime_s`.
 /// Test-only.
 fn test_ticket(transport: Transport, mark: u8, lifetime_s: u32) tls.Ticket {
     var ticket = std.mem.zeroes(tls.Ticket);
@@ -183,7 +183,7 @@ test "decision 161: wipe zeroes each kept ticket and drops it" {
     try testing.expect(kept.holds(.tcp) and kept.holds(.quic));
     try testing.expectEqual(1, kept.tcp.held.ticket.identity[0]);
     kept.wipe();
-    // Each room is plain memory, so its octets are defined after the wipe, and they are zero.
+    // Each room is plain memory, so its bytes are defined after the wipe, and they are zero.
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.tcp.held), 0));
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&kept.quic.held), 0));
     try testing.expect(!kept.holds(.tcp) and !kept.holds(.quic));

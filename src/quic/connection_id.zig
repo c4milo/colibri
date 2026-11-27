@@ -250,8 +250,8 @@ pub const Retirement = struct {
 };
 
 /// One connection ID this endpoint issued, with the sequence number RFC 9000 §5.1.1 gives it.
-/// The octets are kept because §19.16 asks which connection ID a packet was addressed to, and
-/// only the octets on the wire can answer that.
+/// The bytes are kept because §19.16 asks which connection ID a packet was addressed to, and
+/// only the bytes on the wire can answer that.
 pub const Issued = struct {
     sequence_number: u64,
     len: u8,
@@ -273,7 +273,7 @@ pub const Local = struct {
     /// The sequence number of the next one issued. RFC 9000 §5.1.1: the first is 0 and each
     /// MUST increase by 1.
     next_sequence_number: u64,
-    /// Those issued and not retired, with their octets.
+    /// Those issued and not retired, with their bytes.
     active: [constants.limits.connection_ids_max]Issued,
     len: usize,
     /// Whether this endpoint issued a zero-length connection ID, under which RFC 9000 §19.16
@@ -294,7 +294,7 @@ pub const Local = struct {
     }
 
     /// Records one this endpoint issued, and returns its sequence number (RFC 9000 §5.1.1). The
-    /// octets are the caller's: §5.1 wants a connection ID unpredictable and invariant 5 forbids
+    /// bytes are the caller's: §5.1 wants a connection ID unpredictable and invariant 5 forbids
     /// colibri a random number. Every one after the first owes a NEW_CONNECTION_ID frame carrying
     /// `token`; the first went out in the handshake's Source Connection ID field (§5.1.1).
     pub fn issue(local: *Local, octets: []const u8, token: ?*const [constants.protocol.stateless_reset_token_len]u8) ?u64 {

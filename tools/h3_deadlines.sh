@@ -7,7 +7,7 @@
 #      GOAWAY at the first-request deadline, 10 s, and then a close with H3_NO_ERROR;
 #   2. a peer that sends half of a request's head gets a 408 on that stream at the head deadline,
 #      10 s after the stream opened, and its connection serves a later request;
-#   3. a peer that sends a head and three octets of its body gets a 408 when the body's first
+#   3. a peer that sends a head and three bytes of its body gets a 408 when the body's first
 #      window ends, the grace period and a window after the head, 20 s;
 #   4. a peer that asks for a large file and acknowledges nothing of the response is closed with
 #      H3_EXCESSIVE_LOAD when the first window ends, 20 s after its request.

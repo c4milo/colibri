@@ -129,7 +129,7 @@ Four things follow for every other module:
   `send_datagram` writes. colibri never waits: when it needs more bytes, `receive` consumes none
   and returns no event.
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
-  nanoseconds from any fixed origin. The same instants and the same octets give the same output,
+  nanoseconds from any fixed origin. The same instants and the same bytes give the same output,
   which is what lets the simulator replay a connection.
 - **Your program configures TLS.** The `server` module takes the server's identity in its
   `server.Config`, and the `client` module takes one `tls.Client` value in its `client.Config`.
@@ -146,9 +146,9 @@ Four things follow for every other module:
   Each session, the engine and the pool draw from its source, and from no other.
 
 A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
-`error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
+`error.ConnectionFailed`, the connection names the failure, and the bytes colibri owes the peer,
 such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A server's engine returns
-no error. For a TCP connection it reports a `send` for the octets it owes, then `close`, then the
+no error. For a TCP connection it reports a `send` for the bytes it owes, then `close`, then the
 connection's `ended` with `failed` set. For a QUIC connection its `send_datagram` writes the
 CONNECTION_CLOSE, and `ended` follows with `failed` set once the closing period ends. A QUIC
 connection error
@@ -611,7 +611,7 @@ connection, and a `server.ConnectionHandle` names one:
 
 - **TCP connections.** The program calls `accept` for each TCP socket its listener accepts. Over
   TLS the connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext,
-  a connection speaks h2 when its first octets are h2's connection preface and h11 otherwise (RFC
+  a connection speaks h2 when its first bytes are h2's connection preface and h11 otherwise (RFC
   9113 §3.3, [decision 117](decisions.md)).
 - **QUIC connections.** They serve h3, all of them behind one UDP socket
   ([decision 103](decisions.md)), each in a slot of its own. A client's first datagram starts one.
@@ -626,7 +626,7 @@ The code in this section is from
 [`examples/server_peers.zig`](../examples/server_peers.zig), send five requests over h2 and a GET
 over h3. An engine's size is fixed at build time. `server.Engine(.{})` holds 16 TCP connections
 and 16 QUIC connections, and another capacity makes one of another size. The `server.Capacity`
-it takes names the TCP and the QUIC connections the engine holds at once, and the octets each
+it takes names the TCP and the QUIC connections the engine holds at once, and the bytes each
 QUIC connection holds unread:
 
 ```zig
@@ -726,14 +726,14 @@ fn server_turn() !void {
 }
 ```
 
-The program passes `.stream` with the octets a TCP socket read and the handle of that socket's
+The program passes `.stream` with the bytes a TCP socket read and the handle of that socket's
 connection:
 
 ```zig
 fn read_stream(input: []u8, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
-        // The handle says which connection's socket read the octets.
+        // The handle says which connection's socket read the bytes.
         const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
         engine.receive(.{ .stream = read }, now_ns, &received);
         consumed += received.consumed;
@@ -754,11 +754,11 @@ call, as it keeps the engine, so no event is copied out of a returned value (dec
 program loops over `receive` until it consumes nothing and writes no event. It loops again after every call that
 changes a connection: an answer, `cancel`, `output_stream`, `sent_stream`, `send_stream`,
 `transport_closed`, `shutdown` and `on_instant`. Each leaves what follows it to the next `receive`, the release of a closed
-connection's slot included. The program passes `.none` when no socket read any octets. A TCP
-connection may consume fewer octets than it was given, such as a pipelined h11 request while the
+connection's slot included. The program passes `.none` when no socket read any bytes. A TCP
+connection may consume fewer bytes than it was given, such as a pipelined h11 request while the
 one before it is answered. The program holds the rest, and passes it again with the socket's next
 read and after each event that names the connection. `read_stream` passes what is left after
-every event. What an event carries points into the octets the program passed or into the
+every event. What an event carries points into the bytes the program passed or into the
 connection, and stays valid until the next `receive`, `on_instant`, `output_stream`,
 `sent_stream`, `send_stream`, `send_datagram`, `accept`, `transport_closed` or `shutdown`.
 
@@ -808,13 +808,13 @@ fn serve(event: *const server.Event, now_ns: u64) !void {
     switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other.*) {
-            // A TCP connection owes its socket octets.
+            // A TCP connection owes its socket bytes.
             .send => |connection| try flush(connection, now_ns),
             // RFC 9112 §9.6: the program closes only the write side of this TCP connection's
             // socket, and passes on what the socket reads. The `close` follows.
             .half_close => half_closes += 1,
             // colibri reads and writes nothing more on this TCP connection. A program closes the
-            // socket once it has sent the octets it took, and owes the engine no call: the
+            // socket once it has sent the bytes it took, and owes the engine no call: the
             // connection's `ended` follows by itself.
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
@@ -841,7 +841,7 @@ The events, which a program that answers requests itself reads:
   colibri reads none of the program's bytes for it again. It is `cancelled` with a reason when the
   request ended before its response did. A connection's `ended` comes after its requests' ends.
 - `writable` says a response whose last write found no room can take more.
-- `send` says a TCP connection owes its socket octets, `close` says the program closes a TCP
+- `send` says a TCP connection owes its socket bytes, `close` says the program closes a TCP
   connection's socket, and `ended` says a connection is over. The paragraphs below describe each.
 - `closed` comes after `shutdown`, once every connection has ended.
 
@@ -865,7 +865,7 @@ fn note_request(request: server.Request) !void {
 
 A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
 it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the engine next
-reads the connection or writes its octets, in every version. That may be at the program's next
+reads the connection or writes its bytes, in every version. That may be at the program's next
 call. An answer the program gives first takes the place of the 100. A program that refuses such a
 request therefore answers it before its next call: a final response, the program's own 100, or
 `cancel` takes the place of the 100 the connection owes.
@@ -949,10 +949,10 @@ takes less than the response gives it, the rest waits, and the router sends it a
 
 The response calls the engine's three calls that write a response, which a program that answers
 requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
-`write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer octets than it was given, or
+`write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer bytes than it was given, or
 any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
 returns `error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. `write_trailers`
-returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
+returns `error.Blocked` while a coded response's last bytes wait. Over QUIC, room comes back only
 as the client acknowledges what was sent (RFC 9000 §3.1), and a head or a trailer section larger
 than the room the response's earlier frames leave waits until the client has acknowledged all of
 them. Either way the engine reports `writable` for the request, once, when the response has
@@ -1012,7 +1012,7 @@ wait for a first request, the time between requests, a request's head and its co
 slowly the peer may take the response. They bound an h3 connection as they bound a TCP one. The
 engine's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
 QUIC it also names the instants of loss recovery, acknowledgments and idle timeouts. The program
-waits for octets and datagrams no longer than that:
+waits for bytes and datagrams no longer than that:
 
 ```zig
 fn sleep_ns() u64 {
@@ -1034,7 +1034,7 @@ with a `finished` whose result is cancelled, with the timeout as its reason. `re
 that passed too, on the connection they read or write. The configuration's `timeouts` sets the
 limits, and `Engine.init` refuses limits a connection would refuse, with
 `error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
-`note_request` does above. A program that wakes only when octets arrive never ends a silent peer.
+`note_request` does above. A program that wakes only when bytes arrive never ends a silent peer.
 
 Set `idle_ns` above the idle time of your h11 clients. The idle deadline closes a kept-alive
 connection that holds no request, 30 s after its last response by default. An h11 client that
@@ -1052,7 +1052,7 @@ it has sent the bytes it took, and owes the engine no call. After a linger there
 wait for: colibri dropped what it still owed. Or the peer closes the
 socket first, or the socket fails, and the program tells the engine with `transport_closed`. The
 example accepts a second socket to show that call, a socket its peer closes before it sends an
-octet:
+byte:
 
 ```zig
 const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
@@ -1077,7 +1077,7 @@ name nothing from then on. `ended` carries two more fields:
   peer, such as h2's GOAWAY or an h11 server's 400, before the `close`.
 
 `ended` follows a `close` with no call from the program, so it may come while the program's socket
-still writes its last octets or waits for its close to complete. A later connection may then take
+still writes its last bytes or waits for its close to complete. A later connection may then take
 the slot while that socket is still open. A program that keeps state for each socket therefore
 keeps the connection's whole handle with it, and does not index the state by the handle's `slot`
 alone: it maps a slot to the state of the connection the slot holds now.
@@ -1118,7 +1118,7 @@ for each request:
 - `response_bytes`: the response memory of each request: the copies of its headers and trailers,
   and the bytes of its body that the engine has not released.
 - `body_bytes`: the request body memory of each request: a function route's whole body, and the
-  octets that a stream route's `on_data` left unread or kept. A body past it gets 413.
+  bytes that a stream route's `on_data` left unread or kept. A body past it gets 413.
 - `header_bytes`: the memory of each request's copy of its header, which a function route needs
   for a request with a body (decision 163 ruling 5). With 0 the router copies no header, and calls
   each function at the head.
@@ -1215,10 +1215,10 @@ The engine writes the storage of a request's header again before the body ends. 
 request with a body, the router copies the header into the request's pool entry at the head. It
 holds each byte of the body there too:
 
-- The copy holds the header's field lines, each as 8 octets of record and its name and value.
+- The copy holds the header's field lines, each as 8 bytes of record and its name and value.
 - Over h2 and h3 the field lines hold the pseudo-header fields, and the copy holds no more. The
   method, the target, the scheme, the authority, the path and the query are those fields' values.
-  One exception: a `:path` that starts with `?` has the static "/" as its path, one octet more.
+  One exception: a `:path` that starts with `?` has the static "/" as its path, one byte more.
 - Over h11 the copy holds the method and the target too. It also holds each part that lies in
   neither the target nor a field line, such as the scheme.
 - Over h2 and h3 a GET may end in a later frame: an empty DATA frame with END_STREAM, or a FIN
@@ -1264,34 +1264,34 @@ no header, and has three calls:
 - `next()` returns the next piece of the body that has arrived, a `[]const u8`, with no copy. It
   returns null when no piece waits now. Each call first lets go of the piece it gave before. A
   piece stays valid until the next call of `next`, or until `on_data` returns.
-- `keep(len)` leaves the last `len` octets of the last piece unread. The next `next`, in this
-  `on_data` or in a later one, starts with them, joined with the octets that arrive later. So a
+- `keep(len)` leaves the last `len` bytes of the last piece unread. The next `next`, in this
+  `on_data` or in a later one, starts with them, joined with the bytes that arrive later. So a
   route reads a message that two events cut, as Connect and gRPC frame theirs. A later `keep`
   takes the place of an earlier one, and `keep(0)` keeps none.
 - `ended()` returns true when `next` returned null at the body's end.
 
 A route never relies on `ended()` at its last piece. Over h2 the end may come with the last
 piece, on a DATA frame with END_STREAM. Over h11 and h3 the end comes in a later event with no
-octets, and the router calls `on_data` again for it. A request whose head ended it gets one
+bytes, and the router calls `on_data` again for it. A request whose head ended it gets one
 `on_data`, whose `next` finds the end.
 
-At the body's end, a `next` after a `keep` gives the kept octets once more as the last piece,
-with no new octet. A `keep` of that last piece keeps nothing. The `next` after it returns null,
+At the body's end, a `next` after a `keep` gives the kept bytes once more as the last piece,
+with no new byte. A `keep` of that last piece keeps nothing. The `next` after it returns null,
 and `ended()` turns true. This holds over h11, h2 and h3, and after a trailer section. So a
 route reads a body with no length in place, as Connect's unary call sends one. It keeps each
-piece whole, and the last piece holds the whole body. Every other piece holds at least one octet
+piece whole, and the last piece holds the whole body. Every other piece holds at least one byte
 past the kept ones, so a piece whose length is the kept length is the last piece. The route reads
 it there, before the `next` that lets it go.
 
-The stream example's route reads gRPC's messages. Each one is a flag octet, the payload's length
-in four octets and the payload. Its `answer_whole` writes and flushes a reply to each whole
-message of a piece, so each reply goes out before the body ends. It returns the octets of the cut
+The stream example's route reads gRPC's messages. Each one is a flag byte, the payload's length
+in four bytes and the payload. Its `answer_whole` writes and flushes a reply to each whole
+message of a piece, so each reply goes out before the body ends. It returns the bytes of the cut
 message after them, which `keep` leaves unread:
 
 ```zig
 /// Runs at each event of the request's body. It answers each message that a piece holds
-/// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
-/// again, joined with the octets that arrive later. Once the body ended, it ends the response.
+/// whole, and keeps the cut message at the end of the piece: the next `next` gives its bytes
+/// again, joined with the bytes that arrive later. Once the body ended, it ends the response.
 pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
     // Bounded: each pass takes one piece.
     for (0..pieces_per_event_max) |_| {
@@ -1301,26 +1301,26 @@ pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.
         body.keep(state.kept);
     }
     if (!body.ended()) return;
-    // A body that ends inside a message cuts it short: the last piece held its octets again.
+    // A body that ends inside a message cuts it short: the last piece held its bytes again.
     if (state.kept > 0) return error.MessageCut;
     // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
     try response.trailers(&grpc_ok);
 }
 ```
 
-The pool entry's `body_bytes` holds the octets that `on_data` left unread or kept, because the
-engine writes its event's octets again. Kept octets and the octets of the next event that do not
-fit there get 413 (RFC 9110 §15.5.14). At the body's end, kept octets past `body_bytes` get 413
+The pool entry's `body_bytes` holds the bytes that `on_data` left unread or kept, because the
+engine writes its event's bytes again. Kept bytes and the bytes of the next event that do not
+fit there get 413 (RFC 9110 §15.5.14). At the body's end, kept bytes past `body_bytes` get 413
 too, over each protocol. So a body that a route keeps whole is at most `body_bytes`.
 
-Through a middleware's `wrap_body`, the router copies the kept octets into `body_bytes` too. It
-joins the octets that the last wrapper gives later to them there. So the router asks a wrapper
-for one octet past those it gave, and never more. A wrapper's `rebase` may hold fewer octets than
+Through a middleware's `wrap_body`, the router copies the kept bytes into `body_bytes` too. It
+joins the bytes that the last wrapper gives later to them there. So the router asks a wrapper
+for one byte past those it gave, and never more. A wrapper's `rebase` may hold fewer bytes than
 its buffer, as std's flate decompressor does, which keeps its window there. A route keeps a tail
 as long as `body_bytes` through such a wrapper too. The router copies only after a `keep`. A piece
 that follows no `keep` stays in the wrapper's buffer, with no copy.
 
-Through a wrapper, the kept octets and the event's octets that the wrapper did not read yet share
+Through a wrapper, the kept bytes and the event's bytes that the wrapper did not read yet share
 `body_bytes`. Past it, they get 413. A wrapper with no buffer cannot serve a stream route, and the
 router asserts so at the head.
 
@@ -1428,7 +1428,7 @@ Its `found` gives the route's `Route` tag, named by its method and its pattern, 
   `/a`, and `/a` matches `/a` and not `/a/`. A parameter does not match the empty last segment,
   so `/a/:id` does not match `/a/`. The wildcard does not match a path that ends in "/", so
   `/files/*` does not match `/files/a/`.
-- **Paths that match nothing:** a path with an octet outside `pchar` and "%", a path with an empty
+- **Paths that match nothing:** a path with a byte outside `pchar` and "%", a path with an empty
   segment that is not its last, such as `/a//b`, a path with a "." or ".." segment, encoded or
   not, such as `/a/%2E%2E`, and a path longer than `server.constants.limits.path_len_max` bytes, its
   query included.
@@ -1508,7 +1508,7 @@ fn check_numbered() !void {
 ```
 
 A test that builds a `server.Request` by hand gives its `body` a reader of its own, because `body`
-has no default. A reader over no octets ends at once, as the body of a request with no body does:
+has no default. A reader over no bytes ends at once, as the body of a request with no body does:
 `var reader: std.Io.Reader = .fixed(&.{});`, and then `.body = &reader`.
 
 `path(P)` and `query(Q)` answer during the route's first call alone: a function's one call, or a
@@ -1640,12 +1640,12 @@ entry and the rule. Two conflicts concern routes that other routes hide:
   time for each set of the table's methods, and 10 methods need 1,024 of them.
 
 The check runs at compile time and adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
-of four segments and 64 octets.
+of four segments and 64 bytes.
 
 ### Over QUIC
 
 The same events and the same calls serve h3. A program moves datagrams with addresses in place of
-a stream of octets, and it keeps time for each connection. Three things differ from TCP:
+a stream of bytes, and it keeps time for each connection. Three things differ from TCP:
 
 - **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
   They stay the program's until the request's `finished`. A `sent` result comes once the peer
@@ -1682,7 +1682,7 @@ name the address that `take` got, after a migration too. `put` carries what the 
 observed, or null to keep the set held. A connection that moved to another host observed nothing
 for the host it started on, so it gives null. `drop` comes first when the connection had to
 retreat, and the set goes. `Config.resume_bounds` holds RFC 9959's max_jump and Lifetime, 4 MiB and
-1 hour by default. A `ResumeState` carries its version and size, so a program may store its octets.
+1 hour by default. A `ResumeState` carries its version and size, so a program may store its bytes.
 
 The three calls name a host and no connection. RFC 9959 §3.2 lets one connection at a time use a
 set, so a provider counts each host's open connections and gives a set only to a host's one open
@@ -1769,8 +1769,8 @@ adds none when the request's own headers name TE. `request` returns `error.Inval
 trailer that RFC 9110 §6.5.1 forbids: Content-Length, Transfer-Encoding, Host, TE, Trailer and the
 other connection-specific fields. It also returns it for a name with an uppercase letter, which
 h2 and h3 refuse, for a name or a value that is not valid, and for a section larger than
-`field_section_size_max`, 16,384 octets as RFC 9113 §6.5.2 counts them. Over h3 the header
-section and the trailer section share one buffer of 16,436 octets. A request whose two sections do
+`field_section_size_max`, 16,384 bytes as RFC 9113 §6.5.2 counts them. Over h3 the header
+section and the trailer section share one buffer of 16,436 bytes. A request whose two sections do
 not fit in it together ends `invalid` before any of it goes out.
 
 The program keeps the request and the response in place, with each slice they name, until the
@@ -1780,7 +1780,7 @@ A program places the pool and the memory it holds its TCP connections and its ex
 ([decision 125](decisions.md)). The pool's `client.Config` counts them: `tcp_connections`, 1 by
 default, and `requests`, 16 by default. `ConnectionPool.memory_bytes(.{ .tcp_connections = n,
 .requests = m })` gives the bytes those counts need, with the defaults for a count left out.
-It is pure, so a program sizes a static array with it, as here, or maps that many octets at run
+It is pure, so a program sizes a static array with it, as here, or maps that many bytes at run
 time:
 
 ```zig
@@ -1845,14 +1845,14 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
   `congestion_controller` is `.bbr` for BBRv3, the default, `.cubic`, or `.newreno` for RFC
   9002's own controller ([decisions 133, 136 and 143](decisions.md)).
 
-`init` also takes the receive pool, where the pool's QUIC connection holds the server's unread octets:
+`init` also takes the receive pool, where the pool's QUIC connection holds the server's unread bytes:
 `client.ReceivePool(.{ .capacity = capacity })`, sized to the longest response the program expects. A pool
 offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program that passes
 `null` for the pool gets TCP alone.
 
 A program that never speaks h3 holds a `client.ConnectionPool(.{ .quic = false })` in place of a
 `client.ConnectionPool(.{})` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
-configuration. At the default counts it takes 307,376 octets with its memory, in place of
+configuration. At the default counts it takes 307,376 bytes with its memory, in place of
 1,012,288 (docs/performance.md). Its `init` takes `null` for the pool, and it has no
 `start_quic`, so a call of it does not compile. The consumer program holds one:
 
@@ -1873,9 +1873,9 @@ the program does not move the pool after it. It returns these errors:
 A program may call `init` again on a pool with no open transport and no exchange, for example
 with new addresses. While exchanges run, it calls `set_destination` instead (below).
 
-A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
+A program moves datagrams with addresses over QUIC and a stream of bytes over TCP, and it keeps
 time for the pool. Each turn passes the pool what each socket read, fires its deadlines, sends
-the datagrams the QUIC connection owes, and reads again. A TCP connection's octets go out when
+the datagrams the QUIC connection owes, and reads again. A TCP connection's bytes go out when
 the pool says `send`:
 
 ```zig
@@ -1916,10 +1916,10 @@ fn read_datagrams(now_ns: u64) !void {
 }
 ```
 
-A read of the TCP socket passes every octet the program still holds, or `.none` when it holds
-none, until the pool consumes nothing and reports nothing. The pool may consume fewer octets
-than it was given: an h11 connection reads a held octet only once the response before it ends,
-and reads half a head again from its first octet. After each send, each event and each
+A read of the TCP socket passes every byte the program still holds, or `.none` when it holds
+none, until the pool consumes nothing and reports nothing. The pool may consume fewer bytes
+than it was given: an h11 connection reads a held byte only once the response before it ends,
+and reads half a head again from its first byte. After each send, each event and each
 `on_instant`, the program reads the pool again.
 
 ```zig
@@ -1937,7 +1937,7 @@ fn drain(now_ns: u64) !void {
             continue;
         };
         try report(event, now_ns);
-        // The octets the closed socket read are its connection's, which is over: they are dropped.
+        // The bytes the closed socket read are its connection's, which is over: they are dropped.
         if (event == .close and transport_of(event.close) == .tcp) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
@@ -1974,7 +1974,7 @@ client_config = .{
 
 Each connection is a socket of its own. The handle of each `open` names the connection's slot,
 and the program keeps one socket for each slot. Each later event names the connection too:
-`send` when it owes octets, and `close` when it is over. The program reads each socket with the
+`send` when it owes bytes, and `close` when it is over. The program reads each socket with the
 handle of its connection:
 
 ```zig
@@ -1984,7 +1984,7 @@ fn client_turn() !void {
     for (0..link_module.streams_max) |slot| try drain(@intCast(slot), now_ns);
 }
 
-/// Passes the pool the octets the socket of `slot` read, until it consumes nothing and reports
+/// Passes the pool the bytes the socket of `slot` read, until it consumes nothing and reports
 /// nothing. With no socket in the slot it passes `.none`, which reports what the pool owes.
 fn drain(slot: u32, now_ns: u64) !void {
     const socket = sockets[slot];
@@ -1992,7 +1992,7 @@ fn drain(slot: u32, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
-        // An event may close this socket, or open another in its slot: its octets then go to no
+        // An event may close this socket, or open another in its slot: its bytes then go to no
         // connection.
         const current = socket != null and std.meta.eql(sockets[slot], socket);
         const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
@@ -2004,7 +2004,7 @@ fn drain(slot: u32, now_ns: u64) !void {
         };
         try report(event, now_ns);
     }
-    // A socket closed during the read dropped its octets with it.
+    // A socket closed during the read dropped its bytes with it.
     if (socket != null and std.meta.eql(sockets[slot], socket)) link.consume(slot, .client, consumed);
 }
 ```
@@ -2024,7 +2024,7 @@ A program sizes its memory and bounds its loops with two limits of `client.const
 call of the pool, and needs no name from `h11` or `tls_provider` ([decision 124](decisions.md) as
 amended by [decision 125](decisions.md)):
 
-- `stream_input_len_min`: what the program holds of the TCP socket's octets, at least, so that
+- `stream_input_len_min`: what the program holds of the TCP socket's bytes, at least, so that
   `receive` takes some while `send_stream` has written what the connection owes. The pool takes
   an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
@@ -2035,9 +2035,9 @@ amended by [decision 125](decisions.md)):
 The example bounds each read of the socket with them:
 
 ```zig
-/// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
-/// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
+/// Calls of `receive` for one read of a socket, at most. Each call takes one byte or more of the
+/// link's queue, or reports an event and takes no byte, or ends the loop. At most
+/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no byte.
 const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool(.{}).receive_events_without_input_max(.{}) + 1);
 ```
 
@@ -2050,7 +2050,7 @@ first ([decision 125](decisions.md)):
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_transport(open, now_ns),
-        // The TCP connection owes octets, which the program writes into its socket.
+        // The TCP connection owes bytes, which the program writes into its socket.
         .send => |connection| try send_owed(connection, now_ns),
         // The connection is over, and the pool reads and writes nothing more on it: the
         // program closes the socket. Over TCP `send_stream` wrote everything first, the TLS
@@ -2126,15 +2126,15 @@ The events:
   .tcp`, the default, TCP opens first and QUIC opens once TCP fails. Under `.quic`, QUIC opens
   first, and TCP opens when QUIC fails or `fallback_delay_ns` passes. The first connection whose
   handshake completes takes the exchanges.
-- `send` names a TCP connection that owes octets. The program calls `send_stream` for it until a
+- `send` names a TCP connection that owes bytes. The program calls `send_stream` for it until a
   call leaves room in its output, which ends the debt. The pool says `send` again for the next
-  debt, once the connection read octets or the program made another call.
+  debt, once the connection read bytes or the program made another call.
 - `connected` names the connection that carries the exchanges, and its version: h3 over QUIC, or
   the version ALPN picked over TCP.
 - `ticket` says the server issued a resumption ticket. `ConnectionPool.take_ticket` hands it over, and a
   later connection offers it through the last argument of `start_tcp` or `start_quic`.
 - `close` names a connection that is over. Over TCP, `send_stream` wrote everything
-  first, the TLS close_notify too. The program closes the socket, and drops the octets it read
+  first, the TLS close_notify too. The program closes the socket, and drops the bytes it read
   from it and still holds: they are that connection's, and the next connection must not get them.
 - After `shutdown`, `closed` says the pool is over: every exchange ended and every transport
   closed.
@@ -2146,7 +2146,7 @@ connection fails instead in three cases:
 
 - The response closes the connection: `Connection: close`, HTTP/1.0, or content that runs until
   the close.
-- More than `client.constants.limits.drop_len_max` octets of content are left, 256 KiB.
+- More than `client.constants.limits.drop_len_max` bytes of content are left, 256 KiB.
 - `Config.timeouts.drop_ns` runs out, 50 ms by default. The time starts at the cancel, or later,
   when the response before it ends. `deadline_ns` names the instant, and `on_instant` fires it.
 
@@ -2301,7 +2301,7 @@ messages it sent, and its server reads the trailer before it ends the response.
 `write_body(id, piece, end)` hands the pool the next piece of the request body. `end` is a
 `client.PieceEnd`: `.last` for the last piece, and `.more` for each other piece. The program keeps the piece in place until the exchange's
 `body_taken` event. Over h11 and h2, that event comes when the connection has written the piece.
-Over h3, it comes when the server has acknowledged the piece, because QUIC sends a lost octet again
+Over h3, it comes when the server has acknowledged the piece, because QUIC sends a lost byte again
 from the program's memory (RFC 9000 §13.3). The pool holds one piece of each exchange at a time.
 A piece that the program hands before a connection takes the exchange waits in the pool. The
 example hands the next message when the pool took the message before it and the server sent
@@ -2335,15 +2335,15 @@ Three events carry a streamed response:
   piece back with `release_body(id)`. Until then, the connection reads no more of the response.
   Over h11 and h2 it reads no more of the connection. Over h2 and h3 the server gets no flow
   credit back for the piece (RFC 9113 §5.2, RFC 9000 §4.1), so a fast server waits for the
-  program. Over h2 only the stream's credit waits. Over h3 the octets of a held piece stay in the
+  program. Over h2 only the stream's credit waits. Over h3 the bytes of a held piece stay in the
   receive pool, so the connection's credit for them waits too (RFC 9000 §4.1). Each request stream
-  starts with a window of `client.constants.policy.quic_stream_window` octets, 65,536. The window
+  starts with a window of `client.constants.policy.quic_stream_window` bytes, 65,536. The window
   of a stream whose pieces the program releases quickly grows, up to the pool's capacity less one
-  such window ([decision 49](decisions.md) as amended). A held stream thus keeps 65,536 octets of
+  such window ([decision 49](decisions.md) as amended). A held stream thus keeps 65,536 bytes of
   the pool free, and one download alone can use nearly the whole pool. While the server's credit
-  is below those 65,536 octets, the client sends MAX_DATA as soon as the other streams consume
-  one octet. The other streams together can thus keep 65,536 octets in the pool while the piece
-  is held, and each octet they consume gives one octet of credit back.
+  is below those 65,536 bytes, the client sends MAX_DATA as soon as the other streams consume
+  one byte. The other streams together can thus keep 65,536 bytes in the pool while the piece
+  is held, and each byte they consume gives one byte of credit back.
 - `finished` comes only after the program released the last piece. The trailers are then in
   `Response.trailers`.
 
@@ -2380,7 +2380,7 @@ the order it arrived, for a header that can come more than once, such as Set-Coo
 ```zig
 var lines: client.Headers.Iterator = response.headers.iterator();
 var content_types: usize = 0;
-// Bounded: each header takes octets of the buffer, which holds `section_len`.
+// Bounded: each header takes bytes of the buffer, which holds `section_len`.
 for (0..section_len) |_| {
     const line = lines.next() orelse break;
     if (std.ascii.eqlIgnoreCase(line.name, "content-type")) content_types += 1;
@@ -2431,7 +2431,7 @@ the same calls.
 ## h11
 
 One `h11.Connection` is one HTTP/1.1 connection. `receive(input, decoded)` consumes the
-octets of at most one event: a head, a run of body data, or the end of a body. Loop over it until
+bytes of at most one event: a head, a run of body data, or the end of a body. Loop over it until
 it consumes nothing and returns no event. `decoded` is where the body of a message coded with
 `gzip` or `deflate` goes; a program that places no decoders passes it empty.
 
@@ -2503,7 +2503,7 @@ connection's `decrypt` and `encrypt`.
 ### The gzip and deflate transfer codings
 
 A body may arrive coded with `gzip` or `deflate` under `chunked` (RFC 9112 §7.2). stdx decodes it,
-and each decoder holds a window of 32,768 octets, so a connection keeps none of its own. Your
+and each decoder holds a window of 32,768 bytes, so a connection keeps none of its own. Your
 program places a pool, `h11.coding.Pool(.{})` or `h11.coding.Pool(.{ .count = count })`, calls
 `init()` on it once, and gives its `storage()` to each connection in
 `Options.decoders`. Connections share the pool, and one takes a decoder only while a message
@@ -2557,11 +2557,11 @@ trailers, data, a stream the peer reset or colibri refused, the peer's GOAWAY, a
 exchange. `event.ended_stream()` names the stream an event ended, whichever of the request,
 response, DATA or trailers ended it. A client opens a stream with `write_request`, a server
 answers with `write_response`, and both send content with `write_data`, which writes as much as
-the flow-control windows allow. `sendable_len` says how many octets `write_data` would send now,
+the flow-control windows allow. `sendable_len` says how many bytes `write_data` would send now,
 so a program sizes a write, or waits for the peer's WINDOW_UPDATE when it says 0. A program that
 holds its content in its own buffer calls `write_data_header` instead. It writes the header of the
-frame `write_data` would write into `room_len` octets, into nine octets the program passes. The
-program sends the frame's `consumed` octets right after the header, before any other octet: after
+frame `write_data` would write into `room_len` bytes, into nine bytes the program passes. The
+program sends the frame's `consumed` bytes right after the header, before any other byte: after
 it in one buffer, or sealed with it by `tls_provider`'s `encrypt_parts` ([decisions 138 and
 139](decisions.md)). `write_trailers` ends either side's message with a trailer
 section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and the
@@ -2634,9 +2634,9 @@ The program converts its values once into a configuration, which every session o
 object borrows. It then starts a session for each connection, and the session's `init` takes the
 configuration's context. Over TCP, `handshake` takes what the socket read and writes what the
 session owes the peer. Once the handshake completes, the session's `provider()` goes to the
-connection's `attach_tls`. When it fails, `failure_written()` counts the octets it wrote at the
+connection's `attach_tls`. When it fails, `failure_written()` counts the bytes it wrote at the
 front of the output, the alert that says why last (RFC 9846 §6.2). The program sends them, then
-closes the connection. An output of `tls.record.Client.handshake_output_len_min` octets takes all
+closes the connection. An output of `tls.record.Client.handshake_output_len_min` bytes takes all
 a client owes in one call. Each configuration names the most anchors and ALPN protocols it takes,
 `anchors_max` and `protocols_max`.
 
@@ -2653,7 +2653,7 @@ a client owes in one call. Each configuration names the most anchors and ALPN pr
 
 A program that finds an error in what it read, after the handshake, sends the fatal alert that
 names it with `fail`, then closes the connection. An example is a record longer than RFC 9846 §5.2
-allows, which record_overflow names. `fail` writes at most `tls.record.alert_record_len` octets
+allows, which record_overflow names. `fail` writes at most `tls.record.alert_record_len` bytes
 into the output and fails the session. It takes the error alerts of RFC 9846 §6.2 alone, on a
 connected session: a refused call returns a `tls.record.FailError`, writes nothing and leaves the
 session as it was. `tls.record.Server` has the same call. In the excerpt below, the handshake has
@@ -2769,7 +2769,7 @@ through four calls:
   detection, acknowledgments and idle timeout.
 - `quic.Connection.on_instant` runs what that instant is for.
 
-Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the octets of
+Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the bytes of
 each stream as the flow-control windows allow.
 
 Your program places the scratch each call works in. `receive` takes a
@@ -2793,7 +2793,7 @@ To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` o
 with `Log.init(buffer, cpu_features)`, write its header with `Log.start`, and pass it as the `qlog`
 option of both the QUIC connection and the h3 connection, so one trace holds both. `cpu_features` is
 `qlog.CpuFeatures.detect()`, called once, or `qlog.CpuFeatures.target()`: colibri never asks the CPU
-itself, and the records are the same octets either way. colibri appends one record per event; your
+itself, and the records are the same bytes either way. colibri appends one record per event; your
 program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
 `log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis. To start a log on a QUIC
 connection that `init` already made, pass it to `quic.Connection.attach_log`.
@@ -2811,7 +2811,7 @@ what the build compiles.
 
 One more struct, `@sizeOf` in ReleaseSafe with Zig 0.16.0 on aarch64 macOS, on 2026-09-26:
 
-| Struct | Octets |
+| Struct | Bytes |
 | --- | --- |
 | `h11.coding.Pool(.{})` | 691,472, 16 decoders the connections given it share |
 
@@ -2820,7 +2820,7 @@ scratch storage your program places; `udp_peer.zig` shows both.
 
 A client that decodes `zstd` or `br` places a pool of decoders for each, and calls each pool's
 `init()` once. Measured the same way on
-2026-09-30, each decoder of a `client.ZstdDecoderPool(count)` is 8,683,024 octets, most of them RFC
+2026-09-30, each decoder of a `client.ZstdDecoderPool(count)` is 8,683,024 bytes, most of them RFC
 9659 §3's 8 MB window, and each of a `client.BrotliDecoderPool(count)` is 19,483,040, most of them
 RFC 7932 §9.1's 16 MiB window. An exchange takes a decoder of each coding it offers as its request
 goes out, and keeps only the one its response uses once the response's head arrives

@@ -22,17 +22,17 @@ const Role = null_quic_provider.Role;
 var test_client: NullQuicProvider align(@alignOf(NullQuicProvider)) = undefined;
 var test_server: NullQuicProvider align(@alignOf(NullQuicProvider)) = undefined;
 
-/// Octets one flight is written into before it is handed to the peer, which is the part a CRYPTO
+/// Bytes one flight is written into before it is handed to the peer, which is the part a CRYPTO
 /// frame would carry. Larger than any flight below.
 const test_flight_len_max: usize = 1024;
 var test_flight: [test_flight_len_max]u8 = undefined;
 
 /// Made-up `quic_transport_parameters` bodies (RFC 9001 §8.2). What the null provider does with
-/// the body is carry it, so its octets are a label a test can recognise.
+/// the body is carry it, so its bytes are a label a test can recognise.
 const client_params = "client transport parameters";
 const server_params = "server transport parameters";
 
-/// Octets of exported keying material one test asks for (RFC 9846 §7.5).
+/// Bytes of exported keying material one test asks for (RFC 9846 §7.5).
 const test_export_len: usize = 32;
 
 /// The header RFC 9846 §4 puts before a message's body.
@@ -44,7 +44,7 @@ fn pair() void {
     test_server = .{ .role = .server };
 }
 
-/// Moves every octet `from` owes at `level` to `to`, and answers how many moved. It is what
+/// Moves every byte `from` owes at `level` to `to`, and answers how many moved. It is what
 /// `connection_crypto.write_crypto` and `connection_crypto.provide_handshake` do together, with
 /// the CRYPTO frame left out.
 fn flight(from: *NullQuicProvider, to: *NullQuicProvider, level: Level) !usize {
@@ -150,7 +150,7 @@ test "RFC 9001 §4.1.3: octets at a level the provider does not read are the wro
     try test_client.provider().set_transport_params(client_params);
     try test_server.provider().set_transport_params(server_params);
     // No message of this handshake moves at the application level, so it is refused from the
-    // start: RFC 9000 §12.5 makes octets at the wrong level a protocol violation.
+    // start: RFC 9000 §12.5 makes bytes at the wrong level a protocol violation.
     try testing.expectError(
         error.WrongLevel,
         test_server.provider().provide_handshake(.application, "x"),
@@ -162,7 +162,7 @@ test "RFC 9001 §4.1.3: octets at a level the provider does not read are the wro
         error.WrongLevel,
         test_client.provider().provide_handshake(.initial, "x"),
     );
-    // The level it does read at still takes them: one octet of a message is not a whole one yet.
+    // The level it does read at still takes them: one byte of a message is not a whole one yet.
     try test_client.provider().provide_handshake(.handshake, "\x08");
     try testing.expect(!test_client.provider().handshake_complete());
 }
@@ -193,7 +193,7 @@ test "RFC 9001 §4.1.3: each role starts the handshake at its own call and not a
     try testing.expectEqual(0, try test_server.provider().write_handshake(.handshake, &test_flight));
     try test_server.provider().set_transport_params(server_params);
     // "A QUIC client starts TLS by requesting TLS handshake bytes from TLS", so a client handed
-    // octets before it asked for any has not started either.
+    // bytes before it asked for any has not started either.
     try test_client.provider().provide_handshake(.initial, "\x02");
     try test_client.provider().set_transport_params(client_params);
     // Its own first request is the start, and after it the parameters are refused.
@@ -220,7 +220,7 @@ test "RFC 9001 §4.1.3: a message cut across calls waits until the rest of it ar
     try test_client.provider().set_transport_params(client_params);
     const written = try test_client.provider().write_handshake(.initial, &test_flight);
     try testing.expectEqual(header_len + client_params.len, written);
-    // One octet per call, as a run of small CRYPTO frames would deliver it.
+    // One byte per call, as a run of small CRYPTO frames would deliver it.
     for (0..written - 1) |index| {
         try test_server.provider().provide_handshake(.initial, test_flight[index..][0..1]);
         try testing.expectEqual(null, test_server.provider().peer_transport_params());
@@ -277,7 +277,7 @@ test "RFC 9846 §7.5: the exporter answers after completion and is a function of
     // §7.5: "providing no context computes the same value as providing an empty context".
     try testing.expectEqualSlices(u8, &secret, &empty_context);
     var other: [test_export_len]u8 = @splat(0);
-    // The label's length is folded in, so moving an octet out of the label is another input.
+    // The label's length is folded in, so moving a byte out of the label is another input.
     try test_client.provider().export_keying_material("labe", "l", &other);
     try testing.expect(!std.mem.eql(u8, &secret, &other));
     try test_client.provider().export_keying_material("other", null, &other);

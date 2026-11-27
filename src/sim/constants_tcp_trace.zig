@@ -9,8 +9,8 @@ const h2_trace = @import("constants_h2_trace.zig");
 /// Streams a seed's client opens at most: the model's `N`.
 pub const streams_max: u32 = 3;
 /// DATA frames a message carries at most: the model's `Content`. A request's content goes out
-/// whole, as one frame of `request_content_len` octets when its plan gives it any, and each piece
-/// of a response's content the server's caller writes is one frame of up to `piece_len` octets.
+/// whole, as one frame of `request_content_len` bytes when its plan gives it any, and each piece
+/// of a response's content the server's caller writes is one frame of up to `piece_len` bytes.
 pub const content_max: u32 = 2;
 pub const request_content_len: u32 = 8;
 pub const piece_len: u32 = 4;
@@ -28,7 +28,7 @@ pub const tls_one_in: u64 = 2;
 pub const actions_min: u32 = 16;
 pub const actions_max: u32 = 96;
 
-/// Octets one direction carries over a run at most: the preface, SETTINGS and their
+/// Bytes one direction carries over a run at most: the preface, SETTINGS and their
 /// acknowledgments, the WINDOW_UPDATE frames and every message's frames, and over TLS the
 /// handshake's flights and each record's header and tag, far below this.
 pub const stream_len_max: u32 = 16384;
@@ -54,7 +54,7 @@ pub const https_port: u16 = 443;
 /// Rounds of the drain after the last action, each a send and a delivery one way and then the
 /// other. A round that changes nothing ends it.
 pub const drain_rounds_max: u32 = h2_trace.frames_max + 1;
-/// The actions that move one direction's octets: a send and a delivery.
+/// The actions that move one direction's bytes: a send and a delivery.
 pub const actions_per_direction: u32 = 2;
 pub const actions_per_round: u32 = actions_per_direction + actions_per_direction;
 /// The actions of a TLS handshake before the client's first flight: the ClientHello's send and
@@ -70,7 +70,7 @@ pub const states_max: u32 = 1 + run_actions_max;
 /// Sends one side makes over a run: one action each at most.
 pub const sends_max: u32 = run_actions_max;
 
-/// Octets of the TLA+ module one seed's trace is written as: 1 MiB.
+/// Bytes of the TLA+ module one seed's trace is written as: 1 MiB.
 pub const module_len_max: u32 = 1_048_576;
 
 /// The seeds `sim --tcp-trace-write` writes for TLC, and the model's steps TLC may take between two

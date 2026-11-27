@@ -2,7 +2,7 @@
 # The Huffman table (RFC 7541 Appendix B)
 
 Row `s` is symbol `s`'s code, aligned to its least significant bit, and its length in bits:
-octets 0 to 255, then EOS. It is copied from `src/wire/huffman_table.zig`, which `zig build
+bytes 0 to 255, then EOS. It is copied from `src/wire/huffman_table.zig`, which `zig build
 huffman-table` generates from `docs/rfcs/rfc7541.txt`. The vectors `Vectors.lean` writes name
 every row, and a Zig test requires each to equal the Zig table's, so the two cannot drift apart.
 -/

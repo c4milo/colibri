@@ -2,7 +2,7 @@
 //! Decision 137 groups them, and `constants.zig` exports this file as `policy`.
 
 /// The send priority of colibri's control and QPACK streams in `quic` (RFC 9000 §2.3): the
-/// highest, so each goes out before any request stream's octets.
+/// highest, so each goes out before any request stream's bytes.
 pub const local_stream_priority: u8 = 0;
 
 /// One in this many errors the connection would send as H3_NO_ERROR goes out as a reserved code

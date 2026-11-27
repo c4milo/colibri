@@ -54,7 +54,7 @@ test "decision 103: a response goes out from the caller's memory, and is done on
     try testing.expectEqual(@intFromEnum(ok), fetch.status);
     try testing.expectEqualStrings(content, support.content_of(fetch));
     try testing.expect(fetch.ended);
-    // RFC 9000 §3.1: every octet was acknowledged, so the caller's octets are free.
+    // RFC 9000 §3.1: every byte was acknowledged, so the caller's bytes are free.
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
 }
 
@@ -146,7 +146,7 @@ test "RFC 9114 §4.1.1: a request the client cancels arrives cancelled, and its 
     support.cancel_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
-    // RFC 9114 §4.1.1: the server resets its response too, so nothing reads the caller's octets.
+    // RFC 9114 §4.1.1: the server resets its response too, so nothing reads the caller's bytes.
     try testing.expect(response_reset(fetch.id));
     try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, .{ .bytes = "x", .end = true }));
     try testing.expectEqual(null, support.nth(.done, 0));

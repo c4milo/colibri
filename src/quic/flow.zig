@@ -19,7 +19,7 @@
 //! application drained the window faster than the peer could learn of new room, and the window
 //! doubles, up to a cap.
 //!
-//! Nothing here reads a clock or holds an octet. The instant and the round trip are parameters,
+//! Nothing here reads a clock or holds a byte. The instant and the round trip are parameters,
 //! because colibri reads no clock (design §4.2) and RFC 9002 computes the round trip in step 10.
 //! A sender asks how much it may send and a receiver says whether what arrived was permitted;
 //! the buffering is the caller's.
@@ -32,7 +32,7 @@ const error_code = @import("error_code.zig");
 pub const Sender = struct {
     /// The largest total the peer has permitted.
     limit: u64,
-    /// The total already spent against it: octets for data, streams opened for a count.
+    /// The total already spent against it: bytes for data, streams opened for a count.
     used: u64,
     /// The limit this endpoint last told the peer it was blocked at, so the frame RFC 9000 §4.1
     /// and §4.6 ask for goes out once per limit and not once per attempt. A limit only rises,
@@ -222,9 +222,9 @@ pub const Receiver = struct {
     }
 
     /// `credit_due`, or the credit left to the peer is below `credit_floor` and the
-    /// application consumed at least one octet since the limit last rose (decision 49 as
+    /// application consumed at least one byte since the limit last rose (decision 49 as
     /// amended). RFC 9000 §4.2 leaves the timing to the receiver, and a connection whose held
-    /// stream keeps octets in the pool gives the other streams credit this way.
+    /// stream keeps bytes in the pool gives the other streams credit this way.
     pub fn credit_due_below(receiver: *const Receiver, credit_floor: u64) bool {
         const gain = receiver.consumed + receiver.window - receiver.limit;
         // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
@@ -312,7 +312,7 @@ test "§4.1: a peer that passes the limit ends the connection, and one that does
     try testing.expectEqual(400, receiver.used);
     try receiver.use(test_window, error.FlowControlExceeded);
     try testing.expectEqual(0, receiver.available());
-    // RFC 9000 §4.1: one octet past the advertised limit is FLOW_CONTROL_ERROR.
+    // RFC 9000 §4.1: one byte past the advertised limit is FLOW_CONTROL_ERROR.
     try testing.expectError(error.FlowControlExceeded, receiver.use(test_window + 1, error.FlowControlExceeded));
     // RFC 9000 §4.6 uses the same counter and its own code.
     var streams = Receiver.init(3, 3);
@@ -330,11 +330,11 @@ test "decision 49 as amended: credit left below the floor is worth a frame once 
     try receiver.use(test_window - credit_floor + 1, error.FlowControlExceeded);
     try testing.expect(!receiver.credit_due_below(credit_floor));
     try testing.expectEqual(null, receiver.credit_frame_limit_below(0, 0, credit_floor));
-    // One octet read is far less than the fraction, and below the floor it is worth a frame.
+    // One byte read is far less than the fraction, and below the floor it is worth a frame.
     receiver.consume(1);
     try testing.expect(!receiver.credit_due());
     try testing.expectEqual(test_window + 1, receiver.credit_frame_limit_below(0, 0, credit_floor).?);
-    // The credit left is at the floor now, so the next octet waits for the fraction.
+    // The credit left is at the floor now, so the next byte waits for the fraction.
     receiver.consume(1);
     try testing.expect(!receiver.credit_due_below(credit_floor));
 }

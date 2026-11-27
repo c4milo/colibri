@@ -3,7 +3,7 @@
 //! passes. A deadline starts at the instant of the first call that sees what starts it, `receive`,
 //! `send` or `on_instant`, because `respond` and `write_body` take no instant.
 //!
-//! Only request octets move a deadline. A head's first octet ends the idle wait and starts the
+//! Only request bytes move a deadline. A head's first byte ends the idle wait and starts the
 //! head deadline, and a whole head ends both. Nothing else the peer sends, such as an h2 PING or
 //! SETTINGS frame, starts or ends one. While a request is open only its body's deadlines run
 //! (`connection_bodies.zig`), because the connection otherwise waits on the application.
@@ -27,13 +27,13 @@ pub const Clock = struct {
     opened_ns: u64,
     /// A whole request head has arrived, so the first-request deadline no longer runs.
     first_request_read: bool,
-    /// The instant the first octet of the current request head was seen, or null.
+    /// The instant the first byte of the current request head was seen, or null.
     head_since_ns: ?u64,
     /// The instant the connection went idle after a response, or null while it is not idle.
     idle_since_ns: ?u64,
     /// The deadline that ended the connection, once one has.
     timed_out: ?Timeout,
-    /// The instant the connection ended with octets still to send, and whether `linger_ns` has
+    /// The instant the connection ended with bytes still to send, and whether `linger_ns` has
     /// passed since, after which it closes with them unsent (decision 110).
     linger_since_ns: ?u64,
     lingered: bool,
@@ -118,7 +118,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
         clock.head_since_ns = now_ns;
     }
     // Decision 110: the idle deadline runs between requests, after the first one. It starts once
-    // the last response's octets are out, since until then the connection waits on the peer to
+    // the last response's bytes are out, since until then the connection waits on the peer to
     // read them, and colibri's own frames written later do not stop it.
     const idle = wait == .idle and clock.first_request_read;
     if (!idle) {
@@ -131,7 +131,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     observe_settings(connection, now_ns);
     // Decision 110: the drain runs from the first call that sees the shutdown.
     if (connection.shutting_down and clock.drain_since_ns == null) clock.drain_since_ns = now_ns;
-    // Decision 110: every close is bounded, from the instant the connection ended with octets
+    // Decision 110: every close is bounded, from the instant the connection ended with bytes
     // still to send. The two reads come first: `ended` reads the protocol, and most calls have
     // nothing to send.
     if (clock.linger_since_ns == null and connection.output_len > 0 and ended(connection)) clock.linger_since_ns = now_ns;
@@ -310,7 +310,7 @@ fn end(connection: *Connection, passed: Timeout) void {
     connection.stopped = true;
     if (wait == .handshake) {
         // No protocol serves the connection: its TLS handshake had not completed, or its first
-        // octets had not chosen. It closes with nothing more written, whichever deadline passed.
+        // bytes had not chosen. It closes with nothing more written, whichever deadline passed.
         connection.phase = .closed;
         return;
     }
@@ -329,7 +329,7 @@ fn end(connection: *Connection, passed: Timeout) void {
                 assert(failure == error.ConnectionFailed);
             }
             // RFC 9112 §9.6: a server that closes sends nothing after it; a 408 would wait behind
-            // the octets the peer has not taken.
+            // the bytes the peer has not taken.
             if (send) {
                 const failure = session.fail(error.SendTimeout, null);
                 assert(failure == error.ConnectionFailed);

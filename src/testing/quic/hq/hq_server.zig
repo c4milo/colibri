@@ -3,7 +3,7 @@
 //! Each bidirectional stream the client opens carries one request line and the end of the
 //! client's side (`hq.zig`). Once the line is whole, the server answers on the same stream with
 //! the file it names and ends its own side. A request it cannot answer — malformed, too long, or
-//! naming no file — gets its stream reset. colibri reads the file's octets back through the
+//! naming no file — gets its stream reset. colibri reads the file's bytes back through the
 //! stream provider whenever it sends or resends them (decision 57), so the file stays open until
 //! the stream closes.
 const std = @import("std");
@@ -148,8 +148,8 @@ fn release_if_closed(connection: *Connection, request: *Request) void {
 
 const vtable: quic.StreamProvider.VTable = .{ .read = read_file };
 
-/// The octets of a stream's file from `offset`, as many as fit. Every call at one offset answers
-/// the same octets, which RFC 9000 §2.2 asks of a retransmission.
+/// The bytes of a stream's file from `offset`, as many as fit. Every call at one offset answers
+/// the same bytes, which RFC 9000 §2.2 asks of a retransmission.
 fn read_file(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const server: *Server = @ptrCast(@alignCast(context));
     const request = server.find(stream_id) orelse return 0;

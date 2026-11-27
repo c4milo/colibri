@@ -15,7 +15,7 @@
 //! the Reason Phrase cleared and APPLICATION_ERROR as the code. `frame_for` is that conversion,
 //! which is why a caller states the close once instead of once per level.
 //!
-//! **The Reason Phrase is the caller's octets and colibri copies none of them** (decision 35), so
+//! **The Reason Phrase is the caller's bytes and colibri copies none of them** (decision 35), so
 //! a caller that gives one keeps it alive until the closing period ends. A close colibri raises
 //! for itself carries none: §19.19 makes the field diagnostic and colibri has no text to put in
 //! it that the code does not already say.
@@ -91,7 +91,7 @@ pub fn frame_for(pending: Close, level: Level) Close {
 }
 
 /// Writes the close a packet at `level` carries into the front of `output`, and answers how many
-/// octets it occupies. 0 means this packet carries none.
+/// bytes it occupies. 0 means this packet carries none.
 pub fn write(connection: *const Connection, level: Level, output: []u8) usize {
     const pending = connection.pending_close orelse return 0;
     if (!carries(connection, level)) return 0;

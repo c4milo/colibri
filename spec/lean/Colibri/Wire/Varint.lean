@@ -1,35 +1,35 @@
 /-!
 # The variable-length integer (RFC 9000 §16)
 
-QUIC writes an integer in 1, 2, 4 or 8 octets. The two most significant bits of the first octet
+QUIC writes an integer in 1, 2, 4 or 8 bytes. The two most significant bits of the first byte
 give the length as a power of two, and the other bits carry the value in network byte order.
-These definitions follow `src/wire/varint.zig` over natural numbers, with an octet a `Nat` below
+These definitions follow `src/wire/varint.zig` over natural numbers, with a byte a `Nat` below
 256; the theorems are about them (https://github.com/c4milo/colibri/issues/52).
 
 What is proved:
-- `encode_octets`: an encoding in any of the four lengths is octets, each below 256.
-- `decode_encode`: an encoding decodes to its value and its length, whatever octets follow it.
-- `decode_bound`: whatever octets are decoded, the value fits the length the first octet names.
+- `encode_octets`: an encoding in any of the four lengths is bytes, each below 256.
+- `decode_encode`: an encoding decodes to its value and its length, whatever bytes follow it.
+- `decode_bound`: whatever bytes are decoded, the value fits the length the first byte names.
 - `minimal_fits` and `minimal_shortest`: `encodedLenMinimal` names a length that carries the
   value, and no shorter length does.
 -/
 
 namespace Colibri.Wire.Varint
 
-/-- §16: the largest value `len` octets carry, every bit but the two length bits. -/
+/-- §16: the largest value `len` bytes carry, every bit but the two length bits. -/
 def valueMax (len : Nat) : Nat := 2 ^ (8 * len - 2) - 1
 
-/-- The low `k` octets of `v`, most significant first. -/
+/-- The low `k` bytes of `v`, most significant first. -/
 def digits : Nat → Nat → List Nat
   | 0, _ => []
   | k + 1, v => v / 256 ^ k % 256 :: digits k v
 
-/-- The value of octets read most significant first, onto `acc`. -/
+/-- The value of bytes read most significant first, onto `acc`. -/
 def fromDigits : List Nat → Nat → Nat
   | [], acc => acc
   | d :: ds, acc => fromDigits ds (acc * 256 + d)
 
-/-- §16: `v` in `2 ^ tag` octets, the first carrying `tag` in its two most significant bits.
+/-- §16: `v` in `2 ^ tag` bytes, the first carrying `tag` in its two most significant bits.
 `encode_with_len` in `varint.zig`. -/
 def encodeWithTag (v tag : Nat) : List Nat :=
   match digits (2 ^ tag) v with
@@ -37,14 +37,14 @@ def encodeWithTag (v tag : Nat) : List Nat :=
   | first :: rest => (tag * 64 + first) :: rest
 
 /-- §16: the value and the length of the encoding at the start of `octets`, or `none` when fewer
-octets are present than the first names. `decode` in `varint.zig`. -/
+bytes are present than the first names. `decode` in `varint.zig`. -/
 def decode : List Nat → Option (Nat × Nat)
   | [] => none
   | first :: rest =>
     if rest.length < 2 ^ (first / 64) - 1 then none
     else some (fromDigits (first % 64 :: rest.take (2 ^ (first / 64) - 1)) 0, 2 ^ (first / 64))
 
-/-- The fewest octets that carry `v`. `encoded_len_minimal` in `varint.zig`. -/
+/-- The fewest bytes that carry `v`. `encoded_len_minimal` in `varint.zig`. -/
 def encodedLenMinimal (v : Nat) : Nat :=
   if v ≤ valueMax 1 then 1 else if v ≤ valueMax 2 then 2 else if v ≤ valueMax 4 then 4 else 8
 
@@ -63,7 +63,7 @@ theorem digits_lt (k v : Nat) : ∀ d ∈ digits k v, d < 256 := by
     · exact Nat.mod_lt _ (by decide)
     · exact ih d hd
 
-/-- Reading the low `k` octets of `v` back gives `v` below `256 ^ k`. -/
+/-- Reading the low `k` bytes of `v` back gives `v` below `256 ^ k`. -/
 theorem fromDigits_digits (k v acc : Nat) :
     fromDigits (digits k v) acc = acc * 256 ^ k + v % 256 ^ k := by
   induction k generalizing acc with
@@ -75,7 +75,7 @@ theorem fromDigits_digits (k v acc : Nat) :
     simp only [Nat.mul_add, Nat.mul_comm, Nat.mul_left_comm]
     omega
 
-/-- Octets below 256 read back stay below `(acc + 1) * 256 ^ length`. -/
+/-- Bytes below 256 read back stay below `(acc + 1) * 256 ^ length`. -/
 theorem fromDigits_lt (ds : List Nat) (acc : Nat) (h : ∀ d ∈ ds, d < 256) :
     fromDigits ds acc < (acc + 1) * 256 ^ ds.length := by
   induction ds generalizing acc with
@@ -94,8 +94,8 @@ theorem fromDigits_lt (ds : List Nat) (acc : Nat) (h : ∀ d ∈ ds, d < 256) :
 theorem pow_two_eight (m : Nat) : 2 ^ (8 * (m + 1) - 2) = 64 * 256 ^ m := by
   rw [show 8 * (m + 1) - 2 = 6 + 8 * m by omega, Nat.pow_add, Nat.pow_mul]
 
-/-- §16: an encoding decodes to its value and its length, whatever octets follow it. The four
-lengths are what keep the first octet below 256 (`encode_octets`); the round trip needs no more. -/
+/-- §16: an encoding decodes to its value and its length, whatever bytes follow it. The four
+lengths are what keep the first byte below 256 (`encode_octets`); the round trip needs no more. -/
 theorem decode_encode (v tag : Nat) (rest : List Nat) (hv : v ≤ valueMax (2 ^ tag)) :
     decode (encodeWithTag v tag ++ rest) = some (v, 2 ^ tag) := by
   obtain ⟨m, hm⟩ : ∃ m, 2 ^ tag = m + 1 := ⟨2 ^ tag - 1, by have := Nat.one_le_two_pow (n := tag); omega⟩
@@ -124,7 +124,7 @@ theorem decode_encode (v tag : Nat) (rest : List Nat) (hv : v ≤ valueMax (2 ^ 
   rw [Nat.mul_comm] at this
   simp [this]
 
-/-- §16: in any of the four lengths, every octet of an encoding is below 256. -/
+/-- §16: in any of the four lengths, every byte of an encoding is below 256. -/
 theorem encode_octets (v tag : Nat) (htag : tag ≤ 3) (hv : v ≤ valueMax (2 ^ tag)) :
     ∀ d ∈ encodeWithTag v tag, d < 256 := by
   obtain ⟨m, hm⟩ : ∃ m, 2 ^ tag = m + 1 := ⟨2 ^ tag - 1, by have := Nat.one_le_two_pow (n := tag); omega⟩
@@ -146,7 +146,7 @@ theorem encode_octets (v tag : Nat) (htag : tag ≤ 3) (hv : v ≤ valueMax (2 ^
     omega
   · exact digits_lt m v d hd
 
-/-- §16: whatever octets are decoded, the value fits the length the first octet names. -/
+/-- §16: whatever bytes are decoded, the value fits the length the first byte names. -/
 theorem decode_bound (octets : List Nat) (v len : Nat) (h : ∀ d ∈ octets, d < 256)
     (hd : decode octets = some (v, len)) : v ≤ valueMax len := by
   match octets, hd with

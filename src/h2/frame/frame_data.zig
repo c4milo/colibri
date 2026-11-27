@@ -27,9 +27,9 @@ pub const Error = frame_padding.Error || error{
 
 /// The fields and the END_STREAM flag of a DATA frame (RFC 9113 §6.1).
 pub const Data = struct {
-    /// The Data field, with the Pad Length octet and the padding removed.
+    /// The Data field, with the Pad Length byte and the padding removed.
     data: []const u8,
-    /// Padding octets the frame carried, 0 when it was not padded.
+    /// Padding bytes the frame carried, 0 when it was not padded.
     padding_len: u8,
     end_stream: bool,
 };
@@ -49,7 +49,7 @@ pub fn parse(header: Header, payload: []const u8) Error!Data {
     };
 }
 
-/// Writes one DATA frame, header included, all of it or nothing. `padding_len` octets of zero
+/// Writes one DATA frame, header included, all of it or nothing. `padding_len` bytes of zero
 /// padding follow the data when it is not 0 (RFC 9113 §6.1).
 pub fn write_data(
     writer: *Writer,
@@ -75,7 +75,7 @@ pub fn write_data(
     writer.* = cursor;
 }
 
-/// Writes the header of a DATA frame with no padding whose `length` octets of data the caller
+/// Writes the header of a DATA frame with no padding whose `length` bytes of data the caller
 /// writes after it itself (RFC 9113 §4.1, §6.1). The header is written whole or not at all.
 pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_stream: bool) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);

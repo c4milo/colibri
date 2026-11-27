@@ -92,7 +92,7 @@ fn get_frame(storage: *[frame_len_max]u8) ![]const u8 {
     return writer.written();
 }
 
-/// The client opens a request stream and sends all of `frame` but its last octet. Test-only.
+/// The client opens a request stream and sends all of `frame` but its last byte. Test-only.
 fn open_short_of_head(frame: []const u8) !u64 {
     const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, frame[0 .. frame.len - 1], false);

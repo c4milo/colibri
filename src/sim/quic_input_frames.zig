@@ -5,8 +5,8 @@
 //! - an accepted frame keeps every rule the writer asserts, so writing it again cannot halt;
 //! - an accepted frame is written again with the type it was read from, and reads back as itself.
 //!
-//! The last rule compares octets and not frames: the frame written again is read back and written
-//! a second time, and the two writes must be the same octets.
+//! The last rule compares bytes and not frames: the frame written again is read back and written
+//! a second time, and the two writes must be the same bytes.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -22,7 +22,7 @@ const varint = quic.wire.varint;
 const limits = quic.constants;
 
 pub const Violation = error{
-    /// A refused frame consumed octets.
+    /// A refused frame consumed bytes.
     RefusalConsumed,
     /// An accepted frame breaks a rule the writer asserts.
     FrameNotWritable,
@@ -34,7 +34,7 @@ pub const Violation = error{
 /// The fields of one ACK range after the first: a Gap and an ACK Range Length (RFC 9000 §19.3.1).
 const ack_range_fields = 2;
 
-/// Octets one ACK frame's ranges after the first take at most.
+/// Bytes one ACK frame's ranges after the first take at most.
 const ack_ranges_len_max = constants.quic_input_check_ack_ranges_max * ack_range_fields *
     quic.wire.constants.protocol.varint_len_max;
 
@@ -210,11 +210,11 @@ fn draw_close(random: *Random, material: []const u8) quic.ConnectionClose {
     };
 }
 
-/// Reads `payload` frame by frame and checks each frame. True when every octet was read as
+/// Reads `payload` frame by frame and checks each frame. True when every byte was read as
 /// frames, false when a frame was refused. `frames_read` counts the frames accepted.
 pub fn read_payload(storage: *Storage, payload: []const u8, frames_read: *u64) Violation!bool {
     var reader = Reader.init(payload);
-    // Bounded: every frame that is read consumes at least its type's octet.
+    // Bounded: every frame that is read consumes at least its type's byte.
     for (0..payload.len + 1) |_| {
         if (reader.remaining_len() == 0) return true;
         const at_frame = reader;
@@ -255,7 +255,7 @@ fn ranges_descend(ranges: frame.AckRanges) bool {
     var walk = ranges.iterator();
     var previous: ?frame.AckRange = null;
     var walked: u64 = 0;
-    // Bounded by the count, which the octets the frame was read from bound.
+    // Bounded by the count, which the bytes the frame was read from bound.
     for (0..constants.quic_input_check_input_len_max + 1) |_| {
         const range = walk.next() orelse break;
         if (range.smallest > range.largest) return false;

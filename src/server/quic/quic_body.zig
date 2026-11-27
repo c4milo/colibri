@@ -3,7 +3,7 @@
 //! together, as `connection_bodies.zig` keeps them over TCP.
 //!
 //! A body's wait starts at the call that reads its request's head, and ends with the request's
-//! content or with its stream. Only the content's own octets count: the data of its DATA frames
+//! content or with its stream. Only the content's own bytes count: the data of its DATA frames
 //! (RFC 9114 §7.2.1), and only while the caller still hears of the request.
 //!
 //! A body that falls short ends its request alone, because h3's streams are independent:
@@ -43,7 +43,7 @@ const Body = struct {
 pub const Bodies = struct {
     /// One entry for each request record, at the record's index.
     entries: [constants.limits.quic_requests_max]Body,
-    /// The bodies the connection waits for, and the meter of their octets together.
+    /// The bodies the connection waits for, and the meter of their bytes together.
     waiting: u32,
     together: rate.Meter,
 

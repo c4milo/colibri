@@ -4,7 +4,7 @@
 //!
 //! The ranges are read but not expanded. A frame names the largest packet number acknowledged
 //! and then walks downward in alternating gaps and runs, and expanding that into a set would
-//! need storage proportional to what a peer claims. `AckRanges` keeps the octets and hands them
+//! need storage proportional to what a peer claims. `AckRanges` keeps the bytes and hands them
 //! out one range at a time, so a frame of any size costs the same to hold and colibri decides
 //! what to keep.
 //!
@@ -35,7 +35,7 @@ pub const Range = struct {
     largest: u64,
 };
 
-/// The ranges of one ACK frame, walked from the largest number downward. It holds the octets the
+/// The ranges of one ACK frame, walked from the largest number downward. It holds the bytes the
 /// ranges were read from, so walking it again yields the same ranges and costs no storage.
 pub const AckRanges = struct {
     largest_acknowledged: u64,
@@ -135,7 +135,7 @@ pub fn read(reader: *Reader, frame_type: u64) frame.Error!Ack {
 
 /// Walks every range once, refusing the frame if any computed number goes below zero, and
 /// returns the smallest acknowledged. The count is a peer's value, so the loop is bounded by the
-/// octets present: each range takes at least two, so a count past that many is a truncation.
+/// bytes present: each range takes at least two, so a count past that many is a truncation.
 fn walk_ranges(reader: *Reader, count: u64, first_smallest: u64) frame.Error!u64 {
     var previous_smallest = first_smallest;
     var walked: u64 = 0;
@@ -154,11 +154,11 @@ fn walk_ranges(reader: *Reader, count: u64, first_smallest: u64) frame.Error!u64
         previous_smallest = largest - length;
         walked += 1;
     }
-    // The count names more ranges than the octets can hold.
+    // The count names more ranges than the bytes can hold.
     return error.Truncated;
 }
 
-/// Fewest octets one Gap and ACK Range Length pair occupies (RFC 9000 §16, §19.3.1).
+/// Fewest bytes one Gap and ACK Range Length pair occupies (RFC 9000 §16, §19.3.1).
 const octets_per_range_min: usize = 2;
 
 fn read_ecn(reader: *Reader) frame.Error!EcnCounts {

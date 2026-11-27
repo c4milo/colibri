@@ -1,12 +1,12 @@
 //! The STREAM frames this endpoint sends (RFC 9000 §19.8), one per packet (decision 56), with
-//! their octets read from the caller's stream provider (decision 57). Part of design §8 step 9e.
+//! their bytes read from the caller's stream provider (decision 57). Part of design §8 step 9e.
 //!
-//! The caller opens a stream and says how far its octets reach with `supply`. It passes no
-//! octets: `send` reads them through the provider when a packet has room, and reads a lost range
-//! again the same way. Lost ranges go first (RFC 9000 §13.3), and new octets wait while any is
+//! The caller opens a stream and says how far its bytes reach with `supply`. It passes no
+//! bytes: `send` reads them through the provider when a packet has room, and reads a lost range
+//! again the same way. Lost ranges go first (RFC 9000 §13.3), and new bytes wait while any is
 //! owed, which is what bounds the lost table (decision 57).
 //!
-//! Which stream's new octets go next is RFC 9000 §2.3's: the caller sets a priority per stream,
+//! Which stream's new bytes go next is RFC 9000 §2.3's: the caller sets a priority per stream,
 //! a lower value goes first, and streams of one value take turns (`set_priority`).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -52,8 +52,8 @@ pub fn open(connection: *Connection, directionality: Directionality) stream_modu
     return id;
 }
 
-/// Says the caller's octets on `id` now reach `end`, never below what it said before, and that
-/// the stream ends there when `fin` is set (RFC 9000 §4.5). The caller keeps the octets until
+/// Says the caller's bytes on `id` now reach `end`, never below what it said before, and that
+/// the stream ends there when `fin` is set (RFC 9000 §4.5). The caller keeps the bytes until
 /// colibri reports the stream in "Data Recvd" or reset (decision 57).
 pub fn supply(connection: *Connection, id: StreamId, end: u64, fin: bool) Error!void {
     if (!id.is_sendable_by(connection.streams.role)) return Error.NotWritable;
@@ -68,7 +68,7 @@ pub fn supply(connection: *Connection, id: StreamId, end: u64, fin: bool) Error!
 }
 
 /// Abandons sending on `id` with the application's `error_code` (RFC 9000 §3.1, §19.4). colibri
-/// owes a RESET_STREAM from here on and reads none of the stream's octets again, so the caller may
+/// owes a RESET_STREAM from here on and reads none of the stream's bytes again, so the caller may
 /// drop them (decision 57).
 pub fn reset(connection: *Connection, id: StreamId, error_code: u64) Error!void {
     if (!id.is_sendable_by(connection.streams.role)) return Error.NotWritable;
@@ -111,7 +111,7 @@ pub fn write_endings(connection: *Connection, level: Level, writer: *Writer, num
     return wrote;
 }
 
-/// RFC 9000 §19.4. The final size is every octet framed: nothing is framed after the reset, so
+/// RFC 9000 §19.4. The final size is every byte framed: nothing is framed after the reset, so
 /// it is the same in every copy (§13.3: "The content of a RESET_STREAM frame MUST NOT change when
 /// it is sent again") and it is what both flow control limits counted (§4.5).
 fn write_reset(stream: *Stream, writer: *Writer, number: u64) bool {
@@ -146,7 +146,7 @@ fn wants_stop_sending(stream: *const Stream) bool {
 
 /// What one STREAM frame took, which the send path puts in the packet's record (RFC 9000 §13.3).
 pub const Written = struct {
-    /// Octets of `output` the frame occupies. 0 means none was written.
+    /// Bytes of `output` the frame occupies. 0 means none was written.
     len: usize = 0,
     stream_id: u64 = 0,
     offset: u64 = 0,
@@ -155,7 +155,7 @@ pub const Written = struct {
 };
 
 /// Writes one STREAM frame into `output` (RFC 9000 §19.8): the oldest lost range when one is
-/// owed, and a stream's new octets when none is.
+/// owed, and a stream's new bytes when none is.
 pub fn write(connection: *Connection, stream_provider: StreamProvider, output: []u8) Written {
     drop_unneeded(&connection.streams);
     // RFC 9000 §13.3: "Endpoints SHOULD prioritize retransmission of data over sending new data".
@@ -185,12 +185,12 @@ fn drop_unneeded(streams: *Streams) void {
     }
 }
 
-/// Frames the new octets of the stream RFC 9000 §2.3's order puts first: the lowest priority
+/// Frames the new bytes of the stream RFC 9000 §2.3's order puts first: the lowest priority
 /// value, and among streams of one value, the next after the one that sent last, so they take
-/// turns. A stream that frames nothing, for want of room or of octets from the provider, gives way
+/// turns. A stream that frames nothing, for want of room or of bytes from the provider, gives way
 /// to the next.
 fn write_new(connection: *Connection, stream_provider: StreamProvider, output: []u8) Written {
-    // Design §8 step 29d.16: only a marked slot may owe new octets, and a slot this call tried
+    // Design §8 step 29d.16: only a marked slot may owe new bytes, and a slot this call tried
     // leaves the copy.
     var untried = connection.streams.may_send_new;
     // Bounded by the table's capacity: each pass tries one stream it has not tried, or ends.
@@ -206,7 +206,7 @@ fn write_new(connection: *Connection, stream_provider: StreamProvider, output: [
     return .{};
 }
 
-/// A stream with new octets to send, where it sits in the table, and what it owes.
+/// A stream with new bytes to send, where it sits in the table, and what it owes.
 const Choice = struct {
     stream: *Stream,
     slot: u32,
@@ -216,7 +216,7 @@ const Choice = struct {
 /// The slots `choose` reads.
 const Slots = std.StaticBitSet(constants.limits.streams_per_connection_max);
 
-/// The untried stream with new octets that sends next, or null when there is none. It clears the
+/// The untried stream with new bytes that sends next, or null when there is none. It clears the
 /// mark of each stream it finds out of "Ready" and "Send", in `untried` and in the table.
 fn choose(connection: *Connection, untried: *Slots) ?Choice {
     const streams = &connection.streams;
@@ -253,9 +253,9 @@ fn rank_of(priority: u8, slot: u32, turn: u32) u64 {
     return @as(u64, priority) * capacity + distance;
 }
 
-/// Sets where `id`'s new octets go against other streams': a lower value first, and streams of
+/// Sets where `id`'s new bytes go against other streams': a lower value first, and streams of
 /// one value take turns. RFC 9000 §2.3: "A QUIC implementation SHOULD provide ways in which an
-/// application can indicate the relative priority of streams." Lost octets still go before any
+/// application can indicate the relative priority of streams." Lost bytes still go before any
 /// new ones (§13.3).
 pub fn set_priority(connection: *Connection, id: StreamId, priority: u8) Error!void {
     if (!id.is_sendable_by(connection.streams.role)) return Error.NotWritable;
@@ -266,7 +266,7 @@ pub fn set_priority(connection: *Connection, id: StreamId, priority: u8) Error!v
     stream.priority = priority;
 }
 
-/// The new octets of `stream` that may go out now, or null when there are none.
+/// The new bytes of `stream` that may go out now, or null when there are none.
 fn owed_new(connection: *const Connection, stream: *const Stream) ?Range {
     // `choose` passed over each stream out of "Ready" and "Send".
     assert(stream.sending.may_send_data());
@@ -274,15 +274,15 @@ fn owed_new(connection: *const Connection, stream: *const Stream) ?Range {
     // RFC 9000 §4.1: "Senders MUST NOT send data in excess of either limit."
     const credit = @min(stream.send_flow.available(), connection.send_flow.available());
     const len = @min(outgoing.unframed_len(), credit);
-    // RFC 9000 §4.5: the FIN goes with the stream's last octet, or alone after it.
+    // RFC 9000 §4.5: the FIN goes with the stream's last byte, or alone after it.
     const fin = outgoing.fin_due() and len == outgoing.unframed_len();
     if (len == 0 and !fin) return null;
     return .{ .stream_id = stream.id, .offset = outgoing.framed_end, .len = len, .fin = fin };
 }
 
-/// Spends the credit new octets took and moves the stream on.
+/// Spends the credit new bytes took and moves the stream on.
 fn on_new_framed(connection: *Connection, stream: *Stream, written: Written) void {
-    // RFC 9000 §4.1: new octets count against the stream's limit and the connection's. A lost
+    // RFC 9000 §4.1: new bytes count against the stream's limit and the connection's. A lost
     // range sent again counts against neither, because its offsets were counted once already.
     stream.send_flow.spend(written.data_len);
     connection.send_flow.spend(written.data_len);
@@ -292,8 +292,8 @@ fn on_new_framed(connection: *Connection, stream: *Stream, written: Written) voi
 }
 
 /// Frames as much of `owed` as `output` and the provider allow, with the FIN when the frame
-/// carries the range's last octet. Nothing is written when `output` cannot hold the header and
-/// something after it, or when the provider has no octets for a range that has some.
+/// carries the range's last byte. Nothing is written when `output` cannot hold the header and
+/// something after it, or when the provider has no bytes for a range that has some.
 fn frame(stream_provider: StreamProvider, owed: Range, output: []u8) Written {
     // `Record.data_len` is 16 bits, and a packet never exceeds the largest UDP payload
     // (RFC 9000 §18.2), which `datagram_ceiling` bounds every datagram by.
@@ -304,7 +304,7 @@ fn frame(stream_provider: StreamProvider, owed: Range, output: []u8) Written {
     if (output.len < header_len) return .{};
     const data_max = @min(cap, output.len - header_len);
     const data_len = if (data_max == 0) 0 else stream_provider.read(owed.stream_id, owed.offset, output[header_len..][0..data_max]);
-    // A range with octets needs at least one of them in the frame; a FIN alone needs none.
+    // A range with bytes needs at least one of them in the frame; a FIN alone needs none.
     if (owed.len > 0 and data_len == 0) return .{};
     const fin = owed.fin and data_len == owed.len;
     var writer = Writer.init(output[0..header_len]);

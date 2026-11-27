@@ -8,9 +8,9 @@
 //!     its handle or by an ended request's id is refused (`endpoint_program_stale.zig`);
 //!   - P5: after every call, `deadline_ns()` is the soonest deadline of the live slots
 //!     (`endpoint_program.zig`);
-//!   - P6: once a pass moves nothing, the endpoint owes no octet, no event, no datagram and no
+//!   - P6: once a pass moves nothing, the endpoint owes no byte, no event, no datagram and no
 //!     `writable`;
-//!   - P7: every `send` brings an octet (`endpoint_run_route.zig`);
+//!   - P7: every `send` brings a byte (`endpoint_run_route.zig`);
 //!   - P8: once a pass moves nothing, the endpoint's deadline has not come.
 //!
 //! The two runs of a seed must write the same trace (invariant 5), and P9, that Debug and

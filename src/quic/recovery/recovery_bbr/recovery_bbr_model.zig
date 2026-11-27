@@ -8,7 +8,7 @@
 //! - BBR.max_bw, the largest rate sample over the last 2 bandwidth probe cycles (§5.5.2 to
 //!   §5.5.6).
 //! - BBR.min_rtt, the smallest round trip over the last 10 s (§5.5.7, §5.3.4.3).
-//! - BBR.extra_acked, the octets that come back acknowledged in a burst (§5.5.9).
+//! - BBR.extra_acked, the bytes that come back acknowledged in a burst (§5.5.9).
 //!
 //! The states of §5.3 call these functions, and decide when a probe cycle ends. Every instant is
 //! a parameter (non-negotiable 3), and the arithmetic is integer throughout (invariant 5).
@@ -30,7 +30,7 @@ pub const Model = struct {
     next_round_delivered_len: u64,
     round_start: bool,
     round_count: u64,
-    /// §5.5.5: `BBR.max_bw` in octets a second, its filter, and §5.5.6's `BBR.cycle_count`.
+    /// §5.5.5: `BBR.max_bw` in bytes a second, its filter, and §5.5.6's `BBR.cycle_count`.
     max_bw: u64,
     max_bw_filter: recovery_bbr_filter.MaxFilter(bbr.max_bw_filter_cycles),
     cycle_count: u64,
@@ -129,7 +129,7 @@ pub const Model = struct {
         assert(model.min_rtt_ns <= model.probe_rtt_min_delay_ns);
     }
 
-    /// §5.5.9's `UpdateACKAggregation`. `bw` is `BBR.bw` in octets a second, `window_len` is
+    /// §5.5.9's `UpdateACKAggregation`. `bw` is `BBR.bw` in bytes a second, `window_len` is
     /// `C.cwnd`, and `full_bw_reached` says whether Startup has ended (§5.3.1).
     pub fn update_ack_aggregation(model: *Model, sample: Sample, now_ns: u64, bw: u64, window_len: u64, full_bw_reached: bool) void {
         assert(now_ns >= model.extra_acked_interval_start_ns);
@@ -150,7 +150,7 @@ pub const Model = struct {
     }
 };
 
-/// §5.5.9's `expected_delivered`: the octets `bw` octets a second deliver in `interval_ns`. The
+/// §5.5.9's `expected_delivered`: the bytes `bw` bytes a second deliver in `interval_ns`. The
 /// product is taken in 128 bits, and the quotient saturates at the largest `u64`.
 pub fn expected_delivered_len(bw: u64, interval_ns: u64) u64 {
     const expected = @as(u128, bw) * interval_ns / core.constants.nanoseconds_per_second;

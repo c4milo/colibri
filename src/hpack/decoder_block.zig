@@ -4,7 +4,7 @@
 //! in decoder.zig's header, and the tests of the refusals are here, beside the code that refuses.
 //!
 //! A representation is read whole or not at all. On `error.Truncated` the cursor stays at its
-//! first octet and the dynamic table is untouched, so a caller holding a block cut mid-way, as
+//! first byte and the dynamic table is untouched, so a caller holding a block cut mid-way, as
 //! h2 does between a HEADERS frame and its CONTINUATION, can decode what is whole, keep the tail,
 //! and feed it again with the next fragment.
 const std = @import("std");
@@ -41,7 +41,7 @@ pub const Block = struct {
     pub fn next(block: *Block) Error!?FieldLine {
         if (block.reader.remaining_len() > 0) {
             const first = block.reader.peek_byte() catch unreachable;
-            // RFC 7541 §6.1: a first octet whose high bit is set starts an indexed field line.
+            // RFC 7541 §6.1: a first byte whose high bit is set starts an indexed field line.
             if (first & constants.protocol.indexed_pattern != 0) return try block.indexed();
         }
         return block.next_other();
@@ -54,7 +54,7 @@ pub const Block = struct {
         for (0..constants.protocol.size_updates_per_block_max + 1) |_| {
             if (block.reader.remaining_len() == 0) return null;
             const first = try block.reader.peek_byte();
-            // RFC 7541 §6: the representation is named by the first octet's high bits.
+            // RFC 7541 §6: the representation is named by the first byte's high bits.
             if (first & constants.protocol.indexed_pattern != 0) return try block.indexed();
             if (first & constants.protocol.incremental_pattern != 0) {
                 return try block.literal(.incremental, constants.protocol.incremental_prefix_bits);
@@ -71,7 +71,7 @@ pub const Block = struct {
         unreachable; // A third update fails inside size_update.
     }
 
-    /// The octets consumed so far.
+    /// The bytes consumed so far.
     pub fn consumed_len(block: *const Block) usize {
         return block.reader.offset;
     }
@@ -208,14 +208,14 @@ test "an insert larger than the capacity empties the table and the next index pa
     try testing.expectEqual(0, decoder_module.test_decoder.table.len());
 }
 
-/// A value long enough that fourteen entries of it nearly fill the octet buffer, so the next
-/// insert moves the live octets over the evicted ones (RFC 7541 §4.4's caution). A literal
-/// carrying it is the value, its length, a name of a few octets and the pattern octet.
+/// A value long enough that fourteen entries of it nearly fill the byte buffer, so the next
+/// insert moves the live bytes over the evicted ones (RFC 7541 §4.4's caution). A literal
+/// carrying it is the value, its length, a name of a few bytes and the pattern byte.
 const crowding_value_len = 1100;
 const crowding_literal_framing = 16;
 const crowding_literal_len_max = crowding_value_len + crowding_literal_framing;
-/// The literals of five-octet names that fill the table to within one entry of its end: each
-/// costs its name, its value and the 32 octets of RFC 7541 §4.1.
+/// The literals of five-byte names that fill the table to within one entry of its end: each
+/// costs its name, its value and the 32 bytes of RFC 7541 §4.1.
 const crowding_count = constants.limits.dynamic_table_capacity_max / (crowding_name_len + crowding_value_len + wire.constants.protocol.table_entry_overhead);
 /// The length of each crowding name, "name" and one letter.
 const crowding_name_len = "namea".len;
@@ -304,7 +304,7 @@ test "a literal cut after its name moves nothing, and decodes once the rest arri
 
 test "a string past the implementation limit, and a block cut inside a string, are refused" {
     decoder_module.test_decoder.init(4096);
-    // A raw name one octet longer than `name_len_max`, every octet present.
+    // A raw name one byte longer than `name_len_max`, every byte present.
     const too_long = "\x40\x7f\x82\x01" ++ [_]u8{'a'} ** (constants.limits.name_len_max + 1);
     try expect_refused(too_long, error.StringTooLong);
     try expect_refused(too_long[0 .. too_long.len - 1], error.Truncated);
@@ -347,12 +347,12 @@ test "fuzz: a block decodes wholly or is refused, and the table stays under its 
 
 // The tests below hold `next` to `next_other`, which is `next` as it was before the indexed field
 // line was read first: on two decoders that start alike, each call must return the same line or
-// refusal, consume the same octets and leave the same table.
+// refusal, consume the same bytes and leave the same table.
 
 /// The decoder `next_other` runs on, beside `decoder_module.test_decoder`. Test-only.
 threadlocal var reference_decoder: Decoder align(@alignOf(Decoder)) = undefined;
 
-/// What one call returned, in a form two calls compare by: the line's octets, the refusal, or the
+/// What one call returned, in a form two calls compare by: the line's bytes, the refusal, or the
 /// end of the block.
 const Outcome = union(enum) { line: FieldLine, refused: Error, end };
 
@@ -427,7 +427,7 @@ fn expect_same_block(octets: []const u8, lowered: bool) !void {
     }
 }
 
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
 
 test "next returns what next_other returns for every block of up to two octets" {

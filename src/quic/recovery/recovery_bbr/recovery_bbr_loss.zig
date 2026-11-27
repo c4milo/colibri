@@ -146,7 +146,7 @@ pub fn on_packet_lost(state: *Bbr, lost: recovery_sent.Record, lost_len: u64, ap
     handle_inflight_too_high(state, sample, path);
 }
 
-/// §5.3.1.3's counts for one lost packet: its octets, and a new range unless it follows the last
+/// §5.3.1.3's counts for one lost packet: its bytes, and a new range unless it follows the last
 /// lost packet of the application space (the owner's ruling of 2026-10-31).
 fn count_round_loss(state: *Bbr, lost: recovery_sent.Record, application: bool) void {
     if (lost.in_flight) state.round_lost_len +|= lost.sent_len;
@@ -155,8 +155,8 @@ fn count_round_loss(state: *Bbr, lost: recovery_sent.Record, application: bool) 
     state.last_lost_number = if (application) lost.number else null;
 }
 
-/// §5.5.10.2's `InflightAtLoss`: the octets in flight at which the losses crossed 2%, inside the
-/// lost packet of `size_len` octets. `lost_prefix` may be negative, when the losses before the
+/// §5.5.10.2's `InflightAtLoss`: the bytes in flight at which the losses crossed 2%, inside the
+/// lost packet of `size_len` bytes. `lost_prefix` may be negative, when the losses before the
 /// packet already crossed it, so the arithmetic is signed, and the answer is at least 0.
 pub fn inflight_at_loss(sample: Sample, size_len: u64) u64 {
     const inflight_prev: i128 = @as(i128, sample.tx_in_flight_len) - size_len;

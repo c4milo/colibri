@@ -12,7 +12,7 @@ const server = &support.server;
 const to_server = &support.to_server;
 const to_client = &support.to_client;
 
-/// Octets of application data each side seals to show its session still works.
+/// Bytes of application data each side seals to show its session still works.
 const greeting = "hello";
 
 /// Checks that `provider`'s side reports the alert `description` once, from `origin`.
@@ -34,7 +34,7 @@ test "RFC 9846 §6.2: a client's fail sends the alert it names, and the server r
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
     to_client.* = .{};
-    // RFC 9846 §5.2: a record longer than 2^14 + 256 octets is the error record_overflow names.
+    // RFC 9846 §5.2: a record longer than 2^14 + 256 bytes is the error record_overflow names.
     const written = try client.fail(.record_overflow, to_server.free());
     try testing.expectEqual(record.alert_record_len, written);
     to_server.len += written;

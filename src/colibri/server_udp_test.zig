@@ -52,7 +52,7 @@ fn hex(comptime digits: []const u8) [digits.len / hex_digits_per_octet]u8 {
 const hex_digits_per_octet = 2;
 const hex_branches_per_digit = 64;
 
-/// RFC 9001 Appendix A.2: a client's protected Initial, one datagram of 1200 octets (RFC 9001
+/// RFC 9001 Appendix A.2: a client's protected Initial, one datagram of 1200 bytes (RFC 9001
 /// lines 2421 to 2458).
 const client_initial = hex("c000000001088394c8f03e5157080000449e7b9aec34d1b1c98dd7689fb8ec11" ++
     "d242b123dc9bd8bab936b47d92ec356c0bab7df5976d27cd449f63300099f399" ++

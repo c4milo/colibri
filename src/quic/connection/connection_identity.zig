@@ -54,7 +54,7 @@ pub const Identity = struct {
     peer_initial_source: ?ConnectionId,
 
     pub fn init(identity: *Identity, options: Options) void {
-        // RFC 9000 §17.2: in version 1 a connection ID is at most 20 octets, which `ConnectionId`
+        // RFC 9000 §17.2: in version 1 a connection ID is at most 20 bytes, which `ConnectionId`
         // asserts, and a long header carries its length so a zero-length one is admitted.
         identity.local_initial_source = ConnectionId.init(options.local_initial_source);
         identity.original_destination = ConnectionId.init(options.original_destination);
@@ -183,7 +183,7 @@ pub fn describe(identity: *const Identity, parameters: *transport_parameters.Par
 }
 
 comptime {
-    // A connection ID fits the octets `ConnectionId` reserves, which §17.2 bounds at 20.
+    // A connection ID fits the bytes `ConnectionId` reserves, which §17.2 bounds at 20.
     assert(constants.protocol.connection_id_len_max <= std.math.maxInt(u8));
 }
 

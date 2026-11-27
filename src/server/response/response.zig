@@ -52,7 +52,7 @@ pub const Response = struct {
     memory: []u8,
     /// The writer `body` returns. Its buffer is the part of `memory` that no run holds yet.
     writer: std.Io.Writer,
-    /// Octets at the front of `memory` that header names and values hold.
+    /// Bytes at the front of `memory` that header names and values hold.
     header_len: usize = 0,
     /// The headers, then the trailers.
     lines: [constants.limits.response_headers_max]http.Field = undefined,
@@ -64,7 +64,7 @@ pub const Response = struct {
     piece_sent: u8 = 0,
     piece_offset: usize = 0,
     /// The runs before `piece_released` the engine released, whose memory the writer may write
-    /// again: `released_len` of the `taken_len` octets the engine took (design §8 step 46).
+    /// again: `released_len` of the `taken_len` bytes the engine took (design §8 step 46).
     piece_released: u8 = 0,
     taken_len: u64 = 0,
     released_len: u64 = 0,

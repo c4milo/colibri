@@ -182,7 +182,7 @@ test "a kept packet comes back as it arrived, in order, and a full store keeps n
     try testing.expectEqual(Ecn.ect_0, fixture.packets[1].ecn);
     fixture.clear();
     try testing.expectEqual(0, fixture.count);
-    // Bounded by the entries: each one-octet packet takes one.
+    // Bounded by the entries: each one-byte packet takes one.
     for (0..constants.limits.early_packets_max) |_| try testing.expect(fixture.keep(first[0..1], 30, .not_ect));
     try testing.expect(!fixture.keep(first[0..1], 30, .not_ect));
 }

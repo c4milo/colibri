@@ -20,7 +20,7 @@ const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
 const check_socket = @import("check_socket.zig");
 
-/// The largest SubjectPublicKeyInfo the check reads. An RSA-4096 SPKI is about 550 octets, so
+/// The largest SubjectPublicKeyInfo the check reads. An RSA-4096 SPKI is about 550 bytes, so
 /// this holds any key the peer is likely to mint.
 const spki_len_max: usize = 1024;
 
@@ -144,7 +144,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// completes. The socket blocks, which decision 46 permits here: this check serves one connection
 /// and exits, and is not one of design §9's endpoints.
 fn run_handshake(socket: std.c.fd_t) !void {
-    // Bounded: each pass reads at least one octet after it writes, and a handshake is a few
+    // Bounded: each pass reads at least one byte after it writes, and a handshake is a few
     // records.
     for (0..check_socket.handshake_reads_max) |_| {
         const progress = client.handshake(input.unread(), &output_storage) catch |failure| {
@@ -225,9 +225,9 @@ fn usage() noreturn {
 
 /// The address the peer listens on. The check runs against a peer on this machine.
 const loopback: [ipv4_octets]u8 = .{ loopback_first, 0, 0, 1 };
-/// How many octets an IPv4 address has (RFC 791 §3.1).
+/// How many bytes an IPv4 address has (RFC 791 §3.1).
 const ipv4_octets: usize = 4;
-/// The first octet of 127.0.0.0/8, which RFC 1122 §3.2.1.3 reserves for the local host.
+/// The first byte of 127.0.0.0/8, which RFC 1122 §3.2.1.3 reserves for the local host.
 const loopback_first: u8 = 127;
 
 /// The radix every number on the command line is written in.

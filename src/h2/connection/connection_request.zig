@@ -23,9 +23,9 @@ const connection_send = @import("connection_send.zig");
 const Connection = connection.Connection;
 const Writer = core.Writer;
 
-/// Why a request did not go out. Every one leaves the connection as it was and counts no octet of
+/// Why a request did not go out. Every one leaves the connection as it was and counts no byte of
 /// the caller's buffer as written, and none of them ends the connection. A refused block may have
-/// been encoded into the buffer: octets past what a call returns are scratch.
+/// been encoded into the buffer: bytes past what a call returns are scratch.
 pub const Error = error{
     /// The caller's buffer is too small for the frames, or the field section's block is longer
     /// than `send_block_len_max`. A section past the limit is refused whole (RFC 9113 §4.3).
@@ -90,7 +90,7 @@ pub const Request = struct {
 pub const Sent = struct {
     /// The identifier of the stream it opened (RFC 9113 §5.1.1).
     stream_id: u32,
-    /// Octets written into the caller's buffer.
+    /// Bytes written into the caller's buffer.
     written: usize,
 };
 
@@ -185,7 +185,7 @@ fn validate_target(request: Request) Error!void {
 /// value RFC 9110 §5.5 admits.
 fn validate_pseudo_value(value: []const u8) Error!void {
     // RFC 9113 §8.2.1: a field value carrying NUL, CR or LF, or surrounded by whitespace, is
-    // malformed, and RFC 9110 §5.5 gives the octets a value admits.
+    // malformed, and RFC 9110 §5.5 gives the bytes a value admits.
     http.field.validate_value(value) catch return error.PseudoHeaderInvalid;
 }
 
@@ -197,7 +197,7 @@ pub fn validate_field_line(line: hpack.Field) Error!void {
     // neither.
     if (!is_lowercase_token(line.name)) return error.FieldLineInvalid;
     // RFC 9113 §8.2.1: a value carrying NUL, CR or LF, or surrounded by whitespace, is malformed,
-    // and RFC 9110 §5.5 gives the octets a value admits.
+    // and RFC 9110 §5.5 gives the bytes a value admits.
     http.field.validate_value(line.value) catch return error.FieldLineInvalid;
     // RFC 9113 §8.2.2: an endpoint MUST NOT generate a message containing connection-specific
     // field lines, and the TE it permits carries no value but "trailers".
@@ -209,21 +209,21 @@ pub fn validate_field_line(line: hpack.Field) Error!void {
 }
 
 /// True when `name` is a token (RFC 9110 §5.6.2) of no uppercase letter (RFC 9113 §8.2), within
-/// the length colibri accepts. One read an octet checks both rules.
+/// the length colibri accepts. One read a byte checks both rules.
 fn is_lowercase_token(name: []const u8) bool {
     // RFC 9110 §5.6.2: a token is one or more tchar.
     if (name.len == 0) return false;
     // RFC 9110 §5.4 sets no limit on a field line, so colibri's name limit applies to what it sends.
     if (name.len > core.constants.limits.field_name_len_max) return false;
     for (name) |octet| {
-        // RFC 9113 §8.2.1: a field name containing 0x41-0x5a, or an octet outside a token, is
+        // RFC 9113 §8.2.1: a field name containing 0x41-0x5a, or a byte outside a token, is
         // malformed.
         if (!lowercase_token_octets[octet]) return false;
     }
     return true;
 }
 
-/// One entry per octet value: whether a field name colibri sends may hold it. It is a tchar
+/// One entry per byte value: whether a field name colibri sends may hold it. It is a tchar
 /// (RFC 9110 §5.6.2) and not an uppercase letter (RFC 9113 §8.2). http's `message_lines.zig`
 /// builds the same table for what h2 and h3 receive; sharing it would add a public name.
 const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
@@ -413,7 +413,7 @@ test "§8.1.1: an interim response does not set the content-length the DATA is c
     _ = try support.feed(interim);
     try testing.expectEqual(null, test_connection.streams.lookup(sent.stream_id).live.content_length);
     _ = try feed_response(sent.stream_id, "200", false);
-    // Three octets end the stream, which a content-length of 5 left over from the interim
+    // Three bytes end the stream, which a content-length of 5 left over from the interim
     // response would refuse.
     const data = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_data, constants.protocol.flag_end_stream, sent.stream_id, "abc");
     const event = (try support.feed(data)).?;

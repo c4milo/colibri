@@ -7,19 +7,19 @@ const tls = @import("tls");
 const server = @import("server");
 
 /// The longest PEM text of a server's certificate chain (RFC 7468 §2): an ML-DSA-87 chain's two
-/// certificates, about 7,500 octets of DER each, as base64.
+/// certificates, about 7,500 bytes of DER each, as base64.
 pub const chain_pem_len_max: usize = 24 * 1024;
-/// The DER room that holds any chain text of `chain_pem_len_max` octets: base64 carries three
-/// octets in four characters (RFC 4648 §4).
+/// The DER room that holds any chain text of `chain_pem_len_max` bytes: base64 carries three
+/// bytes in four characters (RFC 4648 §4).
 pub const chain_der_len_max: usize = chain_pem_len_max / 4 * 3;
 /// The certificates of a chain, as many as `tls` reads.
 pub const chain_certificates_max: usize = tls.constants.limits.certificate_chain_len_max;
 
-/// The octets a TCP socket reads and holds unread: whatever a connection holds before it consumes
+/// The bytes a TCP socket reads and holds unread: whatever a connection holds before it consumes
 /// a whole record, frame or head (`server.constants.limits.plaintext_in_len`).
 pub const socket_input_len: usize = server.constants.limits.plaintext_in_len;
-/// The octets a TCP socket holds to send: what a connection writes before `send` takes it. While a
-/// send is in flight, the connection writes after the octets it sends, and it waits for the send
+/// The bytes a TCP socket holds to send: what a connection writes before `send` takes it. While a
+/// send is in flight, the connection writes after the bytes it sends, and it waits for the send
 /// once the output is full (design §8 step 60).
 pub const socket_output_len: usize = server.constants.limits.output_len;
 /// The connections the kernel holds for `accept` before the server takes them.
@@ -28,17 +28,17 @@ pub const listen_backlog: u31 = 1024;
 pub const stop_wait_ns_max: u64 = 50_000_000;
 /// The datagrams the UDP socket receives into at once: the buffers of the loop's group.
 pub const udp_receive_buffers: u16 = 16;
-/// Each receive buffer's octets: a datagram the kernel coalesced from one peer on Linux (UDP_GRO),
+/// Each receive buffer's bytes: a datagram the kernel coalesced from one peer on Linux (UDP_GRO),
 /// up to 64 KiB, and on macOS, which coalesces none, one QUIC datagram of the largest size colibri
 /// sends and takes (RFC 9000 §14).
 pub const udp_receive_buffer_len: u32 = if (builtin.os.tag == .linux) 66 * 1024 else 2048;
-/// The octets one segmented send holds: the largest UDP payload over IPv4 (RFC 768, RFC 791).
+/// The bytes one segmented send holds: the largest UDP payload over IPv4 (RFC 768, RFC 791).
 pub const udp_segmented_bytes_max: usize = 65_507;
 /// The datagrams one segmented send holds, which Linux bounds (UDP_MAX_SEGMENTS).
 pub const udp_segments_max: usize = 64;
 /// The batches the server fills each turn, one for each peer and codepoint, each one send.
 pub const udp_batches: usize = 16;
-/// The longest datagram the engine writes in one `send_datagram`: a 1,500-octet path's payload,
+/// The longest datagram the engine writes in one `send_datagram`: a 1,500-byte path's payload,
 /// as the test-only UDP server's `quic_datagram_len_max`.
 pub const udp_datagram_len_max: usize = 1500;
 /// Events one pass of a step reads at most, and passes one step makes. A step that reaches the

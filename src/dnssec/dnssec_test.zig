@@ -1,7 +1,7 @@
 //! The checks of `dnssec` against the examples the RFCs print: RFC 5702 §6 for RSA/SHA-256 and
 //! RSA/SHA-512, RFC 6605 §6 for the two ECDSA curves, and RFC 8080 §6.1 for Ed25519. Each RRSIG's
 //! signed data is built here as RFC 4034 §3.1.8.1 defines it, each signature must verify, and the
-//! same signature over data one octet off must not. The DS records of RFC 6605 §6 and RFC 8080
+//! same signature over data one byte off must not. The DS records of RFC 6605 §6 and RFC 8080
 //! §6.1 check the digests.
 const std = @import("std");
 const dnssec = @import("dnssec.zig");
@@ -26,13 +26,13 @@ const ttl: u32 = 3600;
 /// Room for one example's signed data, or a DS digest's input. Test-only.
 const data_len_max: usize = 512;
 
-/// The comptime branches decoding one octet of Base64 takes, at most. Test-only.
+/// The comptime branches decoding one byte of Base64 takes, at most. Test-only.
 const quota_per_octet: u32 = 100;
-/// The hexadecimal digits of one octet, and the pieces `check` feeds the data in. Test-only.
+/// The hexadecimal digits of one byte, and the pieces `check` feeds the data in. Test-only.
 const digits_per_octet: usize = 2;
 const pieces: usize = 2;
 
-/// The octets of a Base64 text, as the RFCs print keys and signatures, decoded when the test
+/// The bytes of a Base64 text, as the RFCs print keys and signatures, decoded when the test
 /// compiles.
 fn base64(comptime text: []const u8) [std.base64.standard.Decoder.calcSizeForSlice(text) catch unreachable]u8 {
     @setEvalBranchQuota(text.len * quota_per_octet);
@@ -41,7 +41,7 @@ fn base64(comptime text: []const u8) [std.base64.standard.Decoder.calcSizeForSli
     return octets;
 }
 
-/// The octets of a hexadecimal text, decoded when the test compiles.
+/// The bytes of a hexadecimal text, decoded when the test compiles.
 fn hex(comptime text: []const u8) [text.len / digits_per_octet]u8 {
     var octets: [text.len / digits_per_octet]u8 = undefined;
     _ = std.fmt.hexToBytes(&octets, text) catch unreachable;
@@ -110,7 +110,7 @@ fn check(example: Example, data: []const u8) dnssec.Error!void {
     return dnssec.verify(example.signed.algorithm, example.key, hash.final(&digest), example.signature);
 }
 
-/// The example's signature verifies over its signed data, and not over the data one octet off.
+/// The example's signature verifies over its signed data, and not over the data one byte off.
 fn expect_verifies(example: Example) !void {
     var room: [data_len_max]u8 = undefined;
     const data = try signed_data(example.signed, &room);

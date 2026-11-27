@@ -8,7 +8,7 @@
 //! - It gives the provider this endpoint's transport parameters before the handshake (§8.2).
 //! - It lets chapulin move each later level's keys to the suite, which one `ch_quic` does inside
 //!   the call that fed it (§4.1.4). colibri reads them from the suite (decision 62).
-//! - It supplies the octets of the stream it sends, and places the pool the octets it receives
+//! - It supplies the bytes of the stream it sends, and places the pool the bytes it receives
 //!   wait in.
 //! The order of the first two differs from the simulator's: chapulin starts its session when it
 //! is given the parameters, and derives no Initial key before that.
@@ -28,7 +28,7 @@ pub const Error = quic.Connection.ReceiveError || quic.Connection.SendError || q
     error{
         /// chapulin refused to start or to take its Initial keys.
         SessionRefused,
-        /// The server read an octet of the client's stream other than the one the client sent.
+        /// The server read a byte of the client's stream other than the one the client sent.
         TransferOctetWrong,
     };
 
@@ -47,8 +47,8 @@ const connection_window: u64 = 131_072;
 const streams_granted: u64 = 1;
 const idle_timeout_ms: u64 = 30_000;
 
-/// The octets of the one stream the client sends, and how the octet at each offset is chosen. A
-/// mebibyte takes the 1-RTT packet numbers past 256, where a one-octet Packet Number field no
+/// The bytes of the one stream the client sends, and how the byte at each offset is chosen. A
+/// mebibyte takes the 1-RTT packet numbers past 256, where a one-byte Packet Number field no
 /// longer decodes without the largest number received (RFC 9000 Appendix A.3), and makes the
 /// server grant credit many times over (RFC 9000 §4.1).
 pub const transfer_len: u64 = 1_048_576;
@@ -70,7 +70,7 @@ pub const Endpoint = struct {
     pool: quic.ReceivePool(.{}),
     read_buffer: [constants.quic_datagram_len_max]u8,
     transfer_started: bool,
-    /// Whether the peer acknowledged every octet of the client's stream, FIN included.
+    /// Whether the peer acknowledged every byte of the client's stream, FIN included.
     transfer_done: bool,
     transfer_read_len: u64,
     transfer_read: bool,
@@ -152,13 +152,13 @@ pub const Endpoint = struct {
         _ = try quic.Connection.on_instant(&endpoint.connection, endpoint.session.suite(), &endpoint.scratch.recovery, now_ns);
     }
 
-    /// The server reads what has arrived of the client's stream, and checks each octet.
+    /// The server reads what has arrived of the client's stream, and checks each byte.
     fn read_transfer(endpoint: *Endpoint) Error!void {
         if (endpoint.transfer_read) return;
-        // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
+        // Bounded: each read takes at least one byte, and the stream holds `transfer_len`.
         for (0..transfer_len + 1) |_| {
             const read = quic.Connection.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
-                // The stream's first octets have not arrived, so the server has not opened it.
+                // The stream's first bytes have not arrived, so the server has not opened it.
                 error.NotReadable => return,
                 else => return failure,
             };
@@ -197,7 +197,7 @@ fn parameters() Parameters {
 
 const stream_vtable: quic.StreamProvider.VTable = .{ .read = supply_transfer };
 
-/// The client's stream, read back by offset. Every call at one offset answers the same octets,
+/// The client's stream, read back by offset. Every call at one offset answers the same bytes,
 /// which RFC 9000 §2.2 asks of a retransmission.
 fn supply_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;
@@ -226,7 +226,7 @@ test "the server's check refuses an octet the client did not send at that offset
     const from: u64 = transfer_len / 2;
     for (&octets, 0..) |*octet, index| octet.* = octet_at(from + index);
     try std.testing.expect(octets_match(from, &octets));
-    // The same octets read from the next offset are the wrong ones there.
+    // The same bytes read from the next offset are the wrong ones there.
     try std.testing.expect(!octets_match(from + 1, &octets));
     octets[octets.len - 1] ^= 1;
     try std.testing.expect(!octets_match(from, &octets));

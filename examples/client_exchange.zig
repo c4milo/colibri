@@ -35,7 +35,7 @@
 //! The server is in `client_peer.zig`: one engine with no UDP socket. The links of `link.zig`
 //! and `link_datagram.zig` stand where a program's sockets would be.
 //!
-//! The program checks what arrived over h2, octet for octet: 200 twice, the greeting, the note it
+//! The program checks what arrived over h2, byte for byte: 200 twice, the greeting, the note it
 //! posted and the content type. It checks 405 with the Allow value "POST", 404 and 501, each with
 //! no content. It also checks one open and one close of each transport, at least one lost
 //! datagram, a ticket, the `closed` event, and the refused exchange. Anything else exits with an
@@ -60,9 +60,9 @@ const DatagramLink = datagram_module.DatagramLink;
 /// turns of at most `wait_ns_max`, so it needs about 40 turns.
 const turns_max = 256;
 
-/// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
-/// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
+/// Calls of `receive` for one read of a socket, at most. Each call takes one byte or more of the
+/// link's queue, or reports an event and takes no byte, or ends the loop. At most
+/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no byte.
 const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool(.{}).receive_events_without_input_max(.{}) + 1);
 
 /// Datagrams the client reads or writes in one turn, at most.
@@ -90,7 +90,7 @@ const server_address: client.Address = .init(&loopback, server_port);
 const now_seconds = identity.now_seconds;
 
 comptime {
-    // The link's queue holds what the program read of the TCP socket. It holds the octets of each
+    // The link's queue holds what the program read of the TCP socket. It holds the bytes of each
     // unit that the pool takes whole.
     std.debug.assert(link_module.queue_len_max >= client.constants.limits.stream_input_len_min);
 }
@@ -112,7 +112,7 @@ var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The client: one configuration for the origin, the receive pool where its QUIC connection holds
-// the server's unread octets, one pool, and for each exchange a request and a response. The response
+// the server's unread bytes, one pool, and for each exchange a request and a response. The response
 // holds the memory the answer goes into (decision 124).
 // The anchors are read from the CA bundle a program holds, which colibri's test identity stands
 // in for, into rooms that stay in place while the pool runs.
@@ -220,7 +220,7 @@ pub fn main(init: std.process.Init) !void {
         try client_turn();
         try peer.turn();
         if (pool_closed and peer.over()) return check();
-        // No octet waits for either side. A program sleeps here until a socket has octets or a
+        // No byte waits for either side. A program sleeps here until a socket has bytes or a
         // deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.client, sleep_ns());
     }
@@ -260,7 +260,7 @@ fn start_client(crypto: stdx.crypto.Context) !void {
 }
 
 /// One turn of the client: pass the pool what each socket read, fire its deadlines, send what
-/// it owes, and read again with the octets the TCP socket still holds.
+/// it owes, and read again with the bytes the TCP socket still holds.
 fn client_turn() !void {
     const now_ns = link.now_ns(.client);
     try read_datagrams(now_ns);
@@ -295,9 +295,9 @@ fn read_datagrams(now_ns: u64) !void {
     }
 }
 
-/// Passes the pool the octets the TCP socket read, until it consumes nothing and reports
-/// nothing. Each call passes every octet the program still holds, or `.none` when it holds none:
-/// an h11 connection reads a held octet only once the response before it ends.
+/// Passes the pool the bytes the TCP socket read, until it consumes nothing and reports
+/// nothing. Each call passes every byte the program still holds, or `.none` when it holds none:
+/// an h11 connection reads a held byte only once the response before it ends.
 fn drain(now_ns: u64) !void {
     const input = try link.receive(.client);
     var consumed: usize = 0;
@@ -312,7 +312,7 @@ fn drain(now_ns: u64) !void {
             continue;
         };
         try report(event, now_ns);
-        // The octets the closed socket read are its connection's, which is over: they are dropped.
+        // The bytes the closed socket read are its connection's, which is over: they are dropped.
         if (event == .close and transport_of(event.close) == .tcp) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
@@ -324,7 +324,7 @@ fn drain(now_ns: u64) !void {
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_transport(open, now_ns),
-        // The TCP connection owes octets, which the program writes into its socket.
+        // The TCP connection owes bytes, which the program writes into its socket.
         .send => |connection| try send_owed(connection, now_ns),
         // The connection is over, and the pool reads and writes nothing more on it: the
         // program closes the socket. Over TCP `send_stream` wrote everything first, the TLS

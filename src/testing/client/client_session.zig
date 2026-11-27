@@ -28,9 +28,9 @@ const Plan = client_exchange.Plan;
 
 /// What one step did. What the pool asked of each slot's socket is in `Session.asked`.
 pub const Step = struct {
-    /// Octets of the caller's input the pool consumed.
+    /// Bytes of the caller's input the pool consumed.
     consumed: usize,
-    /// Octets written into the caller's output, to be sent in order.
+    /// Bytes written into the caller's output, to be sent in order.
     written: usize,
     /// The pool reported `closed`: every exchange ended, and no connection is left.
     done: bool,
@@ -115,8 +115,8 @@ pub const Session = struct {
         session.pool.shutdown();
     }
 
-    /// Consumes what it can of `input`, the octets `slot`'s socket read and the caller still
-    /// holds, and writes what it can into `output`. A null `slot` passes no octets and writes
+    /// Consumes what it can of `input`, the bytes `slot`'s socket read and the caller still
+    /// holds, and writes what it can into `output`. A null `slot` passes no bytes and writes
     /// none, and reports what the pool owes of its own. Over TLS the pool opens records in place
     /// in `input`.
     pub fn step(session: *Session, slot: ?u32, input: []u8, output: []u8) Step {
@@ -130,8 +130,8 @@ pub const Session = struct {
         var consumed = session.read(carried, input);
         // The step writes what the connection owes each time, so it needs no `send` event.
         const written = session.pool.send_stream(session.connections[carried], output, session.now_ns);
-        // After a send the pool reads again, with the octets the caller still holds: h11 reads
-        // a held octet only once the response before it ends (decision 119).
+        // After a send the pool reads again, with the bytes the caller still holds: h11 reads
+        // a held byte only once the response before it ends (decision 119).
         consumed += session.read(carried, input[consumed..]);
         return .{ .consumed = consumed, .written = written, .done = session.closed };
     }
@@ -153,11 +153,11 @@ pub const Session = struct {
         return true;
     }
 
-    /// Reads events, passing the octets `slot`'s socket still holds each time, until the pool
-    /// consumes nothing and reports nothing. A null `slot` passes no octets.
+    /// Reads events, passing the bytes `slot`'s socket still holds each time, until the pool
+    /// consumes nothing and reports nothing. A null `slot` passes no bytes.
     fn read(session: *Session, slot: ?u32, input: []u8) usize {
         var consumed: usize = 0;
-        // Bounded: each pass consumes an octet or reports one of the finitely many events.
+        // Bounded: each pass consumes a byte or reports one of the finitely many events.
         for (0..input.len + session.slots * constants.requests_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
             const passed: client.Input = if (slot != null and held.len > 0) .{ .stream = .{ .connection = session.connections[slot.?], .bytes = held } } else .none;
@@ -244,27 +244,27 @@ const client_options = @import("client_options.zig");
 /// The server's session, which holds the one connection the client opens. Test-only.
 const ServerSession = server_session.Session(1);
 
-/// The two sessions the tests run, their bodies, and the octets each has written that the other
+/// The two sessions the tests run, their bodies, and the bytes each has written that the other
 /// has not read. Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
 var test_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 var test_server: ServerSession align(@alignOf(ServerSession)) = undefined;
-/// Decision 117: the server names no version, and reads it from the client's first octets.
+/// Decision 117: the server names no version, and reads it from the client's first bytes.
 var test_server_config: server_session.server.Config align(@alignOf(server_session.server.Config)) = .{ .cpu_features = .none() };
 var test_bodies: Bodies align(@alignOf(Bodies)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
 var test_config: client.Config align(@alignOf(client.Config)) = .{ .cpu_features = .none(), .authority = "localhost" };
-/// The server's address, which no socket reads: the test passes the octets itself. Test-only.
+/// The server's address, which no socket reads: the test passes the bytes itself. Test-only.
 const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
 const test_address = client.Address.init(&test_octets, 0);
 
-/// Most rounds a test exchanges octets for, which bounds its loop. Test-only.
+/// Most rounds a test exchanges bytes for, which bounds its loop. Test-only.
 const test_rounds_max: u32 = 4096;
 
 /// The instant of the server's last step, a tick after the one before. Test-only.
 var test_server_now_ns: u64 = 0;
-/// The octets the step that reported the pool's `close` wrote, once one did. Test-only.
+/// The bytes the step that reported the pool's `close` wrote, once one did. Test-only.
 var test_close_written: ?usize = null;
 
 fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
@@ -280,7 +280,7 @@ fn test_start_server() !void {
 }
 
 /// Sends what the server's session lends into the client's input after its first `to_client_len`
-/// octets, as much as fits, and returns the octets sent (decision 176). Test-only.
+/// bytes, as much as fits, and returns the bytes sent (decision 176). Test-only.
 fn test_server_send(to_client_len: usize) usize {
     const lent = test_server.lend(0);
     if (lent.len == 0) return 0;
@@ -324,7 +324,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     // Decision 117: the server names no version and reads h2 from the client's preface.
     try test_start_server();
     test_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h11 = false } };
-    // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
+    // RFC 9113 §6.9.2: a stream starts with 65,535 bytes of window.
     const content_len = 3 * 65_535;
     try test_client.init(&test_memory, &test_config, test_address, constants.default_port, 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
@@ -345,7 +345,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
 
 test "h11: the exchanges go out in order, and the connection ends after the last" {
     client_exchange.fill_content();
-    // Decision 117: the server names no version and reads h11 from the client's first octets.
+    // Decision 117: the server names no version and reads h11 from the client's first bytes.
     try test_start_server();
     test_config = .{ .cpu_features = .none(), .authority = "localhost", .protocols = .{ .h2 = false } };
     try test_client.init(&test_memory, &test_config, test_address, constants.default_port, 0, &.{
@@ -363,7 +363,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
 /// A request with no content, and how many of them the pipelining test makes. Test-only.
 const test_get: Plan = .{ .method = "GET", .path = "/", .content_len = 0 };
 const test_pipelined: usize = 3;
-/// A response with one octet of content (RFC 9112 §6.3 rule 6). Test-only.
+/// A response with one byte of content (RFC 9112 §6.3 rule 6). Test-only.
 const test_short_response = "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx";
 
 test "decision 119: one step reads every pipelined h11 response the socket holds" {
@@ -376,7 +376,7 @@ test "decision 119: one step reads every pipelined h11 response the socket holds
     try testing.expect(test_client.take_asked(0).open != null);
     try testing.expect(test_client.started(0));
     try testing.expect(test_client.step(0, test_to_client[0..0], &test_to_server).written > 0);
-    // h11 reads a held response only once the one before it ends, so the step passes the octets
+    // h11 reads a held response only once the one before it ends, so the step passes the bytes
     // it still holds after each event.
     const held = test_short_response ** test_pipelined;
     @memcpy(test_to_client[0..held.len], held);

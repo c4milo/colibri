@@ -1,5 +1,5 @@
 //! The fuzz property of `bit_runs.zig` (decision 29), and the sweep that runs it over every input
-//! of up to two octets. Each scan is checked against a loop over single bits, which is what the
+//! of up to two bytes. Each scan is checked against a loop over single bits, which is what the
 //! callers did before the scans read 64 bits at a time. Everything in this file is test-only.
 const std = @import("std");
 const core = @import("core");
@@ -12,7 +12,7 @@ const testing = std.testing;
 const set_bits = 192;
 const Set = std.StaticBitSet(set_bits);
 const set_octets = set_bits / @bitSizeOf(u8);
-/// An input: one octet each for `from`, `limit` and the shift, then the set's octets.
+/// An input: one byte each for `from`, `limit` and the shift, then the set's bytes.
 const header_octets = 3;
 const at_from = 0;
 const at_limit = 1;

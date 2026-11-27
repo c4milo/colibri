@@ -38,7 +38,7 @@ pub const Error = error{
 };
 
 /// The Exclusive bit, Stream Dependency and Weight of a PRIORITY frame (RFC 9113 §6.3), and of a
-/// HEADERS frame under the PRIORITY flag (§6.2). `weight` is the octet as sent.
+/// HEADERS frame under the PRIORITY flag (§6.2). `weight` is the byte as sent.
 pub const Priority = struct {
     exclusive: bool,
     dependency: u32,
@@ -67,7 +67,7 @@ pub const Goaway = struct {
 /// The Window Size Increment of a WINDOW_UPDATE frame (RFC 9113 §6.9): 1 to `window_max`.
 pub const WindowUpdate = struct { increment: u32 };
 
-/// Reads the five priority octets: one Exclusive bit, a 31-bit dependency and a weight (§6.2, §6.3).
+/// Reads the five priority bytes: one Exclusive bit, a 31-bit dependency and a weight (§6.2, §6.3).
 pub fn read_priority(reader: *Reader) core.Reader.Error!Priority {
     var cursor = reader.*;
     const dependency_field = try cursor.take_int_big(u32);
@@ -80,7 +80,7 @@ pub fn read_priority(reader: *Reader) core.Reader.Error!Priority {
     };
 }
 
-/// Writes the five priority octets, all or none.
+/// Writes the five priority bytes, all or none.
 pub fn write_priority_fields(writer: *Writer, priority: Priority) core.Writer.Error!void {
     assert(priority.dependency <= constants.protocol.stream_id_max);
     var cursor = writer.*;
@@ -97,7 +97,7 @@ pub fn parse_priority(header: Header, payload: []const u8) Error!Priority {
     // RFC 9113 §6.3: a PRIORITY frame with a stream identifier of 0x00 is a connection error of
     // PROTOCOL_ERROR.
     if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
-    // RFC 9113 §6.3: a length other than 5 octets is a stream error of FRAME_SIZE_ERROR.
+    // RFC 9113 §6.3: a length other than 5 bytes is a stream error of FRAME_SIZE_ERROR.
     if (payload.len != constants.protocol.priority_fields_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
     const priority = read_priority(&reader) catch unreachable;
@@ -112,7 +112,7 @@ pub fn parse_rst_stream(header: Header, payload: []const u8) Error!RstStream {
     // RFC 9113 §6.4: a RST_STREAM frame with a stream identifier of 0x00 is a connection error of
     // PROTOCOL_ERROR.
     if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
-    // RFC 9113 §6.4: a length other than 4 octets is a connection error of FRAME_SIZE_ERROR.
+    // RFC 9113 §6.4: a length other than 4 bytes is a connection error of FRAME_SIZE_ERROR.
     if (payload.len != constants.protocol.rst_stream_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
     const error_code = reader.take_int_big(u32) catch unreachable;
@@ -137,7 +137,7 @@ pub fn parse_ping(header: Header, payload: []const u8) Error!Ping {
 }
 
 /// Parses the payload of a GOAWAY frame whose header the connection has read and sized. The
-/// Additional Debug Data is every octet after the Error Code, and may be empty.
+/// Additional Debug Data is every byte after the Error Code, and may be empty.
 pub fn parse_goaway(header: Header, payload: []const u8) Error!Goaway {
     assert(header.type == .goaway);
     assert(payload.len == header.length);
@@ -159,7 +159,7 @@ pub fn parse_goaway(header: Header, payload: []const u8) Error!Goaway {
 pub fn parse_window_update(header: Header, payload: []const u8) Error!WindowUpdate {
     assert(header.type == .window_update);
     assert(payload.len == header.length);
-    // RFC 9113 §6.9: a length other than 4 octets is a connection error of FRAME_SIZE_ERROR.
+    // RFC 9113 §6.9: a length other than 4 bytes is a connection error of FRAME_SIZE_ERROR.
     if (payload.len != constants.protocol.window_update_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
     // RFC 9113 §6.9: a reserved bit precedes the 31-bit increment; §4.1: ignored on receipt.

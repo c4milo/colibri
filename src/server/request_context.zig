@@ -60,7 +60,7 @@ pub const Held = struct {
 };
 
 comptime {
-    // A `Held` is a pointer and a name's address. Where an address is 8 octets, the context is
+    // A `Held` is a pointer and a name's address. Where an address is 8 bytes, the context is
     // its id and its three `Held`, with no padding.
     assert(@sizeOf(Held) == @sizeOf(?*anyopaque) + @sizeOf(?[*:0]const u8));
     if (@sizeOf(usize) == @sizeOf(u64)) assert(@sizeOf(RequestContext) == @sizeOf(event.RequestId) + @sizeOf([3]Held));
@@ -79,7 +79,7 @@ fn held_as(comptime T: type, held: Held, comptime call: []const u8) *T {
 }
 
 /// Whether `name` is the name of `T`. The compiler most often keeps one copy of a type's name, so
-/// the two addresses are compared first, and the octets only when they differ.
+/// the two addresses are compared first, and the bytes only when they differ.
 fn names(comptime T: type, name: [*:0]const u8) bool {
     const asked: [*:0]const u8 = @typeName(T);
     if (name == asked) return true;

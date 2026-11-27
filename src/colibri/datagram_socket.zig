@@ -23,7 +23,7 @@ const operation_table = @import("operation_table.zig");
 pub const PeerAddress = server.Address;
 pub const ReceivedEcn = @FieldType(server.Datagram, "ecn");
 
-/// The octets of an IPv4 address (RFC 791 §3.1).
+/// The bytes of an IPv4 address (RFC 791 §3.1).
 const ipv4_len = @sizeOf(u32);
 
 /// One datagram a socket read.
@@ -214,7 +214,7 @@ comptime {
 
 const testing = std.testing;
 
-/// A sender that owes `count` datagrams of `len` octets to `to`. Test-only.
+/// A sender that owes `count` datagrams of `len` bytes to `to`. Test-only.
 const TestSender = struct {
     count: u32,
     len: usize,

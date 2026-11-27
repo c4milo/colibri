@@ -5,7 +5,7 @@
 //! reset, the GOAWAY, and the close.
 //!
 //! A peer that reads slowly, or not at all, gives its streams or its connection a small credit,
-//! and QUIC raises a limit only as h3 reads octets (RFC 9000 §4.1). It reads so only while it
+//! and QUIC raises a limit only as h3 reads bytes (RFC 9000 §4.1). It reads so only while it
 //! waits for a response. A peer that is muted goes on writing datagrams the run drops, so the server
 //! reads no acknowledgment from it.
 //!
@@ -46,9 +46,9 @@ pub const ids_default: Ids = .{ .client = client_id, .original = original_id };
 const grease: u64 = 0x1f2e_3d4c;
 const parameters_len_max: usize = 1024;
 const alpn_h3 = [_][]const u8{"h3"};
-/// Octets of a request's frames before its content: a HEADERS frame and a DATA frame's header.
+/// Bytes of a request's frames before its content: a HEADERS frame and a DATA frame's header.
 const prefix_len_max: usize = 512;
-/// Octets h3 hands the peer in one data event.
+/// Bytes h3 hands the peer in one data event.
 const body_len: usize = 16_384;
 /// The credit the peer gives the server's unidirectional streams, and each of its own streams
 /// when it reads at once.
@@ -76,7 +76,7 @@ pub const Fetch = struct {
     reset: ?u64 = null,
     reset_ms: ?u64 = null,
 
-    /// Octets of the request's stream: its frames, then its content.
+    /// Bytes of the request's stream: its frames, then its content.
     pub fn total(fetch: *const Fetch) usize {
         return fetch.prefix_len + fetch.content_len;
     }
@@ -99,7 +99,7 @@ pub const Peer = struct {
     h3: h3.Connection,
     section: h3.http.FieldSection,
     body: [body_len]u8,
-    /// The octets every request's content is read from.
+    /// The bytes every request's content is read from.
     content: [limits.slow_body_len]u8,
     fetches: [limits.requests_max]Fetch,
     fetches_len: usize,
@@ -226,12 +226,12 @@ pub const Peer = struct {
         return true;
     }
 
-    /// Reads h3's events, and with `counted` stops once they carried `budget` octets of content.
+    /// Reads h3's events, and with `counted` stops once they carried `budget` bytes of content.
     /// Returns whether it read any.
     fn read_events(peer: *Peer, budget: usize, counted: bool, now_ns: u64, now_ms: u64) Error!bool {
         var left = budget;
         var moved = false;
-        // Bounded: each event reads an octet the pool holds, or ends a stream.
+        // Bounded: each event reads a byte the pool holds, or ends a stream.
         for (0..events_per_read_max) |_| {
             if (left == 0) return true;
             const event = peer.h3.receive(&peer.connection, peer.body[0..@min(left, peer.body.len)], now_ns) catch return error.PeerFailed;
@@ -243,7 +243,7 @@ pub const Peer = struct {
         return error.PeerFailed;
     }
 
-    /// Keeps what an h3 event says, and returns the octets of content it carried.
+    /// Keeps what an h3 event says, and returns the bytes of content it carried.
     fn note_event(peer: *Peer, reported: h3.Connection.Event, now_ms: u64) usize {
         switch (reported) {
             .response => |head| peer.note_response(head.stream_id, head.response.status, now_ms),
@@ -297,7 +297,7 @@ pub const Peer = struct {
     }
 
     /// Opens a request stream and writes the request's frames into a fetch: its head, and the
-    /// header of a DATA frame for `content_len` octets. Null when the server's limit on streams
+    /// header of a DATA frame for `content_len` bytes. Null when the server's limit on streams
     /// leaves no room (RFC 9000 §4.6), or the peer holds as many requests as it can.
     pub fn stage(peer: *Peer, method: []const u8, content_len: usize, now_ns: u64) Error!?*Fetch {
         assert(peer.h3_started and content_len <= peer.content.len);
@@ -325,7 +325,7 @@ pub const Peer = struct {
         return fetch;
     }
 
-    /// Supplies the stream of `fetch` up to `len` octets of it, and ends it there with `fin`. A
+    /// Supplies the stream of `fetch` up to `len` bytes of it, and ends it there with `fin`. A
     /// stream the server asked the peer to stop takes no more (RFC 9000 §3.5).
     pub fn supply(peer: *Peer, fetch: *Fetch, len: usize, fin: bool) void {
         assert(len >= fetch.supplied and len <= fetch.total());
@@ -359,7 +359,7 @@ fn parameters(plan: *const Plan) quic.transport_parameters.Parameters {
     return held;
 }
 
-/// The octets of each request's content: letters alone.
+/// The bytes of each request's content: letters alone.
 const content_letters = "abcdefghijklmnopqrstuvwxyz";
 
 comptime {

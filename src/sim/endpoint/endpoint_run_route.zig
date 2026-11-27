@@ -83,8 +83,8 @@ fn note_ended(storage: *Storage, handle: server.ConnectionHandle) void {
     }
 }
 
-/// P7: a `send` brings octets. The run answers it at once with a buffer of the endpoint's output,
-/// again until a call leaves room, and the peer's socket takes every octet: it is never full.
+/// P7: a `send` brings bytes. The run answers it at once with a buffer of the endpoint's output,
+/// again until a call leaves room, and the peer's socket takes every byte: it is never full.
 fn answer_send(storage: *Storage, handle: server.ConnectionHandle, now_ns: u64) Error!void {
     const connection = storage.ledger.connection_of(handle).?;
     const stream = &storage.tcp.peers[connection.peer].to_client;
@@ -94,7 +94,7 @@ fn answer_send(storage: *Storage, handle: server.ConnectionHandle, now_ns: u64) 
         const room = stream.free();
         if (room.len < output_len) return error.SocketFull;
         const written = try storage.program.send_stream(handle, room[0..output_len], now_ns);
-        // P7 (design §8 step 21b.5): a `send` is followed by a `send_stream` that writes an octet.
+        // P7 (design §8 step 21b.5): a `send` is followed by a `send_stream` that writes a byte.
         if (index == 0 and written == 0) return storage.program.fail(error.SendEmpty, "send_stream", handle, 0);
         storage.record.wire.update(room[0..written]);
         stream.written += written;

@@ -38,7 +38,7 @@ const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
-/// Handshake octets the provider owes: a few, and more than any datagram here holds. Test-only.
+/// Handshake bytes the provider owes: a few, and more than any datagram here holds. Test-only.
 const flight_octet: u8 = 0x6d;
 const flight_len: usize = 40;
 const flight: [flight_len]u8 = @splat(flight_octet);
@@ -96,7 +96,7 @@ fn send_at(now_ns: u64) !?send.Sent {
     );
 }
 
-/// Leaves `len` octets of congestion window above what is in flight.
+/// Leaves `len` bytes of congestion window above what is in flight.
 fn leave_window(len: u64) void {
     endpoint.recovery.congestion.window = endpoint.recovery.in_flight_len() + len;
 }
@@ -142,7 +142,7 @@ test "RFC 9002 §7: a window that cannot hold the datagram holds back what is in
     try testing.expect(!held_back.packets[0].ack_eliciting);
     try testing.expectEqual(flight_len, provider_holder.owed.len);
     try testing.expect(endpoint.window_limited);
-    // A whole datagram's worth of window lets the octets go.
+    // A whole datagram's worth of window lets the bytes go.
     leave_window(constants.protocol.datagram_len_min);
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expect(sent.packets[0].ack_eliciting);
@@ -155,7 +155,7 @@ test "RFC 9002 §7: no packet takes more than the window leaves, nor does the ne
     var peer = parameters();
     peer.max_udp_payload_size = datagram_buffer_len;
     connection_module.apply_peer_parameters(&endpoint, peer);
-    // Handshake octets to fill the window, and a 1-RTT frame to go after them.
+    // Handshake bytes to fill the window, and a 1-RTT frame to go after them.
     provider_holder = .{ .owed = &long_flight, .owed_level = .handshake };
     _ = try id_frames.issue(&endpoint, &issued_id, &token);
     leave_window(partial_window_len);
@@ -190,7 +190,7 @@ test "RFC 9000 §14.1: a client the window holds back sends no Initial, not even
     receive_eliciting(.initial);
     leave_window(0);
     try testing.expectEqual(null, try send_now());
-    // With a datagram's worth of window the ACK goes, padded to 1,200 octets and so in flight
+    // With a datagram's worth of window the ACK goes, padded to 1,200 bytes and so in flight
     // (RFC 9002 §2), which is why it is recorded although it elicits nothing.
     leave_window(constants.protocol.datagram_len_min);
     const sent = try send_now() orelse return error.NothingSent;
@@ -276,7 +276,7 @@ test "RFC 9002 §7.3.2: entering recovery lets one datagram past the window, and
     leave_window(0);
     endpoint.recovery.congestion.past_window_allowed = true;
     // "If the congestion window is reduced immediately, a single packet can be sent prior to
-    // reduction", which is how the octets of the lost packet go again at once.
+    // reduction", which is how the bytes of the lost packet go again at once.
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expect(sent.packets[0].ack_eliciting);
     try testing.expectEqual(sent.len, endpoint.recovery.in_flight_len());
@@ -292,18 +292,18 @@ fn owe_flight_and_ping() void {
     send.owe_probes(&endpoint, .application, 1);
 }
 
-/// Octets of the Handshake flight ahead of the PING, enough that the datagram passes the header
+/// Bytes of the Handshake flight ahead of the PING, enough that the datagram passes the header
 /// `send` needs room for before it plans anything. Test-only.
 const leading_flight_len: usize = 1000;
 /// Room after the Handshake packet for a 1-RTT PING before its number is widened, and not after:
-/// a short header of byte 0, a four-octet connection ID and a one-octet number, one octet of
+/// a short header of byte 0, a four-byte connection ID and a one-byte number, one byte of
 /// payload and the tag make 23, and RFC 9001 §5.4.2's widening makes 25. Test-only.
 const unwidened_ping_room: u64 = 24;
 
 test "RFC 9001 §5.4.2: no packet is planned in room its widened number would overrun" {
     owe_flight_and_ping();
     const leading_len = (try send_now() orelse return error.NothingSent).packets[0].len;
-    // The same datagram again, with an allowance that leaves the PING 24 octets (RFC 9000 §8.1).
+    // The same datagram again, with an allowance that leaves the PING 24 bytes (RFC 9000 §8.1).
     owe_flight_and_ping();
     const allowance = leading_len + unwidened_ping_room;
     const received = allowance / constants.protocol.anti_amplification_factor + 1;
@@ -321,7 +321,7 @@ const coalesced_allowance_received: u64 = 200;
 test "RFC 9000 §8.1: a widened packet's octets count against what the rest of the datagram takes" {
     open(.server);
     endpoint.path.received = coalesced_allowance_received;
-    // A lone PING at the Handshake level, widened, then 1-RTT octets that fill whatever is left.
+    // A lone PING at the Handshake level, widened, then 1-RTT bytes that fill whatever is left.
     send.owe_probes(&endpoint, .handshake, 1);
     provider_holder = .{ .owed = &long_flight, .owed_level = .application };
     const sent = try send_now() orelse return error.NothingSent;
@@ -385,7 +385,7 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked 
     // Nothing is left to send and the window has room: the sender ran out of data.
     try testing.expectEqual(null, try send_now());
     try testing.expect(endpoint.ran_out_of_data);
-    // The next call is the application asking to send more, which marks the limit at the octets
+    // The next call is the application asking to send more, which marks the limit at the bytes
     // delivered and in flight (§4.1.2.4's `MarkConnectionAppLimited`).
     provider_holder = .{ .owed = &flight, .owed_level = .handshake };
     _ = try send_now() orelse return error.NothingSent;

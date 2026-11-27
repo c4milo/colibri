@@ -5,11 +5,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// The octets one direction of the transport holds, one of which each seed draws: what the
+/// The bytes one direction of the transport holds, one of which each seed draws: what the
 /// writer's output buffer, both socket buffers and the reader's input buffer hold together. The
 /// smallest holds each endpoint's preface and a request, each of the rest is `capacity_factor`
 /// times the one before, and the largest holds more than flow control lets a sender have in flight
-/// in DATA frames of a few octets.
+/// in DATA frames of a few bytes.
 pub const capacity_min: u32 = 1024;
 pub const capacity_factor: u32 = 4;
 pub const capacity_count: usize = 5;
@@ -25,15 +25,15 @@ pub const capacities: [capacity_count]u32 = values: {
 pub const capacity_max: u32 = capacities[capacity_count - 1];
 
 /// Streams a seed's client opens at most. An aligned seed opens at least `aligned_streams_min`,
-/// more than h2's reply queue holds, so the WINDOW_UPDATE frames one octet more on each stream owes
+/// more than h2's reply queue holds, so the WINDOW_UPDATE frames one byte more on each stream owes
 /// fill it.
 pub const streams_max: u32 = 48;
 pub const aligned_streams_min: u32 = 40;
 
-/// Octets of a random seed's request or response body at most.
+/// Bytes of a random seed's request or response body at most.
 pub const body_len_max: u32 = 131072;
 
-/// Octets one write call puts in a DATA frame at most, drawn per seed from `[1, chunk_len_max]`. An
+/// Bytes one write call puts in a DATA frame at most, drawn per seed from `[1, chunk_len_max]`. An
 /// aligned seed sends its bodies' second parts in chunks of at most `aligned_chunk_len_max`, so its
 /// first chunks reach many streams while the queues are small.
 pub const chunk_len_max: u32 = 16384;
@@ -51,7 +51,7 @@ pub const rounds_max: u64 = 1_000_000;
 /// Few, because an aligned seed moves megabytes: a search for stalls runs thousands in ReleaseSafe.
 pub const check_seeds_default: u64 = 16;
 
-/// A seed whose endpoints stop each other, found by such a search: aligned, 46 streams, a 4096-octet
+/// A seed whose endpoints stop each other, found by such a search: aligned, 46 streams, a 4096-byte
 /// transport, and both endpoints writing their own frames before what their connections owe.
 pub const stalled_seed: u64 = 0x12c;
 

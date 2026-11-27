@@ -5,7 +5,7 @@
 //! A window below `Connection.data_frame_len_min` sends nothing unless it holds the whole payload,
 //! once the peer has sent a WINDOW_UPDATE whose increment is below the floor, and while its
 //! SETTINGS_INITIAL_WINDOW_SIZE is at least the floor (decision 110 as amended). A peer that opens
-//! a window of its usual size a few octets at a time then gets no frame for each few octets, which
+//! a window of its usual size a few bytes at a time then gets no frame for each few bytes, which
 //! RFC 9113 §10.5 names as a way to make a sender write many frames. A peer that asks for small
 //! windows gets frames that fit them, and one that gives credit back in pieces of the floor or more
 //! never meets it.
@@ -37,8 +37,8 @@ pub const Sendable = struct {
     short_by: ShortBy,
 };
 
-/// The payload octets of the next DATA frame on `record`'s stream, out of `payload_len`, in a
-/// buffer of `room_len` octets, and what held it short.
+/// The payload bytes of the next DATA frame on `record`'s stream, out of `payload_len`, in a
+/// buffer of `room_len` bytes, and what held it short.
 pub fn sendable(target: *const Connection, record: *const Stream, room_len: usize, payload_len: usize) Sendable {
     const stream_window = record.send_window.sendable();
     const connection_window = target.send_window.sendable();
@@ -62,8 +62,8 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     return next;
 }
 
-/// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
-/// `room_len` octets, or 0 for a stream that takes no DATA frame now.
+/// The bytes of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
+/// `room_len` bytes, or 0 for a stream that takes no DATA frame now.
 pub fn sendable_len(target: *Connection, stream_id: u32, room_len: usize, payload_len: usize) usize {
     const found = target.streams.lookup(stream_id);
     // RFC 9113 §5.1: a stream the table holds no record for is idle or closed, and takes nothing.
@@ -79,7 +79,7 @@ pub fn sendable_len(target: *Connection, stream_id: u32, room_len: usize, payloa
 /// Notes an increment the peer granted on the connection or a stream: one below the floor makes
 /// the floor apply from then on (decision 110 as amended).
 pub fn note_increment(target: *Connection, increment: u32) void {
-    // RFC 9113 §10.5: a peer that opens a window a few octets at a time makes its sender write
+    // RFC 9113 §10.5: a peer that opens a window a few bytes at a time makes its sender write
     // many small frames.
     if (increment < target.data_frame_len_min) target.tiny_update_read = true;
 }
@@ -92,7 +92,7 @@ const Writer = @import("core").Writer;
 const test_connection = &support.test_connection;
 const test_output = &support.test_output;
 
-/// The floor the tests set, the octets of their body, and the status of their response. Test-only.
+/// The floor the tests set, the bytes of their body, and the status of their response. Test-only.
 const floor_len: u32 = 1_024;
 const body_len: usize = 2_048;
 const ok: u16 = 200;
@@ -100,7 +100,7 @@ const test_body: [constants.limits.frame_size_max + 1]u8 = @splat('x');
 
 /// A server that has read a request on stream 1 and answered it with a head, with a floor of
 /// `floor_len` that applies, as after a small increment, and a stream window of `stream_window`
-/// octets. Test-only.
+/// bytes. Test-only.
 fn start(stream_window: u32) !*Stream {
     try support.start_server();
     _ = try support.feed_request(1, "/", true);
@@ -165,7 +165,7 @@ test "decision 110 as amended: until the peer sends an increment below the floor
     try testing.expectEqual(.stream_window, sent.short_by);
 }
 
-/// A WINDOW_UPDATE frame on `stream_id` granting `increment` octets. Test-only.
+/// A WINDOW_UPDATE frame on `stream_id` granting `increment` bytes. Test-only.
 fn window_update(stream_id: u32, increment: u32) ![]const u8 {
     var payload: [constants.protocol.window_update_len]u8 = undefined;
     var writer = Writer.init(&payload);
@@ -206,7 +206,7 @@ test "decision 119: sendable_len is what write_data sends, under the windows, th
     try testing.expectEqual(floor_len, sent.consumed);
 }
 
-/// Payload octets a test's room holds after a frame's header. Test-only.
+/// Payload bytes a test's room holds after a frame's header. Test-only.
 const room_payload_len: usize = 10;
 
 test "RFC 9113 §5.1, §8.1: a stream before its final head, unknown, or reset, has nothing to send" {

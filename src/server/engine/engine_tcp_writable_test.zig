@@ -77,11 +77,11 @@ const preface_no_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\
 /// period and window, 10 s each.
 const seconds_max: u64 = 40;
 
-/// A program writes each octet a peer's window opens, an octet a second, and the stream is cut at
-/// the send rate (decision 110 as amended). The engine asks for each octet's `send` before it
+/// A program writes each byte a peer's window opens, a byte a second, and the stream is cut at
+/// the send rate (decision 110 as amended). The engine asks for each byte's `send` before it
 /// reads the connection again, so the stream's send meter never waits on the output: whether the
 /// program writes before it passes the peer's WINDOW_UPDATE, or after. `lending` says how the
-/// program takes the octets (`support.Lending`): a lent send completes after the engine's later
+/// program takes the bytes (`support.Lending`): a lent send completes after the engine's later
 /// calls of that instant, as a socket's completion comes in the next turn (decision 176).
 fn expect_cut_at_send_rate(writes_first: bool, lending: support.Lending) !void {
     try support.start(null, .{});

@@ -1,5 +1,5 @@
 //! Choosing and writing a Packet Number field (RFC 9000 §17.1, Appendix A.2). A packet number is
-//! 0 to 2^62-1 (§12.3), and a header carries its 1 to 4 least significant octets. The sender picks
+//! 0 to 2^62-1 (§12.3), and a header carries its 1 to 4 least significant bytes. The sender picks
 //! how many from what the peer has acknowledged.
 //!
 //! The receiver's half, Appendix A.3, is `crypto.packet_number.decode`: decision 48 has the suite
@@ -14,7 +14,7 @@ const constants = @import("../constants.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 
-/// The octets of a packet number as a header carries them.
+/// The bytes of a packet number as a header carries them.
 pub const Truncated = crypto.packet_number.Truncated;
 
 const decode = crypto.packet_number.decode;
@@ -22,7 +22,7 @@ const read = crypto.packet_number.read;
 const window_of = crypto.packet_number.window_of;
 
 pub const EncodeError = error{
-    /// Four octets cannot represent twice the range between the packet number and the largest one
+    /// Four bytes cannot represent twice the range between the packet number and the largest one
     /// acknowledged, so no encoding RFC 9000 §17.1 permits exists.
     RangeTooLarge,
 };
@@ -48,7 +48,7 @@ pub fn encode(full: u64, largest_acked: ?u64) EncodeError!Truncated {
     return error.RangeTooLarge;
 }
 
-/// Writes the Packet Number field, most significant octet first (RFC 9000 §17.1).
+/// Writes the Packet Number field, most significant byte first (RFC 9000 §17.1).
 pub fn write(writer: *Writer, truncated: Truncated) core.Writer.Error!void {
     assert(truncated.len >= 1 and truncated.len <= constants.protocol.packet_number_len_max);
     var octets: [constants.protocol.packet_number_len_max]u8 = undefined;
@@ -71,7 +71,7 @@ test "Appendix A.2: the two sample encodings" {
 test "§17.1: before any acknowledgment the whole number is carried" {
     try testing.expectEqual(Truncated{ .value = 0, .len = 1 }, try encode(0, null));
     try testing.expectEqual(Truncated{ .value = 126, .len = 1 }, try encode(126, null));
-    // 128 numbers outstanding is a range of 256, which one octet does not exceed.
+    // 128 numbers outstanding is a range of 256, which one byte does not exceed.
     try testing.expectEqual(Truncated{ .value = 127, .len = 2 }, try encode(127, null));
     try testing.expectEqual(Truncated{ .value = 0x7fff_fffe, .len = 4 }, try encode(0x7fff_fffe, null));
     try testing.expectError(error.RangeTooLarge, encode(0x7fff_ffff, null));
@@ -124,7 +124,7 @@ test "§17.1: the field is written most significant octet first, and read back" 
 const vector_radix = 10;
 const vector_lines = 112;
 
-/// `encode full acked octets`: `encode` picks a field of those octets, `write` writes them, and
+/// `encode full acked octets`: `encode` picks a field of those bytes, `write` writes them, and
 /// `read` reads the field back. `acked` is `-` for none, and `range_too_large` names the error.
 fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     const full = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);

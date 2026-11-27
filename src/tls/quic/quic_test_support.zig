@@ -15,7 +15,7 @@ pub var client_config: quic.ClientConfig align(@alignOf(quic.ClientConfig)) = un
 pub var server_config: quic.ServerConfig align(@alignOf(quic.ServerConfig)) = undefined;
 pub var client: quic.Client align(@alignOf(quic.Client)) = undefined;
 pub var server: quic.Server align(@alignOf(quic.Server)) = undefined;
-/// Where one level's handshake octets cross, and where a sealed packet lands.
+/// Where one level's handshake bytes cross, and where a sealed packet lands.
 pub var scratch: [scratch_len]u8 = undefined;
 pub var packet: [scratch_len]u8 = undefined;
 
@@ -25,7 +25,7 @@ const rounds_max: usize = 8;
 
 pub const protocols = [_][]const u8{"h3"};
 /// Transport parameters, which chapulin carries in the handshake without reading them (RFC 9001
-/// §8.2), so any octets do.
+/// §8.2), so any bytes do.
 pub const client_parameters = "client-parameters";
 pub const server_parameters = "server-parameters";
 
@@ -66,7 +66,7 @@ pub fn start_both(resumption: ?values.Resumption) !void {
     try server.provider().set_transport_params(server_parameters);
 }
 
-/// Starts both sessions and moves handshake octets between them until both complete.
+/// Starts both sessions and moves handshake bytes between them until both complete.
 pub fn handshake_both(resumption: ?values.Resumption) !void {
     try start_both(resumption);
     for (0..rounds_max) |_| {
@@ -89,8 +89,8 @@ pub fn move(from: tls_provider.QuicProvider, to: tls_provider.QuicProvider) !voi
     }
 }
 
-/// The connection IDs the test packets carry, each an octet repeated, and the Packet Number Length
-/// they use. RFC 9000 §7.2: a client's first Destination Connection ID is at least 8 octets.
+/// The connection IDs the test packets carry, each a byte repeated, and the Packet Number Length
+/// they use. RFC 9000 §7.2: a client's first Destination Connection ID is at least 8 bytes.
 const connection_id_len: usize = 8;
 const destination_octet: u8 = 0xdc;
 const source_octet: u8 = 0x5c;
@@ -98,19 +98,19 @@ pub const destination_id: [connection_id_len]u8 = @splat(destination_octet);
 const source_id: [connection_id_len]u8 = @splat(source_octet);
 pub const packet_number_len: u8 = 4;
 
-/// RFC 9000 §17.2.2: an Initial packet's first octet is the long form, the fixed bit and type 0,
+/// RFC 9000 §17.2.2: an Initial packet's first byte is the long form, the fixed bit and type 0,
 /// and its low bits the Packet Number Length less one. RFC 9000 §15: version 1.
 const initial_first_octet: u8 = 0xc0;
 const version_1: u32 = 0x0000_0001;
-/// RFC 9000 §16: a two-octet variable-length integer carries 0b01 in its top bits.
+/// RFC 9000 §16: a two-byte variable-length integer carries 0b01 in its top bits.
 const varint_two_octets: u16 = 0x4000;
-/// RFC 9000 §17.3.1: a 1-RTT packet's first octet is the short form and the fixed bit, then the
+/// RFC 9000 §17.3.1: a 1-RTT packet's first byte is the short form and the fixed bit, then the
 /// Key Phase bit at 0x04.
 const short_first_octet: u8 = 0x40;
 const key_phase_bit: u8 = 0x04;
 
 /// RFC 9000 §17.2.2: an Initial packet's header through its Packet Number field, for a payload
-/// of `payload_len` octets.
+/// of `payload_len` bytes.
 pub fn initial_header(packet_number: u32, payload_len: usize, output: []u8) ![]const u8 {
     var writer = Writer.init(output);
     try writer.write_byte(initial_first_octet | (packet_number_len - 1));

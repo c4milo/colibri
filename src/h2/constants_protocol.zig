@@ -5,10 +5,10 @@ const assert = std.debug.assert;
 
 // Frame format (RFC 9113 §4.1).
 
-/// Octets in every frame header, not counted in its Length field (RFC 9113 §4.1).
+/// Bytes in every frame header, not counted in its Length field (RFC 9113 §4.1).
 pub const frame_header_len: u32 = 9;
 
-/// Octets of the Length field: a 24-bit integer (RFC 9113 §4.1).
+/// Bytes of the Length field: a 24-bit integer (RFC 9113 §4.1).
 pub const frame_length_len: u32 = 3;
 
 /// Largest value the 24-bit Length field holds (RFC 9113 §4.1).
@@ -81,28 +81,28 @@ pub const flag_priority: u8 = 0x20;
 
 // Fixed payload shapes (RFC 9113 §6).
 
-/// Octets of the Pad Length field, and the most padding it can name (§6.1).
+/// Bytes of the Pad Length field, and the most padding it can name (§6.1).
 pub const pad_length_len: u32 = 1;
 pub const padding_len_max: u32 = std.math.maxInt(u8);
 
-/// Octets of the Exclusive bit, Stream Dependency and Weight that the PRIORITY flag adds to a
+/// Bytes of the Exclusive bit, Stream Dependency and Weight that the PRIORITY flag adds to a
 /// HEADERS payload (§6.2), and the whole payload of a PRIORITY frame (§6.3).
 pub const priority_fields_len: u32 = 5;
 
 /// The payload of a RST_STREAM frame: one error code (§6.4).
 pub const rst_stream_len: u32 = 4;
 
-/// Octets per setting in a SETTINGS payload: a 16-bit identifier and a 32-bit value (§6.5.1).
+/// Bytes per setting in a SETTINGS payload: a 16-bit identifier and a 32-bit value (§6.5.1).
 pub const setting_len: u32 = 6;
 
-/// The payload of a PING frame: eight octets of opaque data (§6.7).
+/// The payload of a PING frame: eight bytes of opaque data (§6.7).
 pub const ping_len: u32 = 8;
 
 /// The fixed part of a GOAWAY payload: the last stream identifier and the error code, before any
 /// debug data (§6.8).
 pub const goaway_len_min: u32 = 8;
 
-/// Octets of the Promised Stream ID field of a PUSH_PROMISE payload (§6.6).
+/// Bytes of the Promised Stream ID field of a PUSH_PROMISE payload (§6.6).
 pub const promised_stream_id_len: u32 = 4;
 
 /// The payload of a WINDOW_UPDATE frame: one 31-bit increment (§6.9).
@@ -161,7 +161,7 @@ pub const error_http_1_1_required: u32 = 0x0d;
 
 // The connection preface (RFC 9113 §3.4).
 
-/// The 24 octets a client sends first: `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`.
+/// The 24 bytes a client sends first: `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`.
 pub const client_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 pub const client_preface_len: u32 = 24;
 
@@ -171,7 +171,7 @@ comptime {
     assert(flag_end_stream & flag_end_headers == 0 and flag_padded & flag_priority == 0);
     assert(flag_end_headers & flag_padded == 0 and flag_end_stream & flag_padded == 0);
     assert(goaway_len_min == rst_stream_len + promised_stream_id_len);
-    // The header is the Length field, the Type octet, the Flags octet and the Stream Identifier.
+    // The header is the Length field, the Type byte, the Flags byte and the Stream Identifier.
     assert(frame_length_len + @sizeOf(u8) + @sizeOf(u8) + @sizeOf(u32) == frame_header_len);
     // ENABLE_PUSH starts enabled (§6.5.2), and its two legal values are distinct.
     assert(enable_push_initial == enable_push_enabled and enable_push_disabled != enable_push_enabled);

@@ -1,6 +1,6 @@
 //! One run of the h2 stall check (https://github.com/c4milo/colibri/issues/85): a colibri client
 //! and a colibri server exchange a seed's messages over a transport that holds the plan's
-//! `capacity` octets each way. Each endpoint is driven the way a caller drives h2 (decision 39):
+//! `capacity` bytes each way. Each endpoint is driven the way a caller drives h2 (decision 39):
 //!   - its reading takes frames while `receive` consumes them. When `receive` consumes nothing and
 //!     the connection owes frames, the reading writes them, and reads on only if they fit;
 //!   - its writing writes what the connection owes, then the client's requests and bodies, or the
@@ -31,7 +31,7 @@ pub const Error = error{
     EventUnexpected,
     /// A write call failed for a reason other than room or window.
     WriteRefused,
-    /// A body arrived with other than the octets its sender sent.
+    /// A body arrived with other than the bytes its sender sent.
     BodyMismatch,
     /// The run took `rounds_max` rounds and neither finished nor stopped moving.
     RunTooLong,
@@ -43,13 +43,13 @@ pub const Outcome = enum { finished, stalled };
 pub const Record = struct {
     outcome: Outcome,
     rounds: u64,
-    /// Body octets that arrived, both ways.
+    /// Body bytes that arrived, both ways.
     octets: u64,
     /// Whether each endpoint's reply queue was full when the run stopped: at a stall, whether
     /// `receive` refused to read for want of a slot.
     client_queue_full: bool,
     server_queue_full: bool,
-    /// Octets each direction of the transport held when the run stopped.
+    /// Bytes each direction of the transport held when the run stopped.
     to_server_len: u32,
     to_client_len: u32,
     /// The most replies about single streams each endpoint held at once, and the times `receive`
@@ -59,7 +59,7 @@ pub const Record = struct {
     reads_stopped_full: u64,
 };
 
-/// One direction of the transport: octets written at the back and read from the front, at most
+/// One direction of the transport: bytes written at the back and read from the front, at most
 /// the plan's capacity.
 const Queue = struct {
     octets: [limits.capacity_max]u8,
@@ -88,10 +88,10 @@ const Queue = struct {
 
 /// How far one direction's messages went, per stream: index 0 is stream 1.
 const Messages = struct {
-    /// The sender wrote the head, and wrote this many body octets.
+    /// The sender wrote the head, and wrote this many body bytes.
     headed: [limits.streams_max]bool,
     sent: [limits.streams_max]u32,
-    /// The receiver read the head, this many body octets, and END_STREAM.
+    /// The receiver read the head, this many body bytes, and END_STREAM.
     head_read: [limits.streams_max]bool,
     read: [limits.streams_max]u32,
     ended: [limits.streams_max]bool,
@@ -131,7 +131,7 @@ const Turn = enum { client_read, client_write, server_read, server_write };
 const request: h2.Connection.RequestHead = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "example.test" };
 /// RFC 9110 §15.3.1: 200 OK.
 const status_ok: u16 = 200;
-/// The octets every DATA frame carries: their value does not matter, only their count.
+/// The bytes every DATA frame carries: their value does not matter, only their count.
 const payload: [limits.chunk_len_max]u8 = @splat('x');
 /// The instant every call is given: nothing in a run waits on a clock.
 const now_ns: u64 = 1_000_000;
@@ -179,7 +179,7 @@ pub const Storage = struct {
         assert(storage.client.preface_done() and storage.server.preface_done());
     }
 
-    /// One turn of each kind, in an order `random` draws, and whether any of them moved an octet.
+    /// One turn of each kind, in an order `random` draws, and whether any of them moved a byte.
     fn round(storage: *Storage, plan: *const Plan, random: *Random) Error!bool {
         var turns = [_]Turn{ .client_read, .client_write, .server_read, .server_write };
         // Fisher-Yates: each order of the four turns is equally likely.
@@ -367,7 +367,7 @@ fn write_owed(connection: *Connection, output: *Queue) bool {
     return written > 0;
 }
 
-/// Writes one DATA frame on the first stream, from the cursor on, that has body octets to send and
+/// Writes one DATA frame on the first stream, from the cursor on, that has body bytes to send and
 /// the window and room to send some: the whole body in a random seed, and in an aligned seed the
 /// first part until every stream has sent it, then the rest.
 fn send_body(sender: Sender, plan: *const Plan) Error!bool {
@@ -381,7 +381,7 @@ fn send_body(sender: Sender, plan: *const Plan) Error!bool {
     return false;
 }
 
-/// Writes one DATA frame of stream `index`'s body, when the part being sent has octets left and the
+/// Writes one DATA frame of stream `index`'s body, when the part being sent has bytes left and the
 /// window and the room let some go. Whether it wrote one.
 fn send_chunk(sender: Sender, plan: *const Plan, index: usize, second_parts: bool) Error!bool {
     const messages = sender.messages;

@@ -1,5 +1,5 @@
 //! The deadline trace run (https://github.com/c4milo/colibri/issues/86): a colibri h2 client and a
-//! colibri server connection act out a seed's `deadline_trace_plan.zig`, one queue of octets each
+//! colibri server connection act out a seed's `deadline_trace_plan.zig`, one queue of bytes each
 //! way, and an application answers each request. After the plan's actions the run drains: each
 //! side acts in turn until a round changes nothing.
 //!

@@ -96,14 +96,14 @@ fn mixed() [2 + words.len * (words.len * 2 + 4)]Entry {
 }
 
 /// The routes of the table of 256 routes of `src/server/router/router_test.zig`: each one has a
-/// pattern of `large_segments` segments of `large_segment_len` octets. The last route names PUT,
+/// pattern of `large_segments` segments of `large_segment_len` bytes. The last route names PUT,
 /// and each other route names GET.
 const large_routes = 256;
 const large_segments = 4;
 const large_segment_len = 15;
 const decimal_radix = 10;
 
-/// A segment of `large_segment_len` octets: "/s", then the route and the segment in decimal.
+/// A segment of `large_segment_len` bytes: "/s", then the route and the segment in decimal.
 fn large_segment(comptime index: usize, comptime segment: usize) [large_segment_len + 1]u8 {
     const prefix = "/s";
     var octets: [large_segment_len + 1]u8 = @splat('0');

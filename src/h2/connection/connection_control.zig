@@ -252,7 +252,7 @@ test "http2/6.9.1/2: WINDOW_UPDATE on stream 0 adds to the connection window and
 }
 
 /// Whether the SETTINGS frame at the front of `octets` lists `id` with `value`: each entry is an
-/// identifier of two octets and a value of four (RFC 9113 §6.5.1). Test-only.
+/// identifier of two bytes and a value of four (RFC 9113 §6.5.1). Test-only.
 fn lists_setting(octets: []const u8, id: u16, value: u32) bool {
     const length = std.mem.readInt(u24, octets[0..constants.protocol.frame_length_len], .big);
     const entries = octets[constants.protocol.frame_header_len..][0..length];

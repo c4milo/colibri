@@ -1,7 +1,7 @@
 //! A server's side of an h11 connection: requests read one at a time, and the responses the
 //! application writes to them, in order (RFC 9112 §9.3.2, decision 92).
 //!
-//! The next request is read only after the current one's final response is written, so the octets
+//! The next request is read only after the current one's final response is written, so the bytes
 //! of a pipelined request stay unread in the caller's buffer until then. RFC 9112 §9.3 has a
 //! server read the whole request body or close. So a response written before the request's body
 //! has all been read is followed by the `discard` phase, which reads the rest of the body and
@@ -21,7 +21,7 @@
 //! `write_pending` with `Connection: close` (decision 92).
 //!
 //! A final response to CONNECT other than 2xx ends the connection too (RFC 9931 §8, decision 109).
-//! A client may have sent the tunnel's first octets before the answer, so nothing after a refused
+//! A client may have sent the tunnel's first bytes before the answer, so nothing after a refused
 //! CONNECT is read as a request.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -70,7 +70,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Connection.Er
     target.trailers.init();
     target.reader = connection_body.Reader.start(request.body.length);
     target.phase = if (target.reader.open()) .body else .waiting;
-    // Decision 91: a body carrying gzip or deflate takes a decoder before its first octet.
+    // Decision 91: a body carrying gzip or deflate takes a decoder before its first byte.
     connection.begin_decoding(target, request.body) catch |failure| return target.fail(failure, @enumFromInt(status_of(failure)));
     return .{ .consumed = request.head_len, .event = .{ .request = .{
         .line = request.line,
@@ -93,12 +93,12 @@ fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.C
 }
 
 /// Reads the rest of a body the response did not wait for, and reports none of it (decision 160).
-/// The body ends within `discard_left` octets, or the connection closes.
+/// The body ends within `discard_left` bytes, or the connection closes.
 fn discard_body(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     assert(target.phase == .discard and target.answered and target.responded);
-    // Decision 160: the body must end within the octets left, so no read takes more of them.
+    // Decision 160: the body must end within the bytes left, so no read takes more of them.
     const allowed = input[0..@intCast(@min(input.len, target.discard_left))];
-    // A decoder was given back when the phase began, so the octets are read as they came.
+    // A decoder was given back when the phase began, so the bytes are read as they came.
     const read = connection_body.read(&target.reader, .request, allowed, &target.trailers) catch |failure| {
         return target.fail(failure, null);
     };
@@ -202,8 +202,8 @@ fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []cons
     return write_head_with_close(output, status, reason, fields, checked, &with_close);
 }
 
-/// The array `write_final_head` gives `write_head_with_close`, with its octets left as they are.
-/// ReleaseSafe would fill all 4,096 octets with 0xAA on each response that adds `close_field`.
+/// The array `write_final_head` gives `write_head_with_close`, with its bytes left as they are.
+/// ReleaseSafe would fill all 4,096 bytes with 0xAA on each response that adds `close_field`.
 /// `write_head_with_close` writes each line it gives the head writer, and code reads no other
 /// line. The owner ruled for this method on 2026-10-18 and for this array on 2026-10-20.
 fn unfilled_lines() [core.constants.limits.field_count_max]Field {
@@ -262,10 +262,10 @@ fn start_discard(target: *Connection) void {
     target.discard_left = target.discard_len_max;
 }
 
-/// Whether the rest of the body has a known length of `discard_len_max` octets at most.
+/// Whether the rest of the body has a known length of `discard_len_max` bytes at most.
 fn rest_fits(target: *const Connection) bool {
     return switch (target.reader.kind) {
-        // RFC 9112 §6.2: the Content-Length says how many octets are left.
+        // RFC 9112 §6.2: the Content-Length says how many bytes are left.
         .fixed => target.reader.remaining <= target.discard_len_max,
         // RFC 9112 §7.1: a chunked body says where it ends only as it arrives, so no head knows
         // whether it fits.
@@ -275,7 +275,7 @@ fn rest_fits(target: *const Connection) bool {
     };
 }
 
-/// Whether the rest of the body may end within `discard_len_max` octets, so the `discard` phase
+/// Whether the rest of the body may end within `discard_len_max` bytes, so the `discard` phase
 /// reads it.
 fn rest_may_fit(target: *const Connection) bool {
     return switch (target.reader.kind) {

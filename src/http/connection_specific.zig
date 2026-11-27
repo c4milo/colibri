@@ -59,7 +59,7 @@ pub fn classify(name: []const u8) ?ConnectionSpecific {
     return null;
 }
 
-/// Most calls `te_is_trailers` makes to its splitter. n octets hold at most n + 1 members, and one
+/// Most calls `te_is_trailers` makes to its splitter. n bytes hold at most n + 1 members, and one
 /// more call finds the end, so the bound is never the reason the loop stops.
 const te_split_calls_max = core.constants.limits.field_value_len_max + te_split_calls_past_len;
 const te_split_calls_past_len = 2;
@@ -117,19 +117,19 @@ test "TE with any other member is not trailers" {
 }
 
 test "TE at the length limit, all empty members, ends the list rather than the loop" {
-    // field_value_len_max commas are one more member than octets: the most members a value holds.
+    // field_value_len_max commas are one more member than bytes: the most members a value holds.
     const commas: [core.constants.limits.field_value_len_max]u8 = @splat(',');
     try testing.expect(te_is_trailers(&commas));
 }
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 32;
 
 fn fuzz_te(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const value = input[0..smith.slice(&input)];
     if (!te_is_trailers(value)) return;
-    // Every octet of a value that holds only trailers is a letter of it, a comma or OWS.
+    // Every byte of a value that holds only trailers is a letter of it, a comma or OWS.
     for (value) |octet| try testing.expect(std.mem.indexOfScalar(u8, "trailersTRAILERS, \t", octet) != null);
 }
 

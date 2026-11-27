@@ -159,7 +159,7 @@ fn read_parameters(reader: *core.Reader) ?Parameters {
 const Parameter = struct {
     name: []const u8,
     value: []const u8,
-    /// The value was a quoted-string holding a quoted-pair, so `value` is not its octets.
+    /// The value was a quoted-string holding a quoted-pair, so `value` is not its bytes.
     escaped: bool,
 };
 
@@ -177,7 +177,7 @@ fn read_parameter(reader: *core.Reader) ?Parameter {
 
 /// The port of an alt-authority `[ uri-host ] ":" port` (RFC 7838 §3) whose host is empty or the
 /// origin's, or null for another host or a port no connection can use. A quoted-pair's backslash
-/// is neither a host's octet nor a digit (RFC 3986 §3.2.2, §3.2.3), so an escaped alt-authority
+/// is neither a host's byte nor a digit (RFC 3986 §3.2.2, §3.2.3), so an escaped alt-authority
 /// names no port here.
 fn same_host_port(authority: []const u8, host: []const u8) ?u16 {
     const colon = std.mem.lastIndexOfScalar(u8, authority, ':') orelse return null;
@@ -259,9 +259,9 @@ pub fn host_of(authority: []const u8) []const u8 {
 }
 
 const Quoted = struct {
-    /// The octets between the quotes.
+    /// The bytes between the quotes.
     content: []const u8,
-    /// Whether they hold a quoted-pair, which stands for the octet after the backslash (RFC 9110
+    /// Whether they hold a quoted-pair, which stands for the byte after the backslash (RFC 9110
     /// §5.6.4), so `content` is not the value itself.
     escaped: bool,
 };
@@ -272,7 +272,7 @@ fn read_quoted(reader: *core.Reader) ?Quoted {
     const rest = reader.peek_rest();
     var escaped = false;
     var index: usize = 0;
-    // Bounded: each pass moves past one octet or a quoted-pair.
+    // Bounded: each pass moves past one byte or a quoted-pair.
     while (index < rest.len) : (index += 1) {
         const octet = rest[index];
         if (qdtext(octet)) continue;
@@ -291,12 +291,12 @@ fn read_quoted(reader: *core.Reader) ?Quoted {
 }
 
 /// RFC 9110 §5.6.4: qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / obs-text, which is every
-/// octet a quoted-pair may quote but DQUOTE and the backslash.
+/// byte a quoted-pair may quote but DQUOTE and the backslash.
 fn qdtext(octet: u8) bool {
     return quoted_pair_octet(octet) and octet != '"' and octet != '\\';
 }
 
-/// RFC 9110 §5.6.4: the octet a quoted-pair quotes is HTAB, SP, VCHAR or obs-text.
+/// RFC 9110 §5.6.4: the byte a quoted-pair quotes is HTAB, SP, VCHAR or obs-text.
 fn quoted_pair_octet(octet: u8) bool {
     // RFC 5234 Appendix B.1: VCHAR = %x21-7E, from "!" to "~".
     const vchar = octet >= '!' and octet <= '~';
@@ -317,7 +317,7 @@ fn read_token(reader: *core.Reader) ?[]const u8 {
 
 /// RFC 9110 §5.6.3: OWS = *( SP / HTAB ).
 fn skip_whitespace(reader: *core.Reader) void {
-    // Bounded: each pass reads one octet.
+    // Bounded: each pass reads one byte.
     for (0..reader.remaining_len()) |_| {
         const octet = reader.peek_byte() catch return;
         if (octet != ' ' and octet != '\t') return;
@@ -374,7 +374,7 @@ test "RFC 7838 §2.4: an alternative on another host, or with a port no connecti
     try testing.expectEqual(Advert.none, parse("h3=\":\"", "localhost").?);
     try testing.expectEqual(Advert.none, parse("h3=\":44a\"", "localhost").?);
     try testing.expectEqual(Advert.none, parse("h3=\":4294967296\"", "localhost").?);
-    // RFC 9110 §5.6.4: a quoted-pair's octet is not the one written, so it is not compared.
+    // RFC 9110 §5.6.4: a quoted-pair's byte is not the one written, so it is not compared.
     try testing.expectEqual(Advert.none, parse("h3=\"\\:443\"", "localhost").?);
     try testing.expectEqual(Advert.none, parse("h3=\":443\"; ma=\"\\60\"", "localhost").?);
     // RFC 3986 §3.2.2: an IP-literal holds colons, and the last one starts the port.

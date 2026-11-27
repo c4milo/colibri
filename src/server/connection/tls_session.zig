@@ -1,4 +1,4 @@
-//! The TLS state of one TCP connection over TLS (decision 167): chapulin's session, the octets
+//! The TLS state of one TCP connection over TLS (decision 167): chapulin's session, the bytes
 //! it opened that the protocol has not read, and the records it sealed that the socket has not
 //! sent (decision 176). A connection over TLS holds a pointer to one, which the engine takes from
 //! the buffer the program passes in `Config.tls_buffer`. A cleartext connection holds none, so
@@ -11,17 +11,17 @@ const constants = @import("../constants.zig");
 
 pub const TlsSession = struct {
     server: tls.record.Server,
-    /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
-    /// octets are what the last event pointed into, dropped at the next call.
+    /// The protocol's bytes opened from records and not yet read. Its first `plain_in_read`
+    /// bytes are what the last event pointed into, dropped at the next call.
     plain_in: [constants.limits.plaintext_in_len]u8,
     /// The records an `output_stream` sealed, which its socket sends from here (decision 176).
-    /// The first `sealed_len` octets wait for the socket, and a `sent_stream` drops what its send
+    /// The first `sealed_len` bytes wait for the socket, and a `sent_stream` drops what its send
     /// took from the front.
     sealed: [constants.limits.output_len]u8,
     sealed_len: usize,
 };
 
-/// The octets a buffer takes to hold `connections` sessions at any address: each session's,
+/// The bytes a buffer takes to hold `connections` sessions at any address: each session's,
 /// and the room to align the first, so the program declares a plain array of `u8`.
 pub fn buffer_len(connections: usize) usize {
     if (connections == 0) return 0;
@@ -39,7 +39,7 @@ pub fn sessions_in(buffer: []u8, sessions_max: usize) []TlsSession {
 const testing = std.testing;
 
 test "decision 167: a buffer of buffer_len(n) octets holds n sessions at any alignment" {
-    // Room for two sessions and one octet of shift past each alignment the buffer can start at.
+    // Room for two sessions and one byte of shift past each alignment the buffer can start at.
     const held = 2;
     const Buffer = struct {
         threadlocal var octets: [buffer_len(held) + @alignOf(TlsSession)]u8 align(@alignOf(TlsSession)) = undefined;
@@ -56,7 +56,7 @@ test "decision 167: a buffer of buffer_len(n) octets holds n sessions at any ali
 
 test "decision 167: no connections take no octets, and a short buffer holds no session" {
     try testing.expectEqual(0, buffer_len(0));
-    // One octet short, at the start that wastes the most octets to align.
+    // One byte short, at the start that wastes the most bytes to align.
     const Buffer = struct {
         threadlocal var octets: [buffer_len(1)]u8 align(@alignOf(TlsSession)) = undefined;
     };

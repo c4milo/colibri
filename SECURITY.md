@@ -19,8 +19,8 @@ the assessment.
 
 ## Scope
 
-In scope: the sixteen library modules under `src/`, which read a peer's octets and write the
-octets colibri owes. A peer's input that makes colibri crash, trip an assertion, read or write
+In scope: the sixteen library modules under `src/`, which read a peer's bytes and write the
+bytes colibri owes. A peer's input that makes colibri crash, trip an assertion, read or write
 outside a buffer, loop without bound, or accept a message the RFCs require it to refuse is a
 vulnerability. So is a parse that frames a message differently from what RFC 9112 states, which
 is how request smuggling starts.

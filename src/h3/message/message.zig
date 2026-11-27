@@ -46,7 +46,7 @@ const Seen = http.message_lines.Seen;
 const Status = http.Status;
 
 pub const Error = error{
-    /// A regular field name that is empty or holds an uppercase letter, a colon or another octet
+    /// A regular field name that is empty or holds an uppercase letter, a colon or another byte
     /// outside a token (RFC 9114 §4.2, §10.3).
     FieldNameInvalid,
     /// A field value that holds a character RFC 9110 §5.5 does not permit, or that starts or ends

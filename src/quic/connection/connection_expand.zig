@@ -1,4 +1,4 @@
-//! The expansion of a datagram to RFC 9000 §14.1's 1,200 octets, which §14.1 asks of Initial
+//! The expansion of a datagram to RFC 9000 §14.1's 1,200 bytes, which §14.1 asks of Initial
 //! packets and §8.2.1 and §8.2.2 of the path frames. Decision 54 puts the PADDING in the last
 //! packet, because the AEAD covers the payload and nothing can be appended once it is sealed.
 //! Split from `connection_send.zig`, which a hand-written file of 500 lines could not also hold.
@@ -14,13 +14,13 @@ pub fn expand_last(connection: *Connection, plans: []packet_build.Planned, plann
     const owed = expansion_due(connection, plans);
     if (owed == .none) return;
     if (planned_len >= constants.protocol.datagram_len_min) return;
-    // RFC 9000 §8.2.1 and §8.2.2 except a datagram §8's limit keeps below 1,200 octets, and one
-    // padded part of the way validates no path MTU (§8.2.1). The octets are kept instead for the
+    // RFC 9000 §8.2.1 and §8.2.2 except a datagram §8's limit keeps below 1,200 bytes, and one
+    // padded part of the way validates no path MTU (§8.2.1). The bytes are kept instead for the
     // PATH_CHALLENGE frames §13.3 sends after it, which the same limit bounds (decision 72).
     if (owed == .path_frames and ceiling < constants.protocol.datagram_len_min) return;
     const last = &plans[plans.len - 1];
     // RFC 9001 §5.4.2's widening of a tiny packet's number is what PADDING replaces once there is
-    // any: padding the widened octets back in lands the datagram on 1,200 exactly, and when the
+    // any: padding the widened bytes back in lands the datagram on 1,200 exactly, and when the
     // ceiling allows less the widening shrinks by as much as the padding grows.
     const widened_len = packet_build.widening_len(last.*);
     const wanted = constants.protocol.datagram_len_min - planned_len + widened_len;
@@ -29,14 +29,14 @@ pub fn expand_last(connection: *Connection, plans: []packet_build.Planned, plann
     last.padding_len = @min(wanted, room_for_padding(last, ceiling, planned_len - widened_len));
 }
 
-/// How many octets of PADDING the last packet can still take.
+/// How many bytes of PADDING the last packet can still take.
 fn room_for_padding(last: *const packet_build.Planned, ceiling: usize, planned_len: usize) usize {
     const spare_in_datagram = ceiling - planned_len;
     const spare_in_packet = last.shape.room - last.payload_len;
     return @min(spare_in_datagram, spare_in_packet);
 }
 
-/// Which rule, if any, requires this datagram to reach 1,200 octets.
+/// Which rule, if any, requires this datagram to reach 1,200 bytes.
 const Expansion = enum { none, initial, path_frames };
 
 /// RFC 9000 §14.1: "A client MUST expand the payload of all UDP datagrams carrying Initial packets

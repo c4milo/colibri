@@ -183,7 +183,7 @@ test "what encode writes, decode reads back, in both acknowledgment modes" {
         var decoded = Writer.init(&test_decoded);
         const read = try qif_decode.decode(encoded.written(), &decoded, .{ .max_table_capacity = 220, .blocked_streams = 1 });
         try testing.expectEqual(3, read.sections);
-        // Each section's encoder stream octets come ahead of it, so nothing blocks.
+        // Each section's encoder stream bytes come ahead of it, so nothing blocks.
         try testing.expectEqual(0, read.blocked);
         try expect_sample(decoded.written());
     }

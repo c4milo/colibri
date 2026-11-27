@@ -20,7 +20,7 @@ pub const request_streams_max: u32 = 100;
 
 /// The longest HEADERS frame payload the connection reads (design §7). It is the field section
 /// size colibri accepts: RFC 9114 §10.5.1 lets an endpoint treat a larger section as malformed,
-/// and an encoded section is rarely longer than the size §4.2.2 counts, which adds 32 octets a
+/// and an encoded section is rarely longer than the size §4.2.2 counts, which adds 32 bytes a
 /// line.
 pub const frame_length_max: u32 = core.constants.limits.field_section_size_max;
 

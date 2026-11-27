@@ -53,7 +53,7 @@ const routes = .{
     },
 };
 
-/// Octets of each request's response memory, which holds the short answers of these routes.
+/// Bytes of each request's response memory, which holds the short answers of these routes.
 const response_bytes = 256;
 const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = .{};
@@ -133,7 +133,7 @@ fn on_error(_: *void, _: *server.RequestContext, _: *const server.Request, _: an
     response.status = .internal_server_error;
 }
 
-/// A source that fills each octet with 0. A program passes its own entropy.
+/// A source that fills each byte with 0. A program passes its own entropy.
 const Zero = struct {
     fn fill(_: *Zero, buffer: []u8) void {
         @memset(buffer, 0);

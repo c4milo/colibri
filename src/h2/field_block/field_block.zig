@@ -6,9 +6,9 @@
 //! once per fragment: the first from that frame, each later one from a CONTINUATION frame (§6.2,
 //! §6.6, §6.10). `feed` runs hpack's block reader over the fragment where the connection holds it,
 //! in `field_block_decode.zig`. That reader is all-or-nothing per representation, so on
-//! `error.Truncated` the octets from the cut representation's first octet are copied into the
-//! buffer. The next fragment's octets are appended to them until that representation is whole,
-//! and the rest of that fragment is decoded where it is. The kept octets are at most one line, so
+//! `error.Truncated` the bytes from the cut representation's first byte are copied into the
+//! buffer. The next fragment's bytes are appended to them until that representation is whole,
+//! and the rest of that fragment is decoded where it is. The kept bytes are at most one line, so
 //! the slot holds one line and never a whole block (decision 40 as amended, design §8 step 61a).
 //! The decoded lines go into `section`, and the fragment carrying END_HEADERS returns `Done`,
 //! after which the connection reads the section from the block.
@@ -18,14 +18,14 @@
 //!      `error.TooManyContinuations` (§6.10 allows any number, §10.5 asks for a limit);
 //!   2. each whole representation, through the decoder: any refusal but a cut representation is
 //!      `error.DecodeFailed` (§4.3);
-//!   3. the cut line's octets fed so far: longer than `representation_len_max`, the longest line
+//!   3. the cut line's bytes fed so far: longer than `representation_len_max`, the longest line
 //!      the decoder accepts, is `error.RepresentationTooLong` (RFC 7541 §7.4);
-//!   4. END_HEADERS with octets kept: `error.BlockCutInsideRepresentation` (§4.3).
+//!   4. END_HEADERS with bytes kept: `error.BlockCutInsideRepresentation` (§4.3).
 //! Every error is a connection error and leaves the slot cleared, so no later call sees a
 //! half-fed block.
 //!
 //! A section that refuses a line, for its size or its line count, does not stop the decoding:
-//! `too_large` is set, every later octet still goes through the decoder, and its lines are
+//! `too_large` is set, every later byte still goes through the decoder, and its lines are
 //! discarded, so the dynamic table stays synchronized with the peer's (invariant 10, §10.5.1).
 //!
 //! Nothing here validates a name or a value, and nothing here names a stream error: a malformed
@@ -66,7 +66,7 @@ pub const Done = struct {
     origin: Origin,
     /// The opening HEADERS frame's END_STREAM flag.
     end_stream: bool,
-    /// The section refused a line, so it is incomplete; every octet was still decoded.
+    /// The section refused a line, so it is incomplete; every byte was still decoded.
     too_large: bool,
 };
 
@@ -79,7 +79,7 @@ pub const Error = error{
     /// The decoder refused a representation. RFC 9113 §4.3: a decoding error in a field block
     /// is a connection error of type COMPRESSION_ERROR: `error_compression_error`.
     DecodeFailed,
-    /// A line the last fragment cut, whose octets fed so far are longer than
+    /// A line the last fragment cut, whose bytes fed so far are longer than
     /// `representation_len_max`, the longest line the decoder accepts. It would fail the
     /// implementation limits RFC 7541 §7.4 asks for once whole: `error_compression_error`.
     RepresentationTooLong,
@@ -92,10 +92,10 @@ pub const Error = error{
 pub const FieldBlock = struct {
     /// The block being reassembled, or null when the slot is free (invariant 14).
     in_progress: ?InProgress,
-    /// The octets kept from the line the last fragment cut, then the octets of the next fragment
+    /// The bytes kept from the line the last fragment cut, then the bytes of the next fragment
     /// that finish it; `buffer[0..buffer_len]` is in use.
     buffer: [constants.limits.field_block_buffer_len]u8,
-    /// Octets of `buffer` in use.
+    /// Bytes of `buffer` in use.
     buffer_len: u32,
     /// The decoded lines, in arrival order.
     section: http.FieldSection,
@@ -106,9 +106,9 @@ pub const FieldBlock = struct {
     continuations: u32,
     /// Fragments fed so far: the opening frame's, then one per CONTINUATION frame.
     fragments: u32,
-    /// Every fragment octet fed: invariant 14's byte count, a counter and not a buffer.
+    /// Every fragment byte fed: invariant 14's byte count, a counter and not a buffer.
     octets_fed: u64,
-    /// Every octet the decoder consumed, over all fragments. At `Done` it equals `octets_fed`,
+    /// Every byte the decoder consumed, over all fragments. At `Done` it equals `octets_fed`,
     /// whether or not the section refused a line (invariant 10).
     octets_decoded: u64,
     /// The block offset at which the last decoded line's representation ended, or 0 before the
@@ -189,7 +189,7 @@ pub const FieldBlock = struct {
         block.size_updates = 0;
     }
 
-    /// Appends `octets` after the kept octets. Together they are at most `representation_len_max`,
+    /// Appends `octets` after the kept bytes. Together they are at most `representation_len_max`,
     /// which is how `field_block_buffer_len` was sized.
     pub fn append(block: *FieldBlock, octets: []const u8) void {
         const offset: usize = block.buffer_len;
@@ -201,7 +201,7 @@ pub const FieldBlock = struct {
 
     fn finish(block: *FieldBlock) Done {
         const progress = block.in_progress.?;
-        // Invariant 10: the decoder consumed every octet of the block, and every line it produced
+        // Invariant 10: the decoder consumed every byte of the block, and every line it produced
         // is in the section unless the section refused one.
         assert(block.octets_decoded == block.octets_fed);
         assert(block.lines_decoded == block.section.len() or block.too_large);

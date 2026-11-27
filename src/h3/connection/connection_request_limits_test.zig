@@ -23,8 +23,8 @@ const next = harness.next;
 /// Appendix A), again and again. Test-only.
 const lines_past: usize = core.constants.limits.field_count_max + 1;
 const static_method_get: u8 = 0xd1;
-/// A value past `field_value_len_max`, 127 plus 8873, which a 7-bit prefix and the two octets
-/// 0xa9 0x45 carry (RFC 9204 §4.1.1). Its line takes the prefix's two octets, the name's two and
+/// A value past `field_value_len_max`, 127 plus 8873, which a 7-bit prefix and the two bytes
+/// 0xa9 0x45 carry (RFC 9204 §4.1.1). Its line takes the prefix's two bytes, the name's two and
 /// the length's three. Test-only.
 const long_value_len: usize = 9000;
 const long_line_overhead: usize = 7;
@@ -40,7 +40,7 @@ fn refused(id: u64, code: u64) Event {
 
 test "§10.5.1: a HEADERS frame longer than colibri accepts refuses the stream" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
-    // A Length of 0x5000 in four octets, past `frame_length_max`.
+    // A Length of 0x5000 in four bytes, past `frame_length_max`.
     const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, &.{ constants.protocol.frame_headers, 0x80, 0x00, 0x50, 0x00 }, false);
     try exchange();
@@ -51,7 +51,7 @@ test "§4.2.2: a section of more lines than colibri holds refuses the stream" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     var octets: [lines_past + 8]u8 = undefined;
     var writer = Writer.init(&octets);
-    // The Length is the prefix's two octets and one octet a line, in a two-octet varint.
+    // The Length is the prefix's two bytes and one byte a line, in a two-byte varint.
     const length: u16 = @intCast(lines_past + 2);
     try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00 });
     for (0..lines_past) |_| try writer.write_byte(static_method_get);
@@ -65,8 +65,8 @@ test "RFC 9204 §7.4: a value longer than colibri accepts refuses the stream wit
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     var octets: [long_frame_len]u8 = undefined;
     var writer = Writer.init(&octets);
-    // A literal line named `x` (RFC 9204 §4.5.6) whose value is `long_value_len` octets, past
-    // `field_value_len_max`: the value's length in a 7-bit prefix and two more octets.
+    // A literal line named `x` (RFC 9204 §4.5.6) whose value is `long_value_len` bytes, past
+    // `field_value_len_max`: the value's length in a 7-bit prefix and two more bytes.
     const length: u16 = @intCast(long_value_len + long_line_overhead);
     try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00, 0x21, 'x', 0x7f, 0xa9, 0x45 });
     for (0..long_value_len) |_| try writer.write_byte('a');
@@ -99,7 +99,7 @@ test "§7.1: a DATA frame cut short after the server's side of the stream has fi
     // The server answers in full before the request's content arrives (§4.1 permits it).
     try harness.respond(id, &harness.ok_lines, "");
     try exchange();
-    // A DATA frame whose header promises five octets, and then the stream's end.
+    // A DATA frame whose header promises five bytes, and then the stream's end.
     try client.send_raw(id, &.{ constants.protocol.frame_data, 0x05 }, true);
     try exchange();
     try testing.expectError(error.ConnectionFailed, next(server));

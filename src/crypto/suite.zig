@@ -37,7 +37,7 @@ pub const Role = enum {
 
 /// The encryption levels colibri uses (RFC 9001 §4.1.4). 0-RTT is not one: decision 20.
 ///
-/// The type is `core`'s, because `tls`'s QUIC mode moves handshake octets at a level too and
+/// The type is `core`'s, because `tls`'s QUIC mode moves handshake bytes at a level too and
 /// design §3 makes `tls` and `crypto` siblings with no edge between them. These two are aliases,
 /// not copies: there is one `Level` in the tree.
 pub const Level = core.Level;
@@ -148,7 +148,7 @@ pub const TokenCheck = union(enum) {
     /// A Retry token this suite wrote for this address, still in its lifetime, and the two
     /// connection IDs it carries.
     retry: RetryConnectionIds,
-    /// A Retry token that fails: another address, a changed octet, or an expired lifetime. §8.1.2
+    /// A Retry token that fails: another address, a changed byte, or an expired lifetime. §8.1.2
     /// has the server close with INVALID_TOKEN.
     invalid,
     /// Not a Retry token at all. §8.1.3 has the server "proceed as if the client did not have a
@@ -171,7 +171,7 @@ pub const UpdateError = error{
 /// Why a suite did not switch the negotiated version (RFC 9369 §4.1). colibri drops the packet
 /// whose version asked for the switch, and the connection goes on in the version it had.
 pub const SwitchError = error{
-    /// A server asked, the switch already happened, the server's first CRYPTO octet was already
+    /// A server asked, the switch already happened, the server's first CRYPTO byte was already
     /// delivered, the version is the negotiated one already, or the suite derives no keys for it.
     Refused,
 };
@@ -187,9 +187,9 @@ pub const Sealing = struct {
     /// The header through its Packet Number field, unprotected. It is the associated data of the
     /// AEAD, so it is final before this call (RFC 9001 §5.3).
     header: []const u8,
-    /// Octets of the Packet Number field, which are the last ones of `header`.
+    /// Bytes of the Packet Number field, which are the last ones of `header`.
     packet_number_len: u8,
-    /// The frames. With the Packet Number field they are at least `protected_len_min` octets.
+    /// The frames. With the Packet Number field they are at least `protected_len_min` bytes.
     payload: []const u8,
 };
 
@@ -202,7 +202,7 @@ pub const Opening = struct {
     /// One whole packet, which colibri has separated from the rest of its datagram
     /// (RFC 9000 §12.2).
     packet: []u8,
-    /// Octets from the start of `packet` to its Packet Number field, which colibri read from the
+    /// Bytes from the start of `packet` to its Packet Number field, which colibri read from the
     /// header it could see.
     packet_number_offset: usize,
     /// The largest packet number processed in this packet number space, or null before any
@@ -218,9 +218,9 @@ pub const Opening = struct {
 /// follows the Packet Number field.
 pub const Opened = struct {
     packet_number: u64,
-    /// Octets of the Packet Number field, read from byte 0 once it was unmasked.
+    /// Bytes of the Packet Number field, read from byte 0 once it was unmasked.
     packet_number_len: u8,
-    /// Octets of plaintext payload, which start at `packet_number_offset + packet_number_len`.
+    /// Bytes of plaintext payload, which start at `packet_number_offset + packet_number_len`.
     payload_len: usize,
     key_set: KeySet,
 };
@@ -279,7 +279,7 @@ pub const VTable = struct {
     /// §8.1.4). A server's call, before it sends a Retry. Decision 55 puts the token here: §8.1.4
     /// wants it authenticated, which needs a key colibri may not hold, and "only accepted for a
     /// short time", which needs an instant colibri may not read — so `now_ns` is passed in.
-    /// `address` is the client's, as opaque octets: colibri owns no socket and never reads them.
+    /// `address` is the client's, as opaque bytes: colibri owns no socket and never reads them.
     /// The token carries `ids`, which the server needs again and keeps nowhere else, and is
     /// bound to `version`, the original version, as RFC 9369 §4.1 permits, so a client that
     /// switched versions after the Retry is refused.

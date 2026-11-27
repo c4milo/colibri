@@ -31,7 +31,7 @@ too, until [decision 88](decisions.md) amended decision 2 to build it as h11.
 It is worth stating the shape plainly before the module graph, because the module graph follows
 from it.
 
-**h2** is one TCP connection carrying 9-octet-framed messages, with its own stream multiplexing,
+**h2** is one TCP connection carrying 9-byte-framed messages, with its own stream multiplexing,
 its own credit-based flow control, and HPACK for field compression. Everything above the socket is
 colibri's.
 
@@ -145,8 +145,8 @@ colibri invokes at a time of its choosing.
 ### 4.1 Bytes
 
 The caller reads from its socket and hands colibri a slice. colibri parses what it can, tells the
-caller how many octets it consumed, and leaves the remainder for the next call. For output the
-caller hands colibri a slice to fill and colibri returns how many octets it wrote. There is no
+caller how many bytes it consumed, and leaves the remainder for the next call. For output the
+caller hands colibri a slice to fill and colibri returns how many bytes it wrote. There is no
 buffering of unconsumed input inside colibri beyond what a partial frame requires, and that is a
 fixed, named size (§7).
 
@@ -183,7 +183,7 @@ layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); th
 
 Two facts constrain the ALPN half and are easy to get wrong. In TLS 1.3 the selected protocol
 is sent in EncryptedExtensions, not ServerHello, so it is only readable after the provider has
-decrypted EE — colibri must not assume it knows the ALPN earlier. And `"h2"` is the two octets
+decrypted EE — colibri must not assume it knows the ALPN earlier. And `"h2"` is the two bytes
 `0x68 0x32` (RFC 9113 §3.1) while `"h3"` is `0x68 0x33` (RFC 9114 §11.1); no overlap is a fatal
 `no_application_protocol` alert, value 120 (RFC 9846 §6, RFC 7301 §3.2), which RFC 9001 §8.1
 extends by requiring QUIC *clients* to use it too.
@@ -226,12 +226,12 @@ vtable, and decision 48 is why its members are these.
 ### 4.5 The stream provider
 
 QUIC only. colibri retransmits stream data itself (RFC 9000 §13.3), so it must be able to read a
-stream's octets again until the peer acknowledges them, and it holds no copy. The caller keeps
-the octets and supplies a vtable with one member, `read(stream_id, offset, output)`, which writes
-the stream's octets from `offset` into `output` and returns how many it wrote. colibri calls it
-inside `send` alone, for new octets and for lost ones, and the caller may drop a stream's octets
+stream's bytes again until the peer acknowledges them, and it holds no copy. The caller keeps
+the bytes and supplies a vtable with one member, `read(stream_id, offset, output)`, which writes
+the stream's bytes from `offset` into `output` and returns how many it wrote. colibri calls it
+inside `send` alone, for new bytes and for lost ones, and the caller may drop a stream's bytes
 once colibri reports the stream in Data Recvd (§3.1) or reset. The provider answers the same
-octets for an offset every time, which RFC 9000 §2.2 requires and colibri cannot check.
+bytes for an offset every time, which RFC 9000 §2.2 requires and colibri cannot check.
 [Decision 57](decisions.md#the-h2-connection) is the ruling and the alternatives it beat.
 
 ## 5. What is shared, and what only looks shared
@@ -269,11 +269,11 @@ that way. `(i)` marks a QUIC variable-length integer.
 
 ### 6.1 HTTP/2 framing (RFC 9113 §4.1)
 
-The frame header is 9 octets and is not counted in `Length`:
+The frame header is 9 bytes and is not counted in `Length`:
 
 | Bits | Field | Notes |
 |---:|---|---|
-| 24 | Length | payload octets; > 2^14 only if the peer raised `SETTINGS_MAX_FRAME_SIZE` |
+| 24 | Length | payload bytes; > 2^14 only if the peer raised `SETTINGS_MAX_FRAME_SIZE` |
 | 8 | Type | unknown types are ignored and discarded, but must still be consumed; a client reads ALTSVC |
 | 8 | Flags | unused flags ignored on receipt, unset on send |
 | 1 | Reserved | ignored on receipt, unset on send — mask it, never reject it |
@@ -304,7 +304,7 @@ Error codes, RFC 9113 §7: `NO_ERROR` 0x00, `PROTOCOL_ERROR` 0x01, `INTERNAL_ERR
 `REFUSED_STREAM` 0x07, `CANCEL` 0x08, `COMPRESSION_ERROR` 0x09, `CONNECT_ERROR` 0x0a,
 `ENHANCE_YOUR_CALM` 0x0b, `INADEQUATE_SECURITY` 0x0c, `HTTP_1_1_REQUIRED` 0x0d.
 
-The client connection preface is the 24 octets
+The client connection preface is the 24 bytes
 `50 52 49 20 2a 20 48 54 54 50 2f 32 2e 30 0d 0a 0d 0a 53 4d 0d 0a 0d 0a` — the ASCII of
 `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n` — followed by a SETTINGS frame that may be empty (RFC 9113
 §3.4). The server's preface is a SETTINGS frame that must be its first frame. An invalid preface
@@ -341,10 +341,10 @@ exactly that before it ships a dynamic table.
 
 ### 6.4 QUIC (RFC 8999, RFC 9000)
 
-Variable-length integers, RFC 9000 §16 — the two most significant bits of the first octet give
+Variable-length integers, RFC 9000 §16 — the two most significant bits of the first byte give
 the length:
 
-| 2 MSB | Octets | Usable bits | Range |
+| 2 MSB | Bytes | Usable bits | Range |
 |---|---:|---:|---|
 | `00` | 1 | 6 | 0 – 63 |
 | `01` | 2 | 14 | 0 – 16,383 |
@@ -355,11 +355,11 @@ Minimal encoding is *not* required except for the Frame Type field (§16, pointi
 decoder that rejects a non-minimal varint is wrong; a frame-type reader that accepts one is also
 wrong.
 
-The version-independent layer (RFC 8999 §5) reads only: bit 0x80 of octet 0; and for a long
-header, the 32-bit Version at offset 1, a DCID length octet, up to 255 DCID octets, an SCID length
-octet, up to 255 SCID octets. RFC 8999 §5 scopes the invariants to the **first** packet in a
+The version-independent layer (RFC 8999 §5) reads only: bit 0x80 of byte 0; and for a long
+header, the 32-bit Version at offset 1, a DCID length byte, up to 255 DCID bytes, an SCID length
+byte, up to 255 SCID bytes. RFC 8999 §5 scopes the invariants to the **first** packet in a
 datagram, and the Length field that makes coalescing parseable is a version-1 field, so the
-invariant layer parses one packet and stops. It must not apply RFC 9000's 20-octet connection-ID
+invariant layer parses one packet and stops. It must not apply RFC 9000's 20-byte connection-ID
 maximum, because RFC 9000 §17.2.1 says version-specific rules must not influence whether a Version
 Negotiation packet is sent. [Invariant
 22](invariants.md#inv-22--a-version-independent-parse-reads-only-rfc-8999-fields)
@@ -419,7 +419,7 @@ end records=<count> outcome=<outcome>
   new version, never a silent edit.
 - Each record between the first line and the last is a name, then fields separated by one space.
   A key is lowercase letters, digits and underscores. A value holds no space: an unsigned decimal
-  integer, octets as lowercase hexadecimal with no prefix, or a word such as an error name.
+  integer, bytes as lowercase hexadecimal with no prefix, or a word such as an error name.
 - The last line gives the count of records between the first line and itself, and how the run ended.
   A trace with no `end` line was cut short.
 - The seed is the only value written in hexadecimal with a `0x` prefix, because it is the value a
@@ -429,9 +429,9 @@ The records design §8 step 2 writes are the byte pipe's:
 
 | Record | Fields | Written when |
 |---|---|---|
-| `feed` | `at_ns`, `len`, `held` | a chunk of the stream is fed to the caller; `held` counts the octets the caller holds after it |
-| `accept` | `offset`, `len`, then the subject's fields | the subject consumed a whole value; `offset` is its first octet in the stream |
-| `reject` | `offset`, `error` | the subject refused the octets at `offset` |
+| `feed` | `at_ns`, `len`, `held` | a chunk of the stream is fed to the caller; `held` counts the bytes the caller holds after it |
+| `accept` | `offset`, `len`, then the subject's fields | the subject consumed a whole value; `offset` is its first byte in the stream |
+| `reject` | `offset`, `error` | the subject refused the bytes at `offset` |
 
 No record but `feed` carries an instant. The chunk schedule decides when a value completes, so
 removing every `feed` record, and the record count from the `end` line, leaves the lines that do
@@ -454,9 +454,9 @@ connections, sizes memory through `memory_bytes(options)` (decision 35 as amende
 `continuation_count_max` · `concurrent_streams_max` · `window_initial` · `window_max` (2^31 − 1) ·
 `settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `peer_reset_rate_max` ·
 `settings_timeout_ns` ·
-`representation_len_max` (31,721 encoded octets: the longest field line within
+`representation_len_max` (31,721 encoded bytes: the longest field line within
 `field_name_len_max`, `field_value_len_max` and `integer_len_max`, Huffman-coded at 30 bits an
-octet, so it refuses no line those limits admit) · `field_block_buffer_len` (one cut representation
+byte, so it refuses no line those limits admit) · `field_block_buffer_len` (one cut representation
 plus one frame, decision 40) · `send_block_len_max` (two frames' worth of field block colibri
 sends, cut into a HEADERS frame and the CONTINUATION frames it needs) · `settings_ack_pending_max`
 · `ping_ack_pending_max` · `stream_replies_max` (the reply queues of decision 39: a full queue
@@ -464,11 +464,11 @@ stops the reading, and no reply is ever dropped; a RST_STREAM the caller asks fo
 because the stream's record owes it, decision 113).
 
 **wire** (`wire`): `varint_value_max` (2^62 − 1, RFC 9000 §16) · `integer_value_max` (2^62 − 1, the
-62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need
+62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 bytes, the length those 62 bits need
 past a 1-bit prefix) · `huffman_padding_bits_max` (7, RFC 7541 §5.2).
 
 **HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` (4,096, ruled 2026-11-18; 16,384
-from 2026-09-16) · `dynamic_table_entries_max` (the capacity over the 32-octet overhead) ·
+from 2026-09-16) · `dynamic_table_entries_max` (the capacity over the 32-byte overhead) ·
 `size_updates_per_block_max` (2, RFC 7541 §4.2) · `blocked_streams_max` ·
 `encoder_instruction_len_max` · `decoder_instructions_owed_max` (the last three decision 74's).
 Huffman data expands by up to 1.6x, since the shortest code is 5 bits, and
@@ -549,7 +549,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The last two rules, 2026-09-16.** `magic-numbers` runs over `src/`, but for each
   `constants.zig`, the generated `huffman_table.zig`, and the corpus and mutation tables of
-  `src/golden/`. The 111 literals it found are now named: an octet's width is `@bitSizeOf(u8)`,
+  `src/golden/`. The 111 literals it found are now named: a byte's width is `@bitSizeOf(u8)`,
   the varint lengths and prefix bounds are `wire` constants, and the RFC 9110 §15 status codes are
   `http.status.Code`. `rfc-citation` reads every `return error.Name` under `src/`, but for the
   short-buffer errors, the test errors, `src/golden/`, `src/sim/` and `src/testing/`, and requires
@@ -581,25 +581,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Huffman table.** `tools/huffman_table.zig` generates the table from the RFC text. It reads
     both code columns of every row and refuses a row where they disagree. Comptime asserts in
     `src/wire/huffman.zig` pin Kraft equality, EOS as thirty set bits, and the canonical order the
-    decoder depends on. The octets 204 and 22 encode to `ff ff fb ff ff ff ff 7f`, whose run of
+    decoder depends on. The bytes 204 and 22 encode to `ff ff fb ff ff ff ff 7f`, whose run of
     thirty-four ones decodes with no EOS
     ([decision 11](decisions.md#what-is-shared-between-h2-and-h3)).
   - **Corpus.** `src/golden/` holds 32 cases in four formats, 14 of them invalid, each format with
     a version 1 manifest: 10 varint, 9 prefixed integer, 7 Huffman and 6 string literal. They cover
     one valid case and one truncation per varint length, RFC 9000 Appendix A.1's five sample
     decodings, RFC 7541 Appendix C.1's three integers, the Appendix C strings, one case per Huffman
-    decode error, and QPACK's mid-octet string literal at 4-bit and 2-bit prefixes.
+    decode error, and QPACK's mid-byte string literal at 4-bit and 2-bit prefixes.
     `zig build golden-check` compares every committed file and manifest with the case table, and
     runs the 15 corpus mutations of `src/golden/mutations.zig`, each of which produces the verdict
     it names.
   - **Fuzzing.** Every decoder and validator has a `std.testing.fuzz` property function.
-    `zig build test` runs each one over its corpus and over every input of up to two octets, at
+    `zig build test` runs each one over its corpus and over every input of up to two bytes, at
     every prefix size where the decoder takes one (`core.fuzz.sweep`). Zig 0.16.0's fuzz-mode
     test runner does not compile, because `lib/compiler/test_runner.zig:566` passes a
     `builtin.StackTrace` where `std.debug.writeStackTrace` takes a `debug.StackTrace`. Since
     decision 144, `zig build test-<module> -Dfuzz --fuzz=<runs>` runs the fuzzer over a runner
-    with that one line fixed. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
-    4-octet length before each slice, which `core.fuzz.input` writes.
+    with that one line fixed. A corpus entry is not raw bytes: outside `--fuzz`, `Smith` reads a
+    4-byte length before each slice, which `core.fuzz.input` writes.
   - **Built after the step passed.** Invariant 3's lint rule, no slicing with a peer-derived
     index outside the reader and writer, was not written when the step passed; its assertions
     and fuzzing were. `tools/lint/peer_index.zig` added it on 2026-09-16, and the tree was clean
@@ -615,22 +615,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   | Mutation | Result | Caught by |
   |---|---|---|
-  | reader: take accepts one octet past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | reader: take accepts one byte past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
   | reader: peek_byte skips the empty check | **CAUGHT** | test panicked (null unwrap or bounds check) |
   | reader: read_byte does not advance | **CAUGHT** | test `reader`: "a read inside the slice returns the octets and moves the cursor" |
   | reader: read_int shifts seven bits | **CAUGHT** | test `reader`: "integers read in network byte order" |
-  | writer: write_bytes accepts one octet past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | writer: write_bytes accepts one byte past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
   | writer: write_byte skips the full check | **CAUGHT** | test panicked (null unwrap or bounds check) |
   | writer: write_int writes little-endian | **CAUGHT** | test `writer`: "a write inside the buffer lands and moves the cursor" |
-  | writer: print advances at most one octet | **CAUGHT** | test `writer`: "formatted text lands whole or not at all" |
+  | writer: print advances at most one byte | **CAUGHT** | test `writer`: "formatted text lands whole or not at all" |
   | varint: length read from the top bit alone | **CAUGHT** | test `varint`: "a non-minimal encoding decodes and re-encodes at its own length" |
   | varint: length bits left in the value | **CAUGHT** | test panicked (null unwrap or bounds check) |
   | varint: encoder writes the length bits one place low | **CAUGHT** | test `varint`: "a non-minimal encoding decodes and re-encodes at its own length" |
-  | varint: one-octet range includes 64 | **CAUGHT** | test `varint`: "each length's largest value round-trips and one more needs the next length" |
+  | varint: one-byte range includes 64 | **CAUGHT** | test `varint`: "each length's largest value round-trips and one more needs the next length" |
   | prefixed integer: a full prefix read as the value | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
   | prefixed integer: continuation flag read from bit 6 | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
   | prefixed integer: value limit one past 62 bits | **CAUGHT** | test `prefixed_integer`: "a value one past the ceiling is IntegerTooLarge" |
-  | prefixed integer: octet limit one longer | **CAUGHT** | test `prefixed_integer`: "an eleventh octet is IntegerTooLong even when every group is zero" |
+  | prefixed integer: byte limit one longer | **CAUGHT** | test `prefixed_integer`: "an eleventh octet is IntegerTooLong even when every group is zero" |
   | prefixed integer: groups shifted by eight | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
   | prefixed integer: caller high bits kept in the prefix | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
   | prefixed integer: encoder ends one value early | **CAUGHT** | test `prefixed_integer`: "continuation octets follow only while the remainder is 128 or more" |
@@ -654,13 +654,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | field: bar dropped from tchar | **CAUGHT** | test `field`: "every tchar RFC 9110 §5.6.2 lists is a tchar, and nothing else is" |
   | field: empty name accepted | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
   | field: name limit refuses the limit itself | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
-  | field: name octets above 0x7f accepted | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
+  | field: name bytes above 0x7f accepted | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
   | field: CR not refused as CR | **CAUGHT** | test `field`: "a field value is refused in check order" |
   | field: HTAB reported as control | **CAUGHT** | test `field`: "a field value admits VCHAR, obs-text and inner whitespace" |
   | field: DEL not a control | **CAUGHT** | test `field`: "a field value is refused in check order" |
-  | field: control octets accepted | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: control bytes accepted | **CAUGHT** | test `field`: "a field value is refused in check order" |
   | field: leading whitespace accepted | **CAUGHT** | test `field`: "a field value is refused in check order" |
-  | field: trailing whitespace read from the first octet | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: trailing whitespace read from the first byte | **CAUGHT** | test `field`: "a field value is refused in check order" |
   | field: value limit refuses the limit itself | **CAUGHT** | test `field`: "a field value admits VCHAR, obs-text and inner whitespace" |
   | field: names compared case-sensitively | **CAUGHT** | test `field`: "field names compare case-insensitively" |
   | connection-specific: Connection dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
@@ -691,16 +691,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The varint proved, 2026-09-26.** `spec/lean/Colibri/Wire/Varint.lean` states RFC 9000 §16's
   codec over natural numbers, as `varint.zig` computes it, and proves four things
   ([#52](https://github.com/c4milo/colibri/issues/52)):
-  - `decode_encode`: an encoding decodes to its value and its length, whatever octets follow it;
-  - `encode_octets`: in the four lengths, every octet of an encoding is below 256;
-  - `decode_bound`: whatever octets are decoded, the value fits the length the first octet names;
+  - `decode_encode`: an encoding decodes to its value and its length, whatever bytes follow it;
+  - `encode_octets`: in the four lengths, every byte of an encoding is below 256;
+  - `decode_bound`: whatever bytes are decoded, the value fits the length the first byte names;
   - `minimal_fits` and `minimal_shortest`: the minimal length carries the value, and no shorter
     one does.
 
   The proof of the first used no bound on the length. The four lengths are what keep the first
-  octet a byte, which `u8` enforces in `varint.zig` and the model had left unstated, so that
+  byte a byte, which `u8` enforces in `varint.zig` and the model had left unstated, so that
   fact became `encode_octets`. `spec/lean/Vectors.lean` writes `src/wire/varint_vectors.txt`:
-  60 encodings, among them RFC 9000 Appendix A.1's, 484 decodings of every one-octet input and
+  60 encodings, among them RFC 9000 Appendix A.1's, 484 decodings of every one-byte input and
   every cut encoding, and 23 minimal lengths. A test in `varint.zig` requires the Zig codec to
   give each. Mutations: 3 in `varint.zig`, each **CAUGHT** by that test; 2 in the Lean
   definitions, each stopping the proofs; and 1 edit to the vector file, which `zig build lean`
@@ -710,18 +710,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   states RFC 7541 §5.1's integer as `prefixed_integer.zig` computes it, at every prefix size 1 to 8,
   and proves:
   - `decode_encode`: an encoding decodes to its value and its length, whatever high bits the
-    caller set above the prefix and whatever octets follow;
-  - `encode_octets`: every octet is below 256;
-  - `encode_length`: every value up to 2^62 - 1 takes at most `integer_len_max` octets at every
+    caller set above the prefix and whatever bytes follow;
+  - `encode_octets`: every byte is below 256;
+  - `encode_length`: every value up to 2^62 - 1 takes at most `integer_len_max` bytes at every
     prefix size;
-  - `decodeLimited_encode`: with colibri's octet and value limits, every such encoding still reads
+  - `decodeLimited_encode`: with colibri's byte and value limits, every such encoding still reads
     back, so the limits refuse nothing RFC 9204 §4.1.1 requires.
 
   `src/wire/prefixed_integer_vectors.txt` holds 191 encodings, RFC 7541 Appendix C.1's three
   among them, and 355 decodings: every cut encoding, and the inputs only colibri's limits refuse.
   A test in `prefixed_integer.zig` requires the Zig codec to give each. Mutations: 5 in
-  `prefixed_integer.zig`, each **CAUGHT** by that test. One, reading a tenth continuation octet,
-  was caught only after the vectors gained an input whose tenth octet ends the integer. 1 in the
+  `prefixed_integer.zig`, each **CAUGHT** by that test. One, reading a tenth continuation byte,
+  was caught only after the vectors gained an input whose tenth byte ends the integer. 1 in the
   Lean definitions stops the proofs, and 1 edit to the vector file is refused by `zig build lean`.
 
   **The Huffman code proved, 2026-09-26.** `spec/lean/Colibri/Wire/Huffman.lean` states RFC 7541
@@ -731,14 +731,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     codes as numbers in 9 seconds, where a check over the codes as bits took 100, and a lemma
     carries it to the bits;
   - `eos_ones`: EOS is thirty ones;
-  - `decode_encode`: every string of octets decodes back from its encoding, padding included;
-  - `decode_octets`: whatever a decoding accepts is octets below 256, so EOS never reaches the
+  - `decode_encode`: every string of bytes decodes back from its encoding, padding included;
+  - `decode_octets`: whatever a decoding accepts is bytes below 256, so EOS never reaches the
     output.
 
   `spec/lean/Colibri/Wire/HuffmanTable.lean` copies the 257 rows of `huffman_table.zig`.
   `src/wire/huffman_vectors.txt` names each row, and holds 271 encodings and 1,288 decodings, 796
-  of them refused. The encodings cover every octet, RFC 7541 Appendix C.4's and C.6's strings, and
-  all 256 octets in one string. A test in `huffman.zig` requires the Zig table and coder to give
+  of them refused. The encodings cover every byte, RFC 7541 Appendix C.4's and C.6's strings, and
+  all 256 bytes in one string. A test in `huffman.zig` requires the Zig table and coder to give
   each line. `huffman.zig` decodes through the table's canonical ranges, so these vectors are what
   tie it to the decoder the proofs are about.
 
@@ -755,23 +755,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The encoder writes a word at a time, 2026-10-11.** For
   [#57](https://github.com/c4milo/colibri/issues/57), `huffman.encode` gathers code in a 64-bit
   value and writes its oldest thirty-two bits at one call. Before it, the encoder measured the
-  string and then wrote one octet at a time, with up to four writes for a symbol. A string that
-  does not fit now leaves the output cursor where it was, as a failed decode does, and the octets
+  string and then wrote one byte at a time, with up to four writes for a symbol. A string that
+  does not fit now leaves the output cursor where it was, as a failed decode does, and the bytes
   past the cursor are scratch. No name changed.
 
   What each check printed:
   - The encoder it replaced stays in `huffman_test.zig` as the reference. Three tests require
-    `encode` to return what the reference returns and to leave the same octets written: for
-    strings of every length up to 40, in every room from none to one octet past the code; for
-    every pair of octets; and for the strings the judge's exchange carries. The first also
+    `encode` to return what the reference returns and to leave the same bytes written: for
+    strings of every length up to 40, in every room from none to one byte past the code; for
+    every pair of bytes; and for the strings the judge's exchange carries. The first also
     requires its strings to leave each count of waiting bits, 0 to 31.
   - The vectors `spec/lean/Colibri/Wire/Huffman.lean` gives, `zig build hpack-vectors`,
     `zig build qpack-vectors` and `zig build golden-check` passed with the new encoder. Zig 0.16
     cannot run the fuzzer ([#53](https://github.com/c4milo/colibri/issues/53)).
   - 13 mutations, each **CAUGHT**: a word taken one bit too high, or from the newest bits; a word
-    or a tail octet that does not fit, dropped; the count keeping a written word's bits; padding
-    of zeros, or an octet of padding after a code that ends on an octet; a tail of three octets at
-    most; a tail octet taken before the count moves; the cursor moved before the tail is written,
+    or a tail byte that does not fit, dropped; the count keeping a written word's bits; padding
+    of zeros, or a byte of padding after a code that ends on a byte; a tail of three bytes at
+    most; a tail byte taken before the count moves; the cursor moved before the tail is written,
     or never; a shift one bit short; and a full word that waits for one more symbol, which the
     encoder's own assertion stops.
 
@@ -792,25 +792,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   in `string_literal.encode`. HPACK measures once since the change recorded in step 3; QPACK's
   encoder still measures twice.
 
-  **`validate_value` reads one table, 2026-10-12.** The loop tested each octet of a field value
+  **`validate_value` reads one table, 2026-10-12.** The loop tested each byte of a field value
   with compares and returned from inside itself at NUL, CR or LF, which kept the compiler to one
-  octet a pass: 14 instructions an octet, over the 70 octets of field values the judge's request
-  and response carry. A table now gives each octet its class: NUL, CR or LF; another control
-  octet; or neither. The loop ORs the classes and no octet ends it, and the two reasons are
+  byte a pass: 14 instructions a byte, over the 70 bytes of field values the judge's request
+  and response carry. A table now gives each byte its class: NUL, CR or LF; another control
+  byte; or neither. The loop ORs the classes and no byte ends it, and the two reasons are
   tested after it, NUL, CR or LF first. Every value gets the verdict it got. A value that holds a
   NUL is now read to its end, which `field_value_len_max` bounds.
 
   What each check printed:
   - The old loop stays in `field.zig`'s tests as the reference. `validate_value` must give its
-    verdict for every value of up to two octets; with every octet value at every position of
-    every length up to 40, over three backgrounds; with every pair of nine kinds of octet at
-    every pair of positions up to 20; at the longest value and one octet past it; and with each
+    verdict for every value of up to two bytes; with every byte value at every position of
+    every length up to 40, over three backgrounds; with every pair of nine kinds of byte at
+    every pair of positions up to 20; at the longest value and one byte past it; and with each
     kind at each power of two inside the longest value.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
-  - 14 mutations, each **CAUGHT**. Of the table: NUL, CR or LF admitted; a control octet reported
-    as one of those three, or admitted; and HTAB reported as a control octet. Of the loop: the
-    last octet's class kept alone; the first octet left out, or the last, or those past the
+    `--h3-trace-write` wrote the same bytes before and after the change.
+  - 14 mutations, each **CAUGHT**. Of the table: NUL, CR or LF admitted; a control byte reported
+    as one of those three, or admitted; and HTAB reported as a control byte. Of the loop: the
+    last byte's class kept alone; the first byte left out, or the last, or those past the
     fortieth. Of the reasons: the two in the other order, either one left out, and both classes
     on one bit.
 
@@ -827,7 +827,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | h2-tls-one | 7,327,325 | 7,326,680 | 0.9999 | 0.9998 | within the noise |
 
   No input loses. On h2-many the server's user instructions per request fell by 668 in both
-  jobs, where the disassembly gave about 620: the new loop runs 9 instructions for each 2 octets.
+  jobs, where the disassembly gave about 620: the new loop runs 9 instructions for each 2 bytes.
 
   **A pseudo-header name is compared with each definition at once, 2026-10-13.** `slot_of`
   compared each pseudo-header name of a request with the five definitions through
@@ -839,12 +839,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed:
   - The loop with `std.mem.eql` stays in `message_lines.zig`'s tests as the reference. `slot_of`
     must name its slot, or null, in a request and in a response, for every pseudo-header name of
-    up to three octets and for each defined name with any one octet changed, one octet short, or
-    one octet longer.
+    up to three bytes and for each defined name with any one byte changed, one byte short, or
+    one byte longer.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - 5 mutations, each **CAUGHT**: a name of another length compared, a name taken when it
-    differs, the expected name read in the other order, the last octet not compared, and a name
+    differs, the expected name read in the other order, the last byte not compared, and a name
     defined in either kind. 1 mutation **NOT CAUGHT**: the colon left out of the compare, which
     `slot_of` asserts before it compares.
 
@@ -862,26 +862,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 354 in the first
   job and by 355 in the second, where the disassembly gave about 370.
 
-  **A one-octet or two-octet prefixed integer is written directly, 2026-10-13.** `encode` built
-  every integer in a zeroed array of ten octets and wrote it with one `write_bytes` of a length
+  **A one-byte or two-byte prefixed integer is written directly, 2026-10-13.** `encode` built
+  every integer in a zeroed array of ten bytes and wrote it with one `write_bytes` of a length
   known only at run time, which calls `memcpy`. A value under the prefix's maximum is now one
-  `write_byte`, and a remainder of seven bits or fewer one `write_bytes` of two octets. Longer
+  `write_byte`, and a remainder of seven bits or fewer one `write_bytes` of two bytes. Longer
   integers take the old array in `encode_continued`, which takes no prefix size and is compiled
-  once. Each call still writes all of its octets or none.
+  once. Each call still writes all of its bytes or none.
 
   What each check printed:
   - The old encoder stays in `prefixed_integer.zig`'s tests as the reference. `encode` must
-    return what it returns and leave the same octets written, at every prefix size, with the
+    return what it returns and leave the same bytes written, at every prefix size, with the
     caller's bits clear and set, for every value of up to 15 bits and the values at and beside
-    each length boundary above them, in every room from none to one octet past the longest
+    each length boundary above them, in every room from none to one byte past the longest
     encoding.
   - `zig build hpack-vectors`, `zig build qpack-vectors` and `zig build golden-check` passed, and
-    the four traces wrote the same octets before and after the change.
+    the four traces wrote the same bytes before and after the change.
   - 8 mutations, each **CAUGHT**: a value equal to the prefix's maximum written in the prefix;
-    the caller's bits dropped from the one-octet case; a remainder of 128 written in one octet;
-    the continuation flag on the last of two octets; the two octets in the other order; the
+    the caller's bits dropped from the one-byte case; a remainder of 128 written in one byte;
+    the continuation flag on the last of two bytes; the two bytes in the other order; the
     first of two written when the second does not fit; and the prefix's ones dropped in the
-    two-octet and the longer case.
+    two-byte and the longer case.
 
   The judge, [run 38342556593](https://github.com/c4milo/colibri/actions/runs/38342556593),
   measured it against the commit before it, in instructions per request, or per connection for
@@ -895,15 +895,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | h2-tls-one | 7,277,535 | 7,277,189 | 1.0000 | 1.0000 | within the noise |
 
   No input loses. On h2-many the server's user instructions per request fell by 122 in the first
-  job and by 121 in the second. The disassembly gave about 290, because it took the one-octet
+  job and by 121 in the second. The disassembly gave about 290, because it took the one-byte
   case to compile to about 15 instructions. In the server `encode` stays out of line with a stack
-  canary, because the two-octet case keeps its pair on the stack and writes it through
-  `write_bytes`, which calls `memcpy`; the one-octet case runs about 40.
+  canary, because the two-byte case keeps its pair on the stack and writes it through
+  `write_bytes`, which calls `memcpy`; the one-byte case runs about 40.
 
   **A field name is checked for case and token in one pass, 2026-10-13.** h2 and h3 read each
   regular field name twice: once for uppercase letters (RFC 9113 §8.2.1, RFC 9114 §4.2), then
-  through `field.validate_name` for octets outside a token (RFC 9110 §5.1). A table of the octets
-  that are tchars and not uppercase letters now checks both rules in one read an octet, in
+  through `field.validate_name` for bytes outside a token (RFC 9110 §5.1). A table of the bytes
+  that are tchars and not uppercase letters now checks both rules in one read a byte, in
   `message_lines.check_name` for what h2 and h3 receive and in h2's `validate_field_line` for
   what it sends. Each module builds the table from `http.field.is_tchar`, since sharing one would
   add a public name. `validate_name` serves h11.
@@ -911,12 +911,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed:
   - The two passes stay in the tests as the reference, h2's in `connection_request_test.zig`,
     split off `connection_request.zig` for length. Each check must give its verdict for every
-    name of up to two octets, with every octet value at every position of every length up to 40
-    and of the longest name, and at one octet past the longest.
-  - The four traces wrote the same octets before and after the change.
+    name of up to two bytes, with every byte value at every position of every length up to 40
+    and of the longest name, and at one byte past the longest.
+  - The four traces wrote the same bytes before and after the change.
   - 10 mutations, each **CAUGHT**. Of each table: an uppercase letter admitted, and on receive any
-    octet but an uppercase letter, and on send a colon. An empty name accepted, on each side; a
-    name past the limit accepted on send; the last octet left unread on receive; and the octets
+    byte but an uppercase letter, and on send a colon. An empty name accepted, on each side; a
+    name past the limit accepted on send; the last byte left unread on receive; and the bytes
     past the fortieth left unread, on each side.
 
   The judge, [run 38342559987](https://github.com/c4milo/colibri/actions/runs/38342559987),
@@ -934,19 +934,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   where the disassembly gave about 250.
 
   **A field line of another name length is skipped without reading it, 2026-10-13.**
-  `FieldSection.find` and `content_length.from_section` read every line's octets to compare its
+  `FieldSection.find` and `content_length.from_section` read every line's bytes to compare its
   name, through `get`, which builds both slices. RFC 9110 §5.1 makes names case-insensitive, and
-  `names_equal` folds ASCII case one octet to one octet, so a name of another length never
+  `names_equal` folds ASCII case one byte to one byte, so a name of another length never
   matches. Both now compare the line's recorded name length first and skip a line of another
   length. Neither returns anything it did not.
 
   What each check printed:
   - The two old loops stay in the tests as references. `find` must return the line the scan
-    returns, for nine names that share a length, differ in case, differ by one octet, or are
+    returns, for nine names that share a length, differ in case, differ by one byte, or are
     empty, in every section of up to three lines of them. `from_section` must give the
     reference's length or refusal for every section of up to three lines mixing four names with
     five values.
-  - The four traces wrote the same octets before and after the change.
+  - The four traces wrote the same bytes before and after the change.
   - 5 mutations, each **CAUGHT**: `find` skipping the lines of the same length, or stopping at
     the first of another; `from_section` skipping the lines of the same length, stopping at the
     first of another, or reading the line after the record. 2 mutations **NOT CAUGHT**, which skip
@@ -967,25 +967,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   where the disassembly gave about 200.
 
   **A fixed-size integer is stored without `memcpy`, 2026-10-13.** `Writer.write_int` built its
-  octets in an array and wrote them through `write_bytes`, which the compiler keeps out of line
+  bytes in an array and wrote them through `write_bytes`, which the compiler keeps out of line
   and which calls `memcpy` for a length it learns at run time. It now checks the room and stores
   the array, whose size the compiler knows. Huffman's 32-bit words already used it; an h2 frame
   header now writes its 24-bit length and its type as one `u32`, and `wire`'s prefixed integer
-  writes its two-octet case as one `u16`, for HPACK and QPACK. `@sizeOf(u24)` is four octets, so
+  writes its two-byte case as one `u16`, for HPACK and QPACK. `@sizeOf(u24)` is four bytes, so
   `write_int` still writes four for it, and its comment says so.
 
   What each check printed:
   - The old `write_int` and the old frame header stay in the tests as references, and the
-    prefixed integer's reference from step 1 covers its two-octet case. `write_int` must write
+    prefixed integer's reference from step 1 covers its two-byte case. `write_int` must write
     what the old one writes at every width, offset and room; the frame header must return what
-    the old one returns and leave the writer the same octets, for each length, type, flags and
-    stream in every room. A failed frame header no longer leaves its three length octets in the
+    the old one returns and leave the writer the same bytes, for each length, type, flags and
+    stream in every room. A failed frame header no longer leaves its three length bytes in the
     buffer past the writer's offset, which no caller reads.
   - `zig build hpack-vectors`, `zig build qpack-vectors` and `zig build golden-check` passed, and
-    the four traces wrote the same octets before and after the change.
+    the four traces wrote the same bytes before and after the change.
   - 7 mutations, each **CAUGHT**: an integer that fits exactly refused; no room checked; the
-    cursor not moved; the low octet written first; the frame type left out of the header, or the
-    length shifted an octet too far; and the prefixed pair written in the other order.
+    cursor not moved; the low byte written first; the frame type left out of the header, or the
+    length shifted a byte too far; and the prefixed pair written in the other order.
 
   The judge, [run 38427727383](https://github.com/c4milo/colibri/actions/runs/38427727383),
   measured it against the commit before it, in instructions per request, or per connection for
@@ -1001,24 +1001,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 282 in the first
   job and by 280 in the second, where the disassembly gave about 300.
 
-  **A field value is checked for control octets eight at a time, 2026-10-13.**
-  `field.validate_value` read each octet's class from the table step 1 gave it. A value of eight
-  octets or more is now read a 64-bit word at a time by `field_value.has_control`: a few
-  operations on each word mark every octet below SP or equal to DEL (RFC 5234 Appendix B.1's
-  CTL), with no carry from one octet into the next, and the last word overlaps the steps before
+  **A field value is checked for control bytes eight at a time, 2026-10-13.**
+  `field.validate_value` read each byte's class from the table step 1 gave it. A value of eight
+  bytes or more is now read a 64-bit word at a time by `field_value.has_control`: a few
+  operations on each word mark every byte below SP or equal to DEL (RFC 5234 Appendix B.1's
+  CTL), with no carry from one byte into the next, and the last word overlaps the steps before
   it. A value with none holds no class, and the table is skipped; a value with one, HTAB
-  included, is read an octet at a time as before, which names the reason. Every value gets the
+  included, is read a byte at a time as before, which names the reason. Every value gets the
   verdict it got.
 
   What each check printed:
-  - `field_value.zig`'s tests require the word operations to mark each control octet in every
-    lane, beside four kinds of neighbour, and `has_control` to find a control octet at every
+  - `field_value.zig`'s tests require the word operations to mark each control byte in every
+    lane, beside four kinds of neighbour, and `has_control` to find a control byte at every
     position of every length from 8 to 40. `field.zig`'s reference tests from step 1 now also put
-    a control octet at every offset of the longest value.
-  - The four traces wrote the same octets before and after the change.
+    a control byte at every offset of the longest value.
+  - The four traces wrote the same bytes before and after the change.
   - 9 mutations, each **CAUGHT**: the last word not read; one step fewer; DEL not wrapped; SP
-    counted as a control octet; obs-text counted as one; a clean value of seven octets skipping
-    the table; a value with a control octet skipping it; the steps past the thousandth not read;
+    counted as a control byte; obs-text counted as one; a clean value of seven bytes skipping
+    the table; a value with a control byte skipping it; the steps past the thousandth not read;
     and the sixth step's word not read.
 
   The judge, [run 38427737018](https://github.com/c4milo/colibri/actions/runs/38427737018),
@@ -1037,15 +1037,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The Huffman decoder reads twelve bits at a time, 2026-11-16.** For
   [#57](https://github.com/c4milo/colibri/issues/57), `huffman.decode` holds the next bits of its
-  input in a 64-bit buffer, and moves up to eight octets into it at a time. A comptime table of
+  input in a 64-bit buffer, and moves up to eight bytes into it at a time. A comptime table of
   4,096 entries, read by the buffer's top twelve bits, gives the codes those bits hold whole and the
   bits they take. The shortest code is five bits, so twelve bits hold two codes at most. One read
   of 11 instructions writes up to two symbols, where the machine of four bits a step took about 19
   instructions a symbol. The table is 16 KB, the size of the machine's.
   - A code longer than twelve bits is read one bit at a time through `huffman.Partial`. EOS is
     thirty bits, so this read finds it when its last bit is read (invariants 7 and 12).
-  - A read writes two octets, and the second is scratch when one code is whole. When the output
-    has room for `decoded_len_max` octets and one more, the reads write into that room after one
+  - A read writes two bytes, and the second is scratch when one code is whole. When the output
+    has room for `decoded_len_max` bytes and one more, the reads write into that room after one
     check for the string. Otherwise each symbol goes through `write_byte`, as before.
   - `core.Writer` gains `writable_slice_greedy` and `advance`, the names `std.Io.Writer` gives the
     two calls. `wire.huffman.decode` is the program that needs them. The owner chose them on
@@ -1055,31 +1055,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     table is 16 KB, and the probe's build took no longer.
 
   What each check printed:
-  - The tests compare `decode` with `decode_by_bits` on every input of one and two octets, and on
+  - The tests compare `decode` with `decode_by_bits` on every input of one and two bytes, and on
     4,096 longer inputs. The encoding of each longer input is decoded in every room from none to
-    one octet past what `decode` asks for. No octet past the writer's buffer changes. A test
+    one byte past what `decode` asks for. No byte past the writer's buffer changes. A test
     requires the table to hold both codes of every pair whose codes fit in twelve bits, and none
     for a longer first code.
   - A probe compared the decoder with main's on two million random inputs, raw and coded. Some
-    were cut short, and some had a padding bit changed. Each gave the same octets or the same error.
+    were cut short, and some had a padding bit changed. Each gave the same bytes or the same error.
   - The tests of `wire`, `core`, `hpack` and `qpack` pass in Debug on x86-64, under Zig's own
     backend, which GitHub's `checks` job uses.
   - Zig's fuzzer, `zig build test-wire -Dfuzz --fuzz=1000000`, exited 0 three times.
   - 21 mutations, each **CAUGHT**:
-    - the room: no octet for the scratch, a read that counts one symbol, the count not advanced,
-      and a write one octet off;
+    - the room: no byte for the scratch, a read that counts one symbol, the count not advanced,
+      and a write one byte off;
     - the checked path: a second symbol that it never writes;
     - the reads: a long code read as a short one, one bit short or without a refill, and a last
       code that fills the bits refused;
     - the refill: one after the input ends, one past the input, one a bit low, and the last word
-      or a short word an octet off;
+      or a short word a byte off;
     - the end: seven bits of padding refused, padding of zeros taken, and EOS taken;
-    - the table's second symbol dropped. It gives the same octets, and it was **NOT CAUGHT**
+    - the table's second symbol dropped. It gives the same bytes, and it was **NOT CAUGHT**
       until the table's test;
-    - `Writer`: an exact fit refused, a slice from the buffer's start, and an advance one octet
+    - `Writer`: an exact fit refused, a slice from the buffer's start, and an advance one byte
       past.
   - Callgrind on a laptop's Linux VM, never published (decision 32), counted the three strings of
-    an h2load request over h3. They are 35 coded octets and 48 symbols. The count fell from 1,151
+    an h2load request over h3. They are 35 coded bytes and 48 symbols. The count fell from 1,151
     instructions to 718. In the probe, windows of 10, 11, 12 and 13 bits took 818, 653, 627 and
     627. Of the 91 from 627 to 718, the two calls of `Writer` with their assertions cost about 30,
     and the bound on the loop's slow passes about 34.
@@ -1141,7 +1141,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Harness.** `src/sim/` holds `Random`, SplitMix64 written out so a Zig upgrade cannot change
     what a seed replays; `Clock`, which moves only when the pipe advances it; `Trace`, the §6.6
     format over a `core.Writer`; and `pipe.run`, which feeds a stream to any subject with `step`
-    and `describe` in chunks of 1 to `chunk_len_max` octets after delays of up to
+    and `describe` in chunks of 1 to `chunk_len_max` bytes after delays of up to
     `chunk_delay_ns_max`, writing a `feed` record per chunk and an `accept` or `reject` per value.
   - **Check.** `src/sim/chunk_check.zig`, in the `sim_run` module. Each seed draws 1 to 16 values
     across the varint, the prefixed integer at every prefix size, and the string literal at every
@@ -1158,7 +1158,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     implementation lands with the step that shapes its vtable: the provider with step 5
     ([issue 3](https://github.com/c4milo/colibri/issues/3)), the suite with step 7
     ([issue 4](https://github.com/c4milo/colibri/issues/4); design §10 fixes its sizes: a
-    16-octet tag and a 5-octet mask).
+    16-byte tag and a 5-byte mask).
 
   Twenty-nine mutations over the generator, the clock, the trace, the pipe, the stream, the check
   and the command line were applied, run against `zig build test-sim` or `test-sim-run`, and
@@ -1218,7 +1218,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed:
   - The scan stays in the encoder's tests as the reference. Two tests require the index to find
     what the scan finds: for every name of the table with every value of the table, and for each
-    name one octet shorter, one octet longer, and with each of its octets changed.
+    name one byte shorter, one byte longer, and with each of its bytes changed.
   - 7 mutations, each **CAUGHT**: the index never read; a run that starts one entry late; a run
     without its last entry; an exact match without its name index; an exact index that counts
     from 0; a name match that reports no name; and, by the build's own check, entries of one name
@@ -1244,17 +1244,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   a frame, a stack canary and a result returned through memory. `next` now reads an indexed line
   itself, with `indexed` inline, and calls `next_other`, the old loop, for every other
   representation and for a size update. In the server `bench/run.sh` builds, `next` is inlined
-  into h2's `feed_fragment`. Every block decodes to the lines, the refusals, the consumed octets
+  into h2's `feed_fragment`. Every block decodes to the lines, the refusals, the consumed bytes
   and the table it did.
 
   What each check printed:
   - `next_other` is the old `next` and the tests' reference. On two decoders that start alike,
-    `next` and `next_other` must return the same line or refusal, consume the same octets and
-    leave the same table, counts and lowered limit: for every block of up to two octets, with
+    `next` and `next_other` must return the same line or refusal, consume the same bytes and
+    leave the same table, counts and lowered limit: for every block of up to two bytes, with
     and without a lowered limit, and for each cut of blocks that mix every representation.
   - `zig build hpack-vectors` and `zig build golden-check` passed, and the four traces wrote the
-    same octets before and after the change.
-  - 6 mutations, each **CAUGHT**: the fast path reading a block with no octet left, taking a
+    same bytes before and after the change.
+  - 6 mutations, each **CAUGHT**: the fast path reading a block with no byte left, taking a
     literal with incremental indexing, or taking every representation but an indexed line; a
     block with no indexed line ahead ending; an indexed line after a lowered limit needing no size
     update; and an index of 0 accepted.
@@ -1283,12 +1283,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed:
   - The old path stays in `encoder_string.zig`'s tests as the reference. `write_shorter` must
-    return what it returns and leave the same octets written, in every room from none to past the
-    literal: for every string of up to two octets, strings that mix code lengths up to 40 octets,
-    the strings a response carries, and runs of three 5-bit codes up to 220 octets, whose codes
-    pass the 127 octets a one-octet length holds.
+    return what it returns and leave the same bytes written, in every room from none to past the
+    literal: for every string of up to two bytes, strings that mix code lengths up to 40 bytes,
+    the strings a response carries, and runs of three 5-bit codes up to 220 bytes, whose codes
+    pass the 127 bytes a one-byte length holds.
   - `zig build hpack-vectors` and `zig build golden-check` passed, and the four traces wrote the
-    same octets before and after the change.
+    same bytes before and after the change.
   - 8 mutations, each **CAUGHT**: a code as long as the string written; the H flag one bit low;
     the flag left out; the string's length written for the code's; the cursor not given back; the
     literal written in place, so that a short room keeps its length; and the length given a
@@ -1321,7 +1321,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     wrong index.
   - A table may hold many lines of one name: a server's `date` line inserts a new value each
     second. A line then reads its own chain, newest first, and no other name's entries.
-  - Each encoder grows by 1,152 octets, and so does each h2 connection.
+  - Each encoder grows by 1,152 bytes, and so does each h2 connection.
 
   What each check printed:
   - The scan of `DynamicTable.find` stays as the reference. A test requires the chains to find
@@ -1418,7 +1418,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   client now reads any number of interim responses before the final one (§8.1), which the
   `sections_received` marker on the stream record decides; until now the second field section on a
   stream was always a trailer section, so a response after a 1xx was refused as malformed. And an
-  interim response no longer sets the content-length §8.1.1 compares the DATA octets against.
+  interim response no longer sets the content-length §8.1.1 compares the DATA bytes against.
 
   `zig build test` passes 598 tests on Zig 0.16.0, macOS 26.6, arm64, the lint scores 1,354
   functions with a highest score of 13 against the limit of 15, and the simulator check prints the
@@ -1472,7 +1472,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     of 146 in cleartext and over TLS, and the server interop against Go passes.
 
   **The input check, 2026-09-26.** `src/sim/h2_input_check.zig` gives the frame reader inputs
-  longer than two octets, as the QPACK and QUIC input checks do
+  longer than two bytes, as the QPACK and QUIC input checks do
   ([#53](https://github.com/c4milo/colibri/issues/53)).
   - Each input is a stream of frames of all ten types and one of an unknown type, written by
     `h2.frame`'s writers, with values drawn at their bounds or a few inside them half the time.
@@ -1499,7 +1499,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `IgnoreAboveGoaway` and `NoStreamAfterGoaway`. A configuration that turns one off must find a
     violation.
   - `src/sim/h2_trace_check.zig`: a colibri client and server act out a seed's plan over one queue
-    of octets in each direction. The plan draws write calls colibri must refuse as well as ones it
+    of bytes in each direction. The plan draws write calls colibri must refuse as well as ones it
     takes: DATA before a response's head, a head after the final one, a frame after END_STREAM or a
     reset, and a stream after a GOAWAY. After each action, `h2_trace_state.zig` computes the
     model's variables from both endpoints, and the run keeps each state that differs from the one
@@ -1584,9 +1584,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     stall.
   - Random seeds send bodies of up to 128 KiB on up to 48 streams, and seldom fill a reply queue.
     While an endpoint cannot write, its peer can send it at most the connection window, 65,535
-    octets, which gathers two thresholds' worth of stream credit. Only streams whose credit already
+    bytes, which gathers two thresholds' worth of stream credit. Only streams whose credit already
     sits just below the threshold owe more. Aligned seeds make that happen: 40 to 48 streams each
-    send one octet short of the threshold first, so the next octet on each owes a WINDOW_UPDATE.
+    send one byte short of the threshold first, so the next byte on each owes a WINDOW_UPDATE.
   - What `zig build sim -Drelease -- --h2-stall-check 8192` printed, on macOS arm64 in 538
     seconds: 30.9 GB of bodies and 4 stalls. All four are aligned seeds over a transport of 1 KiB
     (two) or 4 KiB (two), with both endpoints writing their own frames first and both reply
@@ -1648,7 +1648,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   request read with the client's preface before writing its own SETTINGS, which RFC 9113 §3.4
   requires to be the first frame a server sends. The model had no prefaces, so it could not see
   that.
-  - `spec/tla/h2_connection` now starts each endpoint with its preface: the client's 24 octets and
+  - `spec/tla/h2_connection` now starts each endpoint with its preface: the client's 24 bytes and
     its SETTINGS, carried as one frame, and the server's SETTINGS. Each endpoint reads its peer's
     first, and any other frame first is a connection error (§3.4). `PrefaceFirst` is colibri's
     rule: an endpoint writes its preface before any other frame, and before it reads one.
@@ -1667,7 +1667,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 6 mutations, each **CAUGHT**. In the model: the server, or the client, sending before its
     preface; no `NothingBeforePreface`; and no error for a frame read before the peer's preface.
     In the trace run, no preface shown in flight. In h2, the SETTINGS written before the client's
-    24 octets. The fourth was **NOT CAUGHT** while the model dropped a frame read before the
+    24 bytes. The fourth was **NOT CAUGHT** while the model dropped a frame read before the
     preface. It now reads it as colibri would without the check.
   - A trace through `server.Connection` and `client.Connection`, where e3126a9's defect was, is
     the rest of #79.
@@ -1677,7 +1677,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   it could not see e3126a9's defect, which was in `server.Connection`.
   - `src/sim/tcp_trace_check.zig` has a `client.Connection` and a `server.Connection` act out a
     seed's plan over h2 in cleartext. Each side writes into its own output until its caller calls
-    `send`, and a delivery gives the reader every octet in flight at once, as one read from a
+    `send`, and a delivery gives the reader every byte in flight at once, as one read from a
     socket does.
   - The client's first flight carries its preface, its SETTINGS and one to three requests, and
     the server reads it in one delivery. The server's caller answers some requests the moment the
@@ -1715,10 +1715,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its fixed instant and h2 chosen by ALPN. The handshake runs before the first flight: the
     ClientHello one way, the server's flight the other. The first flight then goes out with the
     client's Finished, and the server reads both in one delivery.
-  - A side's records carry the protocol's octets sealed, so the run calls `send` twice. The first
+  - A side's records carry the protocol's bytes sealed, so the run calls `send` twice. The first
     call has no room, so it writes what the connection owes and seals nothing. The run copies the
     plaintext the connection then holds, and the second call seals it.
-    `src/sim/tcp_trace_direction.zig` notes where each send ended, in octets handed out and in
+    `src/sim/tcp_trace_direction.zig` notes where each send ended, in bytes handed out and in
     plaintext. A reader that consumed the records of whole sends has read their plaintext, less
     what it holds unread. A reader stopped inside one send's records fails the run, since the
     run cannot place it.
@@ -1756,7 +1756,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     fills, refuses a stream, closes and drops records, and in a client's table with a promised
     stream.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write` and `--deadline-trace-write` wrote
-    the same octets before and after the change: 128, 128 and 64 files.
+    the same bytes before and after the change: 128, 128 and 64 files.
   - 4 mutations, each **CAUGHT**: the identifier at its watermark read as idle; an idle
     identifier that names the wrong initiator; an identifier with no record read as idle
     whatever its watermark; and a record at or below the watermark not looked for. A fifth, the
@@ -1791,7 +1791,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     with the slot read first on each entry in turn, as entries open and close; and they pin
     which slot is read first after a `get`, an `open`, a `get` that finds nothing and an `init`.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change: 128, 128, 64 and 128
+    `--h3-trace-write` wrote the same bytes before and after the change: 128, 128, 64 and 128
     files.
   - 5 mutations, each **CAUGHT**: the slot read first answering for any identifier; a dead slot
     read first still answering; `get`, and `open`, not moving the slot read first; and `init`
@@ -1828,7 +1828,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     has no h3 input to measure a change there.
   - `assert_counts` now also requires as many closed records in the ring as the pool holds
     records that are neither open nor half-closed.
-  - `h2.Connection` holds 136 octets more, the ring's 128 and its two counts, and
+  - `h2.Connection` holds 136 bytes more, the ring's 128 and its two counts, and
     `docs/performance.md` has the six rows that follow from it.
 
   What each check printed:
@@ -1838,7 +1838,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     down, two that owe a RST_STREAM and are passed over, and more closes than the ring has
     places.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - 12 mutations, each **CAUGHT**. Of the ring: a close not added; places that do not go around
     its end; an open that drops the newest; a record that owes a RST_STREAM dropped; the oldest
     forgotten in place of a later one; a dropped record left in the ring; a dropped reset not
@@ -1877,7 +1877,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and slots below and above `free_from`, by identifier and by slot. Two tests pin `free_from`
     itself, because one left too low changes no slot.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - 11 mutations, each **CAUGHT**. Of `open`: `free_from` left on the slot it took, moved two
     past it, not moved, moved by one whichever slot it took, or moved only when it took the slot
     there. Of `close` and of `close_at`: `free_from` not lowered, or moved to the freed slot when
@@ -1904,16 +1904,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   between that slot and the one freed. The judge's exchange closes streams in slot order and
   does not measure that.
 
-  **`init` leaves the send block's octets, 2026-10-12.** `Connection.init` zeroed `send_block`,
-  32,768 octets, for each connection. The block is scratch: `encode_response`, `encode_trailers`
-  and `encode_request` each start a writer at its first octet and read only what that writer
+  **`init` leaves the send block's bytes, 2026-10-12.** `Connection.init` zeroed `send_block`,
+  32,768 bytes, for each connection. The block is scratch: `encode_response`, `encode_trailers`
+  and `encode_request` each start a writer at its first byte and read only what that writer
   wrote. `init` no longer writes it.
 
   What each check printed:
   - The disassembly of the server `bench/run.sh` builds no longer calls `memset` over the block
     where an h2 connection starts.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - The change removes a store and alters no check, so no mutation applies to it.
 
   The judge, [run 38201630221](https://github.com/c4milo/colibri/actions/runs/38201630221),
@@ -1994,11 +1994,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   | Peer | Version | What the plan covers |
   |---|---|---|
-  | Go `net/http` | go1.27.1 | a 1 MiB response, a 300,000-octet echo read while it is sent, a 103 before a 200, a trailer section, a 404 |
-  | nghttpd | nghttp2 1.52.0, Debian bookworm | a 1 MiB response, a POST of 300,000 octets, a 404 |
-  | h2o | 2.2.5, Debian bookworm | a 1 MiB response, a POST of 300,000 octets answered 405, a 404 |
+  | Go `net/http` | go1.27.1 | a 1 MiB response, a 300,000-byte echo read while it is sent, a 103 before a 200, a trailer section, a 404 |
+  | nghttpd | nghttp2 1.52.0, Debian bookworm | a 1 MiB response, a POST of 300,000 bytes, a 404 |
+  | h2o | 2.2.5, Debian bookworm | a 1 MiB response, a POST of 300,000 bytes answered 405, a 404 |
 
-  Both sizes are several times the 65,535-octet window a stream starts with (RFC 9113 §6.9.2), so
+  Both sizes are several times the 65,535-byte window a stream starts with (RFC 9113 §6.9.2), so
   each finishes only if WINDOW_UPDATE frames flow the right way, and each is checked by CRC-32
   against a pattern whose period no frame size divides. The 103 is the case the client send path
   of step 4 fixed, now met on the wire.
@@ -2180,12 +2180,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The server direction, 2026-09-24.** `tools/h2_server_interop.sh [--tls <checkout>]` runs
   curl, nghttp and Go's client against `h2-server`, in cleartext and then over TLS 1.3. Each sends
-  64 GETs and a 300,000-octet POST. The run requires 200 and the server's body for each.
+  64 GETs and a 300,000-byte POST. The run requires 200 and the server's body for each.
   - curl 7.88.1 cannot reuse a prior-knowledge connection. Its second request on one fails with
     "Error in the HTTP2 framing layer", against Go's server as against colibri's. So in cleartext
     each curl GET gets its own connection, 64 at once. Over TLS they share one.
-  - 9 mutations, all CAUGHT: every client catches a status of 201 and a body one octet shorter,
-    and a body with one octet changed. nghttp at first checked only the size, so the script now
+  - 9 mutations, all CAUGHT: every client catches a status of 201 and a body one byte shorter,
+    and a body with one byte changed. nghttp at first checked only the size, so the script now
     counts its bodies too.
 
   What `tools/h2_server_interop.sh --tls <checkout>` printed on macOS arm64, with chapulin
@@ -2248,12 +2248,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Check passed, 2026-09-18.** `src/sim/cost_check.zig` holds the cost of one request in three
   shapes, and `zig build test` fails when any number moves. What it counts is what a caller sees
-  from outside — calls to `receive` and `write_pending`, the octets each carried, and the crossings
+  from outside — calls to `receive` and `write_pending`, the bytes each carried, and the crossings
   of the provider vtable — because the library counts nothing itself: §11's rules forbid a
   statistic that costs a branch on the per-frame path. Allocations are not counted;
   [decision 35](decisions.md#memory) makes them zero.
 
-  | Scenario | receive | write_pending | octets in | octets out | provider calls |
+  | Scenario | receive | write_pending | bytes in | bytes out | provider calls |
   |---|---|---|---|---|---|
   | server, cleartext | 4 | 3 | 58 | 58 | 0 |
   | client, cleartext | 3 | 3 | 19 | 100 | 0 |
@@ -2261,7 +2261,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Two of these are worth reading rather than filing. A request and its response cross colibri's
   boundary seven times at a server, which is the bulk-crossing rule of §11 holding: one call reads
-  a frame, one call writes every frame owed. And TLS adds two crossings and no octets, because the
+  a frame, one call writes every frame owed. And TLS adds two crossings and no bytes, because the
   provider frames what colibri already produced whole.
 
   `tools/lint/magic_numbers.zig` excludes this file, as it excludes the corpus tables of
@@ -2277,13 +2277,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   number encoding and decoding, the Initial key schedule, packet protection, header protection,
   Retry integrity. **Check:** RFC 9001 Appendix A's sample packet protection, byte for byte, in the
   golden corpus; RFC 9000 Appendix A.2 and A.3's packet number encoding and decoding; corpus cases
-  with connection IDs longer than 20 octets under an unknown version, which must **parse** rather
-  than fail; a mutation that applies the 20-octet cap in the invariant reader, reported `CAUGHT`;
+  with connection IDs longer than 20 bytes under an unknown version, which must **parse** rather
+  than fail; a mutation that applies the 20-byte cap in the invariant reader, reported `CAUGHT`;
   fuzzing of the packet reader. *Medium to large.*
 
   **The formats, 2026-09-19.** The half of this step that touches no key is built, in
   `src/quic/packet/`. `invariant.zig` reads RFC 8999 alone: the Header Form bit, the long header's
-  Version and connection IDs of 0 to 255 octets, the short header, and the Version Negotiation
+  Version and connection IDs of 0 to 255 bytes, the short header, and the Version Negotiation
   packet of §6 in both directions. It imports `std` and `core` and nothing else, and a comptime
   block in `packet_header.zig` fails the build if it imports a third module or names version 1's
   connection ID maximum ([invariant 22](invariants.md#inv-22--a-version-independent-parse-reads-only-rfc-8999-fields)).
@@ -2297,7 +2297,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What was checked, on macOS 25.6 arm64, with `zig build test` at 685 of 685:
 
-  - The writers produce RFC 9001 Appendix A's published headers octet for octet: the client
+  - The writers produce RFC 9001 Appendix A's published headers byte for byte: the client
     Initial of A.2, the server Initial of A.3, the Retry packet of A.4 less its tag, and the short
     header of A.5. The reader takes A.4's Retry packet apart into its fields.
   - Packet numbers: A.2's two sample encodings and A.3's sample decoding, the boundary of every
@@ -2306,13 +2306,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     largest packet number §12.3 permits. `decode` returns the number one window below, which is
     the closest one that exists.
   - The golden corpus gains two formats, `quic_invariant` with 8 cases and `quic_packet` with 18,
-    and seven mutations. Connection IDs of 21 octets parse under an unknown version in both
-    readers, and the same octets are dropped once one edited octet makes the version 1.
+    and seven mutations. Connection IDs of 21 bytes parse under an unknown version in both
+    readers, and the same bytes are dropped once one edited byte makes the version 1.
   - Both readers have a fuzz property, run over a corpus and over every input of up to two
-    octets: a header that is read accounts for every octet of its datagram.
+    bytes: a header that is read accounts for every byte of its datagram.
 
   Mutations: 34 applied over the four files, each against `zig build test-quic` and
-  `zig build test-golden`. 32 were **CAUGHT**, the one this step names among them: the 20-octet
+  `zig build test-golden`. 32 were **CAUGHT**, the one this step names among them: the 20-byte
   maximum applied inside `invariant.zig` fails both. One was **NOT CAUGHT**, a decode that leaves
   the last window upward, and got its test. The last removed the comptime guard of invariant
   22, which no test can see; it was replaced by three mutations that break what it guards — a
@@ -2328,15 +2328,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   holds the member names to the decision's list
   ([invariant 23](invariants.md#inv-23--colibri-holds-no-secret)). The `Suite` wrapper asserts
   colibri's half of the contract: a packet number inside its range, a Packet Number field of 1 to
-  4 octets, and the four octets RFC 9001 §5.4.2 needs before the sample. Recovering a packet
+  4 bytes, and the four bytes RFC 9001 §5.4.2 needs before the sample. Recovering a packet
   number (RFC 9000 Appendix A.3) moved to `src/crypto/packet_number.zig`, because §9.5 makes it
   the suite's step; `quic` keeps Appendix A.2, and its tests encode with one module and decode
   with the other.
 
   `src/sim/null_suite.zig` fills the vtable with no cryptography
   ([issue 4](https://github.com/c4milo/colibri/issues/4)). It is size-faithful, as §10 requires:
-  header, payload and a 16-octet tag, with byte 0 and the Packet Number field masked from a
-  16-octet sample four octets past the field. It models keys as names, because colibri's
+  header, payload and a 16-byte tag, with byte 0 and the Packet Number field masked from a
+  16-byte sample four bytes past the field. It models keys as names, because colibri's
   connection logic will be checked against it. A level has keys, never had them, or had them
   discarded. The Initial keys follow the role and the connection ID. A key update moves both
   directions, keeps the previous read keys until colibri drops them, and changes the tag's name
@@ -2349,7 +2349,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and seals into one datagram. The other reads the datagram packet by packet, opens each, and
   must get back the number, the header and the payload with nothing left over. Then one bit of
   the datagram is changed and at least one packet must fail to open, judged by the suite alone.
-  256 seeds, 512 packets, 128,870 octets, every field length drawn, digest `0xf0818926` in Debug
+  256 seeds, 512 packets, 128,870 bytes, every field length drawn, digest `0xf0818926` in Debug
   and in `-Drelease`, on macOS 25.6 arm64. The check's module imports `sim` and `quic` and no
   HTTP module, so it is also the first build that holds
   [decision 5](decisions.md#scope-and-shape)'s boundary; step 8 inherits that root. It has no
@@ -2364,20 +2364,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Under decision 48 those vectors check a provider through the vtable, so they need chapulin's
   `ch_quic_*` calls, which chapulin implemented on 2026-09-20, and they will run from
   `src/testing/` and not from
-  the corpus, whose cases are 64 octets at most. The headers of those samples are already
-  checked, octet for octet, above.
+  the corpus, whose cases are 64 bytes at most. The headers of those samples are already
+  checked, byte for byte, above.
 
   **Check passed, 2026-09-25**, on macOS arm64 with Zig 0.16.0 and chapulin's QUIC object at
   `b32ad68`. `src/testing/quic/protection_vectors.zig` runs RFC 9001 Appendix A through
   `crypto.Suite` as chapulin fills it, with the hex copied from `docs/rfcs/rfc9001.txt` line for
   line. One client session, holding the A.1 connection ID's Initial keys:
-  - A.2: seals the client's Initial, which comes out as the published 1200 octets;
+  - A.2: seals the client's Initial, which comes out as the published 1200 bytes;
   - A.3: opens the server's published Initial, which gives back its header, packet number 1 and
-    its 99-octet payload, with the keys of the other direction;
+    its 99-byte payload, with the keys of the other direction;
   - A.4: checks the Retry Integrity Tag over the pseudo-packet colibri's
     `write_retry_pseudo_packet` builds, and chapulin writes the published tag over it.
 
-  A.1's keys are what makes A.2 and A.3 match octet for octet. A.5 is chapulin's to check, and
+  A.1's keys are what makes A.2 and A.3 match byte for byte. A.5 is chapulin's to check, and
   its `test/quic_packet_tests.h` does: it starts from a 1-RTT secret, and under decision 48 no
   secret crosses the vtable, so colibri has none to give.
 
@@ -2392,14 +2392,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   computes it, and proves:
   - `encode_range` and `encode_shortest`: the length `encode` picks represents more than twice
     the unacknowledged range, as §17.1 requires, and no shorter length does;
-  - `encode_none`: `encode` refuses exactly when four octets do not;
+  - `encode_none`: `encode` refuses exactly when four bytes do not;
   - `decode_closest`: `decode` rebuilds every packet number within half a window of the one
     expected;
   - `decode_encode`: a receiver that has processed at least the number the sender saw
     acknowledged, and none at or past the one sent, rebuilds the number `encode` truncated;
   - `decode_bound` and `decode_field`: any field decodes to a packet number (§12.3) that ends in
-    the field's octets;
-  - `field_read_write`: the field's octets, most significant first, read back to its value.
+    the field's bytes;
+  - `field_read_write`: the field's bytes, most significant first, read back to its value.
 
   `src/quic/packet/packet_number_vectors.txt` holds 112 encodings, Appendix A.2's two among them,
   and `src/crypto/packet_number_vectors.txt` holds 381 decodings, Appendix A.3's among them. A
@@ -2478,7 +2478,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Three were a check whose assertions never fire on a healthy run, so deleting one changed no
   output. `Fault` is the answer, in the shape the null suite's refusal flags already use: a test
-  turns one on and requires the violation it should produce — a corrupted octet, a packet number
+  turns one on and requires the violation it should produce — a corrupted byte, a packet number
   misreported as an earlier one of the sender's own, a scrambled payload, a run left undrained,
   and a network with nothing to report. Two of those faults were themselves wrong at first, and
   the mutations said so: one returned its violation directly instead of leaving datagrams in
@@ -2486,9 +2486,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and hid the comparison the fault existed to prove.
 
   The equivalent one is sizing the Packet Number field as if nothing were acknowledged. Every
-  number in this run is small enough that both sizings give one octet, so the mutant's output is
-  identical — which is also why no field here exceeds one octet. Fields of two, three and four
-  octets are drawn by step 7's packet check, which sets the distance directly.
+  number in this run is small enough that both sizings give one byte, so the mutant's output is
+  identical — which is also why no field here exceeds one byte. Fields of two, three and four
+  bytes are drawn by step 7's packet check, which sets the distance directly.
 
 - **Step 9 — QUIC transport, cut into five.** The owner ruled on 2026-09-19 that this step is
   five (§12 question 5), after the first part of it showed where the dependencies already cut.
@@ -2506,7 +2506,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The frame layer, 2026-09-19.** `src/quic/frame/` reads and writes all twenty frame types of
   RFC 9000 §19. It is the piece of this step that needs no key, no handshake and no connection
-  state: a frame is read out of octets and written into them, and what it means is the
+  state: a frame is read out of bytes and written into them, and what it means is the
   connection's business.
 
   Three types carry their shape in the type itself, and each is decoded into a field so nothing
@@ -2517,19 +2517,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   ACK ranges are walked, not expanded. A frame names the largest packet number acknowledged and
   then descends through alternating gaps and runs, so expanding it into a set would cost storage
-  proportional to what a peer claims. `AckRanges` keeps the octets and yields one range at a
+  proportional to what a peer claims. `AckRanges` keeps the bytes and yields one range at a
   time, and the arithmetic is checked once when the frame is read: §19.3.1 makes a computed
   packet number below zero a connection error, so a later walk cannot fail.
 
   Every rule §19 states as a FRAME_ENCODING_ERROR is enforced and cited on the line that
   enforces it: a range below zero (§19.3.1), a stream or crypto offset past 2^62-1 (§19.8,
   §19.6), an empty NEW_TOKEN (§19.7), a stream limit above 2^60 (§19.11, §19.14), a connection
-  ID outside 1 to 20 octets and a Retire Prior To above its own Sequence Number (§19.15), and a
+  ID outside 1 to 20 bytes and a Retire Prior To above its own Sequence Number (§19.15), and a
   frame of unknown type (§12.4), which is refused rather than ignored because §12.4 admits no
   extension frame this version does not define.
 
   `zig build test` passes 734 of 734 and the lint is clean. Two of its rules caught real defects
-  while this landed. `peer-index` found the reader's octets being indexed directly, which
+  while this landed. `peer-index` found the reader's bytes being indexed directly, which
   invariant 3 forbids; `core.Reader` now has `consumed_since(mark)`, so a parser that learns a
   structure's length only by reading it still takes its slice from the reader. `rfc-citation`
   found two refusals whose citation sat a line away from the check.
@@ -2538,7 +2538,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the tests: three frame types were missing from the round-trip table, so nothing cut a
   CONNECTION_CLOSE short, and nothing checked that a frame too large for the buffer writes
   nothing at all. The equivalent one replaces the bound on the ACK range walk with a huge
-  number. Each turn of that loop reads two variable-length integers and each needs an octet, so
+  number. Each turn of that loop reads two variable-length integers and each needs a byte, so
   the reader ends the loop whatever the bound says; the bound is there because non-negotiable 4
   asks for one a reader can see.
 
@@ -2550,15 +2550,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A frame is written with the type it was read from, and reads back as the same frame.
 
   It runs over 23 corpus inputs, most of them one on each side of a §19 refusal, and over every
-  input of up to two octets; the fuzzer does not build with Zig 0.16.0 (step 1). 18 mutations,
+  input of up to two bytes; the fuzzer does not build with Zig 0.16.0 (step 1). 18 mutations,
   18 **CAUGHT** by the fuzz test alone: ten §19 refusals removed or loosened, a refusal that
-  consumes octets, three writer faults, and four type bits misread, which the round trip saw only
+  consumes bytes, three writer faults, and four type bits misread, which the round trip saw only
   once it compared the types.
 
   **The input check, 2026-09-26.** `src/sim/quic_input_check.zig` gives the QUIC readers inputs
-  longer than two octets, as `qpack_input_check.zig` does for QPACK ([#53](https://github.com/c4milo/colibri/issues/53)). Each input starts
+  longer than two bytes, as `qpack_input_check.zig` does for QPACK ([#53](https://github.com/c4milo/colibri/issues/53)). Each input starts
   from what colibri's writer produces and takes up to eight edits from `src/sim/input_edit.zig`,
-  which gained a fifth edit: an octet moved up or down by one, which takes a value at a bound
+  which gained a fifth edit: a byte moved up or down by one, which takes a value at a bound
   past it. Values are drawn at their bounds, or a few inside, one time in two. The inputs go to:
   - the frame reader, under the rules of `frame_fuzz.zig`;
   - the packet header reader, datagram by datagram, where every packet must lie inside what is
@@ -2570,7 +2570,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   seeds of 128 inputs each and pins the census, which Debug and ReleaseSafe agree on:
   `crc32=0x1cfa0ad6`, 54,437 frames read, with every target reaching both outcomes. No input
   halted. 34 mutations, 31 **CAUGHT** by the check alone. The fuzz tests catch the three it
-  misses, and a one-octet edit cannot reach two of them: `max_ack_delay`'s bound needs a longer
+  misses, and a one-byte edit cannot reach two of them: `max_ack_delay`'s bound needs a longer
   encoding than the writer uses, and `active_connection_id_limit`'s is its default, which the
   writer leaves out. The third, a CRYPTO offset one past 2^62-1, did not come up in 32,768
   inputs.
@@ -2747,7 +2747,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   no clock and RFC 9002 computes the round trip in step 10; a caller with no estimate passes 0,
   which grows nothing, so this works today and sharpens when step 10 lands. The cap is what
   keeps [decision 35](decisions.md#memory)'s comptime worst case true. A stream count never
-  tunes: §4.6's limit counts streams rather than octets, and the table bounds it instead.
+  tunes: §4.6's limit counts streams rather than bytes, and the table bounds it instead.
 
   `src/quic/stream/stream_table.zig` holds the streams of a connection against their
   identifiers, over the pool of [decision 14](decisions.md). Its per-class watermark is what
@@ -2775,14 +2775,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     ([#43](https://github.com/c4milo/colibri/issues/43)). The network loses, reorders and
     duplicates frames and acknowledgments, and the idle timeout of §10.1 closes a connection with
     nothing in flight, nothing owed and no shorter timer armed. The properties: no limit is
-    passed, a final size never changes, "Data Recvd" comes only with every octet, a stream done
+    passed, a final size never changes, "Data Recvd" comes only with every byte, a stream done
     at the receiver has given all its connection credit back, no frame goes out that §3.3
     forbids, and a blocked sender is released and the stream finishes.
   - It found a defect. A RESET_STREAM's final size counted against the connection's limit, but
-    the octets the application never read were never consumed, so MAX_DATA was measured short of
+    the bytes the application never read were never consumed, so MAX_DATA was measured short of
     them from then on; once reset streams held more than half the window, the other streams stalled
     for good. §4.5 calls the final size "the amount of flow control credit that is consumed by a
-    stream", and `a19f0f8` has `take_reset` consume the unread octets for the connection.
+    stream", and `a19f0f8` has `take_reset` consume the unread bytes for the connection.
   - What `zig build tla` printed, on macOS arm64:
     - holds, as expected: `colibri`, 935365 distinct states; `windows`, 35923;
     - violated, as expected: `no_repeat`, a blocked sender whose peer reads late loses the
@@ -2819,8 +2819,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `src/quic/stateless_reset.zig` splits §10.3 where the entropy falls. Detecting a reset is
   colibri's, because §10.3.1 fixes when the comparison happens and against what — the tokens of
   connection IDs this endpoint has used and not retired, never the others — and the comparison
-  reads every octet of every token, which §10.3.1 requires so the value cannot leak through
-  timing. Sending one is the caller's: §10.3 wants the octets before the token
+  reads every byte of every token, which §10.3.1 requires so the value cannot leak through
+  timing. Sending one is the caller's: §10.3 wants the bytes before the token
   indistinguishable from random and colibri draws no random number (invariant 5). What colibri
   gives is the arithmetic, `permitted_len`, which holds both size rules at once — smaller than
   the packet that triggered it (§10.3.3), so a loop dies out, and under three times it (§10.3),
@@ -2905,7 +2905,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `ack_delay_exponent` is 3, `max_ack_delay` is 25 milliseconds and `active_connection_id_limit`
   is 2. `Parameters.initial()` is what an empty extension means, the reader starts from it, and
   the writer leaves out any value that equals its default — so two endpoints agreeing on
-  everything exchange no octets at all, which one test pins.
+  everything exchange no bytes at all, which one test pins.
 
   Two things are read past rather than kept. `preferred_address` is skipped by the length every
   parameter carries, because [decision 21](decisions.md) refuses migration in both directions and
@@ -2960,7 +2960,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Each failure carries the code RFC 9000 §20.1 gives it, and an alert is not among them: RFC 9001
   §4.8 makes its code the description plus 0x0100, which `alert_error_code` computes.
 
-  Mutations: six applied, all **CAUGHT** — octets handed to the provider twice, every frame
+  Mutations: six applied, all **CAUGHT** — bytes handed to the provider twice, every frame
   claiming offset 0, the peer's parameters read under colibri's own role, and three failures
   closing with the wrong code. Writing them found a weak test: the parameters it exchanged held
   nothing server-only, so reading them under the wrong role would have passed. It now carries a
@@ -3023,7 +3023,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Two checks colibri makes that the RFC leaves optional, both for the reason design §8 step 9c
   already gave — colibri answers an optional check it has the state for. §19.16's "MUST NOT refer
   to the Destination Connection ID field of the packet in which the frame is contained" is a MAY
-  for the receiver, and `connection_id.Local` now keeps octets so it can answer; §5.1.1 makes the
+  for the receiver, and `connection_id.Local` now keeps bytes so it can answer; §5.1.1 makes the
   identity's own Source Connection ID sequence number 0, which is what gives a packet a connection
   ID to name from the first flight. And §4.5's final size rules are answered while a stream
   exists, though not after it closes, because §4.5 says generating them "is not mandatory" exactly
@@ -3032,7 +3032,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   One check was left unmade there and is now made: §8.2.3's path MTU. `take_path_response` passed
   a hard-coded false, so the second validation was owed after every probe. `Path.Challenge`
   remembers instead, and `on_challenge_sent` takes the datagram's length rather than a flag, so
-  §8.2.1's 1,200 octets are compared in one place. Recorded below, `4aafd03`.
+  §8.2.1's 1,200 bytes are compared in one place. Recorded below, `4aafd03`.
 
   **Version negotiation is done, 2026-09-20.** RFC 8999 §6 defines the packet for every version
   of QUIC and `packet/invariant.zig` already read and wrote it. What `connection_version.zig`
@@ -3044,7 +3044,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Version Negotiation packet in response to a single UDP datagram" is then kept by the shape of
   the call — one datagram in, at most one packet out — rather than by counting what was sent.
   §17.2.1 also forbids a version-specific rule from reaching the decision, which is why the
-  datagram is read through `invariant.read_long`: that reader cannot apply one, so a 255-octet
+  datagram is read through `invariant.read_long`: that reader cannot apply one, so a 255-byte
   connection ID is echoed although version 1 stops at 20.
 
   A client checks that both connection IDs echo what it sent. §17.2.1 states those two echoes as
@@ -3066,7 +3066,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Mutations: 44 applied across the seven commits, 38 CAUGHT first time and one a no-op control
   that correctly was not. Five gaps, every one in the tests rather than the code, and all of one
   shape — a test that checked a length or a wrapper where the distinguishing thing was elsewhere.
-  A payload slice taken one octet early kept the right length. Three of §18.2's stream data
+  A payload slice taken one byte early kept the right length. Three of §18.2's stream data
   parameters were set to one value, so swapping two was invisible. A retransmission reaching the
   same distance did not separate a high-water mark from a running total. A stream limit was read
   through the error the dispatch flattens it to rather than its own. And no test had a client
@@ -3100,7 +3100,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   §12.5 confines a type 0x1d frame to the application packet number space, so `frame_for` writes
   §10.2.3's replacement below it: type 0x1c, APPLICATION_ERROR, and the Reason Phrase cleared,
   because §10.2.3 says otherwise "information about the application state might be revealed".
-  The Reason Phrase is the caller's octets and colibri copies none of them (decision 35); a
+  The Reason Phrase is the caller's bytes and colibri copies none of them (decision 35); a
   reason that will not fit the packet is dropped rather than the frame, which §19.19 allows by
   making the field able to be zero length.
 
@@ -3189,13 +3189,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Each CRYPTO stream keeps what it sent, 2026-09-21**, `fd97a12`. RFC 9000 §17.2.5.3: "A
   client MUST use the same cryptographic handshake message it included in this packet." The
-  provider gives its octets up once — `write_handshake` is a drain — and `CryptoStream` held
-  `sent_len` and no octets, so the Initial that answers a Retry could not be written. The owner
+  provider gives its bytes up once — `write_handshake` is a drain — and `CryptoStream` held
+  `sent_len` and no bytes, so the Initial that answers a Retry could not be written. The owner
   ruled a per-level send window on 2026-09-21; `crypto_send_buffer_len` is its size, a judgement
   set equal to the window §7.5 fixes for the other direction, and three of them sit in every
   connection.
 
-  The window forgets only octets it has already framed, and only when it has no room left. A
+  The window forgets only bytes it has already framed, and only when it has no room left. A
   flight that fits is therefore never forgotten, which is what makes a repeat possible; a longer
   one carries on at the offset it reached rather than stalling, which a window anchored at zero
   would have done. A Retry arriving after a flight was forgotten is discarded, because colibri
@@ -3204,10 +3204,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The same window is what §13.3's retransmission will read, which is why it is per level and not
   a copy of the client's first flight. When the sent-packet table records which frames a packet
   carried, the window can be anchored at what the peer acknowledged instead of at what was framed.
-  Step 33e made this change on 2026-11-06. The window now forgets only octets the peer
+  Step 33e made this change on 2026-11-06. The window now forgets only bytes the peer
   acknowledged, so a flight longer than the window waits for acknowledgments.
 
-  8 mutations, 8 CAUGHT, two only after a test was written: one framed the provider's octets
+  8 mutations, 8 CAUGHT, two only after a test was written: one framed the provider's bytes
   without keeping them, which no case separated because none sent anything twice; and one forgot
   a flight that fits as soon as the next packet asked for room, which no case separated because
   none asked for room between framing and repeating.
@@ -3225,7 +3225,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Retry packet in response to a single UDP datagram" is then kept by the shape of the call — one
   request in, at most one packet out — which is the same answer version negotiation gave to the
   same rule. Everything it writes is the caller's: §5.1 wants a connection ID unpredictable and
-  invariant 5 forbids colibri a random number, and the client's address is opaque octets because
+  invariant 5 forbids colibri a random number, and the client's address is opaque bytes because
   colibri owns no socket.
 
   `verify_token` reads a later Initial's Token field as absent, validated or invalid, which are
@@ -3308,12 +3308,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The path frames are sent, 2026-09-21**, `10aabc5`. `Path` had run RFC 9000 §8.2's validation
   since step 9c and nothing wrote a frame: `on_challenge_sent` had no caller, and the PATH_RESPONSE
   a peer's challenge earned was reported to the caller in `Report.owed` rather than sent. The
-  connection remembers both now — sixteen octets each — and the send path writes them into the
+  connection remembers both now — sixteen bytes each — and the send path writes them into the
   next 1-RTT packet, which is where §12.5's Table 3 permits them.
 
-  §8.2.1 and §8.2.2 both expand the datagram that carries one to §14.1's 1,200 octets, and both
+  §8.2.1 and §8.2.2 both expand the datagram that carries one to §14.1's 1,200 bytes, and both
   except the anti-amplification limit. Neither needs a check for that exception: `datagram_ceiling`
-  already bounds every datagram by §8's allowance, so a server that may not send 1,200 octets sends
+  already bounds every datagram by §8's allowance, so a server that may not send 1,200 bytes sends
   fewer and §8.2.3's second validation is exactly what the short datagram leaves owed. The two
   rules meet in one place rather than arguing at two.
 
@@ -3369,7 +3369,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   would otherwise wait out an idle timeout, and ruled the invariant change it needed.
 
   Every part that needs a secret stays the caller's, and each for a rule of its own: §10.3's
-  unpredictable octets because invariant 5 forbids colibri a random number, §10.3.2's token
+  unpredictable bytes because invariant 5 forbids colibri a random number, §10.3.2's token
   because it comes from a static key and non-negotiable 2 keeps keys out of this tree, and the
   decision to send because §10.3 answers a datagram no connection could be found for and
   non-negotiable 1 leaves the socket with the caller. `write` lays out Figure 10 around them,
@@ -3392,7 +3392,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1240 passed, 18 skipped.
 
-  **Lost CRYPTO octets are sent again, 2026-09-22**, `79d5dd9`. RFC 9000 §13.3's first rule:
+  **Lost CRYPTO bytes are sent again, 2026-09-22**, `79d5dd9`. RFC 9000 §13.3's first rule:
   "Data sent in CRYPTO frames is retransmitted according to the rules in [QUIC-RECOVERY], until
   all data has been acknowledged." Nothing did, so a lost handshake packet ended the attempt.
 
@@ -3401,7 +3401,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   *information* is sent again, by whoever holds it. So there is no queue of frames to replay:
   each piece keeps what it owes and writes it afresh. The send window `fd97a12` added for a
   Retry's repeat is the CRYPTO half of exactly that, and what was missing was the record of which
-  octets a packet carried.
+  bytes a packet carried.
 
   A `recovery_sent.Record` carries that range now, and `connection_crypto.on_packets_lost` rewinds
   the level's flow to the lowest lost offset. Nothing is tracked per packet, because §13.3 permits
@@ -3409,9 +3409,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the lowest rewind covers every higher one. A new packet number carries the repeat, which
   invariant 17 requires and §17.2.5.3 says of a Retry for the same reason.
 
-  `Record` grew from 24 octets to 32. 256 of them sit in each of three spaces, so a test pins the
+  `Record` grew from 24 bytes to 32. 256 of them sit in each of three spaces, so a test pins the
   size: the next field added to it is measured rather than assumed. The range is two flat fields
-  rather than a struct, because a struct of a `u64` and a `u16` pads to sixteen octets and would
+  rather than a struct, because a struct of a `u64` and a `u16` pads to sixteen bytes and would
   have cost 40.
 
   `packet_build.zig` passed 500 lines, so its framing half became `packet_build_frames.zig`; that
@@ -3436,7 +3436,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   written down.
 
   That closes the retransmission piece for what colibri can send, which is five frames: CRYPTO,
-  ACK, PATH_RESPONSE, PATH_CHALLENGE and CONNECTION_CLOSE. The CRYPTO one sends its octets again;
+  ACK, PATH_RESPONSE, PATH_CHALLENGE and CONNECTION_CLOSE. The CRYPTO one sends its bytes again;
   the other four need no repair, and §13.3 gives a different reason for each — PING and PADDING
   "contain no information", an ACK is superseded by the next, a connection close is resent by §10
   rather than by loss detection, and a PATH_RESPONSE is "sent just once". Four of those were true
@@ -3454,8 +3454,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test`: 1247 passed, 18 skipped.
 
   **Every acknowledged record reaches the caller, 2026-09-22**, `272b179`. This is the first
-  piece of [decision 57](decisions.md#the-h2-connection). It counts the octets the peer has
-  acknowledged on each stream, and only a packet's record says which octets it carried.
+  piece of [decision 57](decisions.md#the-h2-connection). It counts the bytes the peer has
+  acknowledged on each stream, and only a packet's record says which bytes it carried.
   `recovery_sent.Removed` kept the largest record alone, because RFC 9002 needs no more: the
   round trip sample and the congestion event both come from the largest. So `remove_range_into`
   writes each record it takes into a slice the caller places, and `recovery_ack.on_ack_received`
@@ -3475,69 +3475,69 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   second piece. A packet carries at most one CRYPTO frame or one STREAM frame and never both, so
   the CRYPTO pair on `recovery_sent.Record` becomes `data_offset` and `data_len`, tagged by
   `carries`: none, CRYPTO, STREAM, or STREAM with the FIN. The record names the stream by its
-  62-bit identifier, never a table slot, because a slot is reused. It grows from 32 octets to 40,
+  62-bit identifier, never a table slot, because a slot is reused. It grows from 32 bytes to 40,
   where a separate stream range would have made it 56. Nothing frames STREAM yet, so only the
   record carries `stream_id`; the send path gains it with the frames that fill it.
 
   `connection_crypto.on_packets_lost` now reads `carries` and not a nonzero length, and a test
-  loses a record that carried stream octets at an offset the CRYPTO flow also used.
+  loses a record that carried stream bytes at an offset the CRYPTO flow also used.
 
   7 mutations, 7 CAUGHT.
 
   `zig build test`: 1250 passed, 18 skipped.
 
   **Each stream counts what it sent, lost and had acknowledged, 2026-09-22**, `9df4675`. Decision
-  57's third piece. A stream holds no octets. `stream_outgoing.Outgoing` holds four offsets:
-  how far the caller's octets reach, how far colibri has framed them, how many the peer has
+  57's third piece. A stream holds no bytes. `stream_outgoing.Outgoing` holds four offsets:
+  how far the caller's bytes reach, how far colibri has framed them, how many the peer has
   acknowledged, and whether the caller ended the stream there. `Streams.on_range_acknowledged`
   adds an acknowledged range to its stream and moves the sending part to "Data Recvd" once every
-  octet and the FIN are acknowledged (RFC 9000 §3.1). `Streams.on_range_lost` keeps a lost range
+  byte and the FIN are acknowledged (RFC 9000 §3.1). `Streams.on_range_lost` keeps a lost range
   in `stream_lost.LostRanges`, the ranges owed again across every stream, oldest first, unless the
   stream has sent RESET_STREAM (§13.3).
 
-  The count is exact because each framed octet is in one place: one packet in flight, the lost
+  The count is exact because each framed byte is in one place: one packet in flight, the lost
   table, or acknowledged. [Invariant 29](invariants.md) states that, and
   `Outgoing.on_acknowledged` asserts that the count never passes the framed offset.
 
   The lost table holds `stream_lost_ranges_max` ranges, which is `sent_packets_max`: a lost range
-  comes from one lost packet, and new octets wait while any range is owed. A range split to fit
+  comes from one lost packet, and new bytes wait while any range is owed. A range split to fit
   a smaller packet (§13.3) lies next to its remainder, so the table joins adjacent ranges of one
   stream, and losing the piece again leaves one entry and not two. A table that fills anyway
   refuses the range with `Full`, which the connection turns into INTERNAL_ERROR.
 
-  30 mutations, 30 CAUGHT. Two cases were written for one mutation each: a range whose octets go
+  30 mutations, 30 CAUGHT. Two cases were written for one mutation each: a range whose bytes go
   out before its FIN, and a stream still in "Send" losing a range. One check in
   `is_all_acknowledged` was removed rather than tested, because an acknowledged FIN implies the
   stream was ended.
 
   `zig build test`: 1263 passed, 18 skipped.
 
-  **Stream octets are sent, read through the stream provider, 2026-09-22**, `3c1453d`. Decision
+  **Stream bytes are sent, read through the stream provider, 2026-09-22**, `3c1453d`. Decision
   57's fourth piece. `stream_provider.StreamProvider` is design §4.5's vtable, one member,
   `read(stream_id, offset, output)`. `connection_send.send` takes one, and
   `StreamProvider.none()` serves a caller that sends no stream data. The caller opens a stream
-  with `connection_stream_send.open` and says how far its octets reach with `supply`. It never
-  passes octets.
+  with `connection_stream_send.open` and says how far its bytes reach with `supply`. It never
+  passes bytes.
 
   `connection_stream_send.write` puts one STREAM frame in an application-level packet (decision
   56; RFC 9000 §12.4, Table 3). The oldest lost range goes first (§13.3), and a lost range whose
   stream was reset or closed since is dropped. Otherwise the first stream in the table with new
-  octets and credit sends them. Each new octet spends the stream's limit and the connection's
+  bytes and credit sends them. Each new byte spends the stream's limit and the connection's
   (§4.1), and a lost range sent again spends neither. A packet that carries CRYPTO carries no
-  STREAM frame, because the record holds one range. The provider writes its octets straight into
+  STREAM frame, because the record holds one range. The provider writes its bytes straight into
   the packet scratch after a header measured for the room. The Length field keeps that width even
-  when the provider answers fewer octets, which RFC 9000 §16 permits, so no octet is moved. The
+  when the provider answers fewer bytes, which RFC 9000 §16 permits, so no byte is moved. The
   field is always present, so PADDING may follow the frame. Choosing among streams is the frame
   scheduler's, [#29](https://github.com/c4milo/colibri/issues/29).
 
   The tests open each packet as the peer, run its frames through the receive path, and check
-  every octet of the STREAM frame against its offset. They cover a lost range sent again before
-  new octets, a lost range split to fit a smaller packet, a FIN sent alone and lost, a reset or
-  closed stream's lost range dropped, both flow control limits, a provider with fewer octets than
+  every byte of the STREAM frame against its offset. They cover a lost range sent again before
+  new bytes, a lost range split to fit a smaller packet, a FIN sent alone and lost, a reset or
+  closed stream's lost range dropped, both flow control limits, a provider with fewer bytes than
   supplied, and CRYPTO and STREAM kept apart.
 
   34 mutations, 34 CAUGHT. The Length field's width was first NOT CAUGHT: no provider had
-  answered fewer than 64 octets for a range measured at two, so the short read now reads 50. One
+  answered fewer than 64 bytes for a range measured at two, so the short read now reads 50. One
   check in `frame` was removed rather than tested, because the check after it answers the same
   case.
 
@@ -3548,7 +3548,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   records an ACK took out and the ones it found lost. `connection_stream_recovery` reads the
   stream range each record names. `on_packets_acknowledged` counts the range toward its stream
   and writes the identifier of each stream that enters "Data Recvd" into a slice the caller
-  places. From then on the caller may drop that stream's octets. `on_packets_lost` puts the
+  places. From then on the caller may drop that stream's bytes. `on_packets_lost` puts the
   ranges in the lost table for `send`, and a table that cannot hold one closes the connection
   with INTERNAL_ERROR (RFC 9000 §20.1). A record that carried CRYPTO or nothing is passed over.
 
@@ -3560,7 +3560,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test`: 1282 passed, 18 skipped.
 
   What decision 57 leaves to other pieces: RESET_STREAM and STOP_SENDING are not sent yet
-  ([#37](https://github.com/c4milo/colibri/issues/37)). A probe carries new octets or a PING and
+  ([#37](https://github.com/c4milo/colibri/issues/37)). A probe carries new bytes or a PING and
   never a range in flight, which invariant 29 needs, but nothing writes a probe yet
   ([#29](https://github.com/c4milo/colibri/issues/29)). The simulator check that each stream's
   count reaches its final size belongs to the QUIC connection check
@@ -3574,9 +3574,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   HANDSHAKE_DONE frame and discards its Handshake keys (§4.9.2).
 
   The frame goes in a 1-RTT packet (RFC 9000 §12.4, Table 3), after the path frames and before
-  any octets. RFC 9000 §13.3 retransmits it until it is acknowledged, and that needs only the
+  any bytes. RFC 9000 §13.3 retransmits it until it is acknowledged, and that needs only the
   number of the packet that last carried it. So the connection keeps that number and
-  `recovery_sent.Record` stays at 40 octets. Losing that packet owes the frame again. An
+  `recovery_sent.Record` stays at 40 bytes. Losing that packet owes the frame again. An
   acknowledgment of it, and of no other packet or space, ends the obligation.
 
   At a client, `connection_frames.Report.handshake_done` says a HANDSHAKE_DONE confirmed the
@@ -3594,9 +3594,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The limit frames are sent, 2026-09-22**, `ad5cbe1`. Nothing gave a peer more credit, so a
   peer stopped at the first limit it reached. `connection_flow` writes MAX_DATA,
   MAX_STREAM_DATA and MAX_STREAMS (RFC 9000 §19.9 to §19.11) in 1-RTT packets, after
-  HANDSHAKE_DONE and before any octets. `flow.Receiver` still decides when new credit is worth a
+  HANDSHAKE_DONE and before any bytes. `flow.Receiver` still decides when new credit is worth a
   frame. What it measures from is what the application consumed (§4.1), so
-  `connection_flow.consume` is how the caller reports that it read a stream's octets.
+  `connection_flow.consume` is how the caller reports that it read a stream's bytes.
   `Streams.close` gives a count back for each stream the peer opened (§4.6), which is what
   MAX_STREAMS then offers. MAX_STREAM_DATA stops once the stream's receiving part leaves "Recv"
   (§13.3's SHOULD).
@@ -3615,7 +3615,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   owner's to set. A test gives one connection a larger cap and shows the window doubling
   against the round trip.
 
-  The caller still has no stream octets to read and report, because nothing hands received
+  The caller still has no stream bytes to read and report, because nothing hands received
   stream data to it ([#41](https://github.com/c4milo/colibri/issues/41)).
 
   22 mutations, 22 CAUGHT. The resend of a lost MAX_STREAMS and the round trip passed to the
@@ -3628,7 +3628,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The BLOCKED frames are sent, 2026-09-22**, `01bb196`. `connection_flow.write_blocked`
   writes DATA_BLOCKED, STREAM_DATA_BLOCKED and STREAMS_BLOCKED (RFC 9000 §19.12 to §19.14) after
   the limit frames. Each goes once per limit, through `flow.Sender.blocked_frame_limit`, and
-  only while the limit holds something back. For the two data frames that means octets supplied
+  only while the limit holds something back. For the two data frames that means bytes supplied
   and unsent on a stream still in "Ready" or "Send" (§4.1: a sender that "has data to write but
   is blocked"). For STREAMS_BLOCKED it means an open the peer's limit refused since the last
   stream this endpoint opened (§4.6: "unable to open a new stream"), which `Streams.open_local`
@@ -3650,7 +3650,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   end one direction of a stream, and a peer's STOP_SENDING went unanswered, which RFC 9000 §3.5
   says MUST be answered with RESET_STREAM. `connection_stream_send.reset` abandons a sending part
   (§3.1, §19.4). It enters "Reset Sent" when the reset is asked for, not when the frame goes out,
-  so nothing is framed after the decision. The frame's final size is every octet framed, which
+  so nothing is framed after the decision. The frame's final size is every byte framed, which
   can no longer change, so each copy is the same (§13.3: its content "MUST NOT change when it is
   sent again"). `stop_sending` asks the peer to stop, while the receiving part is in "Recv" or
   "Size Known" (§19.5). A STOP_SENDING from the peer now owes a reset with the peer's error code
@@ -3687,9 +3687,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   RFC 9000 §2.3: an implementation "SHOULD provide ways in which an application can indicate the
   relative priority of streams." Until now the first stream in the table sent until it ran out.
-  `connection_stream_send.set_priority` orders new octets, a lower value first, from
+  `connection_stream_send.set_priority` orders new bytes, a lower value first, from
   `stream_priority_default` in the middle of the range. Streams of one value take turns, and one
-  whose provider has nothing yet gives way to the next. Lost octets still go before new ones
+  whose provider has nothing yet gives way to the next. Lost bytes still go before new ones
   (§13.3).
 
   Not done: §4.1's SHOULD to send a BLOCKED frame "periodically" while nothing is in flight. It
@@ -3707,17 +3707,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Nothing gave a peer a second connection ID. The retirements a peer's Retire Prior To owed were
   queued and never sent.
 
-  `connection_id_frames.issue` takes a connection ID's octets and its Stateless Reset Token from
-  the caller. colibri draws no random number for the octets (invariant 5), and RFC 9000 §10.3.2
+  `connection_id_frames.issue` takes a connection ID's bytes and its Stateless Reset Token from
+  the caller. colibri draws no random number for the bytes (invariant 5), and RFC 9000 §10.3.2
   derives the token from a key colibri does not hold (non-negotiable 2), the division #31 settled
   for the Stateless Reset itself. It refuses:
   - an endpoint whose peer sends it zero-length IDs (§19.15);
-  - octets of a length other than this endpoint's first, because a short header does not encode
+  - bytes of a length other than this endpoint's first, because a short header does not encode
     the length (§17.3.1);
   - more IDs than the peer's `active_connection_id_limit` (§5.1.1: "An endpoint MUST NOT provide
     more connection IDs than the peer's limit").
 
-  The caller routes datagrams by Destination Connection ID and chose the octets, so it knows each
+  The caller routes datagrams by Destination Connection ID and chose the bytes, so it knows each
   one this connection answers to.
 
   Both frames travel in 1-RTT packets, after RESET_STREAM and STOP_SENDING. Each keeps a
@@ -3737,14 +3737,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The simulator drives a QUIC connection, 2026-09-23**, `79d8d29`. Piece 10,
   [#24](https://github.com/c4milo/colibri/issues/24). Two colibri endpoints finish a handshake
-  and move one 16,384-octet stream across the network of step 8. Each is a `Connection` with the
+  and move one 16,384-byte stream across the network of step 8. Each is a `Connection` with the
   null QUIC provider and the null suite. `src/sim/quic_endpoint.zig` plays the rest of a caller:
   - it derives the Initial keys from the client's first Destination Connection ID (RFC 9001
     §5.2);
   - it hands the provider this endpoint's transport parameters (§8.2);
   - it installs the Handshake and 1-RTT keys when the null provider's script reaches them
     (§4.1.4);
-  - it keeps the octets of the stream it sends (decision 57).
+  - it keeps the bytes of the stream it sends (decision 57).
 
   Each of 256 seeds draws up to 10% loss and 10% duplication over delays that reorder.
   `quic_invariants.zig` reads invariants 17 to 21 after every datagram and every step: numbers
@@ -3768,7 +3768,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Running it found two more:
   - `feeb757`: a tiny packet's number widened for the header protection sample (decision 54)
-    was left out of the planned length, so a server's padded PING sealed two octets past its
+    was left out of the planned length, so a server's padded PING sealed two bytes past its
     RFC 9000 §8.1 allowance.
   - `10ce41f`: a handshake deadlocked. The client's lost Finished waited behind 1-RTT packets
     the server could not read yet. RFC 9002 §6.2.1 forbids an Application Data PTO before
@@ -3787,31 +3787,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1379 passed, 18 skipped.
 
-  **Received stream octets are reassembled, 2026-09-23**, `8bf3794` and `290fbf4`. Decision 61,
+  **Received stream bytes are reassembled, 2026-09-23**, `8bf3794` and `290fbf4`. Decision 61,
   [#41](https://github.com/c4milo/colibri/issues/41) and
   [#42](https://github.com/c4milo/colibri/issues/42). colibri had checked every STREAM frame and
-  kept none of its octets, so no caller could read a stream and no window could grow.
+  kept none of its bytes, so no caller could read a stream and no window could grow.
   - `stream_incoming.Pool(capacity)` is one pool per connection, which the caller places and
     passes as `Options.receive`. Streams take its blocks of `stream_receive_block_len` = 1,024
-    octets as they need them. Each block marks which of its octets arrived (RFC 9000 §2.2). One
-    pool serves every stream because the octets waiting across them never pass the connection
+    bytes as they need them. Each block marks which of its bytes arrived (RFC 9000 §2.2). One
+    pool serves every stream because the bytes waiting across them never pass the connection
     window. It holds two blocks per stream beyond its capacity for the ends of each stream's
     span, so a peer within its limits cannot exhaust it.
-  - `connection_stream_read.read` copies a stream's octets in order up to the first gap and
+  - `connection_stream_read.read` copies a stream's bytes in order up to the first gap and
     gives each block back once read. What it reads is what gives the peer credit (RFC 9000
-    §4.1). Reading every octet moves the stream to "Data Read" (§3.2), and a reset is reported
+    §4.1). Reading every byte moves the stream to "Data Read" (§3.2), and a reset is reported
     once as `StreamReset`.
   - The pool's capacity caps every receive window, the connection's and each stream's: decision
-    49's cap, `receive_pool_len_default` = 1 MiB. A connection given no pool keeps no octets and
+    49's cap, `receive_pool_len_default` = 1 MiB. A connection given no pool keeps no bytes and
     its windows stay where they start.
-  - The simulator's server now reads the client's stream and checks every octet against what the
+  - The simulator's server now reads the client's stream and checks every byte against what the
     client sent. The census did not move: 16 KiB of reads earns no credit frame against 64 KiB
     windows, so the datagrams are the same.
 
   Mutations: 15 over the library, 14 CAUGHT. The fifteenth was equivalent: `contiguous_end`'s
-  early stop repeated what its block-number check already does, so the stop went. Octets kept
+  early stop repeated what its block-number check already does, so the stop went. Bytes kept
   after a reset first survived; the test that catches it is new. 3 over the simulator, 3
-  CAUGHT; dropping the octet check first survived, and a fault now changes an octet.
+  CAUGHT; dropping the byte check first survived, and a fault now changes a byte.
 
   `zig build test`: 1396 passed, 20 skipped.
 
@@ -3823,8 +3823,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     terminal state: "Data Recvd" or "Reset Recvd" for the sending part (§3.1), "Data Read" or
     "Reset Read" for the receiving part (§3.2). Closing frees the table slot and the stream's
     receive blocks.
-  - Three events can finish a part, and each calls it: an acknowledgment of the last octets or
-    of a RESET_STREAM, a read of the last octet, and a read that reports a reset.
+  - Three events can finish a part, and each calls it: an acknowledgment of the last bytes or
+    of a RESET_STREAM, a read of the last byte, and a read that reports a reset.
 
   Mutations: 7, 7 CAUGHT. `zig build test`: 1400 passed, 20 skipped.
 
@@ -3842,25 +3842,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     chapulin object built `TRANSPORT=quic ROLE=both KEYLOG=on`. Datagrams move in memory, and the
     check advances its own instant 5 ms a round. The client verifies the server's chain, both
     select "hq-interop" (RFC 9001 §8.1), and the server reads a 1 MiB stream. That length takes
-    the 1-RTT packet numbers past 256, where a one-octet Packet Number field no longer decodes
+    the 1-RTT packet numbers past 256, where a one-byte Packet Number field no longer decodes
     without the largest number received (RFC 9000 Appendix A.3). The check requires four key log
     lines per endpoint.
 
   First run, on an Apple M1 Pro under macOS 26.6.2 with a chapulin copy patched as below:
   handshake complete and confirmed in round 5 and the stream read in round 43; 904 client
-  datagrams, 1,082,906 octets; 44 server datagrams, 3,791 octets.
+  datagrams, 1,082,906 bytes; 44 server datagrams, 3,791 bytes.
 
   Mutations of the adapter and the check: 17, 16 CAUGHT and one equivalent. Three were caught
   only after a change: a lost largest packet number needed the longer stream, and a discard not
-  passed to chapulin and a wrong octet read as right each needed a test. The equivalent one read
+  passed to chapulin and a wrong byte read as right each needed a test. The equivalent one read
   `keys_available` in the other direction, which cannot differ because chapulin sets and clears
   both directions of a level together.
 
   It found three defects:
   - colibri, fixed in `a7e5404`: a datagram grew to the peer's `max_udp_payload_size`, and the
-    client sent 1,313 octets. RFC 9000 §14.2 says an endpoint without PMTU discovery "SHOULD NOT
+    client sent 1,313 bytes. RFC 9000 §14.2 says an endpoint without PMTU discovery "SHOULD NOT
     send datagrams larger than the smallest allowed maximum datagram size". Every datagram now
-    stays at 1,200 octets, the size RFC 9002's controller already counted in. 3 mutations, 3
+    stays at 1,200 bytes, the size RFC 9002's controller already counted in. 3 mutations, 3
     CAUGHT. The simulator's census moved to 13,660 datagrams, 13,683 packets and 706 dropped.
   - chapulin: in a `ROLE=both` object every session derives the server's Initial keys, because
     `quic.c` picks the role with `#ifdef CH_ROLE_SERVER`. A client there seals under the wrong
@@ -3877,7 +3877,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1403 passed, 23 skipped.
 
-  **Each packet's handshake octets reach TLS before the next packet, 2026-09-23.** Decision 62,
+  **Each packet's handshake bytes reach TLS before the next packet, 2026-09-23.** Decision 62,
   [#45](https://github.com/c4milo/colibri/issues/45).
   - `receive` advances the handshake after each packet it processes, and
     `connection_keys.take_available` then marks each level and direction the suite holds keys
@@ -3911,7 +3911,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     bidirectional stream, answered with the file and the end of the stream. The server refuses a
     path with an empty, "." or ".." segment, and resets the stream of a file it does not hold.
   - `tools/quic_udp.sh` runs both on 127.0.0.1. The client fetches files of 1,000, 100,000 and
-    3,000,000 octets, each compared octet for octet. The server must exit within 5 seconds of the
+    3,000,000 bytes, each compared byte for byte. The server must exit within 5 seconds of the
     client's close, and a request for a missing file must end in a reset stream.
 
   It found a colibri defect, fixed in its own commit. A server treated the client's address as
@@ -3928,7 +3928,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test`: 1421 passed, 26 skipped.
 
   **Fuzzing, 2026-09-26.** `hq.zig` has a fuzz property ([#53](https://github.com/c4milo/colibri/issues/53)). An accepted path must be
-  the request's own octets after `GET `, with only CR and LF after it. It must name a file inside
+  the request's own bytes after `GET `, with only CR and LF after it. It must name a file inside
   the served directory, which the property checks again without `check_path`. 6 mutations, 6
   **CAUGHT**.
 
@@ -3936,9 +3936,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   UDP endpoint against aioquic 1.3.0's, a Python stack pinned and installed into a cached virtual
   environment, over 127.0.0.1 in both directions. `tools/quic_interop/hq_peer.py` is the
   aioquic side, a small hq-interop server and client on its public API.
-  - colibri's client fetches files of 1,000, 100,000 and 3,000,000 octets from aioquic's server,
-    and aioquic's client fetches the same three from colibri's. Every file arrives octet for
-    octet, and colibri's server exits on aioquic's CONNECTION_CLOSE.
+  - colibri's client fetches files of 1,000, 100,000 and 3,000,000 bytes from aioquic's server,
+    and aioquic's client fetches the same three from colibri's. Every file arrives byte for
+    byte, and colibri's server exits on aioquic's CONNECTION_CLOSE.
   - Both directions passed on the first run, on the same machine as above, with chapulin
     `9c903d8`. It is the first time colibri's connection or chapulin's QUIC mode exchanged a
     packet with another implementation.
@@ -3952,7 +3952,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     runner's certificates carry no extended key usage, so they fail chapulin's Web PKI profile.
     Its client pins the server's P-256 key, which the runner's shared `/certs` holds.
   - `tools/quic_interop/qns_identity.py` converts the runner's PEM into the raw DER and key
-    octets the endpoint reads. `run_endpoint.sh` maps `ROLE`, `TESTCASE` and `REQUESTS` onto
+    bytes the endpoint reads. `run_endpoint.sh` maps `ROLE`, `TESTCASE` and `REQUESTS` onto
     `quic-udp`, and exits 127 for the cases the endpoint does not build.
   - The runner's simulator learns a server is listening by sending it an unknown version, so the
     endpoint now answers with Version Negotiation (RFC 9000 §6.1).
@@ -3971,13 +3971,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   The runs found a colibri defect, fixed in its own commit. RFC 9000 §3.2 has a frame for a
   peer's stream open every lower stream too, and only the named stream got its §18.2 limits.
-  The others kept a one-octet window, so their own frames, arriving late on a lossy path, broke
+  The others kept a one-byte window, so their own frames, arriving late on a lossy path, broke
   flow control. 2 mutations, 2 CAUGHT.
 
   handshakeloss failed in both roles at first. A probe (RFC 9002 §6.2.4) carried a PING and never
-  the unacknowledged CRYPTO octets, so under the case's bursty loss the probes that arrived gave
+  the unacknowledged CRYPTO bytes, so under the case's bursty loss the probes that arrived gave
   the peer nothing it could use. Decision 64 has a PTO at the Initial or Handshake level declare
-  that level's packets lost, so the probes carry the octets (`09da2fa`). 4 mutations, 4 CAUGHT,
+  that level's packets lost, so the probes carry the bytes (`09da2fa`). 4 mutations, 4 CAUGHT,
   one by the simulator's check alone, whose census moved to 13,281 datagrams, 13,318 packets and
   690 dropped. The server side then failed on its own table: four connections whose clients'
   closes were lost filled it until their idle timeouts, so `6072b07` gives the next client the
@@ -3997,8 +3997,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     in their handshakes. The owner ruled a run-time option: the table holds
     `quic_connections_max`, 64, and `connections=<n>` uses fewer. 4 mutations, 4 CAUGHT.
   - `a5063ee` and `1360983`, decision 65: one ngtcp2 connection lost the server's first flight and
-    the CRYPTO probe of each of the next three PTOs. The server now sends its Initial CRYPTO octets
-    again at once when an ack-eliciting Initial packet brings no new CRYPTO octets, at most twice
+    the CRYPTO probe of each of the next three PTOs. The server now sends its Initial CRYPTO bytes
+    again at once when an ack-eliciting Initial packet brings no new CRYPTO bytes, at most twice
     per connection (RFC 9002 §6.2.3). 11 mutations, 11 CAUGHT.
 
   quinn then showed the same failure in both roles: a request sent once and lost, the
@@ -4055,7 +4055,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Key update, amplification and IPv6 in the runner, 2026-09-24.**
   - `cf3872c`: the runner's `amplificationlimit` case sends a chain of nine certificates, a 10 KB
     Handshake flight. Decision 64 sends a level's whole flight again on a PTO, and the 4 KiB
-    `crypto_send_buffer_len` had already forgotten the flight's first octets, which closed the
+    `crypto_send_buffer_len` had already forgotten the flight's first bytes, which closed the
     connection. The owner approved 16 KiB. 1 mutation, 1 CAUGHT.
   - `169c91d`: the UDP endpoint takes an IPv4 or an IPv6 address. A server binds `::`, which
     takes both families on Linux, because the runner gives the server no hint of which family its
@@ -4066,9 +4066,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   The owner also approved three limits in `src/testing/constants.zig` that the nine-certificate
   chain needs:
-  - `tls_der_len_max`, from 2 KiB to 8 KiB. The leaf carries twenty 250-octet DNS names, 5,514
-    octets in all.
-  - `quic_crypto_out_len`, from 8 KiB to 20 KiB. The Certificate message is 9,663 octets, and a
+  - `tls_der_len_max`, from 2 KiB to 8 KiB. The leaf carries twenty 250-byte DNS names, 5,514
+    bytes in all.
+  - `quic_crypto_out_len`, from 8 KiB to 20 KiB. The Certificate message is 9,663 bytes, and a
     comptime assert holds this limit above twice `tls_der_len_max`.
   - `quic_chain_len_max`, from 8 to 16. The chain is a leaf under eight intermediates.
 
@@ -4258,7 +4258,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     manifest names. Each pins the first discard, or the connection error the walk returns.
     Together they cover RFC 9000 §7.2, §12.2 and §12.3, and RFC 9001 §4.9, §5.5, §5.7, §6.2,
     §6.4 and §6.6. The golden module is given `quic` and not `sim`, so the corpus has a suite
-    of its own. The last octet of a packet's tag says which keys open it, which models what a
+    of its own. The last byte of a packet's tag says which keys open it, which models what a
     real suite learns by trying its keys. 9 corpus mutations added. 9 mutations of the receive
     path, 9 CAUGHT by `zig build test-golden` alone.
 
@@ -4270,7 +4270,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   The four pieces:
   - `connection_recovery` hands each batch of acknowledged or lost packets to every piece that
-    keeps a record of what it sent: CRYPTO, stream octets, the flow control frames,
+    keeps a record of what it sent: CRYPTO, stream bytes, the flow control frames,
     HANDSHAKE_DONE and the connection ID frames. A lost CRYPTO range the level's window has
     forgotten, or a full table of lost stream ranges, closes the connection with INTERNAL_ERROR
     (RFC 9000 §20.1).
@@ -4387,35 +4387,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   it; `quic.error_code.crypto_error` already does that arithmetic.
 
   The encryption level moved to `core`. `crypto.Suite` protects a packet at a level and this
-  vtable moves handshake octets at one, and design §3 makes `tls` and `crypto` siblings with no
+  vtable moves handshake bytes at one, and design §3 makes `tls` and `crypto` siblings with no
   edge between them, so the type they share is `core.Level` and `crypto.suite.Level` is an alias
   of it. No module-graph edge was added: both already import `core`.
 
   `tls.constants` gains `alpn_h3`, RFC 9114 §3.1's token, beside `alpn_h2`.
 
   **The CRYPTO streams are done, 2026-09-20.** `src/quic/crypto_stream.zig` is RFC 9000 §19.6's
-  one ordered flow of handshake octets per encryption level, reassembled from the frames that
+  one ordered flow of handshake bytes per encryption level, reassembled from the frames that
   carried them. `src/quic/stream/` could not serve: a CRYPTO stream has no identifier, no FIN, no
   flow control and no final size, so none of §3.2's receiving states or §4.5's final-size rules
   apply to it. What it has instead is §7.5's buffer limit, which is the only thing bounding what
   a peer can make colibri hold, because "there is no flow control of CRYPTO frames".
 
-  The window is anchored at what the handshake has read: `buffer[0]` is the octet at `base`,
-  `contiguous` counts the octets from there with no gap, `readable` is the run the handshake may
+  The window is anchored at what the handshake has read: `buffer[0]` is the byte at `base`,
+  `contiguous` counts the bytes from there with no gap, `readable` is the run the handshake may
   take now and `consume` slides the window. Data past the window is a connection error of
   CRYPTO_BUFFER_EXCEEDED, which §7.5 names for exactly it. The window is `crypto_buffer_len`,
   4096, which is the RFC's floor rather than a choice of colibri's — in-order data is handed over
-  as it arrives and never sits here, so the number bounds only what a gap holds. Which octets are
+  as it arrives and never sits here, so the number bounds only what a gap holds. Which bytes are
   present is a bit each, not a byte: a byte would cost eight times the window per level.
 
-  Mutations: eight applied, all **CAUGHT** — the window's last octet refused, the bound removed,
+  Mutations: eight applied, all **CAUGHT** — the window's last byte refused, the bound removed,
   the in-order run never extending, `consume` losing what was buffered above it, `consume` moving
-  the marks and not the octets, a frame straddling the base written at the wrong offset, every
+  the marks and not the bytes, a frame straddling the base written at the wrong offset, every
   level answering as one, and `consume` not advancing the base.
 
   Mutations: nine applied, all **CAUGHT** — two defaults changed, the 1200 floor removed,
   `max_ack_delay` admitting 2^14 itself, a repeat accepted, a client's server-only parameter
-  accepted, an integer carrying trailing octets, a connection ID past 20 octets, and an unknown
+  accepted, an integer carrying trailing bytes, a connection ID past 20 bytes, and an unknown
   parameter refused instead of ignored. Writing them found a weak test of colibri's own: it
   compared a parsed value against the same constant it came from, so the constants are now pinned
   to the numbers §18.2 states. `zig build test` passes 996 of 996.
@@ -4475,7 +4475,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and a PING in the other, the network dropped the Finished's copy each time, and quic-go dropped
   the connection 5 seconds after the client's last packet, although it had announced a 30-second
   `max_idle_timeout` ([quic-go#4215](https://github.com/quic-go/quic-go/issues/4215)). The second
-  probe at the Initial and Handshake levels now repeats the first one's CRYPTO octets.
+  probe at the Initial and Handshake levels now repeats the first one's CRYPTO bytes.
   - Over 2,000 seeds of the simulator's runner network, colibri against itself, the mean
     handshake fell from 1.36 to 1.26 seconds, those over 8 seconds from 17 to 10, and the slowest
     from 34.2 to 32.2 seconds.
@@ -4509,9 +4509,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `recovery_timer.zig` Appendix A.8's one timer, and `recovery.zig` with `recovery_ack.zig` the
   five entry points of §4.2.
 
-  Three things are worth naming. The octets in flight are the sum over the three tables and are
+  Three things are worth naming. The bytes in flight are the sum over the three tables and are
   held in no second place, because Appendix B.2's `bytes_in_flight` and the tables would
-  otherwise be two records of one fact. Congestion avoidance counts octets rather than dividing:
+  otherwise be two records of one fact. Congestion avoidance counts bytes rather than dividing:
   Appendix B.5's expression grows the window by nothing once it passes the maximum datagram size
   squared, under two megabytes on an ordinary path, and B.5 points at the alternative in the same
   paragraph. And the §5.3-versus-Appendix-A.7 disagreement is settled in
@@ -4521,7 +4521,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Check:** `src/sim/recovery_check.zig` runs 256 seeds over four paths — quiet, one datagram in
   ten dropped, a delay range wide enough to reorder, and a stretch where the path swallows
   everything. The sender is the whole of `quic.recovery`; the receiver is `quic.space`, which
-  writes real ACK frames, so what the sender reads back is octets off the wire. It printed
+  writes real ACK frames, so what the sender reads back is bytes off the wire. It printed
   `sent=16420 acked=11743 lost=4677 probes=746 scenarios={ 60, 57, 75, 64 }
   crc32=0x2c3cc41a` in Debug and in ReleaseSafe on macOS arm64. Every packet is accounted for
   exactly once — 11743 and 4677 sum to 16420 — no packet is both acknowledged and declared lost,
@@ -4535,7 +4535,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Writing the check found two defects in the check itself and neither in the library, which is
   worth recording because both were rules the library already held. The first invariant written
-  was that the octets in flight never pass the congestion window; §7 bounds what a sender adds,
+  was that the bytes in flight never pass the congestion window; §7 bounds what a sender adds,
   not what is already outstanding, and §7.5 exempts a probe from the window outright, so the
   check now tests the send and not the state. The second was a digest taken over a struct's
   bytes, padding included: padding is uninitialized memory, the two build modes disagreed about
@@ -4664,7 +4664,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   literal on every hop that forwards one. The static reference itself would leak nothing — the
   table is public — but the next hop is what the bit is for.
 
-  **Check so far:** Appendix B.1's octets in both directions, the encoder producing the RFC's own
+  **Check so far:** Appendix B.1's bytes in both directions, the encoder producing the RFC's own
   bytes for the RFC's own example and the decoder reading them back; 29 mutations over the four
   files, all caught after two missing tests were written. **Still owed:** the dynamic table with
   the encoder and decoder streams, and the `qpackers/qifs` vectors, which need it.
@@ -4711,16 +4711,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     after the last section, the latest it can. All 56 runs decode exactly. The comparison's
     mutation is CAUGHT, and so are three encoder mutants the vectors alone catch.
 
-  The octets the encoder wrote for the seven inputs, sections and encoder stream together, with
+  The bytes the encoder wrote for the seven inputs, sections and encoder stream together, with
   acknowledgments flowing back:
 
-  | Table capacity | Blocked streams | Octets |
+  | Table capacity | Blocked streams | Bytes |
   |---|---|---|
   | none | any | 714,888 |
   | 4,096 | 0 | 477,759 |
   | 4,096 | 100 | 280,040 |
 
-  The inputs' names and values are 1,144,015 octets unencoded. These counts are the same on any
+  The inputs' names and values are 1,144,015 bytes unencoded. These counts are the same on any
   machine; timing waits for `bench/` (decision 32).
 
   **Still owed:** the two `.qif` tools of §9, which write colibri's encoded files for other
@@ -4735,7 +4735,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Required Insert Count rows and 162 Base rows. 6 mutations: 5 CAUGHT, and one equivalent, the
     zero check after the full-range check refusing the one count the weakened check lets through.
   - `f4aa8fe`: `src/sim/qpack_check.zig`. One seed draws the peer's settings, up to 24 sections
-    on up to 8 streams, and the order the three streams arrive in, each cut at any octet, with
+    on up to 8 streams, and the order the three streams arrive in, each cut at any byte, with
     streams cancelled. Every section must decode as written, and every run must end with nothing
     blocked, unread or unacknowledged. Each seed runs twice and must write the same trace.
 
@@ -4769,10 +4769,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     mutations, 2 CAUGHT.
   - `1f6e297`: fuzz property functions for the three inputs a peer controls: a field section, the
     encoder stream and the decoder stream. As in step 1, `zig build test` runs each over its
-    corpus and every input of up to two octets, because the fuzzer does not build with Zig
-    0.16.0. Two octets never reach a field line or a whole insert, so
+    corpus and every input of up to two bytes, because the fuzzer does not build with Zig
+    0.16.0. Two bytes never reach a field line or a whole insert, so
     `src/sim/qpack_input_check.zig` also edits what the encoder writes, up to eight changed,
-    inserted or removed octets or a cut end, and hands it to the reader under test. Every input
+    inserted or removed bytes or a cut end, and hands it to the reader under test. Every input
     must be read or refused with an error, never halt, and each seed must replay.
 
   `zig build sim -- --qpack-input-check` printed, in Debug and in ReleaseSafe on macOS arm64:
@@ -4781,7 +4781,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   peer input: each is CAUGHT by its fuzz property and by the input check at 256 seeds.
 
   **The nudge edit, 2026-09-26.** The QUIC input check of step 9a shares these edits, now in
-  `src/sim/input_edit.zig`, and added an octet moved up or down by one. The census changed to
+  `src/sim/input_edit.zig`, and added a byte moved up or down by one. The census changed to
   `seeds=256 inputs=8192 taken=3933 blocked=128 refused=4131 crc32=0x7971245b`, in Debug and in
   ReleaseSafe. 200,000 seeds, 6.4 million inputs, ran in ReleaseSafe with none halted.
 
@@ -4833,7 +4833,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   frame's payload is as long as the content and arrives over many packets: a reader wanting the
   whole frame in one buffer would put the body's size in colibri's memory bound, which
   [decision 35](decisions.md#memory) forbids. And a short read is not a protocol error —
-  `Truncated` means the octets have not all arrived, while every other error names the §8.1 code
+  `Truncated` means the bytes have not all arrived, while every other error names the §8.1 code
   the connection closes with. Telling those two apart is why the header is read on its own.
 
   **Check so far:** 32 mutations over the three files, all caught. **Still owed:** the request
@@ -4843,7 +4843,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Fuzzing, 2026-09-26.** `frame_fuzz.zig` reads a header and, when colibri reads the payload
   whole, the payload ([#53](https://github.com/c4milo/colibri/issues/53)). A short header must consume nothing. A whole payload must never
-  be `Truncated`, which would have the caller wait for octets that are not coming. An accepted
+  be `Truncated`, which would have the caller wait for bytes that are not coming. An accepted
   payload must be the type its header named and keep §7.2's rules, which the property reads
   again. Written again, it must read back the same. 10 mutations, 10 **CAUGHT** by the fuzz test
   alone, two of them only after the corpus gained a SETTINGS payload cut inside a pair and one
@@ -4853,7 +4853,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   (decisions 78 and 79), and decision 80 followed:
   - `61443b6`: `quic` reports how far a stream is acknowledged from its start (decision 78), which
     h3's three streams need because they never end. 7 mutations, 7 CAUGHT.
-  - `3e1ed79`: `quic` copies a stream's received octets without taking them (decision 80), so a
+  - `3e1ed79`: `quic` copies a stream's received bytes without taking them (decision 80), so a
     field section blocked on QPACK stays in the receive pool. 7 mutations, 7 CAUGHT.
   - `1b5d763`: `quic` keeps the error code of a peer's RESET_STREAM for the application. 2
     mutations, 2 CAUGHT.
@@ -4863,7 +4863,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     §8.1). Every RFC 9114 rule it checks has a test that breaks it. 65 mutations, 65 CAUGHT. Three
     first survived and gained tests.
   - `1db9175`: `src/sim/h3_check.zig`. A colibri client and server exchange a seed's requests
-    over step 8's network. Every field section and content octet must arrive as planned. The
+    over step 8's network. Every field section and content byte must arrive as planned. The
     connection must then settle: no slot, blocked section or owed instruction left, and every
     insert acknowledged. The long mode's connections outgrow h3's own buffers, so decision 78's
     drop runs under loss.
@@ -4886,7 +4886,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The endpoint and three of the four checks, 2026-09-24.**
   - `f6344f8`: design §9's h3 server and client on the UDP endpoint. The server offers h3 and
     hq-interop by ALPN and serves whichever the client picks. Both sides advertise a QPACK table
-    of 4,096 octets and 16 blocked streams, so each peer's encoder uses one.
+    of 4,096 bytes and 16 blocked streams, so each peer's encoder uses one.
   - `8accf3c`: h3's control and QPACK streams go out ahead of request streams. Without it,
     `h2load --h3` lost 6 of 1,000 requests in about one run in ten: a response left ahead of the
     insert it referenced, and h2load ended the blocked stream unread. The simulator's censuses
@@ -4902,9 +4902,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The QUIC Interop Runner's `http3` case passed in both roles against quic-go, ngtcp2, neqo and
     quinn, and against colibri itself.
   - `tools/quic_udp.sh` and `tools/quic_aioquic.sh` fetched three files over h3 in both
-    directions, octet for octet. aioquic's h3 uses ls-qpack with a dynamic table.
+    directions, byte for byte. aioquic's h3 uses ls-qpack with a dynamic table.
   - `tools/h3load.sh` printed `requests: 1000 total, 1000 started, 1000 done, 1000 succeeded,
-    0 failed` with ALPN h3, three runs out of three. It saved 84% of the header octets, which
+    0 failed` with ALPN h3, three runs out of three. It saved 84% of the header bytes, which
     shows the peer's decoder reading colibri's dynamic table.
   - `tools/h3spec.sh` ran h3spec v0.1.13 and no case passed, because no handshake completed.
     h3spec's client offers TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 and
@@ -4980,7 +4980,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed on macOS arm64, with chapulin `37bebc5`:
   - `tools/h3spec.sh <checkout>`: `49 examples, 0 failures` and `ok, every case passed`.
   - `tools/quic_loopback.sh`, `tools/quic_udp.sh` and `tools/quic_aioquic.sh` passed. Against
-    aioquic's server, colibri's client ran TLS_AES_256_GCM_SHA384, so its key log held 48-octet
+    aioquic's server, colibri's client ran TLS_AES_256_GCM_SHA384, so its key log held 48-byte
     secrets.
   - `tools/interop.sh <checkout> quic-go,ngtcp2`, whose image built chapulin `1558099` with the
     new make line: every case passed in both roles against both peers. quic-go reports its own
@@ -5005,7 +5005,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       allows. The new constant `DecoderTable` says whether the server's decoder allows a table.
     - The client's quic resets a refused stream when the server's STOP_SENDING arrives (RFC 9000
       §3.5). That can happen before or after the client reads the refusal, and never when every
-      octet is already acknowledged. It is now its own action, `StopSending`, and no longer part
+      byte is already acknowledged. It is now its own action, `StopSending`, and no longer part
       of `ReadAnswer`.
   - TLC stops a path once a variable that only grows has passed the next logged state
     (`Toward`). Without that, one seed took 5.7 million states and 49 seconds. With it, the seed
@@ -5113,11 +5113,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           and its codepoint, and each batch goes out as one send of segments (UDP_SEGMENT). The
           endpoint takes its connections in turn, so two datagrams in a row seldom share a peer.
         - On macOS, which has neither, each batch holds one datagram.
-        - In an Ubuntu 24.04 container on a laptop, `h2load --h3` fetched a 30,000-octet file
+        - In an Ubuntu 24.04 container on a laptop, `h2load --h3` fetched a 30,000-byte file
           2,000 times, and every request succeeded. The server made 12,518 `sendmsg` calls for
-          the 60,000,000 octets, about 4 datagrams for each call.
+          the 60,000,000 bytes, about 4 datagrams for each call.
         - Ten mutations, each CAUGHT on Linux: the peer, the codepoint, a longer datagram, the
-          segment count and the octet count each ignored, a shorter datagram that does not close
+          segment count and the byte count each ignored, a shorter datagram that does not close
           its batch, one datagram sent as segments, a delivery not split, no UDP_GRO, and a batch
           in flight that takes a datagram.
         - The judge's run 40526708637 measured `42445f1c`, and run 40516121513 measured
@@ -5152,11 +5152,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           a coalesced datagram itself (its decision 15 as amended on 2026-11-05). Each segment
           arrives as an event of its own, and `segment_bytes` on a received datagram is always 0.
           - The `udp.zig` test now requires three events for the segmented send, each with its
-            own octets and a `segment_bytes` of 0.
+            own bytes and a `segment_bytes` of 0.
           - `Segments.of` took 0 as one datagram, so it never split a delivery again. On
             2026-11-06 it went from `udp_batch.zig` and `datagram_batch.zig`, with its test. Each
             server now hands a delivery to its endpoint whole, and asserts a `segment_bytes` of 0.
-          - `coalesce` is now true by default. Every socket with a group of 2,048-octet buffers
+          - `coalesce` is now true by default. Every socket with a group of 2,048-byte buffers
             sets it false or holds no group. Each buffer size is a multiple of 8, as Rotor now
             requires.
           - The test ran in an Ubuntu 24.04 arm64 container, on io_uring, and passed.
@@ -5187,23 +5187,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       inlined counts in the function that holds it. Run 40568694619 sampled `cpu-clock`, and
       each input's stacks held colibri's functions.
     - That profile showed 19% of h3-one's CPU in `memcpy`. `std.StaticBitSet.isSet` takes its
-      set by value, and the CRYPTO window and each block of a stream's unread octets called it
-      once per octet, so each call copied 512 or 128 octets. `src/quic/bit_runs.zig` now reads
-      the sets 64 bits at a time, and a consumed CRYPTO window moves its `head`, not its octets.
+      set by value, and the CRYPTO window and each block of a stream's unread bytes called it
+      once per byte, so each call copied 512 or 128 bytes. `src/quic/bit_runs.zig` now reads
+      the sets 64 bits at a time, and a consumed CRYPTO window moves its `head`, not its bytes.
       A laptop's uprobe counted 4.2 MB of `memcpy` per h3 connection before and 19.5 KB after.
       The judge's run 40579559875 against main admitted it: h3-one fell to 0.6239 and 0.6206 of
       the base's instructions per connection, from 2,362,218 to 1,473,728 in job 1, and h3-many
-      to 0.9796 and 0.9766. No input lost. `head` adds 8 octets to each of a connection's three
-      CRYPTO streams, so `quic.Connection` grew from 141,888 octets to 141,912.
+      to 0.9796 and 0.9766. No input lost. `head` adds 8 bytes to each of a connection's three
+      CRYPTO streams, so `quic.Connection` grew from 141,888 bytes to 141,912.
     - The owner then set the goal of no copy on a request's path, on 2026-10-27, and asked that
       every change toward it be fuzzed. A laptop's uprobe on `memcpy` counted what was left: 189
-      octets a request on h2-many, 273 on h11-many and 567 on h3-many. Three copies went:
-      - the varint encoder's copy of its octets, about 36 calls a request on h3;
+      bytes a request on h2-many, 273 on h11-many and 567 on h3-many. Three copies went:
+      - the varint encoder's copy of its bytes, about 36 calls a request on h3;
       - h2's copy of a response's block into its frame, when the block fits one frame;
-      - the test-only server's copy of each octet it received.
+      - the test-only server's copy of each byte it received.
     - Each change has a fuzz property, and so do the bit scans and the CRYPTO window. Zig 0.16.0's
       `--fuzz` does not build (https://github.com/c4milo/colibri/issues/53), so each property runs
-      over its corpus, every input of up to two octets, and a pass over edge values or long
+      over its corpus, every input of up to two bytes, and a pass over edge values or long
       scripts. With the unit tests off, the properties alone caught 14 of 15 mutations, and the
       fifteenth was equivalent.
     - The judge's run 40749185281 found no input lost, and h2-many's user instructions fell by 64
@@ -5230,15 +5230,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The owner then asked whether the match needs a better algorithm, after papers and the
       fastest routers. On a laptop, colibri's `match` took 181 ns over the 203 routes, http.zig's
       34 and matchit's 56. Callgrind split its 2,056 instructions a match: about 480 finding each
-      "/", 500 in the checks of each octet, 470 in the binary search of a node's edges, and 300 in
+      "/", 500 in the checks of each byte, 470 in the binary search of a node's edges, and 300 in
       the walk. The owner chose two changes on 2026-10-28, and kept the generated matcher and the
       tagged DFA for later:
-      - One pass (`router_path.zig`) decides each octet through a table of classes and records
+      - One pass (`router_path.zig`) decides each byte through a table of classes and records
         where each segment ends and whether it holds a "%". The walk searches for no "/" and no
-        "%". A fuzz property and every target of up to 5 octets of 14 octets hold it to the checks
+        "%". A fuzz property and every target of up to 5 bytes of 14 bytes hold it to the checks
         it replaced.
-      - Each edge carries its first 8 octets as one integer, and the build sorts the edges in the
-        order the search compares in: length, that integer, then the octets after it.
+      - Each edge carries its first 8 bytes as one integer, and the build sorts the edges in the
+        order the search compares in: length, that integer, then the bytes after it.
     - Callgrind then counted 1,310 instructions a match, 36% fewer.
     - The judge's run 40774628573 admitted it on `h2-routes-many`: 0.9598 and 0.9599 of the base's
       instructions, from 17,278 to 16,584 a request in job 1. No input lost.
@@ -5298,14 +5298,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The owner then chose three cuts of `match` on 2026-10-29. Callgrind on a laptop counted
       each one over the GitHub, Stripe, Kubernetes and static tables, against 1,314, 1,523, 2,179
       and 878 instructions a match. None of them saved instructions, so none landed:
-      - Frames of 8 octets in place of 32: 1,275, 1,532 and 2,193 on the first three. ReleaseSafe
+      - Frames of 8 bytes in place of 32: 1,275, 1,532 and 2,193 on the first three. ReleaseSafe
         checks each narrowed field, and the checks cost about what the smaller frames save.
       - A hash of each node's literal edges, with open addressing in place of the binary search.
         Its best form compared two words of each segment, and it counted 1,409, 1,537, 2,224 and
         848. Most nodes hold a few edges, and the search compares one integer for each.
-      - A pass that decides 16 octets at a time with vector compares: 1,342, 1,535, 2,176 and
-        880. A GitHub path holds 26 octets on average, so it fills one block and reads the rest one
-        octet at a time.
+      - A pass that decides 16 bytes at a time with vector compares: 1,342, 1,535, 2,176 and
+        880. A GitHub path holds 26 bytes on average, so it fills one block and reads the rest one
+        byte at a time.
     - The owner then stopped the router's work. A generated matcher, which writes one function for
       each node, is the one change left that this record does not price.
     - On 2026-11-17 connect-zig reported the match's cost on its tables of Connect methods: 4,237
@@ -5315,23 +5315,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       PATRICIA and HOT, and PTHash and PHOBIC.
       - A hash of each node's literal edges was measured again, and gave the result above. This
         record held that result, and the prototype should have started from it. At 256 edges of 4
-        octets it took 543 instructions a match, against 621, 492 and 608 for the first, middle
+        bytes it took 543 instructions a match, against 621, 492 and 608 for the first, middle
         and last edge. At 16 edges it lost in the middle by 66.
-      - The cost left was the compare past a segment's first 8 octets, which read one octet at a
-        time. Each edge now keeps its last 8 octets as one integer, in `layout.tails`, beside
+      - The cost left was the compare past a segment's first 8 bytes, which read one byte at a
+        time. Each edge now keeps its last 8 bytes as one integer, in `layout.tails`, beside
         `layout.edges`, so a step over a short segment reads what it read before. A longer segment
-        compares its words between, 8 octets at a time, then the last word. The order and the
-        search stay as decision 122 has them, and each edge costs 8 octets more.
+        compares its words between, 8 bytes at a time, then the last word. The order and the
+        search stay as decision 122 has them, and each edge costs 8 bytes more.
       - Callgrind on a laptop, one match over each route of a table: GitHub 1,314 to 1,297,
         Stripe 1,523 to 1,482 and Kubernetes 2,179 to 2,092. connect-zig's call at 256 routes
-        went from 1,046 to 1,003. Decision 122's cases of 1 to 256 edges of 4 octets cost 0 to 4
+        went from 1,046 to 1,003. Decision 122's cases of 1 to 256 edges of 4 bytes cost 0 to 4
         fewer, except a miss at 16 edges, 2 more.
-      - The checks: a test requires the words to order as `std.mem.order` orders the octets, for
-        segments of 9 to 40 octets that differ at each octet. The test of the binary search
+      - The checks: a test requires the words to order as `std.mem.order` orders the bytes, for
+        segments of 9 to 40 bytes that differ at each byte. The test of the binary search
         against a scan of each edge gains a table of long segments of one length and one head.
       - 8 mutations, each **CAUGHT**: a middle word skipped, or its order reversed, by the tests;
         the last word's order reversed, each tail written as the head, a tail read from the first
-        octets, a node's tails taken from the table's first, a word read one octet late, and two
+        bytes, a node's tails taken from the table's first, a word read one byte late, and two
         equal segments never equal, by the build, whose check of hidden routes searches each table
         and finds routes that no request reaches.
       - The tests of `server` pass in Debug on x86-64 under Zig's own backend, 758 of 758, and
@@ -5420,7 +5420,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `bench/run.sh --latency --waits`, which the workflow's `waits` input runs, loads colibri and
       axum over h2 and h2-tls at 40,000 and 80,000 req/s, for 8 s each. One second into each load,
       tcpdump captures the heads of the packets the server sends for 0.7 s, on core 0. The report
-      divides the segments with data by the rate oha reached, and gives their octets of data each.
+      divides the segments with data by the rate oha reached, and gives their bytes of data each.
     - Then `perf sched record` records the server's core for 3 s. `perf sched timehist` gives each
       run of the server: how long it ran, how long it waited for the core once woken, and how
       long it slept before.
@@ -5430,7 +5430,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - On a laptop's Linux VM it parsed the records of both servers. There both slept for
       milliseconds at p99, because oha's own pauses on the VM left gaps in the load. So only the
       judge's cores can tell the two servers apart.
-    - A capture on the same VM found that colibri's h2 responses took 26 octets of field block and
+    - A capture on the same VM found that colibri's h2 responses took 26 bytes of field block and
       axum's 7, because colibri wrote no response line into HPACK's dynamic table. Decision 132
       indexes them, and empties both tables after a block the encoder abandoned. Callgrind on the
       VM counted 12,544 instructions a request in cleartext before and 12,215 after.
@@ -5573,7 +5573,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         | that flight to oha's Finished, median | 0.31 to 0.61 | 0.16 to 0.26 |
         | Finished to the server's next segment, median | 0.04 to 0.07 | 0.44 to 0.71 |
         | first ClientHello to the last connection ready | 1.70 to 2.19 | 1.16 to 1.31 |
-        | octets of the server's first flight | 2,263 | 1,087 |
+        | bytes of the server's first flight | 2,263 | 1,087 |
         | group of the key exchange | X25519MLKEM768 | X25519 |
         | p99 of the load, median of each job | 6.01 and 6.80 | 5.91 and 5.27 |
 
@@ -5585,7 +5585,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         TLS, and does not compare how the servers answer requests.
       - colibri's 8 handshakes take about 0.8 ms more than axum's. chapulin chooses
         X25519MLKEM768 from oha's offer, and axum's rustls chooses X25519. So colibri's first
-        flight carries an ML-KEM-768 ciphertext, 1,176 octets more, and oha takes longer to
+        flight carries an ML-KEM-768 ciphertext, 1,176 bytes more, and oha takes longer to
         read it. The group is chapulin's choice, and colibri does not set it (non-negotiable 2).
     - **The tail of a long load, 2026-11-10.** Over h2 at 40,000 req/s, the p99.9 rose with the
       time of the load for colibri and axum alike: 2.2 ms to 3.1 ms at 5 s, and 12.6 ms to
@@ -5703,7 +5703,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The engine. A local experiment counted the test server's calls of `receive` under
         callgrind on a laptop, whose instruction counts are never published. A request takes 7
         calls, and 5 of them take nothing and report nothing. `src/colibri/server_pump.zig` has
-        the same two loops. A `server.Event` takes 160 octets and a `ReceiveResult` 192, and each
+        the same two loops. A `server.Event` takes 160 bytes and a `ReceiveResult` 192, and each
         call returns one by value. The session that owns the engine has the numbers.
       - chapulin's decision 234, pinned at `72ed3509` with v0.7.0. Judge run
         [43648917274](https://github.com/c4milo/colibri/actions/runs/43648917274), on `02d75cc4`
@@ -5738,12 +5738,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           190. Each is below the judge's noise on h11, so this step changes neither.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
-    12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
+    12,000 bytes, so they cannot tell two congestion controllers apart. This input fills the
     path, so the controller sets the rate.
     - `bench/run.sh --latency --bulk`, which the workflow's `bulk` input runs, holds the path
       with tc on the loopback device in two profiles:
       - `bottleneck`: 25 ms each way and a rate of 20 Mbit/s, with a queue of 1,000 packets. The
-        path holds about 125,000 octets, and the queue about 12 times that.
+        path holds about 125,000 bytes, and the queue about 12 times that.
       - `bottleneck-lossy`: the same, and 1% of packets lost each way.
     - A prio qdisc puts the packets the server sends through the bottleneck, by their source
       port, and every other packet through a netem with the delay alone. So the client's
@@ -5783,7 +5783,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       routes of mixed methods and paths. A cold Debug build and run of the `testing` module takes
       30 s on main. All 1,172 routes added 42 s to it, and the sample adds 10 s.
     - The sample keeps the API's mix of methods within 1 point, all 24 of its API groups, and its
-      largest node, of 23 edges. 220 of its 352 literal edges are longer than 8 octets, and 88 are
+      largest node, of 23 edges. 220 of its 352 literal edges are longer than 8 bytes, and 88 are
       longer than 16. Of the GitHub API's 120, 32 are longer than 8, and none is longer than 16.
     - A tree whose server names no such table, one from before this step, does not run the
       input: `serves` reads the server's usage. The report then gives the input without a verdict.
@@ -5855,10 +5855,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       mutations of the first charts left in 13q with the code they broke: the h3 stacks
       not named, and a throughput that counts answers not 200.
   - **13n**, two inputs with a large response, which the owner asked for on 2026-11-19 to judge
-    design §8 step 65: its output holds a third fewer octets of a large body for each `send`. No
-    input sent one before: each answer carried 8 octets, and the POST routes answer "ok".
+    design §8 step 65: its output holds a third fewer bytes of a large body for each `send`. No
+    input sent one before: each answer carried 8 bytes, and the POST routes answer "ok".
     - The test-only server takes `--body <octets>`, from 1 to `answer_body_len_max`, 1 MiB. It
-      then answers every request with that many octets of `answer_body_octets`, in place of
+      then answers every request with that many bytes of `answer_body_octets`, in place of
       `response_body`. It refuses the option with `--echo`, `--routes` or `--coded`, whose answers
       are their own.
     - `h2-large-many` and `h2-tls-large-many` run the server with `--body 262144` under h2-many's
@@ -5868,13 +5868,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Only colibri's servers serve them. A tree whose server's usage does not name `--body`, one
       from before this step, does not run them: `serves_colibri` reads the usage, as for 13l, and
       the report gives the input without a verdict.
-    - **Check:** a test of `server_options.zig` requires `--body` to take from 1 octet to the
-      most, and to refuse 0, one octet past the most, a word, no value, and each mode with an
+    - **Check:** a test of `server_options.zig` requires `--body` to take from 1 byte to the
+      most, and to refuse 0, one byte past the most, a word, no value, and each mode with an
       answer of its own. A test of `server_session_test.zig` requires an h11 answer under `--body`
       to carry the whole body and its `content-length` over several steps. A test of `report.py`
       requires the large input's own count, and refuses h2-many's for it.
     - Seven mutations, each CAUGHT: `--body` beside a mode that answers itself; a body of 0
-      octets; no body at the most; the fixed body in place of `--body`'s; the fixed
+      bytes; no body at the most; the fixed body in place of `--body`'s; the fixed
       `content-length`; and in `report.py`, the large input planned as h2-many, both ways.
     - The judge's first run, 44530085526, measured both inputs and then failed in `report.py`,
       which planned 20,000 requests for them. That run is why the count is an argument.
@@ -5988,9 +5988,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       to the count. https://github.com/c4milo/colibri/issues/139 follows the extra datagrams.
   - **13t**, an input with coded responses, which the owner asked for on 2026-11-19 to judge
     design §8 step 67. No input coded a response before, so no number showed that `take` filled
-    299,768 octets of each encoder in ReleaseSafe.
+    299,768 bytes of each encoder in ReleaseSafe.
     - `h2-coded-many` runs the server with `--coded` under h2-many's load. Each request carries
-      `accept-encoding: gzip`, so each answer of 8 octets goes out in gzip, as 28 octets.
+      `accept-encoding: gzip`, so each answer of 8 bytes goes out in gzip, as 28 bytes.
     - After the warm-up, `codes` sends one request that accepts gzip. The run fails when the
       answer's Content-Encoding does not name gzip (RFC 9110 §8.4). `codes` and the other checks
       of a server before its measurement move to `bench/run_ready.sh`, because `bench/run.sh`
@@ -5998,8 +5998,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Only colibri's servers serve it. A tree whose server's usage does not name `--coded`, one
       from before design §8 step 17e, does not run it.
     - The server's pool holds 4 encoders, and a response holds its encoder until it writes its
-      last octet. Under 16 connections of 10 streams each, all 20,000 answers of a round still went
-      out coded: h2load counted 560,000 octets of data, 28 for each answer. That ran in an ubuntu
+      last byte. Under 16 connections of 10 streams each, all 20,000 answers of a round still went
+      out coded: h2load counted 560,000 bytes of data, 28 for each answer. That ran in an ubuntu
       24.04 container on the laptop.
     - **Check:** in that container, `codes` passed against the server with `--coded` and failed
       against the server without it. The judge's first run with the input, 44661604715, is
@@ -6078,7 +6078,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **13c, 2026-10-01.** `bench/run.sh --competitors` measures nginx 1.24.0 and h2o 2.2.5, from the
   runner's Ubuntu 24.04 packages and built with OpenSSL 3.0.13, in turns with colibri's server over
-  the four inputs. Each answers the same eight octets from memory, with one worker on the server's
+  the four inputs. Each answers the same eight bytes from memory, with one worker on the server's
   core, and each presents the same P-256 identity and runs TLS_AES_256_GCM_SHA384 over X25519.
   `docs/performance.md` says how each is set up.
 
@@ -6424,14 +6424,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   split must give what the whole input gives. Fuzzing and mutations.
 
   **Check passed, 2026-09-25**, `91316b0` to `df09b96`, on macOS arm64 with Zig 0.16.0.
-  - `91316b0`: the head. A resumable scanner finds a head's end, scanning each octet once however
+  - `91316b0`: the head. A resumable scanner finds a head's end, scanning each byte once however
     the head arrives, and refuses a bare CR and a lone LF. The start line and the field lines are
     read into `http.FieldSection`, and a client joins obs-fold with SP (RFC 9112 §5.2).
   - `c6257c2` and `6b8e1ca`: RFC 3986 in `docs/rfcs/`, and its grammar for host, port, authority,
     origin-form and absolute-URI in `http.uri`.
   - `694f1c8`: the request-target's form and the Host rules of RFC 9112 §3.2.
   - `1be3578`: §6.3's eight rules for the length of a body, and decision 91's codings.
-  - `043d357`: the chunked decoder, which returns data as slices of the caller's octets.
+  - `043d357`: the chunked decoder, which returns data as slices of the caller's bytes.
   - `f55aa0b`: the request, response and chunk writers, which refuse what colibri would refuse
     to read.
   - `d42b181`: the golden corpus, 32 request and 12 response cases. The owner raised
@@ -6449,7 +6449,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test-h11 --fuzz=1M` does not build: Zig 0.16.0's own test runner fails to compile
     in fuzz mode, as it does for every module
     ([#53](https://github.com/c4milo/colibri/issues/53)). The fuzz properties run over their corpus
-    and every input of up to two octets.
+    and every input of up to two bytes.
   - Mutations: 121 CAUGHT and 1 equivalent. By commit: 19 in the head, 17 of 18 in the URI
     grammar, 16 in the target and Host rules, 23 in the body rules, 18 in the chunked decoder, 17
     in the writers, 6 caught by the corpus alone, 3 caught by the split check alone, and 2 in the
@@ -6461,7 +6461,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   note in RFC 5234 §2.3 that made every quoted string match in any case, and keeps that rule for a
   string with no prefix, so the four citations of the rule now name RFC 7405 §2.1. `http.uri`
   names RFC 3986 §3.2.2 instead, which says itself that IPvFuture's "v" is case-insensitive.
-  - colibri reads three `%s` strings, and compares each octet for octet: HTTP-name in h11 (RFC 9112
+  - colibri reads three `%s` strings, and compares each byte for byte: HTTP-name in h11 (RFC 9112
     §2.3), the weak prefix `W/` in the server's ETag (RFC 9110 §8.8.3), and `clear` in the
     client's Alt-Svc (RFC 7838 §3). RFC 9110 §5.6.7's HTTP-date uses `%s` too, and colibri parses
     no HTTP-date.
@@ -6485,7 +6485,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `aa11d3f`: the simulator check, `src/sim/h11_exchange_check.zig`. It does not use
     `sim.pipe.run`, which feeds one stream fixed before the run to one subject. A client's
     requests depend on the responses it has read, so the check keeps one stream each way and cuts
-    each into chunks of 1 to `chunk_len_max` octets, as the pipe does.
+    each into chunks of 1 to `chunk_len_max` bytes, as the pipe does.
   - `199a52d`: 14 golden cases of the `h11_server` format, request streams a server reads, each
     with the error response it owes as its verdict. A 414 and a 431 need a head longer than
     `case_len_max`, so the connection's unit tests hold those two.
@@ -6502,23 +6502,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server always answers that request with the close, so the check cannot reach the rule, and
     the client's unit test catches it.
 
-  **A body the caller sends itself, 2026-09-26.** `Connection.count_body` counts octets the
+  **A body the caller sends itself, 2026-09-26.** `Connection.count_body` counts bytes the
   caller sends from its own buffer against the body its head declared, and writes nothing
   ([decision 95](decisions.md)). A chunked body refuses it. 6 mutations, 6 **CAUGHT** by the
   connection's unit tests.
 
-  **RFC 9931, 2026-09-29.** RFC 9931 updates RFC 9112 with rules for the octets a client sends
+  **RFC 9931, 2026-09-29.** RFC 9931 updates RFC 9112 with rules for the bytes a client sends
   before a CONNECT or an Upgrade is answered, and `docs/rfcs/` now holds it. The owner ruled on
-  what h11 does with those octets ([decision 109](decisions.md)). What was checked, and what
+  what h11 does with those bytes ([decision 109](decisions.md)). What was checked, and what
   changed:
   - §8, the server: a proxy server MUST close the connection when it refuses a CONNECT. h11 read the
     next request after any final response to CONNECT other than 2xx, so it served the POST of
     RFC 9931 Figure 1. `f109a15` closes the connection after every such response, at every h11
     server.
-  - §8, the client: a proxy client MUST wait for the 2xx before it forwards the tunnel's octets,
+  - §8, the client: a proxy client MUST wait for the 2xx before it forwards the tunnel's bytes,
     or send `close`. h11's client pipelines nothing after a CONNECT, which is not idempotent, and
     opens the tunnel's writer only on the 2xx. Content declared on the CONNECT was the one way to
-    write octets before the answer, and `de5b5f4` refuses it at both ends (RFC 9110 §9.3.6).
+    write bytes before the answer, and `de5b5f4` refuses it at both ends (RFC 9110 §9.3.6).
   - The tunnel: RFC 9110 §6.4.1 makes every 2xx to CONNECT a tunnel, a 204 too, and h11 read a
     204 as an ordinary response at both ends. `75d7320` opens the tunnel on it. A server now also
     refuses to write Content-Length or Transfer-Encoding on a 2xx to CONNECT, which RFC 9110 §8.6
@@ -6528,8 +6528,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Upgrade a caller named, and `209d2a3` refuses that request, as the `client` module does.
   - §6.1: a TLS record sent after an ignored `Upgrade: TLS/1.2` is never read as a request. The
     head scanner refuses it once it meets a bare CR, a lone LF or a start line longer than
-    `start_line_len_max`. It does not refuse the record's first octet, 22, on its own, so the
-    server may wait for more octets before it answers. The paragraph below changes that.
+    `start_line_len_max`. It does not refuse the record's first byte, 22, on its own, so the
+    server may wait for more bytes before it answers. The paragraph below changes that.
   - §6.3 updates RFC 9298's `connect-udp`, which colibri does not implement (decisions 19 and 22).
     h2 and h3 are outside §8, which binds HTTP/1.1 alone.
   - The test-only server answered CONNECT with 200 and a Content-Length, and opens no tunnel.
@@ -6551,10 +6551,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and the tunnel's writer opened with the CONNECT head. The equivalent mutant writes the test
     server's content after its 501, which the `server` module refuses.
 
-  **The first octet of a request line, 2026-09-29.** The owner ruled that the head scanner refuse
-  a request line at the first octet of its method that no token holds, and at an SP where the
+  **The first byte of a request line, 2026-09-29.** The owner ruled that the head scanner refuse
+  a request line at the first byte of its method that no token holds, and at an SP where the
   method would start (RFC 9110 §9.1, decision 109 as amended). A TLS record sent after an ignored
-  Upgrade now gets its 400 at its first octet. `zig build test` passed 128 of 128 steps and 2370
+  Upgrade now gets its 400 at its first byte. `zig build test` passed 128 of 128 steps and 2370
   of 2370 tests, and the golden corpus's verdicts did not change. Mutations, each **CAUGHT**: the
   check dropped, only DEL refused, an empty method let through, the method never ending at its
   SP, status lines checked too, and the check running past the start line.
@@ -6568,7 +6568,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the connection decodes a body carrying `gzip` or `deflate` into the buffer the caller passes to
   `receive` ([decision 98](decisions.md)).
   - A server with no pool answers a coded request 501 (RFC 9112 §6.1). With one, it answers 503
-    when every decoder is taken (RFC 9110 §15.6.4), 400 when the body is corrupt or when octets
+    when every decoder is taken (RFC 9110 §15.6.4), 400 when the body is corrupt or when bytes
     follow a zlib stream inside the body, and 501 for a feature stdx refuses, such as a zlib preset
     dictionary. Every refusal gives the decoder back, and so does a server that answers before the
     body ends and closes (RFC 9112 §9.3).
@@ -6586,13 +6586,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What was checked, on macOS arm64 with Zig 0.16.0:
   - `zig build test` passes. `src/h11/coding.zig` and `connection_coding_test.zig` read gzip and
-    deflate in any pieces, into rooms of 1, 7 and 11 octets and one that holds the whole body,
+    deflate in any pieces, into rooms of 1, 7 and 11 bytes and one that holds the whole body,
     with two gzip members, and with each refusal above.
   - `http-server --h11 --echo` returned, decoded, a two-member gzip body and a deflate body that
     Python's `gzip` and `zlib` modules coded, which are encoders other than stdx's. It answered a
     wrong CRC-32 with 400 and a preset dictionary with 501.
-  - Mutations, each against `zig build test-h11`, all **CAUGHT**: undecoded octets not given back,
-    every octet of a run counted as consumed, a body ending mid-stream not checked, octets after a
+  - Mutations, each against `zig build test-h11`, all **CAUGHT**: undecoded bytes not given back,
+    every byte of a run counted as consumed, a body ending mid-stream not checked, bytes after a
     zlib stream starting another, a second gzip member refused, a refused feature called corrupt,
     a stream cut short accepted, the free list not advanced, the stream's end not noted, 503
     answered as 400, a refused feature answered 400, a server or a client taking no decoder, an
@@ -6607,19 +6607,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     to a colibri client, each with a body in `gzip`, `deflate` or no compression under `chunked`,
     coded by stdx's encoders and cut into chunks of seeded lengths. A third of the gzip bodies are
     two members.
-  - Half the seeds plant a defect in the last message: a checksum one bit off, the last coded octet
-    left out, an octet after a zlib stream, a zlib preset dictionary, or the pool's one decoder
+  - Half the seeds plant a defect in the last message: a checksum one bit off, the last coded byte
+    left out, a byte after a zlib stream, a zlib preset dictionary, or the pool's one decoder
     taken. Each must meet decision 91's refusal: the server's 400, 501 or 503, or the client's
     matching failure.
-  - The connection reads the stream in seeded pieces, with a seeded room of 1 to 48 octets for
+  - The connection reads the stream in seeded pieces, with a seeded room of 1 to 48 bytes for
     each call. Each seed runs twice in pieces and once whole with the most room, and the three
-    traces must agree, every body must decode to the plan's octets, and the decoder must be back
+    traces must agree, every body must decode to the plan's bytes, and the decoder must be back
     in the pool.
   - `zig build sim -- --h11-coding-check` printed, in Debug and in `-Drelease` alike:
     `h11-coding: seeds=256 messages=540 refused=127 two_members=72 stream_octets=116431
     pieces=13532 calls=27992 trace_octets=52145 crc32=0x4b48322b`. The test pins the digest.
   - Mutations of the library, each against `zig build test-sim-run` alone, all **CAUGHT** by the
-    check: undecoded octets not given back, a stream cut short accepted, octets after a zlib
+    check: undecoded bytes not given back, a stream cut short accepted, bytes after a zlib
     stream starting another, a second gzip member refused, 503 answered as 400, and a failure
     keeping its decoder.
 
@@ -6850,23 +6850,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Linux, and the examples had failed to compile there since their first commit. macOS showed
   neither.
   - Zig 0.16's own x86_64 backend, which builds Debug there, placed `udp_run.memory`, a global
-    whose type is 64-aligned, 16 octets past a multiple of 64. Rotor's io_uring loop then
+    whose type is 64-aligned, 16 bytes past a multiple of 64. Rotor's io_uring loop then
     panicked on its first table. LLVM, which builds aarch64, places it right.
   - A global that states `align(@alignOf(T))` is placed right by both backends. pepegrillo
     `6fcb273`'s `static-alignment` rule requires that of every container-level `var` under `src`,
     `examples` and `tools`, and `zig build lint` now runs it. It found 325, each now stating its
     alignment.
   - `examples/link.zig` held both loops' memory in one array of byte arrays, which aligns only the
-    first: a loop takes 1,456 octets on Linux, not a multiple of 64. Each loop's memory is now a
+    first: a loop takes 1,456 bytes on Linux, not a multiple of 64. Each loop's memory is now a
     struct of its own.
 
   What was checked, on macOS arm64:
   - A `quic-udp` cross-built for x86_64 Linux places `udp_run.memory` at a multiple of 64.
-  - Both examples, built for arm64 Linux, run in Docker and print that every octet arrived as
+  - Both examples, built for arm64 Linux, run in Docker and print that every byte arrived as
     sent, and the h2 server keeps running.
   - Mutations, each **CAUGHT**:
     - `udp_run.memory` without its stated alignment fails the lint, and the cross-built binary
-      places it 48 octets past a multiple of 64 again;
+      places it 48 bytes past a multiple of 64 again;
     - the rule left unregistered fails the lint's canary;
     - the examples' shared array fails `zig build examples -Dtarget=x86_64-linux-gnu`.
 
@@ -6903,7 +6903,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A caller places a `tls.record.Client` or `Server` beside each connection, and the h11 or h2
     connection holds the session's provider, which settles what 16c left to 16b. A client's
     `handshake` writes what it owes before it reads, because chapulin reads no record while the
-    client owes the server octets.
+    client owes the server bytes.
   - The provider hands a KeyUpdate's reply over through `handshake_write`, under the keys it
     replaces, and holds at most `key_update_replies_max` replies.
   - The TCP object is decision 97's: `SUITE=aesgcm`, `AES=hw` with `CH_NATIVE_AES` where the
@@ -7003,7 +7003,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     colibri needed no change for either.
 
   The runner's `amplificationlimit` case still fails with colibri as the client, for a second
-  bound: pins alone read the leaf under `CH_WEBPKI_CERT_MAX`, 3,072 octets, and the case's leaf
+  bound: pins alone read the leaf under `CH_WEBPKI_CERT_MAX`, 3,072 bytes, and the case's leaf
   is 5,514 (`docs/chapulin.md`). Reported on 2026-09-27; the case waits for chapulin's answer.
 
   What each check printed, on macOS arm64:
@@ -7072,11 +7072,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **16d at chapulin `9bf41c9`, 2026-09-27.** The pin moved to chapulin `9bf41c9`, and step 16 is
   done. Under pins alone, chapulin now reads the leaf and each entry after it up to
-  `CH_WEBPKI_LEAF_PIN_CERT_MAX`, 16,375 octets, the most one entry holds in the 16 KiB body
+  `CH_WEBPKI_LEAF_PIN_CERT_MAX`, 16,375 bytes, the most one entry holds in the 16 KiB body
   chapulin allows a handshake message. The walk with anchors keeps `CH_WEBPKI_CERT_MAX`, 3,072. A session's buffer,
-  `receive_len`, is 20 KiB, above the 16,410 octets chapulin's `docs/webpki.md` gives for the
+  `receive_len`, is 20 KiB, above the 16,410 bytes chapulin's `docs/webpki.md` gives for the
   largest Certificate message over TCP. `827b5d4`, in the same push, answers a KeyUpdate whose
-  body is not one octet, and a NewSessionTicket whose fields do not fill it, with decode_error in
+  body is not one byte, and a NewSessionTicket whose fields do not fill it, with decode_error in
   place of unexpected_message.
 
   What each check printed, on macOS arm64:
@@ -7095,7 +7095,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **After 0.1.0: chapulin `157d2ac`, 2026-09-27.** The pin moved to chapulin `157d2ac`, in which
   the call that fails a handshake writes its alert itself. The alert is in the clear before the
   failing side's write key is installed and sealed after it, and none follows the peer's own fatal
-  alert. `ch_record_alert` is gone. Each record session's `failure_written` counts the octets a
+  alert. `ch_record_alert` is gone. Each record session's `failure_written` counts the bytes a
   failed `handshake` wrote at the front of its output, the alert last, which the caller sends
   before it closes. A client reads nothing while its output has no room for a whole alert record,
   so the alert always fits the call that fails.
@@ -7129,19 +7129,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 1948 of 1948 tests. The four scripts above, and the h11 interop scripts with
     `--tls`: ok, every exchange and request as planned.
   - 4 mutations, each **CAUGHT**: each TLS check sending nothing, which Go read as an EOF; the server
-    layer counting no octets; and the client loop closing before its alert went out.
+    layer counting no bytes; and the client loop closing before its alert went out.
 
   **The limits a caller sizes by, 2026-09-27.** A caller cannot reach `chapulin.c`, so `tls` names
   the limits a caller sizes its buffers and lists by. cocuyo asked for them.
-  - `record.alert_record_len` is chapulin's sealed alert record, 24 octets.
-  - `record.Client.handshake_output_len_min` is chapulin's `REC_HDR + CH_TX_HELLO`, 2,421 octets on
+  - `record.alert_record_len` is chapulin's sealed alert record, 24 bytes.
+  - `record.Client.handshake_output_len_min` is chapulin's `REC_HDR + CH_TX_HELLO`, 2,421 bytes on
     an object with AES-GCM: an output that long takes a whole ClientHello in one call.
   - Each configuration's `anchors_max` and `protocols_max` are chapulin's `CH_WEBPKI_ANCHOR_MAX`
     and `CH_ALPN_MAX`.
 
   `zig build test-tls test-tls-keylog`: 84 of 84, with and without `-Dcpu=generic`. A ClientHello
-  that offers a ticket took 1,568 octets. 5 mutations, each **CAUGHT**: each list limit one above
-  chapulin's, a hello bound shorter than a ClientHello, and an alert record one octet short.
+  that offers a ticket took 1,568 bytes. 5 mutations, each **CAUGHT**: each list limit one above
+  chapulin's, a hello bound shorter than a ClientHello, and an alert record one byte short.
 
   **Each session draws from its caller's source, chapulin `5ae9182`, 2026-09-27.** Decision 94 as
   amended on 2026-09-27, https://github.com/c4milo/colibri/issues/71. The pin moved to chapulin
@@ -7150,7 +7150,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `ServerConfig.check` takes one for an RSA-PSS salt. chapulin refuses a session with none, so no
     draw falls back to another source.
   - No program defines `ch_rand_bytes`. `src/testing/entropy.zig` hands each endpoint session the
-    octets of `getentropy`, and the tests pass a seeded SplitMix64 (`random_test_support.zig`).
+    bytes of `getentropy`, and the tests pass a seeded SplitMix64 (`random_test_support.zig`).
   - `tools/lint/determinism.zig` lets `src/tls/values.zig`, which names the source's type, name
     `std.Random`. Every other file under `src/` still may not.
   - `tools/consumer_check.sh` now requires a program without `ch_assert_fail`, chapulin's one hook,
@@ -7159,7 +7159,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed, on macOS arm64:
   - `zig build test`: 1954 of 1954 tests; `zig build test-tls test-tls-keylog -Dcpu=generic`: 88
     of 88. Two tests replay a record and a QUIC handshake's first flights. One seed twice writes the
-    same octets, and another seed for one side changes what that side writes and leaves the other
+    same bytes, and another seed for one side changes what that side writes and leaves the other
     side's ClientHello as it was.
   - The twelve scripts of the 157d2ac record, at `e4b9c6f`, whose C and Zig sources `5ae9182`
     keeps: ok, with h3spec's 49 examples and 0 failures and h2spec's 144 in cleartext and over TLS.
@@ -7177,7 +7177,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the same way, and an h11 server that owed an error response owes none after it.
   - QUIC: `receive` and `send` owe the CONNECTION_CLOSE for the connection error they return (RFC
     9000 §10.2), so a caller no longer asks for its code.
-  - A TLS failure while `send` writes handshake octets closed with no frame at all. It now closes
+  - A TLS failure while `send` writes handshake bytes closed with no frame at all. It now closes
     with its alert's CRYPTO_ERROR code (RFC 9001 §4.8).
   - A space out of packet numbers left the connection open, and the other spaces went on
     sending. Now it closes silently and sends nothing more (RFC 9000 §12.3).
@@ -7217,7 +7217,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **chapulin `0adcf33`, 2026-09-27.** The pin moved to chapulin `0adcf33`, whose `19d6a13` sends
   a KeyUpdate before an AES-GCM write key reaches 2^24 records, under RFC 9846 §5.5's limit of
   2^24.5. colibri changes nothing: `encrypt_record` sizes each write with `writableLen`, which
-  counts the 27-octet KeyUpdate, and `initiate_key_update` stays `Unsupported` over TCP.
+  counts the 27-byte KeyUpdate, and `initiate_key_update` stays `Unsupported` over TCP.
 
   What each check printed, on macOS arm64, at `b31bce6`, whose code `0adcf33` keeps: it changes one
   proof floor. `zig build test`: 1970 of 1970 tests; `zig build test-tls test-tls-keylog
@@ -7433,7 +7433,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Public names: `tls.record.Client.fail`, `tls.record.Server.fail` and `tls.record.FailError`.
     A test beside the two types lists their calls, and the root's test lists `tls.record`.
   - `fail(description, output)` takes the 26 error alerts of RFC 9846 §6.2 on a connected
-    session. It writes at most `alert_record_len` octets and fails the session. A refused call
+    session. It writes at most `alert_record_len` bytes and fails the session. A refused call
     writes nothing and leaves the session as it was.
   - tools/consumer and docs/usage.md show the call. No program of `examples/` drives a record
     session itself, so none shows it.
@@ -7464,7 +7464,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     anchor is still copied, because each object has a `TrustAnchor` type of its own.
   - Each session type takes chapulin's `Limits`, set from `certificate_chain_len_max` and
     `anchors_max`, so no limit of colibri's changes.
-  - chapulin holds the C arrays in each session now: each TLS session grows by 1,024 octets, and
+  - chapulin holds the C arrays in each session now: each TLS session grows by 1,024 bytes, and
     colibri's configurations shrink by the copies they held. docs/performance.md's table is
     printed again.
   - 3 mutations **CAUGHT**: each length check, and an anchor's name.
@@ -7480,8 +7480,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     anchors, through `tls.pem`. docs/usage.md shows both.
   - Each call skips the text lines around its blocks (RFC 7468 §2), which chapulin c8cd8021 does
     for chains and keys too (https://github.com/c4milo/chapulin/issues/214), at the owner's word.
-  - `anchors_max` rises from 12 to 256. Each TLS session grows by 7,808 octets: the default
-    `server.Endpoint`, which holds 32 sessions, by 249,856 octets, and a pool by 23,424.
+  - `anchors_max` rises from 12 to 256. Each TLS session grows by 7,808 bytes: the default
+    `server.Endpoint`, which holds 32 sessions, by 249,856 bytes, and a pool by 23,424.
   - 9 mutations **CAUGHT**: the chain's cap, each half of the key, the refused key, the anchors'
     two fields, an anchor dropped, and a room past the caller's. The cap was NOT CAUGHT until a
     test of a chain of 18 certificates was added. Wiping a copy of the key could not be tested,
@@ -7493,8 +7493,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tcpState` and `tcpClose`. `record_provider.zig` calls `ch_tcp_whole_len`.
   - colibri read no field of a chapulin session, so the opaque sessions change no code.
   - colibri's own names do not change: `tls.record` stays on the root's list (decision 115).
-  - Each server session grows by 16 octets: `tls.record.Server` to 49,480 and `tls.quic.Server`
-    to 101,096. The default `server.Endpoint` grows by 512 octets. docs/performance.md's table is
+  - Each server session grows by 16 bytes: `tls.record.Server` to 49,480 and `tls.quic.Server`
+    to 101,096. The default `server.Endpoint` grows by 512 bytes. docs/performance.md's table is
     printed again.
   - **Check met, 2026-11-05,** on macOS 26 on arm64: `tools/ci.sh` passed on the tree of this
     commit. The rename adds no check, so it needs no mutation.
@@ -7527,8 +7527,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `*const RsaKey`. A ticket's `Fields` names `lifetime_seconds`, and `dnssec.Hash.init_digest`
     starts a digest.
   - colibri's own names do not change.
-  - Each options struct gains `context`, one pointer. `tls.quic.Client` grows by 8 octets to
-    101,616 and `tls.quic.Server` to 101,104. The default `server.Engine` grows by 144 octets and
+  - Each options struct gains `context`, one pointer. `tls.quic.Client` grows by 8 bytes to
+    101,616 and `tls.quic.Server` to 101,104. The default `server.Engine` grows by 144 bytes and
     a pool's fixed part by 24. docs/performance.md's table is printed again.
   - **Check met, 2026-11-08,** on macOS 26 on arm64. `zig fmt --check`, `zig build test`, `zig
     build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` passed. The TLS and QUIC
@@ -7544,7 +7544,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
   step 17b, and on 2026-09-28 that 17g goes after 17b. 17h came on 2026-09-30, after 17e, and 17i
   on 2026-10-04, after 17f. The order is 17a, 17c, 17d, 17b, 17g, 17e, 17h, 17f, 17i:
-  - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
+  - **17a**, the server over TCP. It takes bytes tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
     fields, body and trailers.
@@ -7574,7 +7574,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     client offers both and decodes them. `zstd` decoding follows a stdx bump. colibri's package
     exports stdx's `codec`, `gzip`, `zlib`, `zstd` and `brotli`.
     **Check:** the simulator sends coded and uncoded responses through both modules over seeds,
-    and every body arrives octet for octet. curl with `--compressed` and Go's client decode the
+    and every body arrives byte for byte. curl with `--compressed` and Go's client decode the
     server's coded responses, and the client decodes coded responses from Go's server and h2o.
     Each rule of decision 101 has a mutation that a test catches.
   - **17f**, what a dependent reads: an example of each module, docs/usage.md, and a release.
@@ -7614,8 +7614,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **17a, 2026-09-27.** `src/server/` is the `server` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`.
-  - A `Connection` serves one TCP connection. `receive(input, now_ns)` takes the octets the
-    transport read and returns at most one event: a request's head, octets of its content, its
+  - A `Connection` serves one TCP connection. `receive(input, now_ns)` takes the bytes the
+    transport read and returns at most one event: a request's head, bytes of its content, its
     trailer section, or its cancellation. `send(output, now_ns)` writes what the connection owes,
     sealed over TLS. The caller answers a request by its id with `respond`, `write_body` and
     `write_trailers`, ends one with `cancel`, and asks the connection to end with `shutdown`.
@@ -7630,12 +7630,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - It owes a 100 (Continue) to an HTTP/1.1 or later request that expects one and has content,
     and writes it at the next `receive` or `send` unless the caller answered first (RFC 9110
     §10.1.1).
-  - A connection is 284,360 octets: h2's connection, the TLS session, 33,033 octets of opened
+  - A connection is 284,360 bytes: h2's connection, the TLS session, 33,033 bytes of opened
     plaintext and 49,161 of output.
-  - The first interop run over TLS stalled nghttp's upload of 300,000 octets. The opened plaintext
+  - The first interop run over TLS stalled nghttp's upload of 300,000 bytes. The opened plaintext
     held a frame and one record's plaintext, but a provider opens a record only into room for all
     that follows its header, which RFC 9846 §5.2 bounds by `record_ciphertext_len_max`. When a DATA
-    frame began a record, the record held all of the frame but its last 9 octets, and the next
+    frame began a record, the record held all of the frame but its last 9 bytes, and the next
     record did not fit. The buffer now holds a frame and `record_ciphertext_len_max`, and a test
     that starts DATA frames on a record catches the old size.
   - 70 tests, handshakes against colibri's own client among them, and 83 mutations, each CAUGHT.
@@ -7650,7 +7650,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     146 over TLS. The two it fails are the cases the script names as skipped: RFC 7540 §5.3.1's
     self-dependency, which RFC 9113 §5.3.2 dropped.
   - `tools/h2_server_interop.sh --tls`: curl 7.88.1, nghttp2 1.52.0 and Go 1.27.1 each sent 64
-    GETs on one connection and a POST of 300,000 octets, and each request ended with 200, in
+    GETs on one connection and a POST of 300,000 bytes, and each request ended with 200, in
     cleartext and over TLS. A Go client offering TLS 1.2 alone read the server's
     protocol_version alert.
   - `tools/h11_server_interop.sh --tls`: curl 7.88.1 and Go 1.27.1 did the same over h11, in
@@ -7681,7 +7681,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     that the caller cancelled. A cancel while the content is going out ends the connection.
   - The client adds Host in h11 and Content-Length, and refuses a request that names either, or a
     connection-specific field (RFC 9113 §8.2.2), so a request means the same in every version.
-  - A connection is 285,768 octets, and an exchange 152.
+  - A connection is 285,768 bytes, and an exchange 152.
   - Building it found an h2 defect. `write_request` opened its stream, and each writer declared its
     HPACK block, before the output was known to hold the frames (`3f6e609`).
   - 47 tests and 47 mutations, each CAUGHT. A 48th named the handshake's room check, which no call
@@ -7694,7 +7694,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   put them:
   - `tools/h2_interop.sh --tls`: against Go 1.27.1, nghttpd 1.52.0 and h2o 2.2.5, every exchange
     ended as planned, in cleartext and over TLS, on one connection and on 64. The plan is a GET, a
-    GET of 1 MiB, a POST of 300,000 octets that Go echoes, an interim response, trailers and a 404.
+    GET of 1 MiB, a POST of 300,000 bytes that Go echoes, an interim response, trailers and a 404.
     The client that pins another root sent the alert Go read as `unknown certificate authority`.
   - `tools/h11_interop.sh --tls`: against Go 1.27.1 and h2o 2.2.5, the same over h11, in
     cleartext and over TLS: Go's ALPN chose h11, and the client offered only h11 to h2o.
@@ -7703,17 +7703,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **17c, a request's content with no copy, 2026-10-30**
   ([#105](https://github.com/c4milo/colibri/issues/105)). Over h11, `send` writes a request's
   content from the program's memory into its `output`, and over TLS it seals the content from
-  there. Before, each octet went through the connection's own output first.
-  - Over TLS, the octets that fill the head's record are still copied, so a small content goes out
+  there. Before, each byte went through the connection's own output first.
+  - Over TLS, the bytes that fill the head's record are still copied, so a small content goes out
     in the record of its head.
-  - h11 counts the octets with `count_body` (decision 95), and the body ends after its last octet.
+  - h11 counts the bytes with `count_body` (decision 95), and the body ends after its last byte.
   - h2 in cleartext does the same through `h2.Connection.write_data_header` (decision 138), a
     new public name the client needs: h2 writes each DATA frame's header, and the data follows it
     from the program's memory. h3 needs no change: QUIC reads the content from the program's
     memory into each packet (decision 57).
   - The TCP trace run took a cleartext send's plaintext from what the client staged in its
-    output. It now takes the octets the send handed out, which hold the content too.
-  - The change removes a copy of each content octet in cleartext. Over TLS it also removes the
+    output. It now takes the bytes the send handed out, which hold the content too.
+  - The change removes a copy of each content byte in cleartext. Over TLS it also removes the
     move of the output's rest after each record that `send` sealed. A probe sent a 4 MiB PUT under
     callgrind and counted fewer instructions both ways. Its numbers are a laptop's and are not
     published (decision 32).
@@ -7727,11 +7727,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Decision 139 adds `writable_len` and `encrypt_parts` to `tls_provider.VTable`, and the client's
   h2 seals each DATA frame's header and its data from the program's memory.
   - Each frame over TLS takes at most one record's plaintext, its header included. A frame of
-    16,384 octets of data would pass a record by 9 octets, and cost a record of 9 octets.
+    16,384 bytes of data would pass a record by 9 bytes, and cost a record of 9 bytes.
   - The DATA frame that fills the record of the request's head is still copied, as h11 copies.
   - The client trace's census moved: 347 responses to 345, 52 failed to 53 and 49 cancelled to
     50. A send now fills the caller's segment, not only what the connection's output holds, so
-    the octets reach the server at other instants. In seeds 0x9d and 0xab a connection breaks
+    the bytes reach the server at other instants. In seeds 0x9d and 0xab a connection breaks
     before a response arrives. `tools/client_trace.sh` found each of the 68 traces a behavior of
     the model.
   - Six new tests and ten mutations. A record fill that counts the handshake's records was NOT
@@ -7768,9 +7768,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A TCP response's Alt-Svc over TLS teaches the origin h3 on its host (RFC 7838 §3) for its next
     connection, and `alternative()` hands it to the caller to keep. RFC 7838 and RFC 9460 joined
     `docs/rfcs/` (`31091af`).
-  - A `Channel` is 987,216 octets: a QUIC connection of 700,472 and a TCP one of 285,928. The
+  - A `Channel` is 987,216 bytes: a QUIC connection of 700,472 and a TCP one of 285,928. The
     caller places the QUIC connections' receive pool beside it (decision 61), sized with
-    `ReceivePool`: 1,505,288 octets for the default 1 MiB of capacity, and 377,504 for 66,560.
+    `ReceivePool`: 1,505,288 bytes for the default 1 MiB of capacity, and 377,504 for 66,560.
     Every window the client advertises follows the pool's capacity (RFC 9000 §4.1).
   - Decision 105's model, `spec/tla/client_exchanges` (`10352d2`), holds in 4 scopes, 3.2 million
     states in all, and each of its 6 rules turned off finds a violation.
@@ -7798,11 +7798,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     UDP socket every QUIC connection shares and one TCP socket at a time.
     `tools/channel_interop.sh` runs it three times on an Apple M1 Pro, macOS 26.6.2:
     - Against aioquic 1.3.0 and quic-go `9d085cc`, the QUIC Interop Runner's image pinned by
-      digest: each fetched 1,000, 100,000 and 1,000,000 octets with matching CRC-32s, sent a POST
-      of 300,000 octets whole, and read a 404. Every exchange ran over h3, and TCP never opened.
+      digest: each fetched 1,000, 100,000 and 1,000,000 bytes with matching CRC-32s, sent a POST
+      of 300,000 bytes whole, and read a 404. Every exchange ran over h3, and TCP never opened.
     - Against Go 1.27.1's server over TLS, which listens on TCP alone: QUIC opened, TCP opened once
       the 250 ms fallback delay passed, and h2 carried a GET, a GET of 1 MiB and a POST of 300,000
-      octets that Go echoed.
+      bytes that Go echoed.
     - The whole script took 7.7 s. The fallback run waits about 3 s for the abandoned QUIC
       connection's closing state, which lasts three PTOs (RFC 9000 §10.2).
   - Mutations of the channel mode, each CAUGHT: the script catches offering no h3, reporting every
@@ -7819,20 +7819,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **17b, the server over QUIC, 2026-09-28.**
   - The server reports a request `done` once its response's memory is the caller's again
-    (decision 103, `0fb5878`). h11 and h2 copy the octets, so a request is done after the call
+    (decision 103, `0fb5878`). h11 and h2 copy the bytes, so a request is done after the call
     that writes its last one, and `receive` reports it before it reads more.
   - `QuicConnection` (`c533709`) serves h3 over one QUIC connection with the TCP connection's calls
-    and events, in the shape the owner chose on 2026-09-28. `write_body` sends the caller's octets
+    and events, in the shape the owner chose on 2026-09-28. `write_body` sends the caller's bytes
     from where they are and keeps only each DATA frame's header. A request is `done` once the peer
-    acknowledged every octet of its response (RFC 9000 §3.1), and `cancelled` once either side
+    acknowledged every byte of its response (RFC 9000 §3.1), and `cancelled` once either side
     reset its stream. A request no record can hold is refused with H3_REQUEST_REJECTED.
   - `Endpoint` (`ba34897`) holds up to a build-time number of connections behind the caller's UDP
     socket. It routes each datagram by its first packet's Destination Connection ID (RFC 9000
-    §5.2), starts a connection from a client's first Initial of at least 1,200 octets, and answers
+    §5.2), starts a connection from a client's first Initial of at least 1,200 bytes, and answers
     Version Negotiation and Retry itself. `send` writes what the endpoint owes, and `ended` hands
     back each connection that is over. A connection issues spare connection IDs once its handshake
     is confirmed, and validates a client's new path.
-  - A `QuicConnection` is 716,128 octets. An `Endpoint` of the default 16 connections, each with a
+  - A `QuicConnection` is 716,128 bytes. An `Endpoint` of the default 16 connections, each with a
     receive pool of 1 MiB, is 35,553,376.
   - §9's UDP endpoint takes `h3`, which serves h3 alone through `server.Endpoint`, over an instance
     of `server` built on `tls_keylog` (§3). It answers a GET of a file in its directory with the
@@ -7856,7 +7856,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     clients of colibri, quic-go, ngtcp2, neqo and quinn, and colibri's client passed it against
     the four servers.
   - `tools/quic_aioquic.sh`: aioquic 1.3.0's h3 client fetched files of 1,000, 100,000 and
-    3,000,000 octets from the `h3` mode, each octet for octet. Two handshakes that offered another
+    3,000,000 bytes from the `h3` mode, each byte for byte. Two handshakes that offered another
     ALPN each ended with the server's CONNECTION_CLOSE carrying 0x178.
   - `tools/quic_udp.sh`: colibri's h3 client fetched the same three files from the `h3` mode, and
     a missing one was answered 404. The mode refused a client that offered hq-interop alone, and
@@ -7864,7 +7864,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/h3load.sh`: h2load from nghttp2 1.70.0 sent 1,000 GETs over 10 connections to the `h3`
     mode, and each ended with a 2xx.
   - Mutations of the `h3` mode, each CAUGHT by `tools/quic_udp.sh`: a missing path answered 200, a
-    file left uncounted, a run with `once` that never ends, content one octet short, and a failed
+    file left uncounted, a run with `once` that never ends, content one byte short, and a failed
     connection that does not end the run.
   - `tools/h2_server_interop.sh --tls nghttp`: nghttp 1.52.0 read one ALTSVC frame naming h3 on
     port 8443 over TLS, and none in cleartext. `tools/h11_server_interop.sh --tls curl`: curl
@@ -7911,7 +7911,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server's order breaks a tie. A value the grammar refuses leaves the response uncoded.
   - `server.Config` and `server.QuicConfig` gain `codings` and `encoders`, and `Response` gains
     `codable`, false unless the caller sets it. `EncoderPool(count, level)` holds the encoders,
-    each with a ring of `encoder_ring_len` coded octets, 64 KiB (the owner's ruling of
+    each with a ring of `encoder_ring_len` coded bytes, 64 KiB (the owner's ruling of
     2026-09-28). `DefaultEncoderPool` has 4 at level 6. A response takes a slot when its head goes
     out coded, and gives it back when its end is written (h11, h2) or acknowledged (h3), when it
     is cancelled, or when its connection ends.
@@ -7923,14 +7923,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     holds after the caller's last call, and ends the content once the encoder has finished. h3
     frames each run the encoder writes as DATA, which QUIC reads in place, and `receive` frees
     what the peer acknowledged and lets the encoder finish. A full ring makes `write_body` return
-    `Blocked`, and a trailer section waits, with `Blocked`, until the coded octets before it are
+    `Blocked`, and a trailer section waits, with `Blocked`, until the coded bytes before it are
     out.
   - Mutations: 62, each CAUGHT. On the first run 8 were NOT CAUGHT:
     - Three got a test each: an element with no coding, a second `*`, and a parameter other than
       `q`.
     - h3's limit on a response's runs got a test whose interim heads fill them.
     - A fourth decimal's check went, because the comma rule already refuses one.
-    - The end written with no octets was dead code, since gzip and zlib end with a trailer. It
+    - The end written with no bytes was dead code, since gzip and zlib end with a trailer. It
       became an assertion, which uncovered the release it had masked.
     - A second give-back at a stream's close masked the one at `done`. It went, and a test keeps
       a request open past its response.
@@ -7967,14 +7967,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     2026-09-29. The plan draws each side's codings, and for each exchange its method, its caller's
     own Accept-Encoding, the server's mark, the status, the content and the body memory. Each seed
     runs twice in the same pieces and once whole, and each exchange must end as decision 101 says,
-    with its body octet for octet.
+    with its body byte for byte.
   - Over its 32 seeds: 82 exchanges, 19 decoded, 4 passed on coded, and 8 too large. The census
     CRC-32, 0x69460a6e, is the same in Debug and ReleaseSafe.
   - `zig build test` passed: 2323 of 2323 tests.
 
   **17e part 4, interop, 2026-09-29.** The test-only server and client take `--coded`. The server
   codes its fixed answer in gzip or deflate, and echoes stay as they arrived, so the HTTP Garden
-  sees the same octets. The client offers both codings and decodes, and names the coding it
+  sees the same bytes. The client offers both codings and decodes, and names the coding it
   removed in its report. Go's test server takes `-gzip`, and h2o's configuration turns on
   `compress` over a 64 KiB text file.
 
@@ -7986,7 +7986,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `--compressed` got gzip and decoded it to the body, and every one of Go 1.27.1's 65 requests
     came back coded in gzip, in cleartext and over TLS.
   - `tools/h2_interop.sh --tls` and `tools/h11_interop.sh --tls`: the client decoded Go's gzip
-    answers, `/` and the 1 MiB `/large`, and h2o 2.2.5's gzip `/text.txt`, octet for octet, on one
+    answers, `/` and the 1 MiB `/large`, and h2o 2.2.5's gzip `/text.txt`, byte for byte, on one
     connection and on 64, in cleartext and over TLS.
   - Mutations: 93, each CAUGHT: 62 of the server's rules and 31 of the client's.
 
@@ -7997,7 +7997,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `client.ZstdDecoderPool(count)` and `client.BrotliDecoderPool(count)` hold stdx's decoders.
     The caller places each pool, resets it with the CPU features its decoders run on, and gives a
     configuration its `storage()` as `zstd_decoders` or `br_decoders`. A `zstd` decoder is
-    8,683,024 octets and a `br` one 19,483,040. A configuration names each coding once at most,
+    8,683,024 bytes and a `br` one 19,483,040. A configuration names each coding once at most,
     each with its pool, and gives no pool for a coding it does not name.
   - Each request offers, in the configuration's order, each coding whose pool has a decoder free,
     and takes that decoder. A head that waits, for room or for the server's stream limit, offers
@@ -8006,14 +8006,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     decodes a response only in one of them.
   - A `zstd` decoder starts again after each frame (RFC 8878 §3.1), and a frame whose window
     passes 8 MB fails its response (RFC 9659 §3). A `br` stream ends with its last meta-block (RFC
-    7932 §9.2), so an octet after it fails the response. Content that ends inside a frame or a
+    7932 §9.2), so a byte after it fails the response. Content that ends inside a frame or a
     stream fails it too.
   - The client module imports stdx's `zstd` and `brotli`, and no longer `gzip` and `zlib`, which
     only its tests import.
-  - Each exchange's slot grows by 88 octets, for the handles of its `zstd` and `br` decoders and
+  - Each exchange's slot grows by 88 bytes, for the handles of its `zstd` and `br` decoders and
     the codings its offer named: 1,408 per connection, which `docs/performance.md`'s table shows.
   - The tests decode the fixtures in `src/client/coding_fixtures/`, which zstd 1.5.7 and brotli
-    1.2.0 wrote, in pieces of 1 octet, of 7 and whole, over h11, h2 and h3.
+    1.2.0 wrote, in pieces of 1 byte, of 7 and whole, over h11, h2 and h3.
   - Before the mutations ran, four tests went in for rules that others masked. An exchange's end
     gives every decoder back, which would cover a head that kept them, so one test counts each
     pool between the head and the content. The others: a head that waits for the server's stream
@@ -8029,7 +8029,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   run them:
   - `tools/h2_interop.sh --tls` and `tools/h11_interop.sh --tls`, with the test client's `--coded`
     offering `br, zstd;q=0.9, gzip;q=0.8, deflate;q=0.7`: the client decoded h2o 2.2.5's `br` and
-    Caddy 2.6.2's `zstd` of the 65,536-octet `/text.txt` octet for octet, in cleartext and over
+    Caddy 2.6.2's `zstd` of the 65,536-byte `/text.txt` byte for byte, in cleartext and over
     TLS, and Go 1.27.1's `gzip` answers as before. A run of 64 connections, which share two
     decoders of each coding, ended every exchange with a response read whole.
   - h2o 2.2.5 codes nothing for a token that carries a weight: `br;q=0.9` gets an uncoded answer,
@@ -8084,12 +8084,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `body` event.
   - Deliberate breaks of the examples: 13, each CAUGHT by `zig build examples`. For
     `tls_exchange`: the server never reports `done`, the server answers another status, the client
-    keeps no wanted field, the client drops the last octet of content, the link drops an octet,
+    keeps no wanted field, the client drops the last byte of content, the link drops a byte,
     the client asks for another server name, and the client never shuts the connection down,
     after which both sides sleep until the server's deadline and the example gives up. For
     `h3_exchange`: the server answers another status, the endpoint never hands back an ended
-    connection, the client keeps no wanted field, the client drops the last octet, the link
-    changes an octet of each datagram, and the client offers another ALPN token.
+    connection, the client keeps no wanted field, the client drops the last byte, the link
+    changes a byte of each datagram, and the client offers another ALPN token.
   - Mutations of decision 115's tests: 10, each CAUGHT. A call made public again on each of the
     six types, a file exported again from each root, and an alias dropped from each root. Each
     test names the declaration, as in `public and not listed: write_owed`.
@@ -8111,7 +8111,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test` passed: 2628 of 2628 tests.
 
   **17f check,** run on macOS 26.6.2 arm64 on 2026-10-04:
-  - `zig build examples`: the four programs each printed that every octet arrived as sent.
+  - `zig build examples`: the four programs each printed that every byte arrived as sent.
   - `tools/doc_snippets.sh`: every Zig block of README.md, docs/usage.md and examples/README.md
     is an excerpt of code that runs.
   - `tools/consumer_check.sh`: the dependent project built and ran `server` and `client`.
@@ -8133,7 +8133,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A 100 that finds no free run among its response's runs stays owed until the peer acknowledges
     one, and delays no other request.
   - `server.QuicConnection` gains no call and the root no name, so the lists of step 17f are
-    unchanged. A `QuicConnection` is 721,384 octets, 256 more: each of its 32 request records
+    unchanged. A `QuicConnection` is 721,384 bytes, 256 more: each of its 32 request records
     holds `continue_owed`.
   - docs/usage.md says when the server writes the 100, in every version, and how a program
     answers first.
@@ -8158,7 +8158,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The caller's answer: `respond` clearing nothing, or told of no status; any interim status,
       or any status, clearing `continue_owed`; and a refused 100 left owed.
     - The stream's end: never read; read as its opposite; a known final size alone; "Data Read"
-      alone; an unknown final size; and octets still to read taken for the end.
+      alone; an unknown final size; and bytes still to read taken for the end.
     - Room: a 100 with no room dropped, or left off the connection's `continue_owed`; and the
       test for no room inverted.
     - `continue_owed` itself: the connection's never cleared, or cleared after the pass; `start`
@@ -8173,7 +8173,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 131 of 131 steps and 2604 of 2604 tests passed.
   - `tools/quic_aioquic.sh`: aioquic 1.3.0's client read a response head with status 100, 0.002 s
     after it sent the request's head and with no content sent. The files of both directions
-    arrived octet for octet, as before.
+    arrived byte for byte, as before.
   - `tools/quic_udp.sh`: colibri's client fetched the three files from the `h3` mode, and each
     connection's qlog files passed `tools/qlog_check.py`.
   - `tools/h3spec.sh`: h3spec 0.1.13 passed 49 of 49 against the `h3` mode.
@@ -8182,7 +8182,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **h2 reads the caller's fields where they are, 2026-10-12.** The h2 half of `server.Connection`
   copied the fields a caller passes to `respond` and `write_trailers` into an array of
   `h2.hpack.Field`, a second type with the same two slices as `http.Field`. The array holds
-  `field_count_max` lines, 4,096 octets, and ReleaseSafe fills an `undefined` local with 0xAA on
+  `field_count_max` lines, 4,096 bytes, and ReleaseSafe fills an `undefined` local with 0xAA on
   every call, so each response paid for the whole fill whatever it carried. `hpack.Field` is now
   `http.Field`. The module graph already gave `hpack` the `http` module, the name stays on
   hpack's list, and a struct literal that built one still builds it. The h2 half checks the count
@@ -8192,12 +8192,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed:
   - The copy stays in `connection_h2_fields_test.zig` as the reference. `respond` and
-    `write_trailers` must return what h2 returns for the copy and send the same octets, at every
+    `write_trailers` must return what h2 returns for the copy and send the same bytes, at every
     count of lines from none to one past `field_count_max`. Two more tests hold the order of the
     checks: an id that names no stream is refused before its lines are counted, and a section
     refused for its count leaves the reply h2 owes unwritten.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - 9 mutations, each **CAUGHT**: the limit one line low, or one line high; the count left out of
     `respond`, or of `write_trailers`; a response without its last line, or a trailer section
     without its first; the count taken before the id is judged, in each call; and what h2 owes
@@ -8217,23 +8217,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   No input loses. On h2-many the server's user instructions per request fell by 943 in both
   jobs, where the disassembly gave about 940: the test server's `memset` runs 7 instructions for
-  each 32 octets. A program that links compiler_rt's `memset` paid a store for each octet of the
+  each 32 bytes. A program that links compiler_rt's `memset` paid a store for each byte of the
   same fill (docs/performance.md, "Pitfalls this tree has paid for").
 
   **A connection's start stores the session's tag alone, 2026-10-12.** `Connection.init` wrote
-  `connection.session = .none`, and Zig 0.16 stores a union constant over every octet of the
-  union: a zero fill of 163,392 octets, the size of `h2.Connection` and the tag, for each
-  connection accepted. `.{ .none = undefined }` stores the tag's octet. `.none` has no payload,
+  `connection.session = .none`, and Zig 0.16 stores a union constant over every byte of the
+  union: a zero fill of 163,392 bytes, the size of `h2.Connection` and the tag, for each
+  connection accepted. `.{ .none = undefined }` stores the tag's byte. `.none` has no payload,
   every read of the session goes through its tag, and `open_session` writes the payload it
-  switches to, so no read finds an octet the fill used to write. The octets under the union now
+  switches to, so no read finds a byte the fill used to write. The bytes under the union now
   hold what the slot's last connection left until `open_session` writes over them, where each
   accept zeroed them before. Nothing copies, compares or logs a whole connection.
 
   What each check printed:
   - The disassembly of the server `bench/run.sh` builds no longer calls `memset` over 163,392
-    octets where a connection starts.
+    bytes where a connection starts.
   - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
-    `--h3-trace-write` wrote the same octets before and after the change.
+    `--h3-trace-write` wrote the same bytes before and after the change.
   - 2 mutations, each **CAUGHT**: `init` leaving the session of the connection's last use, and
     `init` opening h11 before a protocol is chosen.
 
@@ -8252,7 +8252,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-one the server's user instructions per connection fell by 35,740 in the
   first job and by 35,773 in the second, where the disassembly gave 35,767. A connection over
   TLS saves the same count, which is 0.47% of what it costs and under the floor. `open_session`
-  still fills the payload it switches to with 0xAA, 163,384 octets for h2: that is ReleaseSafe's
+  still fills the payload it switches to with 0xAA, 163,384 bytes for h2: that is ReleaseSafe's
   fill of `undefined`, and this change leaves it.
 
   **A request's regular lines are counted from its pseudo-headers, 2026-10-13.** The h2 half
@@ -8267,7 +8267,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `connection_h2_fields_test.zig` holds the count to `Fields.of`: for each set of
     pseudo-headers h2 admits, in two orders, with none to three regular lines; and for a trailer
     section of two lines and of none.
-  - The four traces wrote the same octets before and after the change.
+  - The four traces wrote the same bytes before and after the change.
   - 6 mutations, each **CAUGHT**: the count leaving out `:method`, `:authority` or `:path`, or
     taking `:scheme` for `:authority`; a trailer section skipping its first line; and the
     assertion reading the first line of an empty trailer section.
@@ -8296,7 +8296,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - An h2 test requires a connection with nothing pending to write no reply, after each kind of
     reply goes out: a PING's and a SETTINGS frame's acknowledgments, WINDOW_UPDATEs, a lone
     RST_STREAM, and a GOAWAY.
-  - The four traces wrote the same octets before and after the change.
+  - The four traces wrote the same bytes before and after the change.
   - 2 mutations, each **CAUGHT**: the replies skipped when something is pending, and always
     skipped. 1 mutation **NOT CAUGHT**: nothing skipped, which is the old code.
 
@@ -8316,27 +8316,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The h2 session is made without filling its payload, 2026-10-13.** `open_session` wrote the
   session as `.{ .h2 = undefined }`, and ReleaseSafe fills a payload written as `undefined` with
-  0xAA: 163,384 octets on every h2 connection, the largest cost of one that remained. The owner
+  0xAA: 163,384 bytes on every h2 connection, the largest cost of one that remained. The owner
   ruled on 2026-10-13 for `@setRuntimeSafety(false)` on that one assignment: `make_h2_session`
   holds it alone, so it stores the tag and nothing else. No assertion is turned off; the function
   has none. `h2.Connection.init` then writes every field a read reaches. h11's payload, 35,040
-  octets, was still filled until the record below.
+  bytes, was still filled until the record below.
 
   What each check printed:
   - A new test in h2's `connection_test.zig` inits a connection of each role over storage of
     zeros and over storage of ones, and requires every field at every depth to match but eleven
-    regions read only after they are written: the HPACK tables' octets and entries, the
+    regions read only after they are written: the HPACK tables' bytes and entries, the
     decoder's two scratch buffers, the stream pool's entries (invariant 5), the field block's
     buffer and section, and `send_block`.
   - A new test in `connection_internal_test.zig` runs one h2 exchange (a body, a trailer section,
     a PING, a SETTINGS frame, a stream the peer resets, and a shutdown) over a connection whose
-    storage is filled four ways, and requires the same octets and events from each.
+    storage is filled four ways, and requires the same bytes and events from each.
   - With each TCP endpoint's storage filled with 0x00, and again with 0xFF, before it starts,
     `zig build sim -Drelease -- --deadline-check 65536`, `--tcp-trace-check`,
     `--content-coding-check`, `--deadline-trace-check` and `--connection-check` printed what the
     tree printed with no fill, and `--tcp-trace-write` and `--deadline-trace-write` wrote the same
-    octets. The fill was a patch for those runs alone.
-  - The disassembly of the server `bench/run.sh` builds no longer fills 163,384 octets where a
+    bytes. The fill was a patch for those runs alone.
+  - The disassembly of the server `bench/run.sh` builds no longer fills 163,384 bytes where a
     session is made.
   - 12 mutations, each **CAUGHT**: `init` leaving each of ten fields, its reply queues or its send
     window as the storage held them, and a scratch region left off the test's list. 1 mutation
@@ -8362,7 +8362,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `memset` first among the server's functions. Most of its samples came from `open_session`.
 
   `open_session` wrote the session as `.{ .h11 = undefined }`. So ReleaseSafe filled all 35,040
-  octets of `h11.Connection` with 0xAA on every h11 connection. This fix is the one the owner
+  bytes of `h11.Connection` with 0xAA on every h11 connection. This fix is the one the owner
   ruled for h2 on 2026-10-13. `make_h11_session` stores the tag alone, under
   `@setRuntimeSafety(false)`. `h11.Connection.init` then writes every field that code reads.
 
@@ -8370,16 +8370,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A new test in h11's `connection_init_test.zig` inits a connection of each role over storage
     of zeros, and again over storage of ones. Every field at every depth must match, except five
     regions that code reads only after it writes them. These are the ring of outstanding
-    requests, and the octets and lines of the two field sections.
+    requests, and the bytes and lines of the two field sections.
   - A new test in `connection_internal_test.zig` fills a connection's storage four ways, and
     runs one h11 exchange over each fill. The exchange holds a body, a chunked body with a trailer
     section, two pipelined requests, and a request that asks for the close. The test requires the
-    same octets and events from each fill. The h2 test there now shares its loop.
+    same bytes and events from each fill. The h2 test there now shares its loop.
   - A patch for these runs alone filled each TCP endpoint's storage with 0x00, and again with
     0xFF, before it started. Then five simulator checks printed what the tree printed with no
     fill: `zig build sim -Drelease -- --deadline-check 4096`, `--content-coding-check`,
     `--endpoint-check`, `--tcp-trace-check` and `--deadline-trace-check`. `--tcp-trace-write` and
-    `--deadline-trace-write` wrote the same octets too.
+    `--deadline-trace-write` wrote the same bytes too.
   - 4 mutations, each **CAUGHT** by h11's tests: an `init` that leaves `answered`,
     `outstanding_len`, `decoding` or `scanner` as the storage held it. The server's tests catch
     three of the four and miss `answered`. Each of their exchanges over filled storage starts
@@ -8399,17 +8399,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   No input loses, and each h2 input is within the noise. On h11-one the server's user
   instructions per connection fell by 7,713 in the first job and by 7,682 in the second. The h2
-  record's rate, 35,760 instructions for 163,384 octets, gives about 7,670 for 35,040 octets.
+  record's rate, 35,760 instructions for 163,384 bytes, gives about 7,670 for 35,040 bytes.
 
   **The deadline tables write no entry when a connection starts, 2026-10-18.** The same profile
   put `Connection.init` second among the callers of `memset`. It wrote all 128 entries of the
-  body table and of the send table on every connection: 6,144 and 5,120 octets. A connection
+  body table and of the send table on every connection: 6,144 and 5,120 bytes. A connection
   seldom holds more than a few bodies or held streams. Each table now keeps `written`, the count
   of entries written since `init`, and `init` writes no entry. A body or a held stream takes a
   freed entry first, or else it writes the next entry whole, and every scan stops at `written`.
 
-  `written` adds 8 octets to each TCP connection, because `Bodies` had no padding to hold it.
-  The table in `docs/performance.md` holds the new sizes. At the h2 record's rate, 11,264 octets
+  `written` adds 8 bytes to each TCP connection, because `Bodies` had no padding to hold it.
+  The table in `docs/performance.md` holds the new sizes. At the h2 record's rate, 11,264 bytes
   is about 2,470 instructions a connection: 2.4% of h11-one and 1.7% of h2-one. Each table alone
   is under h11-one's noise, so the owner ruled to judge the two as one change.
 
@@ -8453,7 +8453,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **`respond` leaves an h11 response's lines unfilled, 2026-10-18.** Callgrind counted the
   server's instructions per function under h11-many's load. The server ran on epoll in a Linux
   container on the laptop, so the counts only put the costs in order. The fill of `lines` came
-  first. `respond` declared `lines`, an array of `field_count_max` fields, 4,096 octets, before
+  first. `respond` declared `lines`, an array of `field_count_max` fields, 4,096 bytes, before
   it knew whether `complete` adds a line. So ReleaseSafe filled the array with 0xAA on every
   response.
 
@@ -8462,7 +8462,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   result of the call, so `respond` keeps every other safety check. A probe compiled in
   ReleaseSafe for aarch64 shows a `memset` of 0xAA for the plain declaration and none for the
   call. `complete` writes each line it returns, and `write_response` reads no other. At the h2
-  record's rate, 4,096 octets is about 900 instructions a response: 2.4% of h11-many.
+  record's rate, 4,096 bytes is about 900 instructions a response: 2.4% of h11-many.
 
   What each check printed:
   - A new test in `connection_h11_test.zig` fills an array four ways and gives it to `complete`.
@@ -8494,7 +8494,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **`write_final_head` leaves `with_close` unfilled, 2026-10-20.** h11 adds `close_field` to the
   last final response on a connection when the caller's fields do not carry the close option (RFC
   9112 §9.6). `write_final_head` copied the fields into `with_close`, an array of
-  `field_count_max` fields, 4,096 octets. ReleaseSafe filled the array with 0xAA before the copy.
+  `field_count_max` fields, 4,096 bytes. ReleaseSafe filled the array with 0xAA before the copy.
   wrk sends `Connection: close` in each request of h11-one and h11-tls-one. So each connection of
   those inputs paid for the fill once.
 
@@ -8506,9 +8506,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   The estimate comes from a probe compiled with `zig build-obj -O ReleaseSafe -target
   aarch64-linux-gnu -mcpu=neoverse_n2 -femit-asm`. The plain declaration calls `memset` with 0xAA
-  and 4,096 octets. The call to `unfilled_lines` has no `memset` and no copy of the array. In the
-  probe, the loop of `src/testing/memset.zig` has 8 instructions for each 32 octets. That gives
-  about 1,040 for the fill. The judge measured about 7 for each 32 octets in the h2 records, which
+  and 4,096 bytes. The call to `unfilled_lines` has no `memset` and no copy of the array. In the
+  probe, the loop of `src/testing/memset.zig` has 8 instructions for each 32 bytes. That gives
+  about 1,040 for the fill. The judge measured about 7 for each 32 bytes in the h2 records, which
   gives about 900.
 
   So h11-one saves 900 to 1,040 instructions a connection. That is 0.9% to 1.1% of the 97,809 the
@@ -8544,15 +8544,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   instructions per source line under h11-many's load, in a Linux container on the laptop. The
   counts only put the costs in order. Of the costs of `read_request`, the scan of the head came
   first. `scan` read and wrote each field of the scanner through its pointer. The compiler cannot
-  prove that the scanner and the input do not overlap. So each octet loaded the fields again and
+  prove that the scanner and the input do not overlap. So each byte loaded the fields again and
   stored them again.
 
   The owner ruled on 2026-10-20 for one parser with its state in locals, not for a scan of eight
-  octets at a time. `scan` now copies the fields into a local at its start. A `defer` stores the
-  copy once on each return: a span, a null or an error. The loop reads the octets of the slice
-  that `reader.peek_rest()` gives. `step` returns early for an octet of a field line, after its
+  bytes at a time. `scan` now copies the fields into a local at its start. A `defer` stores the
+  copy once on each return: a span, a null or an error. The loop reads the bytes of the slice
+  that `reader.peek_rest()` gives. `step` returns early for a byte of a field line, after its
   CR and LF checks. Each check, limit and citation stays as it was, and each error comes at the
-  same octet.
+  same byte.
 
   The estimate comes from a probe compiled with `zig build-obj -O ReleaseSafe -target
   aarch64-linux-gnu -mcpu=neoverse_n2 -femit-asm`. The probe compiles `message_scan.zig` with the
@@ -8562,41 +8562,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `read_head` returns. LLVM inlines `step` into `scan` in each build. The table gives the
   instructions of the loop for a request, from each disassembly:
 
-  | Octet or call | Probe, before | Probe, after | Server, before | Server, after |
+  | Byte or call | Probe, before | Probe, after | Server, before | Server, after |
   | --- | ---: | ---: | ---: | ---: |
-  | An octet of the method | 36 | 25 | 41 | 25 |
+  | A byte of the method | 36 | 25 | 41 | 25 |
   | The SP that ends the method | 37 | 25 | 39 | 25 |
-  | Another octet of the start line | 32 | 22 | 34 | 21 |
-  | An octet of a field line | 28 | 16 | 30 | 16 |
+  | Another byte of the start line | 32 | 22 | 34 | 21 |
+  | A byte of a field line | 28 | 16 | 30 | 16 |
   | A CR | 19 | 11 | 21 | 10 |
   | The LF of a line that is not empty | 30 | 18 | 32 | 19 |
-  | The entry of a call with new octets | 24 | 29 | 26 | 30 |
-  | A call with no new octet | 37 | 36 | 42 | 38 |
+  | The entry of a call with new bytes | 24 | 29 | 26 | 30 |
+  | A call with no new byte | 37 | 36 | 42 | 38 |
   | The LF of the empty line, and the return of the head | 37 | 36 | 53 | 37 |
 
-  wrk sends a head of 41 octets on h11-many and h11-tls-many: 3 octets of the method, the SP, 10
-  more octets of the start line, 21 octets of a field line, 3 CRs and 3 LFs. In the probe its scan
+  wrk sends a head of 41 bytes on h11-many and h11-tls-many: 3 bytes of the method, the SP, 10
+  more bytes of the start line, 21 bytes of a field line, 3 CRs and 3 LFs. In the probe its scan
   costs 1,231 instructions before the change and 790 after, 441 fewer. In the server it costs
   1,338 before and 781 after, 557 fewer. So the estimate is 440 to 560 fewer a request on those
-  two inputs. On h11-one and h11-tls-one, a `Connection: close` line adds 19 octets, so the head
-  has 60 octets and the estimate is 670 to 820 fewer a connection.
+  two inputs. On h11-one and h11-tls-one, a `Connection: close` line adds 19 bytes, so the head
+  has 60 bytes and the estimate is 670 to 820 fewer a connection.
 
   That is 1.2% to 1.5% of the 36,633 a request that the judge measured for h11-many in the record
   above. It is 0.9% to 1.1% of h11-tls-many's 51,317, and 0.68% to 0.84% of h11-one's 97,809 a
   connection. The records above give spreads of 3.9 to 5.2% on h11-many and of 3.47% on h11-one.
   So the judge can find the change within the noise. A longer head saves more: 12 to 14
-  instructions for each octet of a field line, and 10 to 13 for each other octet of the start
+  instructions for each byte of a field line, and 10 to 13 for each other byte of the start
   line.
 
   What each check printed:
   - A new file, `message_scan_test.zig`, holds the old `scan` as a reference that only the tests
     compile. Its tests require `scan` to return what the reference returns, and to leave the same
     six fields. Each test reads each input in both roles, at each split into two calls:
-    - each word of up to six octets over CR, LF, SP, 'G', '/' and NUL;
-    - each word of up to three of those octets after each prefix of a request head, before each
+    - each word of up to six bytes over CR, LF, SP, 'G', '/' and NUL;
+    - each word of up to three of those bytes after each prefix of a request head, before each
       of three ends;
-    - inputs at `start_line_len_max` and at `head_len_max`, split within two octets of each limit;
-    - each input of up to two octets, as a fuzz property that `core.fuzz.sweep` runs.
+    - inputs at `start_line_len_max` and at `head_len_max`, split within two bytes of each limit;
+    - each input of up to two bytes, as a fuzz property that `core.fuzz.sweep` runs.
   - The first two tests also require their inputs to give a span, a null, and each error that
     those inputs can cause. The third requires a span and the two limit errors.
   - `zig build test-h11` passed 132 of 132 tests. The h11 tests, built for x86_64 in Debug, passed
@@ -8607,12 +8607,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - each of the six fields not stored, one at a time, and the copy stored only when `scan`
       returns an error;
     - the copy not loaded from `scanner`;
-    - the limit of the start line checked one octet late, and at one octet less;
-    - the limit of the head applied one octet late, and the reader not cut at `head_len_max`;
+    - the limit of the start line checked one byte late, and at one byte less;
+    - the limit of the head applied one byte late, and the reader not cut at `head_len_max`;
     - the method check skipped;
-    - the early return of `step` taken for each octet but NUL, taken one line late, and taken
+    - the early return of `step` taken for each byte but NUL, taken one line late, and taken
       only for NUL;
-    - the loop started one octet early;
+    - the loop started one byte early;
     - `scanned` counted after `step`;
     - the span read from `scanner`, not from the copy.
 
@@ -8674,7 +8674,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | `Checked.add` | 0 | 359 |
   | `response_body` | 193 | 47 |
   | `write_final_head` | 49 | 43 |
-  | The head writer, with the octets it writes | 1,116 | 352 |
+  | The head writer, with the bytes it writes | 1,116 | 352 |
   | All | 1,501 | 867 |
 
   The change removes about 630 instructions a response. The code before this path differs by some
@@ -8687,11 +8687,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed:
   - Two new test files keep the old code as a reference that only the tests compile. The tests
-    require the same octets or the same error from the new code and the reference:
+    require the same bytes or the same error from the new code and the reference:
     - `message_write_test.zig` holds the old head writers. Its tests write each list of up to
       three lines from 25 lines. A response head takes seven statuses and three reasons, and a
       request head takes three methods and two targets. The 25 lines hold each fault, each name
-      that a rule reads, and names one octet away from those names.
+      that a rule reads, and names one byte away from those names.
     - `connection_fields_test.zig` holds the old `write_response` and `write_request`. Its
       tests also require the same state of the connection. They write each list of up to two of
       the 25 lines, and of three lines from eight of them. Each list answers five requests, with
@@ -8774,7 +8774,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   schemas it names depend on whether h3 events go into the same log.
   - `connection_qlog.zig` writes the events. `Connection.init` logs `version_information` and the
     connection's own `parameters_set`. `seal_all` logs each packet it seals as `packet_sent`. The
-    receive walk logs each packet as `packet_received` or `packet_dropped`, with the octets the
+    receive walk logs each packet as `packet_received` or `packet_dropped`, with the bytes the
     walk stepped over as its length. A packet's frames are read a second time from its
     plaintext, and an ACK Delay is scaled by the exponent of the endpoint that sent it (RFC 9000
     §19.3).
@@ -8800,10 +8800,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     all, and the lost packet's number.
   - The simulator check, 2026-09-28. The QUIC connection check runs its five networks again
     with a qlog on each endpoint, and each gives the digest it gives without one, which folds in
-    every datagram's octets. The run takes each endpoint's records after every step, as a caller
+    every datagram's bytes. The run takes each endpoint's records after every step, as a caller
     that writes them to a file would, and fails when an event was dropped. The logs replay too:
-    Debug and ReleaseSafe wrote the same octets with the same digest on each network, 9,786,196
-    octets over the lossy network's 256 seeds, and the test pins each network's length and
+    Debug and ReleaseSafe wrote the same bytes with the same digest on each network, 9,786,196
+    bytes over the lossy network's 256 seeds, and the test pins each network's length and
     digest.
   - 5 mutations, each CAUGHT by `zig build test-sim-run-quic`: the endpoints given no log, a
     dropped event left unreported, the records not taken after a step, and two changes a logger
@@ -8815,7 +8815,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **18c, 2026-09-28.** The UDP endpoint takes `qlogdir=<directory>` in both roles, and each
   connection writes its qlog there, named as main schema §12.1 recommends:
   `<ODCID>_<vantage point>.sqlog` (`udp_qlog.zig`). A connection's buffer of `quic_qlog_len`
-  octets holds one turn's events. The loop writes them to the file after each turn, through libc as
+  bytes holds one turn's events. The loop writes them to the file after each turn, through libc as
   `hq_file.zig` writes a download, and closes the file when the connection ends or the run fails.
   `run_endpoint.sh` passes the runner's `QLOGDIR` to both roles.
   - `tools/qlog_check.py` checks a directory of these files. Each record must be a JSON text
@@ -8842,7 +8842,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `connection_qlog.zig` logs `stream_type_set` for each stream colibri or the peer opens, the
     SETTINGS frame each side sends with `parameters_set` for each, and `frame_created` and
     `frame_parsed` for HEADERS with their field lines, DATA, GOAWAY, MAX_PUSH_ID, CANCEL_PUSH and
-    reserved or unknown frames. A field line is text when printable ASCII and octets otherwise
+    reserved or unknown frames. A field line is text when printable ASCII and bytes otherwise
     (h3-events §4.2.2). The UDP endpoint's h3 connections write into their QUIC connection's
     file, which names both event schemas.
   - 7 tests in `connection_qlog_test.zig` and 4 in `qlog/h3_event.zig`. 21 mutations, each CAUGHT
@@ -8884,7 +8884,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Cost, as user CPU time on an Apple M1 Pro. `zig build test-sim-run-quic` took 2.41 s in
     ReleaseSafe at a5a97d2, 2.57 s with stdx's writer, and 2.79 s with the check; in Debug, 15.3,
     16.7 and 18.8 s. The logged runs write 36.7 MB, so stdx's writer costs about 4 ns more per
-    octet in ReleaseSafe. The check added 1.2 s to the 71.5 s of `zig build test-sim-run` in
+    byte in ReleaseSafe. The check added 1.2 s to the 71.5 s of `zig build test-sim-run` in
     Debug.
 
   **18b and 18d, stdx's features, 2026-09-28.** stdx is pinned at f647da1, whose JSON writer and
@@ -8892,7 +8892,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   as amended rules, `qlog.Log.init(buffer, features)` takes them from its caller, and `qlog`
   imports stdx's `codec` for the type, which it exports as `qlog.Features`. The simulator and the
   unit tests pass `Features.none()`, and the UDP endpoint passes `Features.detect()`.
-  - The records are the same octets for every value (stdx's invariant 5). Every byte-exact test
+  - The records are the same bytes for every value (stdx's invariant 5). Every byte-exact test
     and the simulator's pinned logs and event counts hold, and `zig build test` passed 2,244 of
     2,244. `tools/quic_udp.sh`: 4 files, 17,335 events, each record a JSON text.
     `tools/consumer_check.sh` passed.
@@ -8905,7 +8905,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   diagnosing [#78](https://github.com/c4milo/colibri/issues/78) took captures for. The first
   address a connection's log meets is tuple 0, which quic-events §4.7 makes the default, and its
   events name none. Each new address takes the next number, and `quic:tuple_assigned` names it,
-  with the address's octets and port when it is IPv4 or IPv6 (§4.7, §8.4, §8.5). colibri knows
+  with the address's bytes and port when it is IPv4 or IPv6 (§4.7, §8.4, §8.5). colibri knows
   the peer's half of a tuple alone (`connection_qlog_tuple.zig`).
   - 7 tests: 4 in `connection_qlog_tuple.zig`, one in `connection_migration_test.zig`, where a
     server follows its client to a new port and its challenge to the previous path names tuple 0,
@@ -8938,12 +8938,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **18b and 18d, many tokens a call, 2026-09-29.** stdx is pinned at c134f2c, and `qlog` hands
   each record's tokens to stdx's `write_items` in lists (decision 102 as amended). `batch.zig`'s
   `Batch` has `TextWriter`'s calls, so the event writers changed only the type they name. It
-  copies each name's, string's and hex string's octets as it takes them, and writes octets longer
+  copies each name's, string's and hex string's bytes as it takes them, and writes bytes longer
   than its buffer at once.
-  - Every byte-exact test and the simulator's pinned logs hold, so the records are the same octets.
+  - Every byte-exact test and the simulator's pinned logs hold, so the records are the same bytes.
     `zig build test` passed 2,327 of 2,327, and so did `tools/quic_udp.sh` and
     `tools/consumer_check.sh`.
-  - 4 tests in `batch.zig`, and 4 mutations, each CAUGHT by `zig build test-qlog`: octets not
+  - 4 tests in `batch.zig`, and 4 mutations, each CAUGHT by `zig build test-qlog`: bytes not
     copied, a long string written before what came earlier, the copies never freed, and items
     written past their array.
   - `zig build test-sim-run-quic` in ReleaseSafe on an Apple M1 Pro, as user CPU time over five
@@ -8994,7 +8994,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     tag chapulin refuses to write is `Unsupported`, where it was `unreachable`. The pin stays at
     `10a5bc8`, which derives version 1's keys alone.
   - The null suite folds a version other than 1 into every key's name and into the Retry tag's, so
-    version 1's octets are unchanged and a version 2 packet opens under version 2's keys alone.
+    version 1's bytes are unchanged and a version 2 packet opens under version 2's keys alone.
   - `quic` passes version 1 where it seals, opens, and checks or writes a Retry tag. Its test
     suites refuse any other version, so a caller that names the wrong one fails a test.
 
@@ -9020,7 +9020,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed, on macOS arm64:
   - `zig build test`: 2342 of 2342 tests. RFC 9369 Appendix A's headers of both Initials and of
-    the Retry, octet for octet, and the Retry read back into its fields.
+    the Retry, byte for byte, and the Retry read back into its fields.
   - 9 mutations, each **CAUGHT**: version 2's type bits written or read as version 1's, byte 0
     carrying version 1's bits, the reader handing version 2 over as another version, either
     header writing version 1's Version field, and each of the three places a version 2 packet is
@@ -9029,8 +9029,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **19b, the keys, 2026-09-29.** chapulin `3f775fa` derives version 2's keys, lets a client
   switch once and a server choose the negotiated version, and binds tickets and Retry tokens to
   their version (its decision 79). colibri pins it.
-  - RFC 9369 Appendix A's client Initial, server Initial and Retry seal, open and check octet for
-    octet through `tls.quic`'s suite, from a session that starts in version 2. A client starts in
+  - RFC 9369 Appendix A's client Initial, server Initial and Retry seal, open and check byte for
+    byte through `tls.quic`'s suite, from a session that starts in version 2. A client starts in
     the version its configuration names, version 1 unless it names another (RFC 9368 §2.5).
   - The Retry token members take the original version, as the tag members do (RFC 9369 §4.1),
     and the null suite folds a version other than 1 into its token.
@@ -9054,7 +9054,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   receive, and every connection still runs version 1.
   - `transport_parameters` writes and reads the parameter, 0x11 (§10.1). The reader refuses what §4
     calls a parsing failure with TRANSPORT_PARAMETER_ERROR, as version 1 requires: a value shorter
-    than four octets or not a multiple of four, a version of zero, and a client's Chosen Version
+    than four bytes or not a multiple of four, a version of zero, and a client's Chosen Version
     missing from its Available Versions. A repeat is refused, as for any known parameter.
   - A peer's list is bounded only by the parameter's length, so the reader checks every entry and
     keeps the first `version_information_versions_max`, 16. A Chosen Version listed past them
@@ -9065,7 +9065,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server that chose a version the client never listed. A peer that sent none passes (§4).
   - qlog's `version_information` event moved to 19d. It names version 1 alone today, and names
     both once the lists do.
-  - Every handshake carries ten more octets, so the simulator's census digests moved and its
+  - Every handshake carries ten more bytes, so the simulator's census digests moved and its
     datagram, packet and loss counts did not. Both build modes gave the new digests.
 
   What each check printed, on macOS arm64:
@@ -9099,7 +9099,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 2376 of 2376 tests.
   - 14 mutations, each **CAUGHT**: a server's switch succeeding; a session not started
     switching; the suite switching nothing, or swallowing chapulin's refusal; the null suite
-    letting a server switch, a client switch twice, after the server's CRYPTO octets, or to the
+    letting a server switch, a client switch twice, after the server's CRYPTO bytes, or to the
     negotiated version; its switch not remembered or blind to the Handshake keys; the Initial
     level forgetting the original version, or every level admitting it; and seal or open ignoring
     the version.
@@ -9112,7 +9112,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and advertising the newer (RFC 9368 §2.5). A server lists the versions it accepts, version 1
     alone until the next part.
   - A client switches at the first long header in another version it listed, before that packet
-    opens, until it switched or read a CRYPTO octet from the server. A server is settled from the
+    opens, until it switched or read a CRYPTO byte from the server. A server is settled from the
     start. A Handshake or 1-RTT packet in any version but the negotiated one is dropped, and so is
     an Initial in neither version, as `other_version`, which qlog names `unsupported`. The walk
     goes on past it, since both versions share the long header's layout.
@@ -9288,7 +9288,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       behaviors of it, as `tools/deadline_trace.sh` does for h2.
 
     The second part logs only what maps one to one, at the owner's ruling of 2026-10-09. colibri
-    counts octets and the model units and packets, its congestion window grows with each
+    counts bytes and the model units and packets, its congestion window grows with each
     acknowledgment while the model's is fixed, and its receive windows grow too (decision 49),
     so no run can match the model state for state.
     - A run, `h3_deadline_trace_*.zig`, acts out a seed's plan with the h3 deadline run's peer
@@ -9350,7 +9350,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     changes one connection's limits. Both refuse 0, and a limit past `timeout_ns_max`, a day.
   - `deadline_ns` reports the soonest instant a deadline passes, and `on_instant` ends the
     connection then. `receive` and `send` end it first when their instant is past a deadline, so
-    octets that arrive late are not read. `timed_out` names the deadline that ended it.
+    bytes that arrive late are not read. `timed_out` names the deadline that ended it.
   - A silent or idle h11 connection closes with nothing sent, and a head that began and did not
     end gets a 408 with `Connection: close`. h2 sends GOAWAY with NO_ERROR, or with
     ENHANCE_YOUR_CALM for a field block left unfinished.
@@ -9392,11 +9392,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **The body deadlines, 2026-09-29.** The second part of 20b, after the deadline check's new peers.
   - From the end of a request's head, or from the 100 (Continue) the request is owed, its body
-    must bring `body_rate_min` octets a second over each window of `rate_window_ns`, the first
+    must bring `body_rate_min` bytes a second over each window of `rate_window_ns`, the first
     window taking `rate_grace_ns` more, and must end within `body_timeout_ns`. `server.rate.Meter`
     keeps the windows: one that brings its quota ends where the next starts, so a peer cannot bank
-    octets from one window for the next.
-  - Only a body's own octets count: in h11 what h11 reads of the body, its framing included, and
+    bytes from one window for the next.
+  - Only a body's own bytes count: in h11 what h11 reads of the body, its framing included, and
     in h2 the data of its DATA frames, without their padding.
   - In h11 a body that falls short ends the connection, with a 408 unless its response began. In
     h2 it ends its stream, with a 408 and RST_STREAM with NO_ERROR, or with CANCEL once the
@@ -9419,7 +9419,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the deadlines running on after h11 closes and a stopped meter counting, and a test now
     catches each.
     - The waits: a body's wait never starting, starting before its 100 (Continue), or starting
-      again at each call; h11 or h2 counting no body octets; a body's end, its trailers, the
+      again at each call; h11 or h2 counting no body bytes; a body's end, its trailers, the
       peer's reset or the caller's cancel leaving its deadlines running; and the count of bodies
       that wait left as it was.
     - The bodies together: their meter running with no body, starting again with each body,
@@ -9427,7 +9427,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The cap: never passing, passing a nanosecond late, or left out of `deadline_ns`.
     - The rate: never falling short, or its meter left out of `deadline_ns`; a window at its
       quota taken for short, in `check_ns` or in `short`; the next window keeping the last one's
-      octets; two ended windows not short; the meter starting without its grace period; the quota
+      bytes; two ended windows not short; the meter starting without its grace period; the quota
       rounding down; and `validate` accepting a rate or a grace period of 0.
     - The actions: h2 writing no 408 before a response, or resetting with CANCEL after one; an h2
       stream's deadline owing no `cancelled`, naming the cap for every body deadline, or ending
@@ -9441,27 +9441,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `Config.deadlines`, the clock starting at 0, and h2 never crediting its connection window.
 
   **The send deadlines, 2026-09-29.** More of the second part of 20b, after the check's slow
-  readers and a fix: the idle deadline had started when a response's last octets went into the
+  readers and a fix: the idle deadline had started when a response's last bytes went into the
   output, not when the peer took them, and cut a peer that read a long response slowly.
-  - While the connection holds octets its peer has not taken, the peer must take `send_rate_min`
-    octets a second over each window, as a body brings them. The meter counts what `send` hands
+  - While the connection holds bytes its peer has not taken, the peer must take `send_rate_min`
+    bytes a second over each window, as a body brings them. The meter counts what `send` hands
     out and stops when the output is empty. A peer that takes too little ends the connection: h11
     sends nothing more, and h2 queues a GOAWAY with ENHANCE_YOUR_CALM.
   - In h2 a stream whose response waits on a flow-control window has a meter of its own, which
     counts what the window lets through. It runs only while the output is empty: a client that
     opens its window once it has read what fills it would otherwise be cut, and while the output
-    holds octets the connection's meter judges the peer. When the stream's meter falls short, the
+    holds bytes the connection's meter judges the peer. When the stream's meter falls short, the
     stream is reset with CANCEL and the caller reads `cancelled`. When the connection's window is
     the one that holds it, the connection ends with ENHANCE_YOUR_CALM, a code decision 110 left
     open.
-  - h2 sends no DATA frame shorter than `data_frame_len_min`, 1,024 octets, unless the window
+  - h2 sends no DATA frame shorter than `data_frame_len_min`, 1,024 bytes, unless the window
     holds the whole payload (RFC 9113 §10.5). `server.Config` carries it, the h2 connection takes
     it as a field that is 0 for none, and `DataWritten` now says what held a frame short.
-  - A connection that has ended with octets still to send closes once they are out or
+  - A connection that has ended with bytes still to send closes once they are out or
     `close_linger_ns` after it ended, whichever comes first.
-  - A body arrives a unit at a time, an h2 DATA frame or a TLS record of up to 16,384 octets. A
+  - A body arrives a unit at a time, an h2 DATA frame or a TLS record of up to 16,384 bytes. A
     peer at twice the minimum rate brings one each window only when the window's quota is half a
-    unit or more, as the defaults' 10,240 octets are. `Deadlines` says so, and the check's stricter
+    unit or more, as the defaults' 10,240 bytes are. `Deadlines` says so, and the check's stricter
     plans keep to it; an earlier plan whose windows held no whole frame cut an honest upload.
 
   What each check printed, on macOS arm64 with Zig 0.16.0:
@@ -9471,14 +9471,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     rate; 33 h2 streams cut, and none held open. Debug and ReleaseSafe print the same census.
   - 34 mutations, each **CAUGHT** by `zig build test-h2` and `zig build test-server`. Three were
     **NOT CAUGHT** at first, and a test now catches each: a stream held after its window let a
-    write through, a stream's meter running while the output holds octets, and a stream's octets
+    write through, a stream's meter running while the output holds bytes, and a stream's bytes
     left uncounted.
     - h2's floor: never holding a frame, holding a payload the window holds whole, or holding a
       window at the floor; the connection's window read as the stream's; room read as nothing
       held; and the server setting no floor.
     - The meters: a write a window held not noted; the connection's window noted as the stream's;
       the connection's meter running with an empty output; a running meter starting again at each
-      call; `send`'s octets not counted; the connection's meter never falling short; and
+      call; `send`'s bytes not counted; the connection's meter never falling short; and
       `deadline_ns` leaving out either meter.
     - The actions: a stream the connection's window holds cancelled rather than ending the
       connection; a held stream never cancelled; a cancelled one owing no `cancelled`, or reset
@@ -9516,7 +9516,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     deadlines do, with a second GOAWAY; and `validate` accepting a drain of 0.
 
   **The floor, as amended, 2026-09-29.** h2spec failed six flow-control cases once the floor was
-  in: each sets a window of one octet and waits for a DATA frame of one octet. The owner amended
+  in: each sets a window of one byte and waits for a DATA frame of one byte. The owner amended
   decision 110: the floor applies only while the peer's SETTINGS_INITIAL_WINDOW_SIZE is at least
   the floor.
   - `tools/h2spec.sh 18443 --tls`: 144 of 146 cases in cleartext and over TLS, the two decision
@@ -9616,10 +9616,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **A body's rate and a held WINDOW_UPDATE, 2026-09-30**
   ([#89](https://github.com/c4milo/colibri/issues/89)). Decision 110's fourth amendment. h2 says
-  whether it owes a WINDOW_UPDATE, and the server counts down the octets its output holds ahead of
+  whether it owes a WINDOW_UPDATE, and the server counts down the bytes its output holds ahead of
   the last one it wrote. While either holds one, every body's rate meter and the bodies' shared
   meter stop, and they start again with a grace period once the update is out. The cap on a body
-  keeps running. The count makes a `server.Connection` 8 octets larger, 306,280 in all, as
+  keeps running. The count makes a `server.Connection` 8 bytes larger, 306,280 in all, as
   `docs/performance.md`'s table says, and the reply queue is read only while a body waits.
   - `zig build test`: 131 of 131 steps and 2499 of 2499 tests passed. The deadline check's census
     did not change: none of its runs holds a WINDOW_UPDATE while a body's rate matters.
@@ -9633,10 +9633,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     output, and a written WINDOW_UPDATE not tracked. The test checked that the connection ended on
     the send deadline, and not that the body deadline had cut the stream first. It checks both now.
 
-  **The deadline model in octets, 2026-09-30.** A run of colibri's h2 client and server can be
+  **The deadline model in bytes, 2026-09-30.** A run of colibri's h2 client and server can be
   checked against the model only if the model sends what they send
-  ([#86](https://github.com/c4milo/colibri/issues/86)). It now counts octets as colibri does:
-  - a frame is a header and its payload, colibri's output holds `OutputLen` octets and each
+  ([#86](https://github.com/c4milo/colibri/issues/86)). It now counts bytes as colibri does:
+  - a frame is a header and its payload, colibri's output holds `OutputLen` bytes and each
     direction `ChannelLen`;
   - a DATA frame from colibri is as long as the windows, the floor, the frame size and the room
     allow, as `sendable` has it;
@@ -9660,7 +9660,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   frame, colibri reads one or hands one out, or the application answers or offers content. After
   each action the run offers `write_body` the rest of each response until colibri takes no more,
   since one call writes one DATA frame. It then logs the model's variables, read from the two
-  endpoints and the octets between them, and whether colibri's SETTINGS, body and send clocks
+  endpoints and the bytes between them, and whether colibri's SETTINGS, body and send clocks
   run. TLC checks that each seed's log is a behavior of the model, that each clock runs as the
   model's rules say, and that the model's colibri has no content left to take. A log that stops
   early is still a behavior, so the run also requires each seed to end with every exchange
@@ -9680,9 +9680,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and TLC found the rest of the traces behaviors: the SETTINGS clock never pausing (23 of 32), a
     body's rate running while a WINDOW_UPDATE is held (13), the floor applied before a small
     increment (22), the idle clock starting before the output empties (1), and a held stream's
-    send meter running while the output holds octets (17).
+    send meter running while the output holds bytes (17).
   - Four more stop or slow colibri:
-    - `write_body` taking nothing while the output holds octets: 1 of 32. Without the check that
+    - `write_body` taking nothing while the output holds bytes: 1 of 32. Without the check that
       no content is left, **NOT CAUGHT**: 32 of 32.
     - The server writing no reply it owes: the run fails on seed 0, unfinished. Without the check
       that each seed finishes, **NOT CAUGHT**: 32 of 32.
@@ -9693,22 +9693,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **The rate meter proved, 2026-09-30** ([#87](https://github.com/c4milo/colibri/issues/87)).
   `spec/lean/Colibri/Server/RateMeter.lean` states `rate.zig`'s `Meter` and `deadline.zig`'s
   `quota` as colibri computes them. It also states a peer that sends a body in whole units at a
-  steady rate, each unit arriving at the first nanosecond its last octet is sent. It proves:
+  steady rate, each unit arriving at the first nanosecond its last byte is sent. It proves:
   - the meter's windows: the first ends a grace period and a window after the start, each later
     one follows the one before, and a window that brought its quota gives way at its end with
-    nothing counted, so octets that arrive at a window's end count in the next one;
-  - `arrival_lt_iff` and `arrives_in_iff`: `brought`, the octets a window receives, counts exactly
+    nothing counted, so bytes that arrive at a window's end count in the next one;
+  - `arrival_lt_iff` and `arrives_in_iff`: `brought`, the bytes a window receives, counts exactly
     the units that arrive in it;
   - `never_short_iff`: a peer that sends whole units at twice the rate or more, and starts before
     the grace period ends, brings every window its quota exactly when twice the rate over one
     window is a whole unit or more;
   - `half_unit_quota_short` and `half_unit_and_one_enough`: the bound is on the rate times the
-    window before the quota rounds it up. At 8,192 octets a second over windows of 999,999,999
-    ns, a window owes half of 16,384 octets, and a peer at twice the rate can bring the first
-    window nothing. A quota of half a unit and one octet always suffices.
+    window before the quota rounds it up. At 8,192 bytes a second over windows of 999,999,999
+    ns, a window owes half of 16,384 bytes, and a peer at twice the rate can bring the first
+    window nothing. A quota of half a unit and one byte always suffices.
 
   The note on `Deadlines` said a quota of half a unit was enough, and now states the proved bound.
-  The defaults, 10,240 octets over 10 s, and the simulator's `window_quota_min` of 9,216 octets are
+  The defaults, 10,240 bytes over 10 s, and the simulator's `window_quota_min` of 9,216 bytes are
   past it. `src/server/rate_vectors.txt` holds 90 quotas and 404 honest peers. For each peer it
   names the first window the proved model leaves short: none for 374, and window 1, 2, 4 or 6 for
   30. A test in `deadline.zig` requires `quota` to give each quota. A test in `rate.zig` drives
@@ -9717,7 +9717,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build lean`: the proofs build, and every vector file is what the definitions give.
   - `zig build test`: 131 of 131 steps and 2507 of 2507 tests passed.
   - 5 mutations of `rate.zig` and `deadline.zig`, each **CAUGHT** by `zig build test-server`:
-    octets at a window's end counted in that window, the next window starting where `short` is
+    bytes at a window's end counted in that window, the next window starting where `short` is
     called, no grace period, a window after a full one never short, and the quota rounding down.
     Only the new meter test caught the second, because every earlier test called `short` at a
     window's exact end.
@@ -9729,10 +9729,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `spec/lean/Colibri/Server/RateMeter.lean` proves, at `init` and at `set_deadlines`, when its
   configuration has TLS or speaks h2 in cleartext (`Config.whole_units`). Twice the rate over one
   `rate_window_ns` must be a whole unit or more, where a unit, `body_unit_len`, is a record's or a
-  DATA frame's 16,384 octets. `fits_unit` in `deadline.zig` computes the bound. The Lean
+  DATA frame's 16,384 bytes. `fits_unit` in `deadline.zig` computes the bound. The Lean
   `fitsUnit`, which `fitsUnit_iff` proves equal to `never_short_iff`'s condition, gives the same
   answer over 110 vectors. In h2 the deadline check's slow-body server now has windows of 32 s,
-  over which twice its 256 octets a second is a unit. Every count of its census is unchanged, and
+  over which twice its 256 bytes a second is a unit. Every count of its census is unchanged, and
   its CRC-32 moved to `0x280860ff` in Debug and ReleaseSafe.
   - `zig build test`: 131 of 131 steps and 2513 of 2513 tests passed.
   - 7 mutations, each **CAUGHT** by `zig build test-server` or `zig build test-sim-run`: the bound
@@ -9773,19 +9773,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ([#91](https://github.com/c4milo/colibri/issues/91)). The deadline trace above found that
   `server.Connection.write_body` wrote one DATA frame per call over h2, though its comment says it
   writes as much as the room and h2's windows allow. h11's call fills the room, and h3's takes
-  every octet.
+  every byte.
   - Over h2 it now calls `write_data` again while the last frame stopped at the peer's
     SETTINGS_MAX_FRAME_SIZE (RFC 9113 §4.2), and stops at the windows, the room or the content's
     end. `data_frames_per_write_max` bounds the calls: every frame but the last carries 16,384
-    octets at least, and all of them fit the output.
-  - A test offers content of two whole frames and an octet, and one call takes it as three
+    bytes at least, and all of them fit the output.
+  - A test offers content of two whole frames and a byte, and one call takes it as three
     frames, the last with END_STREAM. Another writes an empty last piece, which goes out as an
     empty DATA frame with END_STREAM.
   - Three tests assumed one frame per call. Two coded responses now fill the output in one call,
     so each test sends before the next stream's head, as a caller must when `respond` returns
-    `NoSpaceLeft`. A send-deadline test now offers one frame's octets, as its comment says.
+    `NoSpaceLeft`. A send-deadline test now offers one frame's bytes, as its comment says.
   - The deadline check's census digest changed: in 2 of its 256 seeds the server's output drains
-    226 ms and 69 ms later, and the idle deadline that ends each moves with it. The octets sent
+    226 ms and 69 ms later, and the idle deadline that ends each moves with it. The bytes sent
     and every other count stay the same, and the Debug and ReleaseSafe builds print the same
     census, so `census_crc32_expected` is now `0x9369abbc`.
   - `zig build test`: 131 of 131 steps and 2538 of 2538 tests passed.
@@ -9805,7 +9805,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its own.
   - Past `quic_peer_reset_rate_max` in one `quic_peer_reset_rate_period_ns`, which are h2's 100
     and one second, the connection closes with H3_EXCESSIVE_LOAD (RFC 9114 §10.5).
-  - The connection grows by 16 octets, to 717,536 (`docs/performance.md`).
+  - The connection grows by 16 bytes, to 717,536 (`docs/performance.md`).
   - `zig build test`, on 590b3d8: 131 of 131 steps and 2543 of 2543 tests passed.
   - 8 mutations, each **CAUGHT**: a RESET_STREAM not counted; a STOP_SENDING not counted; a
     request cancelled with both frames counted twice; one cancel past the limit allowed; the
@@ -9845,7 +9845,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     advance. `quic` writes a CONNECTION_CLOSE alone once it owes one (RFC 9000 §10.2.1), so a
     GOAWAY written at the deadline's instant is never sent. `shutdown` on a connection with no
     request open has the same fault. The last part of 20c owns both, with the drain deadline.
-  - `h3.Connection` grows by 800 octets, 8 for each of its 100 request streams, to 146,312, and
+  - `h3.Connection` grows by 800 bytes, 8 for each of its 100 request streams, to 146,312, and
     `server.QuicConnection` by 960, to 718,496 (`docs/performance.md`).
   - `zig build test`, on 590b3d8: 131 of 131 steps and 2555 of 2555 tests passed.
   - 34 mutations. 33 were **CAUGHT**: a deadline passing one nanosecond late; the first-request
@@ -9878,10 +9878,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     connection with H3_EXCESSIVE_LOAD.
   - A connection refuses to start with a body rate `Deadlines.validate_units` refuses, and
     `Endpoint` asserts its configuration holds none.
-  - The send meters count the octets the peer acknowledged (`quic_sends.zig`). The connection
+  - The send meters count the bytes the peer acknowledged (`quic_sends.zig`). The connection
     reads them from each response's stream when it settles its requests, after each datagram.
-    A response is busy while it holds octets its stream's credit covers and the peer has not
-    acknowledged, its FIN among them. It is bound while it holds octets the credit does not
+    A response is busy while it holds bytes its stream's credit covers and the peer has not
+    acknowledged, its FIN among them. It is bound while it holds bytes the credit does not
     cover.
   - While any response is busy, the peer acknowledges the minimum send rate across the
     responses, or the connection closes with H3_EXCESSIVE_LOAD. That ends a peer that
@@ -9890,11 +9890,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the rate, the server resets its stream with H3_REQUEST_CANCELLED and the caller reads
     `cancelled`. The meter keeps its window while the stream's own credit grows.
   - A connection fires the deadlines that passed before it takes a datagram, as it does at
-    `receive` and at `on_instant`, so octets acknowledged after a window's end count in the
+    `receive` and at `on_instant`, so bytes acknowledged after a window's end count in the
     next window.
   - Not done: the QUIC server owes no 100 (Continue) of its own (RFC 9110 §10.1.1), so a
     body's wait starts at its head. Over TCP it starts once the 100 is written.
-  - `server.QuicConnection` grows by 2,632 octets, to 721,128 (`docs/performance.md`).
+  - `server.QuicConnection` grows by 2,632 bytes, to 721,128 (`docs/performance.md`).
   - `zig build test`, with the three parts replayed on ecd57e1: 131 of 131 steps and 2592 of
     2592 tests passed.
   - `tools/quic_udp.sh`, `tools/h3spec.sh` and `tools/quic_aioquic.sh`, on macOS arm64 before
@@ -9913,14 +9913,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its stream's end not ending the wait, and a body's window and the bodies' window each not
     reported to the caller's loop, which the first tests hid because both fell at one instant.
     A 33rd found a line with no effect, which is gone.
-  - 24 mutations of the send rate. 23 were **CAUGHT**: acknowledged octets not counted for the
-    connection, or for the stream; a response never busy, or never bound; a stream's own octets
+  - 24 mutations of the send rate. 23 were **CAUGHT**: acknowledged bytes not counted for the
+    connection, or for the stream; a response never busy, or never bound; a stream's own bytes
     stopping its meter; a stream's meter running while another response is busy; the
     connection's meter, or a stream's, never judged; another reset code; no `cancelled` event;
     the caller not woken; no deadline fired; the meters never started; the server never looking
     at a response; a record keeping the last response's count; a datagram taken with no window
     judged before it counts; a stream's window, or the connection's, not reported; meters that
-    ran not stopped; a FIN alone not making a response busy; octets past the stream's credit
+    ran not stopped; a FIN alone not making a response busy; bytes past the stream's credit
     making one busy; a stream a send deadline ends still waiting for its body; and another
     close code.
     A reset stream keeping its state was **NOT CAUGHT** until the cancel test kept the stream
@@ -9951,7 +9951,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - At its first-request or idle deadline a connection whose h3 runs sends a GOAWAY and takes
     no new request. It closes with H3_NO_ERROR once its requests are over and the client has
     acknowledged the GOAWAY. h3's `goaway_acknowledged` says whether the client acknowledged
-    every octet of the control stream. `server` calls it, so it is a method of
+    every byte of the control stream. `server` calls it, so it is a method of
     `h3.Connection`, the sixteenth on the list in its test (decision 115).
   - `shutdown` ends a connection the same way, so a shutdown with no request open now sends
     its GOAWAY before it closes.
@@ -9962,7 +9962,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `Deadlines.drain_ns` says so.
   - A connection that is shutting down runs no first-request and no idle deadline. One whose
     h3 never started has no stream to send a GOAWAY on, and closes at once (RFC 9000 §10.2.3).
-  - `server.QuicConnection` grows by 16 octets, to 721,400 (`docs/performance.md`).
+  - `server.QuicConnection` grows by 16 bytes, to 721,400 (`docs/performance.md`).
   - `zig build test`, on 93ced64: 131 of 131 steps and 2600 of 2600 tests passed.
   - `tools/quic_udp.sh`, `tools/h3spec.sh`, `tools/quic_aioquic.sh` and
     `tools/channel_interop.sh`, on macOS arm64: each passed.
@@ -9985,7 +9985,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       10.21 s;
     - half a request's head, after one whole fetch: 408 after 10.01 s, and the connection
       served a later fetch;
-    - a head and three octets of content: 408 after 20.02 s;
+    - a head and three bytes of content: 408 after 20.02 s;
     - a peer that acknowledges nothing of a response: H3_EXCESSIVE_LOAD after 20.02 s.
   - aioquic reports a close only when its draining period ends, three PTOs after the close
     arrived, and a peer whose datagrams are dropped has a PTO that has grown past a second. So
@@ -10040,7 +10040,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - one whose request heads arrive in two parts, up to 2 s apart;
     - one that uploads content at two to four times the minimum body rate;
     - one that reads long responses at two to four times the minimum send rate, from streams
-      whose credit starts at 8,192 octets;
+      whose credit starts at 8,192 bytes;
     - one behind a link that carries four to eight times the minimum send rate and drops the
       datagrams its queue of eight cannot hold. Its responses stay unacknowledged for whole
       windows, so the connection's send meter judges it at each one.
@@ -10050,7 +10050,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       at the first-request deadline;
     - a peer that sends only PINGs after one exchange: a GOAWAY at the idle deadline, counted
       from the instant the server reported the response done;
-    - a head short of its last octet, the connection's first or one after an exchange: a 408
+    - a head short of its last byte, the connection's first or one after an exchange: a 408
       at the head deadline, or a reset with H3_REQUEST_REJECTED when the connection's own
       deadline comes first. The connection ends at its own deadline either way;
     - a body under the rate: a 408 at the end of its first window. A body that keeps the rate
@@ -10086,7 +10086,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       caller not woken for it;
     - the close not waiting for the GOAWAY's acknowledgment, or never reading it as
       acknowledged; a shutdown keeping no deadline as its reason;
-    - a body's wait never starting, or going on after its content ended; its octets not
+    - a body's wait never starting, or going on after its content ended; its bytes not
       counted; its own window, or the bodies' together, never judged; the cap one nanosecond
       late, or reported as the rate; a late body's request reset in place of its 408; the
       caller not told of it;
@@ -10164,7 +10164,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     verdicts in 3 minutes 37 seconds. colibri's rules hold NothingUnsaid with the other three
     over 8,133,722 states with two streams, and over 774,510 with bodies and the client's
     cancels. `rejection_lost` keeps the rule before this change, violated.
-  - A test splits the rejection from the GOAWAY with datagrams of 36 octets and loses the one
+  - A test splits the rejection from the GOAWAY with datagrams of 36 bytes and loses the one
     that carries the rejection (`quic_drain_test.zig`). The events the harness keeps moved to
     `quic_seen_test_support.zig`, which leaves room for the two settings the test needs.
   - 3 mutations, each **CAUGHT**: the close not waiting for the resets, by the drain test; and a
@@ -10187,7 +10187,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     end. h3 moves the instants of the heads it waits for, through `h3.Connection`'s new
     `delay_head_waits`. Both new public names are the server's. The body cap and the
     first-request deadline run on, as the ruling names neither.
-  - `server.QuicConnection` grows by 16 octets, to 721,416, for the instant the hold began
+  - `server.QuicConnection` grows by 16 bytes, to 721,416, for the instant the hold began
     (`docs/performance.md`).
   - `zig build tla -- spec/tla/h3_deadlines/*.cfg`: the eleven configurations give their
     verdicts in 2 minutes 55 seconds. colibri's rules hold every rule-2 invariant over 754,135
@@ -10243,12 +10243,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   each, and each write and each end of a request searched them. A request with no body, whose
   response no window holds, has an entry in neither. `Sends` and `Bodies` now count their entries
   in use, and a lookup or a sweep that finds none reads no entry. No name or behaviour changed,
-  and `server.Connection` holds 8 octets more.
+  and `server.Connection` holds 8 bytes more.
 
   What each check printed:
   - The deadline tests read and send through two helpers, and each now requires both tables'
     counts to be what a scan of the entries gives.
-  - `zig build sim -- --deadline-trace-write` and `--tcp-trace-write` wrote the same octets
+  - `zig build sim -- --deadline-trace-write` and `--tcp-trace-write` wrote the same bytes
     before and after the change: 64 and 128 files.
   - 12 mutations, each **CAUGHT**. In each table: an entry taken but not counted; an entry freed
     but still counted, which only the scan in the tests' helpers sees; and a lookup that reads no
@@ -10272,19 +10272,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   16.8 to 21.4 a connection on h2-tls-one in the first job and from 16.4 to 21.6 in the second,
   and from 4.5 to 4.7 on h2-one. The simulator's traces did not change, so colibri asks for the
   same I/O. The likely cause is a server that ends each tick sooner and so takes more ticks for
-  the same octets. No run has checked that.
+  the same bytes. No run has checked that.
 
   **The deadline check past its pinned seeds, 2026-10-11.** The check pins seeds `[0, 256)`. Run
   over 8,192 seeds it failed at seed `0xffe`, and two more seeds failed after that one was
   answered. Each showed the check wrong and colibri right:
-  - Seed `0xffe`: a slow h2 body brought the octets that make colibri owe a WINDOW_UPDATE, and
+  - Seed `0xffe`: a slow h2 body brought the bytes that make colibri owe a WINDOW_UPDATE, and
     colibri started the body's rate again with a grace period, as decision 110 says since its
     amendment for a held WINDOW_UPDATE. The check's oracle now does the same.
   - Seed `0x1f4c`: a slow reader left the server's output full when a second answer was due.
     `respond` returned `NoSpaceLeft`, which `SendError` answers with "`send`, then call again",
     and the run's application took it for a refusal. It now writes the head once the peer has
     read.
-  - Seed `0x3be9`: the idle deadline closed the connection while the peer still had octets of its
+  - Seed `0x3be9`: the idle deadline closed the connection while the peer still had bytes of its
     last response to read from the socket, and the run counted the exchange lost. An honest peer
     now reads what the server wrote before it closed.
 
@@ -10294,7 +10294,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     streams_cut=8033 streams_refused=20690 held=0` and `crc32=0x4878c63a`. The pinned CRC-32 of
     seeds `[0, 256)` did not change.
   - Seven tests pin what no pinned seed reaches: the three seeds; seed `0x16ec`, an h11 body that
-    brings as many octets, whose rate runs on; a window that ends as the update's piece arrives,
+    brings as many bytes, whose rate runs on; a window that ends as the update's piece arrives,
     which colibri judges first; a piece due as the body stops, which is never sent; and a peer
     that reads nothing, which has read nothing when the server closes.
   - 11 mutations, each **CAUGHT** by a test. Of the oracle: a rate that never starts again, that
@@ -10311,14 +10311,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   limit is above 0, and the first call at that instant checked each deadline that started before.
   `Clock.checked_ns` holds the instant `fire` last checked, `fire` returns at once at that
   instant, and `set_deadlines` forgets it, since a shorter limit can pass at it.
-  `server.Connection` holds 16 octets more, and `docs/performance.md` has the three rows that
+  `server.Connection` holds 16 bytes more, and `docs/performance.md` has the three rows that
   follow from it.
 
   What each check printed:
   - `zig build sim -Drelease -- --deadline-check 65536` printed crc32=0x4878c63a, as main does.
   - A new test shortens a limit after a call so that it has passed at that call's instant, and
     requires the next call at that instant to end the connection.
-  - The four traces wrote the same octets before and after the change.
+  - The four traces wrote the same bytes before and after the change.
   - 4 mutations, each **CAUGHT**: `fire` returning at any instant once it has checked one,
     `set_deadlines` keeping the instant, `fire` recording the instant after this one, and `init`
     keeping the instant of the slot's last connection. 2 mutations **NOT CAUGHT**: the instant
@@ -10346,7 +10346,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   fields. Its `init` sets `peer_reset_rate_max` and `rst_stream_rate_max` in them, and a
   server's TCP connection sets its `Limits` in them after `init`. A QUIC connection's
   configuration carries `peer_resets_max`, which the endpoint copies from its `Limits`.
-  `h2.Connection` and the connection of each TCP slot hold 8 octets more, and
+  `h2.Connection` and the connection of each TCP slot hold 8 bytes more, and
   `docs/performance.md` has the seven rows that follow from it. Nothing read
   `server.constants.quic_peer_reset_rate_max` any more, and the owner ruled on 2026-10-17 to
   remove it.
@@ -10373,7 +10373,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the limit, the connection closes with H3_EXCESSIVE_LOAD, and its close reason names
   `resets_sent`. h3 rejects a stream at or above the GOAWAY's identifier without a refusal, so
   that stream does not count. The two counters moved into `quic_connection_resets.zig`, because
-  `quic_connection_h3.zig` would pass 500 lines. The connection of each QUIC slot holds 8 octets
+  `quic_connection_h3.zig` would pass 500 lines. The connection of each QUIC slot holds 8 bytes
   more, and `docs/performance.md` has the two rows that follow from it.
 
   What was checked:
@@ -10420,25 +10420,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **20e, part 4: an index in QUIC's receive pool, 2026-10-17.** Each stream kept its blocks of
   the pool in a list in offset order, and each STREAM frame walked the list from its first
-  block. A peer that leaves the first octets out and sends one octet into each block of its
+  block. A peer that leaves the first bytes out and sends one byte into each block of its
   window made each frame walk the whole list: up to 1,026 blocks once the window grew to the
   default pool of 1 MiB. The pool now holds a bucket for each block, and a block lies in the
   bucket its stream and number choose, chained through the field that links free blocks. A
   chain holds at most one block of each stream, so a lookup takes at most one probe for each
   stream that holds blocks. A stream keeps a count of its blocks, and `release` walks the
-  buckets for a stream reset with octets unread. The pool holds 2,560 octets more at the default
+  buckets for a stream reset with bytes unread. The pool holds 2,560 bytes more at the default
   capacity, and `quic.Connection` 16 more for the slice of buckets. `docs/performance.md` has
   the seven rows that follow from it.
 
   What was checked:
   - New tests:
     - the list, kept in the test as the reference, against the index over 64 seeds of 400
-      random writes, reads, peeks, discards and releases on three streams: the same octets,
+      random writes, reads, peeks, discards and releases on three streams: the same bytes,
       the same ends and the same free blocks after each, and no chain longer than the streams
       that hold blocks;
-    - one octet in each block of a window leaves every chain one block long;
+    - one byte in each block of a window leaves every chain one block long;
     - the first blocks of three streams fall in different buckets;
-    - three streams whose first blocks share a bucket each read their own octets, while the
+    - three streams whose first blocks share a bucket each read their own bytes, while the
       middle of the chain goes back first, then its head, then the last block by a release.
   - `zig build test-quic` passed 740 of 740 tests, `test-h3` 118 of 118, `test-client` 193 of
     193 and `test-server` 481 of 481.
@@ -10461,13 +10461,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   after each interval, and an ACK frame that covers the number skipped last closes the connection
   with PROTOCOL_VIOLATION (decision 123). The intervals come from one value that the server's or
   the client's QUIC connection draws from the program's source at start, the new option
-  `packet_number_skips` of `quic.Connection`. `quic.Connection` holds 120 octets more, and
+  `packet_number_skips` of `quic.Connection`. `quic.Connection` holds 120 bytes more, and
   `docs/performance.md` has the six rows that follow from it.
 
   What was checked:
   - New tests:
     - a space skips one number after each interval, and takes the intervals in turn from the
-      draw's octets;
+      draw's bytes;
     - an ACK frame that covers the skipped number, in its first range or a lower one, at a
       range's start or its end, is refused, and one that leaves it out is not;
     - a space given no draw skips none;
@@ -10487,7 +10487,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - an ACK of the skipped number accepted;
     - a range that ends or starts at the number taken as not covering it, or the first range
       checked alone;
-    - one octet for every interval, an interval without its floor, the first skip one packet
+    - one byte for every interval, an interval without its floor, the first skip one packet
       late, or each later skip one packet early;
     - a connection that ignores its draw, or that skips in the Handshake space too;
     - a server or a client that passes no draw.
@@ -10504,7 +10504,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `Connection.receive` several times a request, and the program calls `send` once. Each call ran
   three pieces of code whose result one or two fields decide. Each piece did work before its test:
   - `connection_deadline.observe` called `connection_close.finished`, which reads the protocol,
-    before it tested the output. A linger starts only while the output holds octets (decision
+    before it tested the output. A linger starts only while the output holds bytes (decision
     110). `observe` now tests `output_len` and `linger_since_ns` first, and its new `ended` reads
     the protocol after them.
   - `connection_deadline.fire` saved its registers and loaded the stack canary before it returned
@@ -10515,7 +10515,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `finished` and the functions it calls write nothing, so each linger starts at the same instant
   as before. The `unreachable` arms of `finished` run on fewer calls, and on no new one. No name,
-  struct or octet changed. The owner ruled on 2026-10-20 that the three changes stay on one
+  struct or byte changed. The owner ruled on 2026-10-20 that the three changes stay on one
   branch, in three commits, and that the judge measures them together. Each alone saves less than
   the noise.
 
@@ -10599,15 +10599,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     instructions in both jobs, at 0.9694 and 0.9697. It saves 649 and 642 a connection.
   - h11-tls-many also wins by its user instructions in both jobs, at 0.9804 and 0.9737.
 
-  **A URI octet's class is one table load, 2026-10-25.** Each request checks its target, and its
-  Host or `:authority`, against RFC 3986's classes. `uri.matches` read each octet through the
+  **A URI byte's class is one table load, 2026-10-25.** Each request checks its target, and its
+  Host or `:authority`, against RFC 3986's classes. `uri.matches` read each byte through the
   reader and tested it against a chain of comparisons. A comptime table for each class now holds
-  every octet value's answer, and the common case, octets of the class alone, is one pass over the
-  slice. A "%" or a refused octet takes the reader's path as before.
+  every byte value's answer, and the common case, bytes of the class alone, is one pass over the
+  slice. A "%" or a refused byte takes the reader's path as before.
   - `zig build test-http` passed, with a test that compares each table with the class's rule for
-    every octet value.
-  - 3 mutations, each **CAUGHT**: the fast path accepts an octet outside the class, every class
-    built as reg-name, and the reader's path accepts an octet outside the class.
+    every byte value.
+  - 3 mutations, each **CAUGHT**: the fast path accepts a byte outside the class, every class
+    built as reg-name, and the reader's path accepts a byte outside the class.
 
   The judge, [run 40228870787](https://github.com/c4milo/colibri/actions/runs/40228870787),
   measured `367d432` against `534f297` with `--h11` and `--h3`. No input loses past the noise by
@@ -10626,13 +10626,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   1. `core.slots.Pool` keeps `slot_by_bucket`, the slot each identifier modulo the capacity was
      last written or found in, and `get` checks it before it scans. QUIC's `Streams.lookup` reads
      the watermark before the pool, as h2's does, so a new stream's lookup scans nothing. Each pool
-     grows by its capacity in octets, and the memory table follows.
+     grows by its capacity in bytes, and the memory table follows.
      - 7 mutations: 5 **CAUGHT**, and 2 **NOT CAUGHT** that are equivalent: `get` with no bucket
        check, and QUIC's old order, which invariant 13 makes give the same answers.
      - [Run 40343779763](https://github.com/c4milo/colibri/actions/runs/40343779763): h3-many wins
        at 0.9618 and 0.9584, about 5,700 and 6,150 user instructions a request. h2-many wins at
        0.9709 and 0.9692, 455 a request, and h2-tls-many at 0.9785 and 0.9756.
-  2. h3 `respond` declares the 12,288 octets of rewritten field lines only in `respond_planned`,
+  2. h3 `respond` declares the 12,288 bytes of rewritten field lines only in `respond_planned`,
      which a coded final response alone calls: the branch of 2026-09-30, held until this judge
      existed, ported. 4 mutations of `quic_coding.plans`, each **CAUGHT**.
      - [Run 40344315015](https://github.com/c4milo/colibri/actions/runs/40344315015): h3-many wins
@@ -10645,7 +10645,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
        at 0.9826 and 0.9837, about 2,350 and 2,150 user instructions a request.
 
   No input loses past the noise in any of the three runs. A fourth change, a QPACK dynamic table of
-  4,096 octets that the server advertises with 0 blocked streams, lost on h3-many at 1.1013 and
+  4,096 bytes that the server advertises with 0 blocked streams, lost on h3-many at 1.1013 and
   1.1054 in [run 40346835608](https://github.com/c4milo/colibri/actions/runs/40346835608), and did
   not land.
 
@@ -10662,8 +10662,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
        at 0.9701 and 0.9726, about 4,000 user instructions a request.
   2. `wire.huffman.decode` reads four bits a step through a machine built at comptime from RFC 7541
      Appendix B's table, in `huffman_decode.zig`. The bit decoder stays as `decode_by_bits`, the
-     reference: the tests compare the two on every input of one and two octets, on longer ones,
-     and with EOS starting at every bit of an octet.
+     reference: the tests compare the two on every input of one and two bytes, on longer ones,
+     and with EOS starting at every bit of a byte.
      - 5 mutations, each **CAUGHT**.
      - [Run 40425796746](https://github.com/c4milo/colibri/actions/runs/40425796746): h3-many wins
        at 0.9759 and 0.9782, about 3,300 and 3,000 user instructions a request, and h2-one at
@@ -10684,7 +10684,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
      - [Run 40446126816](https://github.com/c4milo/colibri/actions/runs/40446126816): h3-many wins
        at 0.9438 and 0.9445, about 7,400 and 7,200 user instructions a request.
   2. `FieldSection.check_accounting` reads the last line and the limits, not every line. Only
-     `init`, `append` and `extend_last` change the sums, each by the octets it adds, so the sums
+     `init`, `append` and `extend_last` change the sums, each by the bytes it adds, so the sums
      hold by induction. A check of the sums once a section is complete needs a new public name.
      - 4 mutations, each **CAUGHT**.
      - [Run 40446261122](https://github.com/c4milo/colibri/actions/runs/40446261122): h2-many wins
@@ -10703,13 +10703,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     0.9755 and 0.9906, inside its noise of 5.02% and 4.18%. Every h2 input stays within 0.3%.
   - No input wins or loses past the noise. The bump landed for chapulin's fixes, at the owner's
     ruling, and claims no saving.
-  - The schedules add 480 octets to a TLS session over TCP and 2,464 to one inside QUIC.
-    `server.Endpoint` grows from 40,940,448 to 40,987,552 octets, as docs/performance.md lists.
+  - The schedules add 480 bytes to a TLS session over TCP and 2,464 to one inside QUIC.
+    `server.Endpoint` grows from 40,940,448 to 40,987,552 bytes, as docs/performance.md lists.
 
   **An h11 head scanned in runs, 2026-10-28.** The judge's profile of h11 on e8987edb has no
-  function that stands out. `message_scan` read a head one octet at a time, though past a
-  request's method only CR and LF need a check. It now compares `scan_vector_len` octets at once
-  to find the next CR or LF, and counts the octets before it. It was judged against `e8987ed`
+  function that stands out. `message_scan` read a head one byte at a time, though past a
+  request's method only CR and LF need a check. It now compares `scan_vector_len` bytes at once
+  to find the next CR or LF, and counts the bytes before it. It was judged against `e8987ed`
   with `--h11`, by user instructions (docs/performance.md).
   - 6 mutations, each **CAUGHT**.
   - [Run 40769901627](https://github.com/c4milo/colibri/actions/runs/40769901627): h11-one wins
@@ -10734,8 +10734,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **21a, the configuration.** `versions` and `limits`, and cleartext detected.
     - `server.Versions` and `client.Versions`: `h11`, `h2` and `h3`, each true by default.
       `server.Config.versions` and `client.Config.versions` replace `cleartext`.
-    - A server connection in cleartext reads its first octets before it chooses a version: the
-      24 octets of the connection preface (RFC 9113 §3.3) choose h2, and any other octets h11,
+    - A server connection in cleartext reads its first bytes before it chooses a version: the
+      24 bytes of the connection preface (RFC 9113 §3.3) choose h2, and any other bytes h11,
       among the versions `versions` allows. It consumes nothing until it has chosen. A client in
       cleartext speaks h11 when `versions.h11` is set, and h2 with prior knowledge when it is not.
     - `server.Limits` holds `requests_max`, the requests a connection holds at once, which was
@@ -10753,8 +10753,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       naming no version. h2spec runs twice in cleartext: with the server's `--h2`, which speaks
       h2 alone, every case passes but the two RFC 7540 cases named before; with no version named,
       the case that sends an invalid preface fails too, because RFC 9113 §3.3 has a server that
-      speaks both read octets that are not the preface as h11. Tests show the preface choosing
-      h2, other first octets choosing h11, a partial preface waiting for more, and each version
+      speaks both read bytes that are not the preface as h11. Tests show the preface choosing
+      h2, other first bytes choosing h11, a partial preface waiting for more, and each version
       `versions` turns off refused. Each rule has a mutation a test catches.
   - **21b, one endpoint.** `server.Endpoint` takes TCP connections too, and a program answers
     every request through it (decision 119 records the choices this part made).
@@ -10766,7 +10766,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       connection's handle and the request's number there, which is the h2 or QUIC stream ID, or
       for h11 its place on the connection. `QuicConfig` and `EndpointConfig` fold into `Config`.
     - Events: `Body`, `Trailers`, `Cancelled` and `Done` carry the request's `user_data`, and
-      `Event` gains `writable`, `send` (a TCP connection owes octets), `close` (close its
+      `Event` gains `writable`, `send` (a TCP connection owes bytes), `close` (close its
       socket), `ended` (with the close reason and whether colibri closed it for a protocol
       failure) and `closed` (after `shutdown`, every connection has ended). `CancelReason` gains
       `closed` (the connection stopped first) and `program` (the program's own `cancel`).
@@ -10786,7 +10786,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       stream whose head is unread with H3_REQUEST_REJECTED (RFC 9114 §4.1.1).
     - Seven sub-steps, each leaving every check passing:
       - 21b.1: a first Initial whose Destination Connection ID is shorter than RFC 9000 §7.2's
-        8 octets starts no connection. Today a 0-octet one reaches an assertion (INV-24).
+        8 bytes starts no connection. Today a 0-byte one reaches an assertion (INV-24).
       - 21b.2: the id and event types, with each per-connection type's events filled in at the
         endpoint later.
       - 21b.3: the endpoint answers QUIC requests by id: the ready ring, the deadline heap,
@@ -10830,9 +10830,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Every caller of `client.Connection` moves to a channel with TCP alone.
     - Eleven sub-steps, each leaving every check passing:
       - 21c.1: decision 120, this text, and INV-5 restated.
-      - 21c.2: a CRC-32 of the client's octets pinned in the deadline, content-coding and TCP
+      - 21c.2: a CRC-32 of the client's bytes pinned in the deadline, content-coding and TCP
         trace runs, before any caller moves.
-      - 21c.3: an h11 connection in cleartext reads nothing on a call with no octets while it
+      - 21c.3: an h11 connection in cleartext reads nothing on a call with no bytes while it
         left some unconsumed.
       - 21c.4: the channel closes a transport after its connection wrote its alert, its
         Finished, or h2's GOAWAY in cleartext.
@@ -10921,14 +10921,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `method_not_allowed` with the Allow value, or `not_found`. A method that no route names
       is `not_implemented`, and HEAD finds a GET route.
     - The path is matched as received. A path with an empty segment, a dot segment, a "%", an
-      octet outside `pchar` or more than `path_len_max` octets matches nothing.
+      byte outside `pchar` or more than `path_len_max` bytes matches nothing.
     - A malformed table, or a table with a conflict, does not compile. A route that other routes
       hide is a conflict: a request that it matches gets 405 from another pattern, or no request
       reaches it (decision 122 ruling 12). A table whose Allow value is longer than
       `core.constants.field_value_len_max` does not compile either.
     - The endpoint writes no content in a response to HEAD, in h11, h2 and h3 alike.
     - `server.constants.path_parameters_max` is 8, and `server.constants.path_len_max` is the
-      endpoint's own bound on a path, 8192 octets.
+      endpoint's own bound on a path, 8192 bytes.
     - `examples/server_exchange.zig` routes its requests through a table, answers a 405 with its
       Allow field, and reads a parameter. Its TCP peer also asks for a path that no route
       names. `examples/client_peer.zig` routes through a table of functions. The guide shows
@@ -10950,7 +10950,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21e.11: the step's entry.
     - **Check:** tests for literal segments, parameters, the wildcard as the last segment,
       precedence whatever the table's order, 404, 405 with its Allow list, 501, HEAD, and a path
-      that matches nothing because it holds an encoded octet, a dot segment or an empty segment.
+      that matches nothing because it holds an encoded byte, a dot segment or an empty segment.
       A test of each version shows that a response to HEAD carries no content. `zig build
       router-check` requires each malformed table and each table with a conflict to fail to
       compile, a hidden route too, and a valid one to compile. A test compares the check of
@@ -10967,12 +10967,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21f.2: `client.Request` and `client.Response`, with every caller in the tree.
       - 21f.3: an early final response ends the h11 connection (RFC 9112 §9.5).
       - 21f.4: the channel sends an idempotent request again, once, after its connection closed
-        before any octet of the response (RFC 9110 §9.2.2, RFC 9112 §9.3.1).
+        before any byte of the response (RFC 9110 §9.2.2, RFC 9112 §9.3.1).
       - 21f.5: the three limits, and the TLS stall of decision 124 ruling 7.
       - 21f.6: `client.ChannelOf`, and a memory row for a channel with no QUIC.
       - 21f.7: the doc lines of decision 124 ruling 6, the examples and the guide.
       - 21f.8: the step's entry.
-    - **Check:** a test for each rule with a mutation it catches; a raw-octet peer that answers
+    - **Check:** a test for each rule with a mutation it catches; a raw-byte peer that answers
       before the content went out; a retry in each version, and none for POST; a test that drives
       `receive` at `stream_input_len_min` and counts the events with no input; the memory table.
       `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
@@ -10996,13 +10996,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/deadline_trace.sh` (32 of 32); `zig build examples`, `tools/doc_snippets.sh` and
     `tools/consumer_check.sh`, whose consumer's server names no version: each passed.
   - A review of the change found two defects, each fixed with a test. A `shutdown` before the
-    first octets was lost: the connection now ends at once, as an idle h11 connection does, and
+    first bytes was lost: the connection now ends at once, as an idle h11 connection does, and
     a shutdown asked for during a TLS handshake, lost the same way before this step, now reaches
     the protocol the handshake opens. A drain that passed before any protocol served a
     connection stopped it without closing it: it now closes.
   - 21 mutations, each **CAUGHT**:
-    - the whole preface choosing h11; a four-octet prefix choosing h2; a differing octet
-      choosing nothing; the octets that chose not read;
+    - the whole preface choosing h11; a four-byte prefix choosing h2; a differing byte
+      choosing nothing; the bytes that chose not read;
     - both versions speaking h11 at once; h11 spoken when `versions` turns it off; no version
       speaking h11; a connection allowing both never choosing;
     - a choosing connection closing at once; a shutdown while choosing doing nothing; a shutdown
@@ -11036,7 +11036,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and again with `writable` and the review's fixes, when `zig build test` and `zig build test
     -Drelease` passed 131 of 131 steps and 2688 of 2688 tests in each.
   - Two defects, each fixed with a test. A first Initial whose Destination Connection ID was
-    shorter than 8 octets reached an assertion (INV-24). A poll that read an event moved its
+    shorter than 8 bytes reached an assertion (INV-24). A poll that read an event moved its
     connection's deadline without marking the slot, so `deadline_ns` read before it kept the old
     instant (INV-31).
   - A review of 21b.3, three reviewers and a verifier, made fourteen findings. The verifier
@@ -11050,7 +11050,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       comment left above `LogProvider`, and `Sent` naming the old `send`. `StartError`'s new
       members and `init`'s doc also gained the docs a refuted finding asked for.
   - Mutations, each **CAUGHT**:
-    - 21b.1: no length check; an 8-octet ID refused; a 7-octet one taken, which the test first
+    - 21b.1: no length check; an 8-byte ID refused; a 7-byte one taken, which the test first
       missed and now derives from the ID's length;
     - 21b.2: a connection's id naming a generation; an owed cancellation losing its number;
     - 21b.3, the run's datagram CRC and the endpoint's tables: the server's datagrams not
@@ -11080,7 +11080,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     connection stops, which empties its table first.
   - A second review, of 21b.1 to 21b.3's tables and of main's trace world moved to the
     endpoint's calls, found one defect, fixed after the push of 0532f7f. A Retry token sealed by
-    a build before 21b.1 can name a first Destination Connection ID under 8 octets. Under a key
+    a build before 21b.1 can name a first Destination Connection ID under 8 bytes. Under a key
     shared across an upgrade, the Initial that returned it reached `start`'s assertion (INV-24).
     `start` now checks the ID's length on every path. Mutations: no check at `start`, and a
     check that refuses an empty ID alone, each **CAUGHT**.
@@ -11105,14 +11105,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/h2spec.sh --tls`, `tools/tls_accept.sh` and `tools/deadlines.sh` passed.
   - A review, three reviewers and a verifier, confirmed fourteen findings, seven defects. A
     pipelined h11 request the program held got no signal to be passed again when the response
-    before it ended with no octet: the program now passes held octets again after each event
+    before it ended with no byte: the program now passes held bytes again after each event
     that names the connection, and a test shows it. `accept` read the TCP configuration before
     it checked that the endpoint serves TCP. Five were errors in docs.
   - Mutations, each **CAUGHT**:
     - `sendable_len`: a closed stream, the stream's state, the final head, or the windows not
       asked;
-    - a TLS record failure keeping the queued octets;
-    - `owes_octets`: each of the flight's records, the output, the protocol's own octets, a
+    - a TLS record failure keeping the queued bytes;
+    - `owes_octets`: each of the flight's records, the output, the protocol's own bytes, a
       KeyUpdate's reply, a coded ring and the close_notify dropped, the last four after a test
       was written;
     - `send` re-armed by every `send_stream`, or never; the `done` owed dropped at a close; a
@@ -11126,7 +11126,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       after h11 closed, after a test was written.
   - Three mutants were equivalent: a 100 (Continue) term in `owes_octets`, now removed, because
     the poll's `receive` writes the 100 into the output first; `close` before `send`, because the
-    linger that lets `should_close` hold with octets owed starts only while a `send` waits; and
+    linger that lets `should_close` hold with bytes owed starts only while a `send` waits; and
     the alert alone after a record failure, kept as a guard, because every other term is false
     then.
 
@@ -11146,9 +11146,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     crc32=0x560d5625 wire_crc32=0x5ec49f44`. 16,384 seeds passed in ReleaseSafe.
   - The check found two defects of 21b.4, fixed first, and decision 119 records them: an h11
     head that two reads carried in cleartext reached an assertion, and a peer that opened its
-    window an octet at a time was never cut by `send_rate`.
+    window a byte at a time was never cut by `send_rate`.
   - It found a third, which waits for the owner: decision 110's stream send meter waits while the
-    output holds octets, and colibri's PING acknowledgments are octets. An h2 peer that keeps a
+    output holds bytes, and colibri's PING acknowledgments are bytes. An h2 peer that keeps a
     stream's window closed and pings every few seconds is never cut, through the endpoint or a
     connection alone; only the drain after `shutdown` ends it. Seeds 0x4b and 0x5d show it, and
     the run lets that peer's connection alone outlast the 600 s horizon. Step 79 closes it
@@ -11168,7 +11168,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       down sends its CONNECTION_CLOSE at its own next timer, within `max_ack_delay` of the
       GOAWAY, as step 20d's check pins. A slot left out of the rings never ends, which the
       horizon check refuses.
-    - The socket takes every octet at once, so P7 is exact. A slow reader's unread octets wait in
+    - The socket takes every byte at once, so P7 is exact. A slow reader's unread bytes wait in
       the socket, never in the endpoint's output, so its h2 streams' meters never wait, and the
       send rate may cut an honest slow reader over TCP.
   - Not covered: hostile TCP peers over TLS, TCP Rapid Reset, a full socket and a KeyUpdate.
@@ -11179,13 +11179,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `accept` after `shutdown`, and names a stale `receive` that a slot's holder read.
   - Mutations, each **CAUGHT**, with what caught it:
     - P4: a generation not advanced at release, or not compared; `done` keeping its entry;
-      `transport_closed` without the generation; a stale handle's octets read by the slot's
+      `transport_closed` without the generation; a stale handle's bytes read by the slot's
       holder.
     - P2: a body without its word; `set_user_data` writing nothing. P3: the program's cancel not
       owed.
     - P5: `set_deadlines` without touching the slot; `on_instant` touching no QUIC slot. P6:
       `write_body` without touching the slot; `owes_octets` without the output; `takes` always
-      false. P7: `send` with no octets owed. P8: QUIC's `on_instant` dropped. P1: `accept` after
+      false. P7: `send` with no bytes owed. P8: QUIC's `on_instant` dropped. P1: `accept` after
       `shutdown`.
     - An honest peer failed when every input was consumed, and was cut when a blocked stream
       was never released.
@@ -11207,8 +11207,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     seeds=32 exchanges=82 decoded=19 passed_on=4 too_large=8 trace_octets=8470 crc32=0x69460a6e`
     and `deadline: seeds=256 exchanges=142 first_request=37 idle=114 head=17 body_rate=10 body=7
     send_rate=71 settings=0 drain=0 streams_cut=37 streams_refused=60 held=0 trace_octets=104013
-    crc32=0x9369abbc`. A checksum of the octets each seed moved each way, taken before and after
-    the move, is the same for every seed of both. One deadline seed wrote 77 octets fewer into
+    crc32=0x9369abbc`. A checksum of the bytes each seed moved each way, taken before and after
+    the move, is the same for every seed of both. One deadline seed wrote 77 bytes fewer into
     its socket: a slow reader whose linger passed in an instant it also read in. The run before
     still wrote them in that instant, the endpoint had closed the connection, and the peer read
     them in neither. Over 65,536 seeds the deadline check prints `crc32=0x4878c63a` before the
@@ -11221,7 +11221,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     sends_timed=21`, where the run before printed `states=3864` and `bodies_timed=731`.
     `tools/deadline_trace.sh`: 32 of 32 traces are behaviors of the model.
   - **The TCP trace run.** Its server moved and its client did not. The 64 modules it writes are
-    octet for octet those it wrote before, and `tools/tcp_trace.sh` finds 64 of 64 behaviors of
+    byte for byte those it wrote before, and `tools/tcp_trace.sh` finds 64 of 64 behaviors of
     the model: `tcp-trace: seeds=64 tls=38 states=563 requests=129 responses=83 refused=3
     shut_down=25`.
   - **What the trace runs read from h2.** The endpoint reports nothing of a request after its
@@ -11241,12 +11241,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `test-testing` has 44 tests and `test-testing-client` 37. `tools/h2spec.sh --tls` passes
     144, 143 and 144 cases in its three runs, as before, and `tools/h2_server_interop.sh --tls`,
     `tools/h11_server_interop.sh --tls` and `tools/deadlines.sh` pass. In cleartext with `--h2`
-    the server's SETTINGS now leaves at the accept, before the client's first octets, which RFC
+    the server's SETTINGS now leaves at the accept, before the client's first bytes, which RFC
     9113 §3.4 allows.
   - **A slot is free before the program's socket is.** The endpoint reports a connection's
     `ended` straight after its `close`, with no call from the program (decision 119 refused
     waiting for one), and a later connection may take the slot while the socket still sends its
-    last octets or closes. So the test-only server keeps socket entries of its own and a map
+    last bytes or closes. So the test-only server keeps socket entries of its own and a map
     from a slot to the entry of the connection the slot holds now. docs/usage.md and the comment
     on `ConnectionHandle` say so; they and the header of `endpoint_slots.zig` had said a slot
     indexes a program's own array of sockets.
@@ -11259,7 +11259,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     endpoint reports `close` itself, after which `transport_closed` changes nothing; the comment
     on `Endpoint.transport_closed` said otherwise. docs/usage.md's section on a server over TCP
     is written for the endpoint, and `tools/consumer/` answers through one.
-  - **Memory.** docs/performance.md lists the default endpoint, 40,625,232 octets with its 16
+  - **Memory.** docs/performance.md lists the default endpoint, 40,625,232 bytes with its 16
     QUIC receive pools, an endpoint of one TCP slot, 323,136, and one of one QUIC slot,
     2,240,512. Each holds the endpoint's fixed part, about 12.7 KB.
   - **Owed, and left as it was.**
@@ -11279,11 +11279,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     now.
   - Mutations, each **CAUGHT** unless it says otherwise:
     - Content-coding: the run never calling `send_stream`; an answer naming another generation
-      of its connection; octets consumed with a `send` event passed again; the endpoint handing
+      of its connection; bytes consumed with a `send` event passed again; the endpoint handing
       its TCP connections no codings.
     - Deadline: a drain noted after a linger closed the connection; `close` ignored; the reason
       `ended` names dropped; `send_stream` given more than the socket's room, or called only
-      after a `send` event; a held stream's send meter running while the output holds octets;
+      after a `send` event; a held stream's send meter running while the output holds bytes;
       the idle clock starting before the output empties.
     - Deadline trace: a request's end not read from h2 after `done`, unfinished at seed 1; and
       four of colibri's clock rules broken, with 17, 1, 13 and 23 of 32 traces left behaviors,
@@ -11306,7 +11306,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       from `transport_closed`, to `ended`.
     - The example, by `zig build examples`: a `send` ignored; `.none` passed for `.stream`;
       `transport_closed` not called; `accept` given `.cleartext`; a response to another
-      connection's id; one `send_stream` for a `send`, with a 1,024-octet buffer. The consumer,
+      connection's id; one `send_stream` for a `send`, with a 1,024-byte buffer. The consumer,
       by `tools/consumer_check.sh`: a `send` ignored; a response to a stale id.
     - The memory table: one endpoint row's size changed in docs/performance.md.
     - The endpoint, by the server's tests and not by the deadline check, which sends in every
@@ -11319,7 +11319,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       21b.5's check is what catches it.
     - The example's `ended` accepting a failed connection, or one closed for a reason: its run
       has neither. A second socket given a record that does not authenticate showed the arm
-      refuses a failure. The consumer writing the server's octets into the buffer its input
+      refuses a failure. The consumer writing the server's bytes into the buffer its input
       arrives in: its one exchange never has both at once.
 
   **21b.7, 2026-10-11.** `Config` names the endpoint's configuration. Run on macOS 26 on an Apple
@@ -11364,7 +11364,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - A table keeps, for a request's number, the entry it is open at, so a lookup reads one
       entry (`endpoint_requests.zig`). Run
       [38192700910](https://github.com/c4milo/colibri/actions/runs/38192700910): h2-many 0.9729
-      and 0.9728 (19,488 to 18,959), h2-tls-many 0.9805 and 0.9811. It adds 144 octets to a TCP
+      and 0.9728 (19,488 to 18,959), h2-tls-many 0.9805 and 0.9811. It adds 144 bytes to a TCP
       slot.
     - A table counts the cancels it owes and its waiting requests, and a poll scans for either
       only while it counts one. Run
@@ -11373,14 +11373,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - h2-one and h2-tls-one stayed within the noise in every job.
   - **The proof that nothing else moved.** With both changes, the census lines of the
     content-coding, deadline, endpoint and h3 deadline checks, and the 256 modules the deadline
-    trace, the TCP trace and the h3 deadline trace write, are octet for octet what main writes.
+    trace, the TCP trace and the h3 deadline trace write, are byte for byte what main writes.
     The table's tests keep a table that scans as their reference.
   - **What is left.** The two changes take back about 730 of the 2,950 instructions. About
     2,200 remain, by subtraction across runs, which no one run measured. The requests that
     main's h2 changes of the same day made cheaper make that a larger share: about a ninth of
     an h2-many request. It is spread over each call of the endpoint, of which a request makes
     about four and a half: the handle resolved, the slot marked in the ready ring and the
-    deadline heap, the event passed on under the connection's handle, and a 176-octet result
+    deadline heap, the event passed on under the connection's handle, and a 176-byte result
     returned through three functions. An endpoint does that work and a connection alone did
     not.
   - Mutations, each **CAUGHT** by `zig build test-server`:
@@ -11401,7 +11401,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `QuicStartError` leave the root, which exports 44 names where it exported 48.
     `client.constants.fallback_delay_ns_default` is 250 ms.
   - **What the move needed fixed,** each in a commit of its own: an h11 connection in cleartext
-    reads nothing on a call with no octets while octets wait (21c.3); a transport closes once its
+    reads nothing on a call with no bytes while bytes wait (21c.3); a transport closes once its
     connection wrote its alert, its Finished or h2's GOAWAY (21c.4); a connection that carried
     nothing stays counted in its attempt (21c.5); a handshake that selects no protocol runs h11
     only while `versions` allows it (21c.6c). The endpoint check's move found one more, there
@@ -11410,7 +11410,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     caller kept the old socket. The channel now reports the `close` first. That left an `open`
     owed across a call: a program that then cancelled the last exchange and shut the channel down
     reached an assertion, and a shut-down channel now drops an `open` no caller heard of. A
-    program also drops the octets it still holds from a socket when the channel says `close`:
+    program also drops the bytes it still holds from a socket when the channel says `close`:
     passed on after the next `start_tcp`, a stale h2 GOAWAY failed the new connection (RFC 9113
     §3.4). The guide and the TLS example say so, and the test-only client already did.
   - **The callers.** The endpoint check's peers, the test-only client's plain modes, the
@@ -11422,7 +11422,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     other pins. Over 65,536 seeds in ReleaseSafe the deadline check printed `crc32=0x4878c63a`
     and `wire_crc32=0x7a90b4e4` before its move and after. The endpoint check kept `0x560d5625`
     and `0x5ec49f44`, and each of its 128 traces line for line. The h2 and h11 interop scripts
-    print what they printed before, octet for octet.
+    print what they printed before, byte for byte.
   - **The one census that moved.** In 21c.7a the client trace run draws a QUIC connection's start
     values from its TLS source: 17 values fewer of `random` and 24 more of `tls_random` at each
     open. `states` went from 2570 to 2569, `refused` from 83 to 85, `failed` from 61 to 59,
@@ -11431,12 +11431,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     census stayed.
   - **A closed socket reads nothing.** The TCP trace run's socket reads nothing after the
     channel's `close`, as a program's closed socket does, and the run still calls `receive` for
-    the channel's events. Reading on, the channel drops the server's late octets, and `states`
+    the channel's events. Reading on, the channel drops the server's late bytes, and `states`
     becomes 566 where it is 563: the first difference is a `deliver_to_client` of seed 0x16.
   - **The test-only client.** A run counts a connection a success only when its channel closed
     with every exchange answered and every socket it opened ended before the run did. Its channel
     mode gives QUIC every decoder pool, which `--coded` needed.
-  - **Memory.** docs/performance.md lists `client.Connection` at 289,208 octets, eight more for
+  - **Memory.** docs/performance.md lists `client.Connection` at 289,208 bytes, eight more for
     `unread_len`, and `client.Channel` at 995,328, which holds two TLS configurations now.
   - **Models.** spec/tla/client_exchanges gains `TakeAtHandshake`, `Bounded`, `TcpAllowed`,
     `TcpWhenAllowed` and `NoTcp`. The configurations `bounded` and the three `h3_alone` hold, and
@@ -11448,16 +11448,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/h2_interop.sh --tls`, `tools/h11_interop.sh --tls` and `tools/channel_interop.sh`.
     `tools/ci.sh`, which runs `zig build tla` for every model, runs on the pushed tree.
   - A review, two readers and a verifier, confirmed five findings, and each is corrected: the
-    assertion and the stale octets above, design §6.5's sentence that h3's grease value derives
+    assertion and the stale bytes above, design §6.5's sentence that h3's grease value derives
     from configuration, the test-only socket's header, and the commits this entry named before
     the replay.
   - Mutations, each **CAUGHT** unless it says otherwise:
     - The pins: one more SETTINGS parameter from the client; Accept-Encoding with a space, by
       the new pin alone, and in another order, by an older check; each hash without its last
-      octet; the TCP trace's hash over `consumed`, **NOT CAUGHT** at first and caught by a new
+      byte; the TCP trace's hash over `consumed`, **NOT CAUGHT** at first and caught by a new
       test.
     - h11's empty call: the rule dropped; `unread_len` never set; the rule on a call with
-      octets.
+      bytes.
     - The close: the closed-phase term back in `close_over`; `protocol_pending` removed from
       `should_close`; `close_over` ready whatever `should_close` says.
     - The attempt: the guard removed, or reading `failed` alone; `abandon` removed;
@@ -11487,7 +11487,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       protocols offered over TLS, two ways; `closes` true before `close`.
     - The test-only client: `open`, the start or `close` ignored; a socket's end or a failed
       open not passed on; a second `open` ignored; two sockets of one connection at once; held
-      octets dropped after an event; no read after a send; `versions` wrong over TLS or in
+      bytes dropped after an event; no read after a send; `versions` wrong over TLS or in
       cleartext.
     - The content-coding, deadline and TCP trace runs: `send_stream` never called; `.none`
       passed for `.stream`; `start_tcp` not called; the channel given no codings; the read after
@@ -11501,9 +11501,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - h11's rule returning on every empty call: h11's client reports nothing on one.
     - The trace world given a receive pool under the policy `never`, or speaking h11 too: the
       world's plans and servers make both equivalent.
-    - The test-only client dropping held octets after a send: h11 refuses a response that no
-      request it sent awaits (RFC 9112 §9.2), so no octet waits for a send to be read.
-    - The TLS example keeping a closed socket's octets: its socket holds none at its `close`,
+    - The test-only client dropping held bytes after a send: h11 refuses a response that no
+      request it sent awaits (RFC 9112 §9.2), so no byte waits for a send to be read.
+    - The TLS example keeping a closed socket's bytes: its socket holds none at its `close`,
       and no second connection opens.
     - 21c.4's `protocol_pending` removed, against the deadline check: its honest peer never
       shuts down, so its h2 owes no GOAWAY when it closes. The client's own tests catch it.
@@ -11540,7 +11540,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       drained=21 drain_passed=11`. Before the branch moved onto 0228d20,
       `tools/h3_deadline_trace.sh` found 32 of 32 traces behaviors of `spec/tla/h3_deadlines`.
     - After 21d.3, `zig build bench-memory` printed the sizes of the base under the new names:
-      306,448 octets for the server's TCP connection, 721,416 for its QUIC connection, 289,208
+      306,448 bytes for the server's TCP connection, 721,416 for its QUIC connection, 289,208
       for the channel's TCP connection and 703,712 for its QUIC connection. `zig build
       test-bench` passed.
     - No census, CRC or memory row changed in any sub-step.
@@ -11558,7 +11558,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **The guide.** In docs/usage.md, "The server" now holds the endpoint over TCP and over QUIC,
     and "The client" holds the channel. The sections "The server's endpoint", "The client's
     channel" and "h3: the endpoint and the channel" are gone. "Sizes" points to the memory table
-    of docs/performance.md. It keeps the row of `h11.coding.DefaultPool`, 691,472 octets. Four
+    of docs/performance.md. It keeps the row of `h11.coding.DefaultPool`, 691,472 bytes. Four
     rows of the protocol modules differed from the pinned table, and they are gone.
   - **CLAUDE.md.** The commit "docs: limit the pub-method rule to the types a root exports"
     limits the rule on `pub` methods to the types that a root exports. The owner approved the
@@ -11598,21 +11598,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       connection's `protocol` public again.
     - The server example, 28 breaks, by `zig build example-server_exchange`:
       - Step 17f's breaks: the server reports no `done`; it answers 201; the clients keep no
-        wanted field; a client's body has no room for its last octet; the stream link drops the
-        last octet of each send; the clients ask for another server name; the TCP client never
+        wanted field; a client's body has no room for its last byte; the stream link drops the
+        last byte of each send; the clients ask for another server name; the TCP client never
         shuts its channel down; the `ended` events not counted; the datagram link changes an
-        octet of each datagram; the TCP client offers h11 alone.
+        byte of each datagram; the TCP client offers h11 alone.
       - 21b.6's breaks: `send` ignored; `.none` passed for `.stream`; `transport_closed` not
         called; `accept` given `.cleartext`; a response to the id of another connection; one
-        `send_stream` for each `send`, with a buffer of 1,024 octets.
+        `send_stream` for each `send`, with a buffer of 1,024 bytes.
       - 21c's breaks, on the peers: the TCP client never calls `send_stream`; it passes `.none`
         for `.stream`; `close` ignored; `start_tcp` not called.
-      - New: datagrams passed as `.none`; `send_datagram` never called; the TCP octets passed
+      - New: datagrams passed as `.none`; `send_datagram` never called; the TCP bytes passed
         under the handle of the closed socket; `set_user_data`, `shutdown`, `h3_alternative`,
         `set_deadlines` or `take_ticket` not called.
     - The client example, 24 of 25 breaks, by `zig build example-client_exchange`:
       - Step 17f's breaks: the client keeps no wanted field; its body has no room for the last
-        octet; the stream link drops the last octet of each send; the client asks for another
+        byte; the stream link drops the last byte of each send; the client asks for another
         server name; the client never shuts its channel down; the client offers h11 alone over
         TCP; the server reports no `done`; the server answers another status.
       - 21b.6's breaks, on the server: `send` ignored; `.none` passed for `.stream`; `accept`
@@ -11629,8 +11629,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **NOT CAUGHT**, or no mutation, and why:
     - 21d.6: the test block without its line for `connection/connection.zig`. It is equivalent:
       the endpoint imports the file, so `zig build test-server` still ran 393 tests.
-    - The client example that keeps the octets of a socket after its `close`: **NOT CAUGHT**.
-      The socket holds no octet at `close .tcp`, and no later TCP connection opens. No check of
+    - The client example that keeps the bytes of a socket after its `close`: **NOT CAUGHT**.
+      The socket holds no byte at `close .tcp`, and no later TCP connection opens. No check of
       an example can see it, as in 21c.
     - 21d.10a: no check reads which link starts and stops the loops.
     - 21d.1, 21d.2, 21d.4 and 21d.5 change no check. The test counts are the check of 21d.4 and
@@ -11697,7 +11697,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       router-hidden-check`. 181 steps, 2973, 467. `zig build router-check` passed 65 steps,
       and `zig build router-hidden-check` 8 tests.
     - After 5cefb6c, on 2026-10-14: the owner ruled that a table of 257 routes with one segment
-      of 8150 octets runs in a second test binary of `zig build router-hidden-check`,
+      of 8150 bytes runs in a second test binary of `zig build router-hidden-check`,
       `router-quota`. The table is in `router_quota_test.zig`, and the step compiles it in
       parallel with the cross-check. 183 steps, 2979, 467. `zig build router-hidden-check`
       passed 14 tests in two binaries.
@@ -11749,7 +11749,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       run.
   - **Large tables.** 546d6b1 is the first part of the second ruling of 2026-10-14. `match`
     finds a literal edge by a binary search over the edges of a node, which the build sorts by
-    length and then by octets. The check of hidden routes finds the leaves on the paths of a
+    length and then by bytes. The check of hidden routes finds the leaves on the paths of a
     route by a walk of the trie.
     - Compile time, in seconds, before and after. Each table compiled twice in a probe project
       outside the tree, as `zig build ct-<name>`, a Debug test binary. The project depended on
@@ -11766,7 +11766,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       run in Docker under OrbStack on the same M1 Pro. `bench/routes/run_time.sh` runs it since
       1c3a4f2. It is a number from a laptop, and
       docs/performance.md publishes only the numbers of the judge (decision 33). The root has k
-      literal edges of four octets. Each line gives the first edge, the middle edge, the last
+      literal edges of four bytes. Each line gives the first edge, the middle edge, the last
       edge and a miss:
       - k = 1: 525, 525, 525 and 429, then 503, 503, 503 and 391.
       - k = 2: 536, 605, 605 and 498, then 568, 518, 518 and 397.
@@ -11862,8 +11862,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       passed." x86_64 ReleaseSafe and aarch64 Linux Debug passed the same counts.
     - Seven hostile tests of `match` in a scratch file passed on aarch64 macOS and in the
       x86_64 container, 473 of 473. They covered the binary search over 202 literal edges, paths
-      of `path_len_max` octets, and empty and dot segments. They also covered a query at each
-      position, each of the 256 octets, the methods, and 8 parameters.
+      of `path_len_max` bytes, and empty and dot segments. They also covered a query at each
+      position, each of the 256 bytes, the methods, and 8 parameters.
     - `zig build examples` and `zig build lint-commits` passed.
     - After the fixes, at 1c3a4f2, the same container ran the x86_64 Debug binaries again.
       `zig build test-server` printed "All 467 tests passed.", and `zig build
@@ -11879,7 +11879,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       table of the cost of decision 122 ruling 12.
     - Two checks of colibri's own cited issue 96 in place of decision 122. c05ce20 cites
       decision 122 first.
-    - The comment of the quota said that a walk reads each octet of its path once. Each pass
+    - The comment of the quota said that a walk reads each byte of its path once. Each pass
       reads the segment of its frame, and the search reads it again. 8a0dc3f states the true
       bound and adds it to the quota.
     - `quota_of` used the factor for each pair of routes as a factor for each route. 8a0dc3f
@@ -11908,7 +11908,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         test catches.
       - The refusals: refusals 1 to 5, 11 to 16 and 18 each removed; refusal 3 widened to each
         segment that starts with "."; refusal 17 widened to an entry of four parts;
-        `path_octets` widened to each octet; `segment_unsupported` removed; a `Standard` value
+        `path_octets` widened to each byte; `segment_unsupported` removed; a `Standard` value
         refused.
       - Refusal 1 removed stops the build at the comptime assert of `segments_count`, so a
         compile error catches it.
@@ -11975,7 +11975,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 546d6b1:
       - By `zig build test-server`, and by the test of the first difference against the old
         scan: the low bound one high at the start; the high bound one low at the start; the
-        high bound one too far; the low bound one too far; the octets compared before the
+        high bound one too far; the low bound one too far; the bytes compared before the
         length.
       - By `zig build test-server` and `zig build routes-hidden-check`: the walk with no
         literal edges at a parameter, with no wildcard child, and with no parameter child;
@@ -12054,21 +12054,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **3998aba, [#102](https://github.com/c4milo/colibri/issues/102).** h2 and h3 hold `:path` to
     the absolute-path and query of RFC 3986 §3.3 and §3.4 (RFC 9113 §8.3.1, RFC 9114 §4.3.1), as
     h11 holds an origin-form target. `zig build test-h2`: 385 tests, 384 before; one more case in
-    an h3 test. Mutations, each **CAUGHT**: the first octet alone checked (test-h2 and test-h3);
+    an h3 test. Mutations, each **CAUGHT**: the first byte alone checked (test-h2 and test-h3);
     the grammar check skipped; the query not checked (test-h2). The simulator's censuses did not
     move.
   - **bad1757, [#104](https://github.com/c4milo/colibri/issues/104).** The chapulin pin moves
     from v0.2.0 (26fa782) to 6f3bf952, and `tls.values.Client` gains `takes_tickets` (decision 94
     as amended on 2026-10-17). `tls.constants.anchors_max` is 12. A new test,
     `src/tls/record/record_ticket_test.zig`, shows that a client that takes no tickets keeps none
-    and still resumes with a ticket it offers. The memory table moves by 8 to 144 octets a row,
+    and still resumes with a ticket it offers. The memory table moves by 8 to 144 bytes a row,
     for example `client.Channel` from 995,328 to 995,352. Mutations, each **CAUGHT**:
     `takes_tickets` not passed, or passed as true (test-tls); `anchors_max` 11 or 13
     (test-bench, through the memory table).
   - **The chapulin pin moves from 6f3bf952 to e6e3c1e7** (decision 94 as amended a second time
     on 2026-10-17). chapulin's clock is now a function that its `init` calls once, so each `tls`
     session keeps the instant `start` was given, and `config.clock_at` answers it. The rows of
-    the memory table move by 8 octets down to 48 up, for example `client.Channel` from 995,392
+    the memory table move by 8 bytes down to 48 up, for example `client.Channel` from 995,392
     to 995,400. Mutations, each **CAUGHT** by test-tls: the instant written as 0 in the record
     client, the record server, the QUIC client and the QUIC server.
   - `zig build test`: 183 steps and 2,983 tests, against 2,979 at 3952bcc.
@@ -12103,7 +12103,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the same on the response pointer;
     - the client trace world's new assertion, inverted.
   - **9ec604a and be0a7f2, 21f.3.** An early final response, and a response dropped while the
-    content goes out, end the h11 connection. Raw-octet peers show both, and show that a response
+    content goes out, end the h11 connection. Raw-byte peers show both, and show that a response
     after all the content keeps the connection. Mutations, each **CAUGHT** by test-client:
     - the rule removed;
     - the connection ended after every final response, or whenever no exchange awaits;
@@ -12112,12 +12112,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the drop rule removed, and the drop rule applied after the content is done;
     - the head path and the data path that read on after the end.
   - **202625c, 21f.4.** The channel sends an idempotent request again, once, after a close before
-    any octet of its response. 23 tests in h11, h2 and h3. Mutations, 13, each **CAUGHT** by
+    any byte of its response. 23 tests in h11, h2 and h3. Mutations, 13, each **CAUGHT** by
     test-client:
     - no resend;
     - a POST, or a token, sent again;
     - a resend after part of the response;
-    - h11 that does not mark the start of a response on entry, or on leftover octets;
+    - h11 that does not mark the start of a response on entry, or on leftover bytes;
     - h2, and h3, that does not mark it;
     - a resend twice;
     - a budget apart from refusals;
@@ -12138,20 +12138,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `receive_events_without_input_max` (25), each with comptime asserts and a test at its edges.
     Of 18 mutations, 16 are **CAUGHT**. 2 are **NOT CAUGHT**, each a constant one less with its
     assert removed:
-    - the output one octet less: chapulin's largest record is 16,406 octets, so no run sees it;
+    - the output one byte less: chapulin's largest record is 16,406 bytes, so no run sees it;
     - the events one less: no test makes more than 19 of the 25 events.
   - **4fe67f2, 21f.5's fix.** `plaintext_in_len` grows from 33,033 to 49,407 in the client and the
-    server (decision 124 ruling 7). A test in each failed before the fix: a 30,000-octet head in
-    12,000-octet records. The endpoint census moved for seeds 0x25, 0x3a and 0x49, each with a TLS
+    server (decision 124 ruling 7). A test in each failed before the fix: a 30,000-byte head in
+    12,000-byte records. The endpoint census moved for seeds 0x25, 0x3a and 0x49, each with a TLS
     peer whose connection now opens records in fewer calls: crc32 0x560d5625 to 0xf16f98da, wire
     0x5ec49f44 to 0x1e3dec81, over aea97ae. It was the same in Debug and ReleaseSafe, P1 to P8
     held, and failed stayed 0. Over 28649a3, whose QUIC connections draw at start, the pin is
     crc32 0x33a73ac7 and wire 0xf0a61cbb. Mutations, on each side:
     - **CAUGHT**, each with and without its assert: the old value; the h11 term left out; the
       record term left out.
-    - **NOT CAUGHT**: the h2 term left out, which the h11 term covers; the octet short of the
-      limit; and, as expected, the old value with records of 16,384 octets, which fit it.
-  - **0240ce7, 21f.6.** `client.ChannelOf(.{ .quic = false })` holds 307,360 octets, against
+    - **NOT CAUGHT**: the h2 term left out, which the h11 term covers; the byte short of the
+      limit; and, as expected, the old value with records of 16,384 bytes, which fit it.
+  - **0240ce7, 21f.6.** `client.ChannelOf(.{ .quic = false })` holds 307,360 bytes, against
     `client.Channel`'s 1,012,152, and has no `start_quic`. The TCP tests run on both types. It
     closes [#99](https://github.com/c4milo/colibri/issues/99) by the static size, not the resident
     memory of 64 channels that it first asked for. Its commit body gives sizes from before the
@@ -12165,7 +12165,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the commits after 19c6d45 fix:
     - F1, 6fb0b73: after a failed h11 connection, the requests sent again went out pipelined at
       once, which RFC 9112 §9.3.2 forbids. Now the first one goes alone until its final response.
-    - F2, 16fdaf5: a TLS record failure after response octets in the same input sent the GET
+    - F2, 16fdaf5: a TLS record failure after response bytes in the same input sent the GET
       again. The connection now reads what earlier records opened before it opens the next one.
     - F3, b8aa45f: over h2 and h3, a HEADERS frame that did not decode led to a resend. The
       header of a HEADERS frame now marks the start of a response.
@@ -12227,16 +12227,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `tls_provider` names it `OpenError.KeyUpdates`, h2 names it `h2.Limit.key_updates`, and h11
       names it `error.KeyUpdates`. The server maps each by name to `server.Limit.key_updates`.
   - **What changed.**
-    - The adapter keeps only the alert of a failed read, so `State.owed` holds 24 octets in place
+    - The adapter keeps only the alert of a failed read, so `State.owed` holds 24 bytes in place
       of 78. It asserts that nothing is owed before a read, and that a read that succeeds sends
       nothing.
     - h2 and h11 lose `Decrypted.owes_handshake`. `handshake_owed` now means only the alert of a
-      failure, and `encrypt` asserts it. `encrypt` writes no owed octets in front of data, so
+      failure, and `encrypt` asserts it. `encrypt` writes no owed bytes in front of data, so
       `seal_refused` loses its branch for them.
     - The server's `owes_octets` no longer reports `send` for an answer alone. No chapulin call
       sends the answer without data, and RFC 9846 §4.7.3 permits the wait.
     - Both plain providers model chapulin 50d7d17b in three rules:
-      - A run count over both kinds of KeyUpdate. Only a record of one octet of data or more ends
+      - A run count over both kinds of KeyUpdate. Only a record of one byte of data or more ends
         a run.
       - One answer, which `encrypt_record` writes in front of data.
       - An unexpected_message alert past 16 KeyUpdates in a row, which `take_alert` names.
@@ -12271,7 +12271,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Mutations.**
     - **CAUGHT**, each one:
       - The alert of a failed read not kept.
-      - `owed_len_max` one octet short.
+      - `owed_len_max` one byte short.
       - `seal` without `writableLen`, and `seal` that asks chapulin to seal empty plaintext.
       - A record without data reported as data, in the adapter and in the null provider.
       - The old `owing` restored, in h2 and in h11.
@@ -12282,12 +12282,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - A plain provider whose `take_alert` stays null past the run, in the server and in the
         client.
       - An adapter that writes the owed answer in front of the close_notify. chapulin's `close`
-        sends no answer, so the mutant calls `write` with one octet when `writableLen` shows the
+        sends no answer, so the mutant calls `write` with one byte when `writableLen` shows the
         answer owed. It then copies the answer in front of the alert.
     - **NOT CAUGHT**: the `owes_octets` branch for `handshake_owed` restored. It is equivalent:
       only a failure sets `handshake_owed` now, and the line above it returns first for a failure.
-  - The memory table: each `tls.record` session falls by 56 octets, to 40,480 for the client and
-    39,840 for the server. Each row that holds a TCP connection falls by 56 octets, or by 48 for
+  - The memory table: each `tls.record` session falls by 56 bytes, to 40,480 for the client and
+    39,840 for the server. Each row that holds a TCP connection falls by 56 bytes, or by 48 for
     an endpoint of one TCP connection, after alignment. `server.Endpoint` falls by 896.
   - **x86_64.** The tests of `tls_provider`, h2, h11, the server, the client, the simulator and
     tls-keylog ran in an amd64 container. Each was a Debug build for x86_64-linux, with Zig's own
@@ -12413,14 +12413,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       names. A `transport_closed` after a start is new I/O, and the doc now says so.
   - **The replay and the rename.**
     - The branch moved onto main's 5f4436a2, the chapulin 50d7d17b bump. 3ee2662b gives the new
-      sizes, since a TCP connection holds 56 octets fewer. After a KeyUpdate alone, a connection
-      owes no octets: the provider writes the answer in front of the next record of data.
+      sizes, since a TCP connection holds 56 bytes fewer. After a KeyUpdate alone, a connection
+      owes no bytes: the provider writes the answer in front of the next record of data.
     - The branch then moved onto d0d4e4b5, which makes the aioquic environment whole again. The
       one conflict was in CLAUDE.md, and `tools/pool_interop.sh` now calls `tools/python_venv.sh`.
     - 5d574f93: counts and limits say requests, at the owner's ruling of 2026-10-20 (decision
       125). The shorter census labels move three trace hashes: deadline 0xf90d85a5, h3-deadline
       0x8742d7c9 and endpoint 0x29a4f339. Every count and every wire hash is unchanged.
-  - **The memory table.** A pool at the default counts holds 705,952 octets and its memory
+  - **The memory table.** A pool at the default counts holds 705,952 bytes and its memory
     306,336: 1,012,288, 72 more than `client.Channel`. Each TCP connection more adds 305,696.
   - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
     two pool configurations, the two mutants and `tools/pool_trace.sh`: about 4 minutes more on
@@ -12429,7 +12429,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **An IPv6 scope id, 2026-10-31** ([#107](https://github.com/c4milo/colibri/issues/107)).
   `quic.PeerAddress`, which `client.Address` names, gains `scope_id`, the interface a link-local
   IPv6 address is reached through. The pool keeps it in `Open.to`, and `same_host` compares it,
-  so the same octets through two interfaces are two paths (RFC 9000 §9). The test-only UDP
+  so the same bytes through two interfaces are two paths (RFC 9000 §9). The test-only UDP
   endpoints carry it to and from Rotor's socket address.
   - 1 mutation **CAUGHT**: `same_host` without the scope id. A test of the pool's `Open.to` checks
     that the id and the pool's port both arrive.
@@ -12623,7 +12623,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     connections of 64 streams, two runs each, against the tree before and after this step:
     - `lossy`, 4,000 req/s: p50 from 96 and 99 ms to 56 and 57 ms, and p99 from 231 and 258 ms to
       133 and 143 ms. quic-go's chi gave 54 ms and 121 ms. One connection sent 3,882 packets where
-      it sent 6,594, 59%, and its median packet grew from 64 octets to 118. Its ACK-only packets
+      it sent 6,594, 59%, and its median packet grew from 64 bytes to 118. Its ACK-only packets
       fell less, because they carry no STREAM frame.
     - `mobile`, 2,000 req/s: colibri reached 2,001 req/s where it reached 1,699, with p50 from
       837 ms to 126 ms and p99 from 1,729 ms to 415 ms. chi reached 2,010, with 112 ms and 257 ms.
@@ -12631,7 +12631,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       where quic-go's CUBIC keeps 0.7 of it.
     - The full `zig build test` passed 3,361 of 3,361. Nine pinned censuses moved with the
       packets, the same in Debug and ReleaseSafe: the h3 check's qlog holds 31,894 events where
-      it held 50,487. `quic.Connection` grew by 34,824 octets, and a server's QUIC slot by 38,920.
+      it held 50,487. `quic.Connection` grew by 34,824 bytes, and a server's QUIC slot by 38,920.
 
     **The judge, 2026-10-29.** [Run 40950828136](https://github.com/c4milo/colibri/actions/runs/40950828136)
     measured `b5f74c3d` against main `2afba28b` with `h3`. h3-many takes 0.684 and 0.686 of main's
@@ -12688,7 +12688,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
     **Check met, 2026-10-30.** The full `zig build test` passed 3,388 of 3,388, in Debug and in
     ReleaseSafe; the endpoint check's two censuses moved, and `quic.Connection` grew by 72
-    octets. `zig build lean` proves the five theorems of `HyStart.lean`, and its 613 vector lines
+    bytes. `zig build lean` proves the five theorems of `HyStart.lean`, and its 613 vector lines
     match the Zig. TLC holds `spec/tla/hystart` over 6,367 states and finds each of its five
     mutants. `tools/ci.sh` passed 37 of 37 on `b35a12b0`. In the container, eight rounds of
     `far` at 4,000 req/s gave p99s from 63 to 111 ms before this step and from 66 to 140 ms
@@ -12714,7 +12714,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   beside CUBIC, and [decision 136](decisions.md) rules its random draws, its configuration and its
   measurement. It adds one public name, `quic.CongestionController`. Each part brings its Lean
   proofs and its TLA+ model, and the owner rules each part before it starts.
-  - **29a, delivery rate samples.** §4.1: each sent packet records the octets delivered and the
+  - **29a, delivery rate samples.** §4.1: each sent packet records the bytes delivered and the
     instant of the last delivery when it went out, and each ACK frame gives one rate sample, held
     at the send rate (§4.1.1.2.4), and marked when the application limited it (§4.1.2.4). CUBIC
     reads none of it, so the step changes no census except the endpoint check's.
@@ -12727,7 +12727,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The owner ruled on 2026-10-30:
       - Every record in each packet number space holds the four fields of §4.1.2.1.2 that 29a
         reads: `delivered`, `delivered_time`, `first_send_time` and `is_app_limited`. They add
-        about 24 octets a record, so about 18 KB to each connection.
+        about 24 bytes a record, so about 18 KB to each connection.
       - `tx_in_flight` and `lost` come with 29b, the first part that reads them.
       - 29a brings the TLA+ model above beside its Lean proof.
     - **29a, 2026-10-30.** `recovery_delivery.zig` holds the state of §4.1.2.1.1, and
@@ -12741,17 +12741,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         before, as the sentence above the pseudocode means.
       - `window_of` moved to `connection_recovery.zig`, since `connection_send.zig` was at 500
         lines.
-      - The record grew from 48 to 72 octets, and `quic.Connection` from 176,888 to 195,360
-        octets. docs/performance.md lists each size.
+      - The record grew from 48 to 72 bytes, and `quic.Connection` from 176,888 to 195,360
+        bytes. docs/performance.md lists each size.
       - `spec/lean/Colibri/Quic/DeliveryRate.lean` proves a sample never above the send rate or the
         ACK rate, its interval never shorter than min_rtt, and when the mark clears.
         `src/quic/recovery/delivery_vectors.txt` holds 903 of its answers, and a Zig test reads them.
       - `zig build tla` on `spec/tla/rate_sample` with 5 packets and a window of 3: the properties
         hold over 232,913 distinct states. Its three mutants are violated: a sample from the oldest
-        packet, a mark without the octets in flight, and a mark never cleared.
+        packet, a mark without the bytes in flight, and a mark never cleared.
       - Mutations, against `zig build test-quic`, each CAUGHT: no reset on an empty path, the send
         interval alone, no min_rtt test, a clear at `>=`, no window test, a mark without the
-        octets in flight, no snapshot, nothing delivered, `first_sent_at_ns` kept, no check at
+        bytes in flight, no snapshot, nothing delivered, `first_sent_at_ns` kept, no check at
         `send`, at an ACK frame or at the timer, `ran_out_of_data` kept after a packet went out,
         and the window, the credit, a full table or §8's limit not counted as a limit.
   - **29b, the model and the states.** §5: BBR.max_bw over a window of 2 bandwidth probe cycles,
@@ -12783,7 +12783,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The undo of §5.5.11 is BBRv3's alone. CUBIC's, which RFC 9438 §4.9.2 permits, is not
         part of step 29.
     - The owner ruled on 2026-10-31, for 29b.3:
-      - §5.3.1.3's loss rate is the octets lost in a round over the octets delivered and lost
+      - §5.3.1.3's loss rate is the bytes lost in a round over the bytes delivered and lost
         in it.
       - §5.3.1.3's lost range is a run of consecutive lost packet numbers.
       - The list of lost packet numbers holds the application space's alone. A loss in the
@@ -12806,7 +12806,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         its answer is exact. The draft names Kathleen Nichols' filter, which keeps three samples
         and gives an estimate. The windows are 2 and 10 times long, so the slots are few.
       - Each record also holds `tx_in_flight` and `lost` (§4.1.2.1.2), so it grew from 72 to 88
-        octets. `C.lost` counts what RFC 9002 §6.1 declares lost. Decisions 64 and 66 declare
+        bytes. `C.lost` counts what RFC 9002 §6.1 declares lost. Decisions 64 and 66 declare
         packets lost only to send their frames again, so those do not count.
       - Each ACK frame that takes a packet out of flight gives a sample. Its rate is 0 when the
         interval is not reliable, as in the draft, because §5.5.1 reads the sample's other fields.
@@ -12816,16 +12816,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         with no round trip sample.
       - `spec/lean/Colibri/Quic/BbrModel.lean` proves the filter's answer the largest value of its
         window, the round count rising by at most 1, BBR.min_rtt never above
-        BBR.probe_rtt_min_delay, and the extra octets never above the window.
+        BBR.probe_rtt_min_delay, and the extra bytes never above the window.
         `src/quic/recovery/recovery_bbr/bbr_model_vectors.txt` holds 738 lines of its answers, and a Zig test
         reads them.
-      - The record's two fields grew `quic.Connection` from 195,360 to 207,656 octets.
+      - The record's two fields grew `quic.Connection` from 195,360 to 207,656 bytes.
         docs/performance.md lists each size.
       - Mutations, against `zig build test-quic`, each CAUGHT: no slot cleared, a window one time
         wider, a round at `>`, a round that ends at `RS.prior_delivered`, an application-limited
         sample always or never counted, no cycle advance, the probe's expiry at `>=`, a probe or a
         BBR.min_rtt that never expires, BBR.min_rtt's instant taken as now, no new interval, extra
-        octets not held at the window, a window of 10 in Startup, `expected_delivered` in
+        bytes not held at the window, a window of 10 in Startup, `expected_delivered` in
         milliseconds, `tx_in_flight` without its packet, `RS.lost` as `C.lost`, no loss counted,
         `P.lost` not kept, `RS.rtt` from the first send, `RS.prior_delivered` as `C.delivered`, and
         a rate from an interval below min_rtt. The application-limited sample counted was NOT
@@ -12899,7 +12899,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         spurious only when every packet it declared lost was delivered and acknowledged, and at
         most once. The properties hold over 38,994 distinct states, and its four mutants are
         violated.
-      - The list grew `quic.Connection` from 207,656 to 207,920 octets.
+      - The list grew `quic.Connection` from 207,656 to 207,920 bytes.
       - Mutations, against `zig build test-quic`, 43 of 43 CAUGHT. They cover each rule of the
         short-term model, of each lost packet, of Startup's exit on high loss and of the undo, and
         each rule of the detector. Seven were NOT CAUGHT at first, and a test now guards each of
@@ -12921,7 +12921,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - `recovery_congestion.zig` keeps RFC 9002's shared state, and `State`, a tagged union,
         holds `recovery_congestion_cubic.Cubic` or `Bbr`. `Congestion.window` is what the sender
         reads, and BBRv3's `window_len` is a copy that `set_window` keeps equal.
-      - The pacer's `Rate` is now octets over a period times a factor. Under CUBIC it is RFC 9002
+      - The pacer's `Rate` is now bytes over a period times a factor. Under CUBIC it is RFC 9002
         §7.7's window over the smoothed round trip times 5/4, so no census moved. Under BBRv3 it is
         the pacing rate over a second, with the send quantum as the burst.
       - §5.6.2 starts the pacing rate from "the initial C.srtt after the first non-zero RTT
@@ -12943,7 +12943,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         BBRv3: the lossy network, the dropped ACK frames, the runner's handshakeloss network and
         both NAT rebindings. Every seed finishes with invariants 17 to 21 holding, and each census
         is pinned, the same in Debug and in ReleaseSafe. Every census under CUBIC is unchanged.
-      - BBRv3's state grew `quic.Connection` from 207,920 to 208,288 octets.
+      - BBRv3's state grew `quic.Connection` from 207,920 to 208,288 bytes.
       - Mutations, against `zig build test-quic`, and `zig build test-sim-run-quic` for the option
         the connection reads, 31 of 31 CAUGHT. They cover each control, each event `Recovery`
         gives BBRv3, the copy of the window, the reset of the path, the option, and the pacer's
@@ -13116,7 +13116,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       0.5%.
       - `quic_request.Requests` holds `held`, a bit set of the records in use, and their stream
         ids apart from the records. `settle`, `of`, `idle`, `any_open` and the encoders' give-back
-        read the bit set and the records in use alone. A QUIC slot grows by 16 octets.
+        read the bit set and the records in use alone. A QUIC slot grows by 16 bytes.
       - Mutations, by `zig build test-server`: a walk that visits one record, a `free` that keeps
         the record held, a `take` that writes no stream id, an `any_open` that finds none, an
         `idle` with one record held, and a `take` that never uses the last record: each CAUGHT.
@@ -13301,7 +13301,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **29d.8, the checks, 2026-11-03.** The test compares `find_static` with the scan. Mutations,
       by `zig build test-qpack`: the list without its last entry, a first entry that is not the
       lowest, and a value compared with the first entry alone: each CAUGHT. `zig build
-      qpack-vectors` gives the round-trip octets it gave on 5c238041, and `tools/qif_interop.sh`
+      qpack-vectors` gives the round-trip bytes it gave on 5c238041, and `tools/qif_interop.sh`
       passes its 45 runs.
     - **29d.8, the judge, 2026-11-03.** Run 41656458658, `--h3 --base 5c238041` at 10 rounds, the
       change's instructions over the base's:
@@ -13313,11 +13313,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       of the samples, in the function itself. A third of them came from h3's `peek_critical`,
       which peeks the peer's control, encoder and decoder streams on each `step`. Those streams
       are idle once the SETTINGS frame is read, and each peek walks a chain of the pool's buckets
-      to find that no block holds the next octet.
+      to find that no block holds the next byte.
       - The change, in `quic`'s `connection_stream_read.peek`: when the stream's
-        `receive_flow.used` equals its `receive_flow.consumed`, no octet past the read offset has
+        `receive_flow.used` equals its `receive_flow.consumed`, no byte past the read offset has
         arrived, so the peek copies none and does not call `Incoming.peek`. `fin` is computed as
-        before, so a FIN that carries no octet is still reported. The same peek serves h3's
+        before, so a FIN that carries no byte is still reported. The same peek serves h3's
         request streams. No public name changes.
       - The checks:
         - A test peeks a stream with nothing new, then with an empty STREAM frame that carries a
@@ -13361,7 +13361,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           stream that only sends marked too, `close` that keeps the bit, a walk that keeps the
           bit of a stream out of "Recv", and a walk that clears the bit of a stream in "Recv":
           each CAUGHT.
-        - Each QUIC connection grows by 16 octets, the 128 bits, in docs/performance.md.
+        - Each QUIC connection grows by 16 bytes, the 128 bits, in docs/performance.md.
         - The judge's `--h3 --base 96ed6ef5`, at 10 rounds, measures 29d.9 and 29d.10 together.
           They land when h3-many wins and no input loses.
     - **29d.9 and 29d.10, the judge, 2026-11-04.** Run 41749723586, `--h3 --base 96ed6ef5` at 10
@@ -13397,7 +13397,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         - Mutations, by `zig build test-core` and `zig build test-server`: `holds` that ignores
           the identifier or the live flag, a settle that keeps no slot, a kept slot read as live
           after its stream closed, and `make_record` that keeps an old slot: each CAUGHT.
-        - Each QUIC slot of a server grows by 800 octets, 8 for each record, in
+        - Each QUIC slot of a server grows by 800 bytes, 8 for each record, in
           docs/performance.md.
         - The judge's `--h3 --base 5036ba0c`, at 10 rounds. The step lands when h3-many wins and
           no input loses.
@@ -13408,13 +13408,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **29d.12, no walk of the receive pool to assert a discard, 2026-11-05.** The judge's
       `profile` on f5649a00 (run 41958253605) gave `stream_incoming.Storage.find` 3.1% and 4.1%
       of h3-many's samples. About half came from one assertion in `Incoming.discard`, which
-      called `contiguous_end` to walk the blocks and prove that each octet it drops arrived.
+      called `contiguous_end` to walk the blocks and prove that each byte it drops arrived.
       - The change, the owner's ruling of 2026-11-05, which allowed the assertion to change:
         `discard` no longer walks the blocks. Its one caller, `connection_stream_read.consume`,
-        then calls `flow.Receiver.consume`, which asserts that the octets lie below the highest
+        then calls `flow.Receiver.consume`, which asserts that the bytes lie below the highest
         one that arrived, and `discard` still requires each whole block it drops to be found.
-        What the assertion no longer proves is that no gap lies below that octet. The caller
-        drops only octets that `peek` copied, and `peek` stops at the first gap.
+        What the assertion no longer proves is that no gap lies below that byte. The caller
+        drops only bytes that `peek` copied, and `peek` stops at the first gap.
       - The checks: the step adds no check, so it has no mutation. `zig build test-quic`,
         `test-h3`, `test-server` and `test-sim-run-quic` pass (1,611 tests).
       - The judge's `--h3 --base f5649a00`, at 10 rounds. The step lands when h3-many wins and
@@ -13447,7 +13447,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       both jobs.
     - **29d.14, a faster Huffman decoder, not built, 2026-11-05.** The same profile gave
       `huffman_decode.decode` 3.1% and 3.7% of h3-many's own samples. Callgrind on a laptop counted
-      1,165 instructions a request for three strings of 47 octets. The checked `write_byte` took
+      1,165 instructions a request for three strings of 47 bytes. The checked `write_byte` took
       about 330 of them.
       - The owner asked for a decoder from the published methods. The code of RFC 7541 Appendix B
         is canonical, so the Moffat and Turpin decoder applies (A. Moffat, "Huffman Coding", ACM
@@ -13510,7 +13510,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The checks: a test in `stream_table_test.zig` counts the bits as streams of each type
         open and close. A send test requires `choose` to clear the bit of a stream that sent
         its FIN. Mutations, by `zig build test-quic`, each reported CAUGHT or NOT CAUGHT.
-      - Each QUIC connection grows by 16 octets, the 128 bits, in docs/performance.md.
+      - Each QUIC connection grows by 16 bytes, the 128 bits, in docs/performance.md.
       - The judge's `--h3 --base` 29d.15's tree, at 10 rounds. The step lands when h3-many wins
         and no input loses.
     - **29d.16, the judge, 2026-11-06.** Run 42309659935, `--h3 --base 4fa8d78a` at 10 rounds:
@@ -13540,7 +13540,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           entries (`test-sim-run`); a hit on a closed connection routed; a short-header miss
           that scans; a long-header miss that does not scan; spare IDs drawn outside the table.
           The first run left three NOT CAUGHT, and the tests through the endpoint catch them.
-        - `server.Endpoint` grows by 5,088 octets at its default capacity, the table's 256
+        - `server.Endpoint` grows by 5,088 bytes at its default capacity, the table's 256
           entries and the record of each slot's IDs, in docs/performance.md.
       - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
         input loses. The judge's 16 connections may put the gain within the noise, and then the
@@ -13561,8 +13561,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The change: `value_maxes` holds the largest value of each length, computed at build
         time. `encoded_len_minimal` unrolls into three compares with those constants.
         `is_length` tests for a power of two up to `varint_len_max`, in place of the search. The
-        assertions stay. No public name changes, and no octet on the wire changes.
-      - The checks: the test of `is_length` runs over every octet value, in place of 0 to 9.
+        assertions stay. No public name changes, and no byte on the wire changes.
+      - The checks: the test of `is_length` runs over every byte value, in place of 0 to 9.
         Six mutations, by `zig build test-wire`, each CAUGHT: `is_length` admits 0; it admits a
         power of two past 8; it admits any length up to 8; each maximum is one less; a value at
         a maximum takes the next length; the maximums are those of the next length.
@@ -13597,7 +13597,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         catch the other two.
       - Callgrind on the laptop counted 34,723 to 34,205 instructions a request, and the lines
         of the send walk and its iterator fell from about 622 to 135.
-      - Each QUIC connection grows by 16 octets, the 100 bits, and `server.Engine(.{})` by 256, in
+      - Each QUIC connection grows by 16 bytes, the 100 bits, and `server.Engine(.{})` by 256, in
         docs/performance.md.
       - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
         input loses.
@@ -13676,18 +13676,18 @@ library.
     - `verify(algorithm, key, digest, signature) Error!void`.
     - `Error`, `error{ Auth, Invalid }`: `Auth` for a signature the key does not verify, and
       `Invalid` for a key, a digest or a signature of the wrong form.
-    - `constants.protocol.digest_len_max`, the room `final` writes into, 64 octets.
+    - `constants.protocol.digest_len_max`, the room `final` writes into, 64 bytes.
   - **The rules.** `key` is the DNSKEY's Public Key field as it arrives, RFC 3110's form for RSA,
     so neither side converts it. `init` takes the key and the signature because Ed25519 hashes R
     and the key before the data (RFC 8080). colibri sets no RSA floor: chapulin takes keys from
     512 bits, and cocuyo refuses those under 1024 itself. Nothing allocates, reads a clock or does
     I/O, and the caller holds every `Hash`.
   - **The names are colibri's.** A program names nothing of chapulin, so a chapulin rename does not
-    break it. The enum values are the registries' numbers, so a program converts a record's octet
+    break it. The enum values are the registries' numbers, so a program converts a record's byte
     with `algorithm` or `digest_type` and no table of its own.
   - **The checks.** The signed examples of RFC 5702 (8 and 10), RFC 6605 (13 and 14) and RFC 8080
     (15), and the DS examples of RFC 4509 and RFC 6605, each verified and then refused with one
-    octet changed. `examples/` gains a program that checks one RRSIG and one DS, and docs/usage.md
+    byte changed. `examples/` gains a program that checks one RRSIG and one DS, and docs/usage.md
     a section. Every RFC cited is copied into `docs/rfcs/` first.
   - **The cost.** The TCP object grows by DNSSEC's code in every program that links colibri, which
     the memory table does not show, since it is code and not state. The release that carries the
@@ -13716,11 +13716,11 @@ library.
   - **The checks.** A client test at each bound, and one where each bound is not reached. A
     mutation for each bound. The pool trace run against `spec/tla/client_exchanges`, whose model
     gains the end of a drop at a bound.
-  - **The cost.** Each exchange slot holds the octets it dropped and the end of its drop, 24
-    octets. A connection holds 16 slots, so each client TCP connection and the QUIC connection
-    grow by 384 octets, and `Config` by 16.
+  - **The cost.** Each exchange slot holds the bytes it dropped and the end of its drop, 24
+    bytes. A connection holds 16 slots, so each client TCP connection and the QUIC connection
+    grow by 384 bytes, and `Config` by 16.
   - 13 mutations **CAUGHT**: the Content-Length left ignored, the bound off by one, the dropped
-    octets not counted, the "close" option and content until the close each ignored, no bound
+    bytes not counted, the "close" option and content until the close each ignored, no bound
     judged at the head, the time fired late, a cancel or a read starting no time, the time started
     again at each read, the pool naming no drop deadline or firing none, and `Config.timeouts`
     not carried to the connection.
@@ -13765,7 +13765,7 @@ library.
     - **The checks.** `tls.pem.key` reads the P-256 and the ML-DSA-87 test keys, and refuses a key
       the leaf does not carry. `tools/tls_openssl.sh` requires ML-DSA-87 when OpenSSL offers it
       and ECDSA P-256 when it offers that alone, over TCP and QUIC.
-    - **What the build found.** An ML-DSA-87 flight is about 20,000 octets: two certificates of
+    - **What the build found.** An ML-DSA-87 flight is about 20,000 bytes: two certificates of
       about 7,500 and a CertificateVerify of 4,631. `tls-accept` wrote its flight into a buffer of
       one record, 18 KiB, and failed with `OutputTooSmall`. Its output now holds
       `tls_flight_len_max`, whose rest grows from 4 KiB to 8 KiB.
@@ -13777,8 +13777,8 @@ library.
       signature 0x0906 for `ecdsa_secp256r1_sha256:mldsa87` and 0x0403 for
       `ecdsa_secp256r1_sha256`.
     - **The cost.** chapulin `2b0c5c9e` grows each session: `tls.record.Server` from 49,160 to
-      49,464 octets, `tls.quic.Server` from 100,736 to 101,080, and `server.Endpoint` at its
-      default capacity from 52,422,848 to 52,433,296. A `tls.Key` holds 7,488 octets of keys.
+      49,464 bytes, `tls.quic.Server` from 100,736 to 101,080, and `server.Endpoint` at its
+      default capacity from 52,422,848 to 52,433,296. A `tls.Key` holds 7,488 bytes of keys.
     - 8 mutations **CAUGHT**: the ML-DSA-87 slot never set, a repeated P-256 identity allowed, a
       repeated ML-DSA-87 identity allowed (NOT CAUGHT first; its test was then added), an unfilled
       key taken as P-256, `pem.key` reading no ML-DSA-87 key, naming an ML-DSA-87 key P-256, or
@@ -13788,7 +13788,7 @@ library.
     - **The public names.** `SignatureScheme` gains `rsa_pss_rsae_sha256`, 0x0804 (RFC 9846
       §4.3.3). A server that presents an RSA certificate needs it. No other name changes.
     - **The rules.** `pem.key` tries P-256, then RSA, then ML-DSA-87. It copies chapulin's
-      `ch_rsa_priv`, 2,312 octets in a host object, into the start of `Key.private_key`, and the
+      `ch_rsa_priv`, 2,312 bytes in a host object, into the start of `Key.private_key`, and the
       modulus into `Key.public_key`. The private room is aligned to a machine word, as
       `ch_rsa_priv` holds a `size_t`. chapulin signs with ML-DSA-87 first, then with ECDSA P-256,
       and with RSA-PSS when the client offers neither.
@@ -13806,27 +13806,27 @@ library.
       modulus, or copying no private key; a repeated RSA identity allowed; the modulus cut short;
       the RSA slot never set; and `tls-accept` ignoring `rsa=`, which `tools/tls_openssl.sh`
       caught.
-  - **33e, the CRYPTO send window forgets only acknowledged octets, 2026-11-06.** GitHub CI run
+  - **33e, the CRYPTO send window forgets only acknowledged bytes, 2026-11-06.** GitHub CI run
     42315963013 failed `tools/tls_openssl.sh` in its `checks` job, on GitHub's `ubuntu-26.04`
     x86-64 runner. Over QUIC, the case `X25519MLKEM768:MLKEM1024` with the ML-DSA-87 identity did
     not finish in 10 s. The UDP server stopped with `a deadline failed: CryptoForgotten`. In an
     Ubuntu 26.04 arm64 container on the development machine, this happened once in about 58 runs.
-    - **The cause.** The ML-DSA-87 Handshake flight is about 20,000 octets, which is more than
+    - **The cause.** The ML-DSA-87 Handshake flight is about 20,000 bytes, which is more than
       `crypto_send_buffer_len`. When its window was full, `CryptoStream.send_room` forgot every
-      octet already framed, whether the peer acknowledged it or not. A PTO before the client's
+      byte already framed, whether the peer acknowledged it or not. A PTO before the client's
       first ACK then declared every Handshake packet lost (decision 64), the first one included.
-      Its octets were no longer in the window, so `on_lost` returned false and the connection
+      Its bytes were no longer in the window, so `on_lost` returned false and the connection
       closed. RFC 9000 §13.3 sends CRYPTO data again "until all data has been acknowledged".
     - **The change.** The entry of `fd97a12` above planned this change. When the
       window is full, `connection_crypto.write_crypto` finds the lowest Offset of a CRYPTO frame
       in a packet still in flight at the level. `CryptoStream.forget_acknowledged` forgets only
-      octets below that Offset and below `sent_len`, and asserts that no packet in flight holds a
-      forgotten octet (INV-34). A flight longer than the window now waits for acknowledgments
-      before its last octets go out. `crypto_send_buffer_len` does not change.
-    - **The checks.** `connection_crypto_window_test.zig` sends a 20,000-octet flight through
+      bytes below that Offset and below `sent_len`, and asserts that no packet in flight holds a
+      forgotten byte (INV-34). A flight longer than the window now waits for acknowledgments
+      before its last bytes go out. `crypto_send_buffer_len` does not change.
+    - **The checks.** `connection_crypto_window_test.zig` sends a 20,000-byte flight through
       `write_crypto`. A PTO before any ACK must send it again from offset 0, which failed with
       `CryptoForgotten` before the change. An ACK must free the window, so the rest of a
-      40,000-octet flight goes out. A loss by the packet threshold must keep the octets of a
+      40,000-byte flight goes out. A loss by the packet threshold must keep the bytes of a
       resend while older packets with higher Offsets are still in flight.
     - **Check met, 2026-11-06,** in an Ubuntu 26.04 arm64 container with OpenSSL 3.5.5: one UDP
       server took 300 runs of the case that failed, with 0 stalls and at most 831 ms a run.
@@ -13835,7 +13835,7 @@ library.
       printed `tls_openssl: ok`, and `tools/quic_udp.sh` printed `quic_udp: ok`.
     - 8 mutations, each **CAUGHT** by `zig build test-quic`: the old window that forgot what it
       framed; `sent_len` ignored; no record read as CRYPTO; nothing forgotten with no packet in
-      flight; nothing forgotten at all; octets forgotten while the window has room; the highest
+      flight; nothing forgotten at all; bytes forgotten while the window has room; the highest
       Offset in flight in place of the lowest; and the Offset of the oldest packet in flight in
       place of the lowest, which a review found and the third test catches. `zig build
       test-sim-run-quic` caught none of the first seven, because the null provider's flights fit
@@ -13861,7 +13861,7 @@ library.
     - `quic_connection_newreno_check.zig` runs the QUIC connection check with both endpoints
       on NewReno, over the lossy network and each adversary, with each census pinned. It passes
       in Debug and with `-Drelease`.
-    - `spec/lean/Colibri/Quic/NewReno.lean` proves that one acknowledgment loses no octet to the
+    - `spec/lean/Colibri/Quic/NewReno.lean` proves that one acknowledgment loses no byte to the
       carry, and that one of at most a window adds at most one datagram. It also proves that an
       event never raises the window nor leaves it below the minimum.
     - `spec/tla/newreno_congestion` holds over 160,008 states. Each of its 5 mutants is
@@ -13896,7 +13896,7 @@ library.
       grows one datagram each round trip. RFC 9002 §7.3.2 says the threshold "MUST" be half, and
       RFC 9438 §4.3 pairs a cut to 0.7 with a growth of 0.53 datagrams, so that it stays fair to
       Reno. A rate model gives the cut about 1.37 times Reno's goodput at 1% loss.
-    - It runs DPLPMTUD up to 1,452 octets, and colibri sends 1,200 octets always (RFC 9000
+    - It runs DPLPMTUD up to 1,452 bytes, and colibri sends 1,200 bytes always (RFC 9000
       §14.2). About 1.2 times the goodput at a loss rate counted in packets. RFC 9000 §14.3
       supports it.
     - Its initial window is 32 datagrams, against RFC 9002 §7.2's 10, and its window grows within
@@ -13933,14 +13933,14 @@ library.
       saved window and §3.5's halving.
     - A Lean proof of the jump and the retreat arithmetic.
     - The judge's bulk run, with a second download that resumes.
-  - **What it costs.** A `quic.Connection` grows by the phase state, 56 octets in 35a. The
+  - **What it costs.** A `quic.Connection` grows by the phase state, 56 bytes in 35a. The
     provider is the program's, so colibri holds no table.
   - It lands in five parts: 35a, the saved set, the bounds, `observe` and the option; 35b, the
     phases under CUBIC and NewReno; 35c, BBRv3 by Appendix C; 35d, the providers of
     `server.Endpoint` and `client.ConnectionPool`; and 35e, the simulator check, the model, the
     proof and the judge run.
   - **35a, the saved set, 2026-11-04.**
-    - `quic.ResumeState` is an extern struct of 32 octets: `version`, `size`, `window_len`,
+    - `quic.ResumeState` is an extern struct of 32 bytes: `version`, `size`, `window_len`,
       `rtt_ns` and `saved_at_ns`. `usable` refuses another version or size, an empty window or
       round trip, a set from after now, and one past its Lifetime (§3.2, §4.3.1).
     - `quic.connection_resume.observe` saves the window in congestion avoidance, half of it in
@@ -13951,7 +13951,7 @@ library.
       reaches Careful Resume through `server.Config.resumes` and `client.Config.resumes`.
   - **35b, the phases under CUBIC and NewReno, 2026-11-04.** `recovery_resume_phases.zig`
     takes three calls from `Recovery`: an application packet recorded, an ACK frame, and a new
-    congestion event. An ACK frame's octets join PipeSize before loss detection, so a retreat the
+    congestion event. An ACK frame's bytes join PipeSize before loss detection, so a retreat the
     same frame starts halves a PipeSize that holds them.
     - Reconnaissance: an acknowledged initial window, with a minimum round trip above half the
       saved one and at most ten times it, enters the Unvalidated Phase (§3.2, §4.2.1).
@@ -14015,7 +14015,7 @@ library.
     - The lossy network of the other checks ends every resume in Reconnaissance, rightly: its marks
       and its random delays, which reorder packets past RFC 9002's threshold, are congestion events
       before the initial window is acknowledged. `light_loss` lets most seeds jump.
-    - The saved window is 120,000 octets under CUBIC and NewReno, whose slow start has reached
+    - The saved window is 120,000 bytes under CUBIC and NewReno, whose slow start has reached
       about 35,000 when the path is confirmed, and 60,000 under BBRv3, whose window is twice the
       probing rate's BDP. `network_in_flight_max` grows from 64 to 128 for BBRv3's window and the
       acknowledgments.
@@ -14031,7 +14031,7 @@ library.
     Retreat, and Careful Resume never starts again once it ends. Each of its 5 mutants is violated.
     `spec/lean/Colibri/Quic/CarefulResume.lean` proves the jump's two bounds, the retreat's bounds
     and that it never raises the window, and that the threshold after it is at most PipeSize.
-    - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
+    - `quic.Connection` grows by 56 bytes, to 208,376, and `server.Endpoint` at its default
       capacity to 52,447,248 on main f5649a00. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from
       after now and one past its Lifetime each used; `init` taking an unusable set; a new path
@@ -14106,7 +14106,7 @@ library.
       second open connection to get no set. docs/usage.md shows the new `take`.
     - A client's `take` and `put` each name `server_address`, which does not change, so the
       client is as it was.
-    - Each QUIC slot of an engine grows by 24 octets, the size of a `PeerAddress`.
+    - Each QUIC slot of an engine grows by 24 bytes, the size of a `PeerAddress`.
     - The new tests pass on x86-64 Debug in an amd64 container, 687 of 687.
     - `tools/ci.sh` on `08ccc6a4`, on an Apple M1 Pro with macOS 26.6.2: 31 of 31 checks
       passed. [Run 43668695539](https://github.com/c4milo/colibri/actions/runs/43668695539)
@@ -14148,7 +14148,7 @@ library.
   - **37c: UDP.** h3 on the UDP socket of the same port, with UDP_GRO and UDP_SEGMENT on Linux,
     from `src/testing/quic/udp/`'s batches.
   - **37d: the example.** `examples/colibri_server.zig` serves a route table on 127.0.0.1 port 0, and
-    a client of `std.Io.Threaded` fetches over h11 and checks each response octet for octet. The
+    a client of `std.Io.Threaded` fetches over h11 and checks each response byte for byte. The
     fetch over h2 and h3 comes with `colibri.Client` in step 42. docs/usage.md and README.md show
     the example, and `tools/consumer/` calls `colibri`.
   - **The record, 2026-11-05.** Each mutation below was **CAUGHT** by `zig build test-colibri`, or
@@ -14164,9 +14164,9 @@ library.
       runs in a row.
     - 37d, by `zig build example-colibri_server`, two of them as a hang: shutdown ignored; port 0
       kept; a closing socket kept open.
-    - 37e: the key's text not wiped; a file of `pem_file_len_max` octets refused; no length check;
+    - 37e: the key's text not wiped; a file of `pem_file_len_max` bytes refused; no length check;
       a missing file reported as unreadable; the key read from the chain's name; a name with a
-      zero octet accepted.
+      zero byte accepted.
     - Rotor's `open_file` opens a file to read and to write, so a key file the program may only
       read, such as one of mode 0400, was refused with `IdentityFileAccessDenied`. A test pinned
       it until ruling 11.
@@ -14256,7 +14256,7 @@ library.
       it, so each seed draws what it drew before. Each server notes whether a request's end came
       after that section, and the run requires it for each such request and for no other. The
       census gains `trailers=113`, and every other count stays. The 72 TLA+ logs of
-      `--client-trace-write` are identical octet for octet to those of `174030a5`, so no model or
+      `--client-trace-write` are identical byte for byte to those of `174030a5`, so no model or
       configuration changed.
   - **What was run for 38b, 2026-11-06,** on macOS 26.6.2 arm64 with Zig 0.16.0. Each exited 0:
     `zig build lint`, `zig fmt --check build.zig bench build examples src tools`, `zig build
@@ -14278,7 +14278,7 @@ library.
       build test-client`: the test of decision 137 expects 5 and finds 4.
     - `InvalidTrailer` refuses more than ruling 9 named, and the owner accepted each refusal of
       the build above.
-    - Over h3 the header section and the trailer section share one `prefix` of 16,436 octets for
+    - Over h3 the header section and the trailer section share one `prefix` of 16,436 bytes for
       each stream. A request whose two sections do not fit in it together ends `invalid` at
       `open`. The owner accepted this, and docs/usage.md states it.
 - **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
@@ -14319,11 +14319,11 @@ library.
       room check before the queue removed, a WINDOW_UPDATE after the peer ended the stream, and
       credit that waited for room never queued.
   - **39d, h3 DATA held in quic,** `926afd58`. A request opened with `hold_data` reports
-    `data_available`, and `h3.Connection.release_data` takes its octets from quic.
-    `h3.Connection` grows by 16 octets for each request stream, to 147,112.
+    `data_available`, and `h3.Connection.release_data` takes its bytes from quic.
+    `h3.Connection` grows by 16 bytes for each request stream, to 147,112.
     - 6 mutations **CAUGHT**: `read` in place of `peek`, the held stream not skipped, a FIN inside
       a held DATA frame accepted, a refused stream that keeps its hold, and `release_data` that
-      takes a reset stream's octets or takes none.
+      takes a reset stream's bytes or takes none.
   - **39e, request bodies in pieces,** `0aa4c79b`. `client.Streamed`, `client.WriteBodyError`,
     `ConnectionPool.write_body` and the `body_taken` event. `exchange_events_max` is 4, and
     `receive_events_without_input_max` counts it for each exchange.
@@ -14352,7 +14352,7 @@ library.
       (`credit_before_release.cfg`) and `ResendBeforeTaken` (`resend_after_taken.cfg`).
       `ClientExchanges_streamed.cfg` and `ClientExchanges_streamed_rough.cfg` must hold.
     - The client trace run makes one exchange with content in two a streamed PUT. It hands the
-      next piece at each `body_taken`, reads each response piece into 4 octets, and holds each
+      next piece at each `body_taken`, reads each response piece into 4 bytes, and holds each
       piece up to 30 ms. Over 256 seeds, 80 exchanges were streamed, 122 pieces were taken and
       141 response pieces were held.
     - The run found a bug in 39e. A piece handed at `body_taken`, before the next `send`, was
@@ -14389,32 +14389,32 @@ library.
       - `release_data` that drops the FIN: the next frame read sees it;
       - `finished` before `headers`: `Owed.next` reports `headers` first.
     - The fourth, a drop that keeps `body_len`, has no test. A cancelled exchange's `body_len`
-      is read by no one. 39k restores the octets that fit at an h11 `too_large`.
+      is read by no one. 39k restores the bytes that fit at an h11 `too_large`.
     - A `release_body` starts a new run of the calls `receive_events_without_input_max` counts.
       docs/usage.md says so, and a test over h3 reads more pieces with no input than the bound.
     - Two questions went to the owner: the h3 connection's credit that a held piece keeps, and
       the two copies of each h3 piece. 39k carries his rulings.
   - **39k, the owner's rulings of 2026-11-06,** `8c164a1d` to this commit, after a rebase onto
     `5527558a`. Decision 153 rulings 11, 12 and 13.
-    - Ruling 11: a held piece keeps the h3 connection's credit, which is correct, since its octets
+    - Ruling 11: a held piece keeps the h3 connection's credit, which is correct, since its bytes
       take room in the receive pool (RFC 9000 §4.1). Each request stream now gets
-      `quic_stream_window`, 65,536 octets, as its window, and not the whole pool (RFC 9000
+      `quic_stream_window`, 65,536 bytes, as its window, and not the whole pool (RFC 9000
       §18.2). `24f037f3` makes the change. A test holds one stream's piece while a second
       exchange finishes. docs/usage.md no longer states a gap. 1 mutation **CAUGHT**: the window
       restored to the pool's capacity.
-    - Ruling 12: `data_available` reports a count of octets, and `h3.Connection.peek_data`
-      copies them from QUIC straight into `Response.body`. h3's 16,384-octet buffer takes none.
+    - Ruling 12: `data_available` reports a count of bytes, and `h3.Connection.peek_data`
+      copies them from QUIC straight into `Response.body`. h3's 16,384-byte buffer takes none.
       `ca905619` makes the change. 7 mutations **CAUGHT**: the count past the DATA frame, the
       count measured past a gap, a FIN inside the frame accepted, `peek_data` past the held
-      octets, a copy into the buffer `receive` was given, the client's two copies, and a held
+      bytes, a copy into the buffer `receive` was given, the client's two copies, and a held
       count less than the copy. The first two were **NOT CAUGHT** until a test delivered two DATA
       frames out of order.
-    - Ruling 13: an h11 response that is not streamed and ends `too_large` keeps the octets that
+    - Ruling 13: an h11 response that is not streamed and ends `too_large` keeps the bytes that
       fit, and a drop clears `body_len` only for a held piece. `d495cf10` makes the change. h2
       and h3 end such an exchange without a drop. 1 mutation **CAUGHT**: `body_len` cleared at
       each drop. 1 **NOT CAUGHT**, as in 39j: a drop that keeps a held piece's `body_len`.
     - Each commit's memory table was measured again after the rebase, and `server.Endpoint` is
-      52,461,840 octets with step 39. Rulings 11, 12 and 13 change no size.
+      52,461,840 bytes with step 39. Rulings 11, 12 and 13 change no size.
     - After the review of 39k:
       - Ruling 11 sets only a request stream's first window. Decision 49 grows it up to the pool
         when the program releases pieces quickly, so a piece held after that growth can fill the
@@ -14424,7 +14424,7 @@ library.
         `data_available` event. It now copies none, as `release_data` takes none, and the reset
         stays to be reported. A test resets a held stream and peeks.
       - New tests: a DATA frame header that arrives alone reports no content, and an h2 or h3
-        response that ends `too_large` keeps the octets that fit.
+        response that ends `too_large` keeps the bytes that fit.
       - 4 mutations **CAUGHT**, each **NOT CAUGHT** before these tests: no wait on a DATA frame
         header alone, `peek_data` with no reset check, and `body_len` cleared at an h2 or an h3
         refusal.
@@ -14434,14 +14434,14 @@ library.
         applies to client and server streams alike. `quic.Connection` takes the cap from the
         stream's own starting window, and a pool of two starting windows or less keeps the
         window where it starts.
-      - In a pool of 262,144 octets, a request stream grows to 196,608 octets. A test holds a
-        piece of that stream, and a second exchange of 32,768 octets finishes. The client sends
+      - In a pool of 262,144 bytes, a request stream grows to 196,608 bytes. A test holds a
+        piece of that stream, and a second exchange of 32,768 bytes finishes. The client sends
         MAX_DATA once half the connection's window is consumed. Until the program releases the
         held piece, the other streams together thus get at most one starting window, less the
-        octets consumed since the last MAX_DATA. The test consumes little before the hold.
-      - A review on 2026-11-06 found that the other streams can get no octets at all. This
+        bytes consumed since the last MAX_DATA. The test consumes little before the hold.
+      - A review on 2026-11-06 found that the other streams can get no bytes at all. This
         occurs when they consumed one starting window or more since the last MAX_DATA. The
-        records now state that limit. The owner rules whether MAX_DATA must count held octets.
+        records now state that limit. The owner rules whether MAX_DATA must count held bytes.
       - A test reads the cap on a unidirectional stream and on a locally initiated stream. Both
         mutations that grow one of them to the whole pool are **CAUGHT** by the `quic` tests,
         and each was **NOT CAUGHT** before the test.
@@ -14460,24 +14460,24 @@ library.
         stream's own starting window, because that window is the reserve by definition. The cap
         is the pool's capacity less that count of windows.
       - MAX_DATA is also owed on low credit (RFC 9000 §4.1, §4.2). A connection with a receive
-        pool owes it when the credit left to the peer is below its floor, and one octet or more
+        pool owes it when the credit left to the peer is below its floor, and one byte or more
         was consumed since the last MAX_DATA (`receive_credit_floor` in
         `src/quic/connection/connection.zig`, `flow.Receiver.owes_credit_below`). The limit is
-        still the octets consumed plus the window. The rule of the fraction stays beside it.
+        still the bytes consumed plus the window. The rule of the fraction stays beside it.
         The floor is the part of the pool that a stream of the largest starting window leaves
         free at its cap: one starting window in a pool of two windows or more, and 0 when a
         stream can fill the pool. A first version took one window in every pool. The simulator's
-        h3 client, whose stream window is its whole pool, then sent MAX_DATA for each octet, and
+        h3 client, whose stream window is its whole pool, then sent MAX_DATA for each byte, and
         the endpoint and h3 deadline censuses moved. With the floor at 0 there, they do not.
       - The three RFC 9959 resume censuses moved, and are pinned again: `cubic` `0xd172ab1d`,
         `newreno` `0xa6e99f3b` and `bbr` `0x029edec0`. The simulator's QUIC endpoint has a
         connection window of two stream windows below its pool, so its credit falls below the
         floor before half the window is consumed, and MAX_DATA goes out sooner.
       - The guarantee: while a piece is held, the other streams together can keep one reserve
-        in the pool, and each octet they consume gives one octet of credit back. A test in
+        in the pool, and each byte they consume gives one byte of credit back. A test in
         `quic` runs the review's probe: a pool of four windows, a window and a half consumed
         before the hold, and the held stream filled to its cap. The other streams get credit
-        four times. The client test now finishes a second response of 65,536 octets, one
+        four times. The client test now finishes a second response of 65,536 bytes, one
         reserve and its frames, while the first stream's piece is held.
       - `spec/tla/h3_deadlines` takes the low-credit rule into `ConnectionCreditOwed`, with
         `Reserve` for `stream_window_reserve_windows` and `CreditFloor` for the floor of a pool
@@ -14485,10 +14485,10 @@ library.
         model's credit never falls below one `StreamWindow`, as the run's large pool never does.
         TLC was not run.
       - 6 mutations **CAUGHT** by the `quic` tests: the low-credit rule removed, the condition of
-        one consumed octet removed, the connection's floor at 0, the named reserve at 2, the
+        one consumed byte removed, the connection's floor at 0, the named reserve at 2, the
         reserve written inline as two windows, and a floor of one reserve in every pool. The
         client tests catch each of these but two. They do not read the named limit. The
-        condition of one consumed octet is **NOT CAUGHT** there: a MAX_DATA that repeats its
+        condition of one consumed byte is **NOT CAUGHT** there: a MAX_DATA that repeats its
         limit costs only a frame. The `quic` test catches it.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
@@ -14497,15 +14497,15 @@ library.
   v0.15.0 waits for Rotor's tag `v0.10.0`, which step 44 needs. Rotor's session reports that
   it carries Rotor's decisions 26 to 30 and 32 (decision 156, fifth amendment). On 2026-11-08
   the owner ruled that v0.15.0 ships from main without step 44, which moves to v0.16.0.
-  - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
+  - **The public names.** A connection option `datagram_len_max`, 1,452 bytes by default and up
     to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
     search's limits in `quic.constants.limits`. Each goes on its
     list in the commit that adds it.
-  - **The rules.** A path's search runs once the handshake is confirmed, from 1,200 octets, by
+  - **The rules.** A path's search runs once the handshake is confirmed, from 1,200 bytes, by
     padded PING probes, up to the smallest ceiling. A lost probe changes no window. Repeated
-    losses of full-size packets return the path to 1,200 octets. The search starts again after
+    losses of full-size packets return the path to 1,200 bytes. The search starts again after
     PMTU_RAISE_TIMER.
-  - **The checks.** A simulator network of 9,000-octet frames, which a ceiling of 8,952 finds. A
+  - **The checks.** A simulator network of 9,000-byte frames, which a ceiling of 8,952 finds. A
     simulator network with a path size below the probes, and one whose size
     drops in the middle of a connection, each with every seed finishing. A TLA+ model of the
     search's states, with mutants. Mutations of each rule. A judge bulk run, beside step 34's
@@ -14517,7 +14517,7 @@ library.
     as stdx's codec adapters do (stdx decision 56).
   - **The checks.** stdx's gzip writer and JSON value encoder stream a request body through the
     writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
-    Each retry goes on from the octet it stopped at.
+    Each retry goes on from the byte it stopped at.
 - **Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md) ruling 8. It
   runs on Rotor's own API. The owner ruled on 2026-11-06 that it lands before step 39, so that a
   program fetches over h11, h2 and h3 before streamed bodies exist. Streamed bodies come to
@@ -14638,7 +14638,7 @@ library.
       live sockets.
     - Two client checks were **NOT CAUGHT**, and were removed: the `started` guard before
       `transport_closed`, and the clear of `started` in `close`. `pool_calls.zig` shows why. After
-      the pool's `close`, `resolve` names no connection, so `receive` drops the octets and
+      the pool's `close`, `resolve` names no connection, so `receive` drops the bytes and
       `send_stream` writes 0. A second `transport_closed` of a running connection calls the
       connection's again, which changes nothing (`pool_links.close_over`).
   - **The close at a run's end, 2026-11-06.** A run that failed after a socket's close was
@@ -15671,7 +15671,7 @@ library.
         `?tls_provider.Alert`, `client.RequestId` as an enum, and `h2.frame.Type`.
         - Tests: `examples/dnssec_check.zig` expects `error.SignatureVerificationFailed`; an
           unknown h2 frame type reads as `_` and is ignored (RFC 9113 §5.5).
-        - Mutations: an unknown frame type refused; the alert's octet mapped to the wrong
+        - Mutations: an unknown frame type refused; the alert's byte mapped to the wrong
           member.
     13. 45m `refactor!`: pattern 13 in `tls_provider`. `Provider` calls each member through a
         method, and no file outside `tls_provider` writes `.vtable.`. `handshake_complete`
@@ -15733,7 +15733,7 @@ library.
     - 45k: `init` that ignores `options.role` and sets `.server`, CAUGHT in h11 (1 test fails
       and 19 stop on an assertion) and in h2 (35 fail). With `.client`, CAUGHT in h11 (27 fail)
       and in h2 (96 fail).
-    - 45l: an unknown frame type refused, CAUGHT (7 h2 tests). The alert's octet mapped to the
+    - 45l: an unknown frame type refused, CAUGHT (7 h2 tests). The alert's byte mapped to the
       next member, CAUGHT in `Client.alert` and in `Server.alert` (2 tests each). The two dnssec
       errors swapped, CAUGHT by `examples/dnssec_check.zig` and 5 dnssec tests. `Failure` and
       `frame.Type` left out of their lists, CAUGHT each.
@@ -15753,7 +15753,7 @@ library.
       - A test guards each read of `never_indexed.headers`: the h11 send, the check of the
         reserved names, and the scans for Accept-Encoding and TE. Each mutation was CAUGHT.
       - `h2.Connection.write_request` takes `*const RequestHead`, as ruling 1 rules for an
-        argument over 16 octets. `h11.Connection.fail` takes an `?http.Status` (pattern 4).
+        argument over 16 bytes. `h11.Connection.fail` takes an `?http.Status` (pattern 4).
       - The root of h3 lists the names of `frame` and of `message`.
       - The comments and the private names of `src/testing/` say "engine" for the engine. The
         simulator keeps "endpoint", because its `endpoint` check names the command and its
@@ -15805,13 +15805,13 @@ library.
   ships in v0.15.2, and it is built apart from step 44. It adds no public name and removes none,
   and the names tests of each type and root stay as they are.
   - **The ring of the body's writer** (decision 103 as amended, decision 127 amendment 1).
-    - The runs of an h3 response count the caller's octets they hold, in `caller_len`. The
+    - The runs of an h3 response count the caller's bytes they hold, in `caller_len`. The
       engine's state reads them in `held_len`: none over TCP, none for a coded h3 response, and
       `caller_len` for an uncoded one. `Engine` has no call for it, and the response writer's sink
       reads the state.
     - A request's wait gains `release`. The writer arms it when the engine took every run and holds
-      some, and the engine reports `writable` once it holds fewer octets.
-    - The writer counts the octets the engine took and the runs it released. A write that does not
+      some, and the engine reports `writable` once it holds fewer bytes.
+    - The writer counts the bytes the engine took and the runs it released. A write that does not
       fit its region takes back the released runs, and moves to the larger free region: after the
       newest run, or from the start of the body's memory up to the oldest run held. These are the
       slow path, in `response_writer_ring.zig`. A write that fits costs what it costs now.
@@ -15822,7 +15822,7 @@ library.
       ruling of 2026-11-09, commit 46g).
     - A writer that waits for a release asks the engine again after a push, because a write
       that the engine takes whole ends the wait (commit 46h).
-    - Cost: 18 octets of fields for each router entry and 8 for each h3 request record. No copy
+    - Cost: 18 bytes of fields for each router entry and 8 for each h3 request record. No copy
       and no count on the per-frame path.
   - **`on_writable` while the request body is open** (decision 127 amendment 2). The router calls
     a struct route's `on_writable` at each `writable` while the body is open, except for a
@@ -15836,8 +15836,8 @@ library.
        - Checks: a writer test where the engine holds runs; a struct route that writes sixteen
          times `response_bytes` over an engine that copies and over one that holds runs until late
          acknowledgments; the same route over h3 through the engine, with each side's datagrams
-         lost; and `colibri.Server` with `colibri.Client` over h11, h2 and h3, each octet in order.
-       - Mutations: reclaim frees one octet too many; reclaim ignores the octets h3 holds; drain
+         lost; and `colibri.Server` with `colibri.Client` over h11, h2 and h3, each byte in order.
+       - Mutations: reclaim frees one byte too many; reclaim ignores the bytes h3 holds; drain
          splits a write; the router calls `on_writable` with no room. Each must be CAUGHT.
     3. 46c `feat(server)`: `on_writable` while the request body is open.
        - Checks: a route's `on_writable` runs and writes before the body ends; a call that writes
@@ -15846,11 +15846,11 @@ library.
        - Mutations: the old check of the body back; no return on a call that wrote nothing; the
          cancel left out after the body ends too; the `.whole_body` check left out. Each must be
          CAUGHT.
-    4. 46d `test(server)`: a struct route that answers each request octet before the body ends,
+    4. 46d `test(server)`: a struct route that answers each request byte before the body ends,
        on the engine.
-       - Checks: over h11 the reply to each octet is longer than the connection's output, over h2
+       - Checks: over h11 the reply to each byte is longer than the connection's output, over h2
          it is longer than ten windows of the stream, and over h3 it is eight times the route's
-         response memory. Each reply arrives before the client sends the next octet, calls that write
+         response memory. Each reply arrives before the client sends the next byte, calls that write
          nothing while the body is open cancel nothing, and the response ends after the body. Over
          h2 a `.whole_body` route's `on_writable` does not run before the body ends.
        - Mutations, against `zig build test-server`: the old check of the body back, CAUGHT by the
@@ -15863,7 +15863,7 @@ library.
          goes to the engine, the writer waits for a release, and the trailers go after it.
        - Mutation, against `zig build test-server`: no send before the trailers wait, CAUGHT.
     6. 46f `test(server)`: a `release` wait reports no `writable` until the peer acknowledges
-       some of the octets the engine holds.
+       some of the bytes the engine holds.
        - Mutation, against `zig build test-server`: the wait also ends at an equal count,
          CAUGHT. A review found it NOT CAUGHT before this test.
     7. 46g `fix(server)`: a `flush` that finds a run in every slot adds its bytes to the newest
@@ -15881,7 +15881,7 @@ library.
            when a slot is free. While each slot holds a run, a write that needs the room at the
            start of the memory fails, and the route writes it again. An assertion states that
            the run ends where the writer's bytes start.
-         - A run of `write_kept` takes no bytes, because its octets are the program's.
+         - A run of `write_kept` takes no bytes, because its bytes are the program's.
        - When no run takes the bytes, they stay in the writer, and the `flush` returns no error.
          - Later bytes go after them. The writer waits for the engine, and the next `writable`
            cuts them into a run once a slot is free.
@@ -15897,32 +15897,32 @@ library.
          No copy, and nothing new on the path of a cut that finds a free slot.
        - Checks:
          - Four writer tests, one for each case. A `flush` with a run in every slot adds its
-           bytes to the newest run: one the engine took none of, then one it took an octet of.
+           bytes to the newest run: one the engine took none of, then one it took a byte of.
            A `flush` stays in the writer while the engine holds a run in every slot. It fails
            once the memory is full too, and its bytes go once, after a release. Bytes after a
            `write_kept` run stay in the writer until a slot is free. A write does not go to the
            start of the memory while no slot is free.
-         - A struct route flushes 1,000 messages of 7 to 128 octets, with `response_bytes` 8192.
+         - A struct route flushes 1,000 messages of 7 to 128 bytes, with `response_bytes` 8192.
            It does so over an engine that holds 8 runs until late acknowledgments. It does so
            over h3 through the engine too, with two of the client's datagrams in three lost. No
-           `flush` fails, no request is cancelled, and each octet arrives in order. Both tests
+           `flush` fails, no request is cancelled, and each byte arrives in order. Both tests
            failed before the fix.
          - The same route over an engine that copies, as h11 and h2 do, ends in one call, as it
            did before.
        - Mutations, against `zig build test-server`. Each one was CAUGHT.
          - The merge adds to a run the engine took whole: the writer test of an engine that
            holds every run fails.
-         - The merge adds to the oldest run the engine has not taken, so the octets go out of
-           order: the assertion stops 4 tests. With the assertion left out too, the octets
+         - The merge adds to the oldest run the engine has not taken, so the bytes go out of
+           order: the assertion stops 4 tests. With the assertion left out too, the bytes
            differ in 2 writer tests and in both tests of 1,000 messages.
          - A cut with no free slot adds to no run: the writer test of the merge fails, and so do
            both tests of 1,000 messages.
          - The region moves to the start of the memory with no slot free, so a merge leaves a
            gap between its two parts. The writer test of the region fails, and the assertion
-           stops both tests of 1,000 messages. With the assertion left out too, their octets
+           stops both tests of 1,000 messages. With the assertion left out too, their bytes
            differ.
          - A run of `write_kept` takes the bytes: the `write_kept` test stops on an overflow.
-         - A run the engine took an octet of takes no bytes: the writer test of the merge fails.
+         - A run the engine took a byte of takes no bytes: the writer test of the merge fails.
          - A `flush` that keeps its bytes fails while the memory has room, or never fails:
            writer tests fail for each.
          - A cut that keeps its bytes does not mark them, or does not wait for the engine: 2
@@ -15946,19 +15946,19 @@ library.
               the engine keeps for a request (`State.write_body`), so the `release` wait goes.
            4. The writer still says that it waits. The router waits for a `writable` that never
               comes, and the response stops.
-         - Over h3 with `response_bytes` 512, the client had 501 of 8,192 octets after 200
+         - Over h3 with `response_bytes` 512, the client had 501 of 8,192 bytes after 200
            rounds. No test reached the defect. The test routes returned at the first write that
            failed, and the router's test engine kept its wait through a write.
          - The fix is in the writer. `push_open` sends what waits while the body is open. When
            the writer waits for a release, it then asks the engine again (`ring.wait_again`).
-           It reads the octets that the engine holds again first, because `State.wait_release`
+           It reads the bytes that the engine holds again first, because `State.wait_release`
            asserts that the engine holds some. `flush`, a write and `write_kept` send through it.
          - The other fix kept a `release` wait in the engine through a write that found room.
            It was refused, for three reasons:
            - The engine keeps one wait for a request, and each write sets it. A write that
              found no room arms it, and a write that found room ends it. The other fix adds an
              exception to that rule for one kind of wait.
-           - A `release` wait holds the count of octets that the engine held when it began.
+           - A `release` wait holds the count of bytes that the engine held when it began.
              After the write the engine holds more. So the `writable` comes later than the
              first release, unless `write_body` reads the count again.
            - `write_body` is on the path of each h11 and h2 write, and those never arm that
@@ -15966,11 +15966,11 @@ library.
              nothing on the path of `end`.
          - Checks:
            - A writer test. The writer asks again after a `flush` that the engine takes whole,
-             and after a `write_kept`. It asks for nothing when the engine holds no octet.
-           - A struct route that writes the next octet alone after each write that failed, and
-             flushes it. Over the router's test engine it ends, with each octet in order.
+             and after a `write_kept`. It asks for nothing when the engine holds no byte.
+           - A struct route that writes the next byte alone after each write that failed, and
+             flushes it. Over the router's test engine it ends, with each byte in order.
            - The same route over h3 through the engine, with `response_bytes` 512 and 8,192
-             octets. It ends in 17 rounds, and the test allows 512. It wrote 16 octets after
+             bytes. It ends in 17 rounds, and the test allows 512. It wrote 16 bytes after
              writes that failed. Before the fix it did not end, and the test failed at its
              bound.
            - The router's test engine now ends its wait at a write it takes whole. One test
@@ -15981,7 +15981,7 @@ library.
            - No second ask after a push: the writer test, the route test over the test engine
              and the h3 test fail. The h3 test stops at its bound of rounds.
            - `write_kept` sends with no second ask: the writer test fails.
-           - The second ask does not read the held octets again: the writer test fails.
+           - The second ask does not read the held bytes again: the writer test fails.
            - The test engine keeps its wait through a write, as before: its own test fails.
            - The engine keeps a `release` wait through a write that found room: the engine's
              test fails.
@@ -15991,15 +15991,15 @@ library.
          - `select` refuses the start of the memory when `piece_count` is 16, though the engine
            released the oldest run. The test: with sixteen runs and the oldest released, a
            write goes to the start. CAUGHT.
-         - A `flush` that keeps its bytes fails with one octet of room left. The test: it
-           returns no error with one octet left, and fails with none. CAUGHT.
+         - A `flush` that keeps its bytes fails with one byte of room left. The test: it
+           returns no error with one byte left, and fails with none. CAUGHT.
          - `end_now` ignores a cut that keeps its bytes. The test: `end`, `trailers` and
            `write_kept` return `error.Full` and change nothing, and `end` goes after a
            release. CAUGHT: the assertion of `close_body` stops the test.
          - One more, `trailers` ignores such a cut: CAUGHT by the same test, on the assertion
            of `copy_trailers`.
        - `fix(server)`: `write_kept` with no free slot sends the run it cut before it waits.
-         - The case that connect-zig found. A struct route flushes 20 messages of 5 octets,
+         - The case that connect-zig found. A struct route flushes 20 messages of 5 bytes,
            one by one, through an engine that takes each run whole and holds it. Then it calls
            `end`, or `trailers`. Each call returns this:
            1. Flushes 1 to 16 return no error. Each makes a run, and the engine takes it.
@@ -16008,10 +16008,10 @@ library.
            3. `end`, or `trailers`, returns `error.Full`, and changes nothing.
            4. The route returns with no error. The writer waits for a release, so the router
               does not cancel the request.
-           5. The engine releases the oldest run. The `writable` cuts the 20 octets kept into
+           5. The engine releases the oldest run. The `writable` cuts the 20 bytes kept into
               one run, in the slot that the release freed.
            6. The route's next call makes the call again. It returns no error, and the
-              response ends with each octet in order.
+              response ends with each byte in order.
          - A route that returns that `error.Full` from `on_writable` has its request cancelled,
            because the head went out (decision 127 ruling 4).
          - The contract, which docs/usage.md states:
@@ -16031,7 +16031,7 @@ library.
          - Checks: the route above over the router's test engine, with `end` and with
            `trailers`, and the route that returns the error. Two writer tests of `write_kept`,
            one over an engine that holds each run and one over an engine that copies.
-         - The writer tests' engine now asserts that it holds octets when the writer asks for
+         - The writer tests' engine now asserts that it holds bytes when the writer asks for
            a release, as `State.wait_release` does.
          - Mutations, each CAUGHT:
            - `add_piece` does not send before it waits: both writer tests fail.
@@ -16059,7 +16059,7 @@ library.
         `else`. That program does not compile until its `switch` names `half_close`.
       - The owner ruled on 2026-11-10 that the step ships in v0.16.0 for that reason, and not in
         v0.15.2.
-    - `server.constants.limits.discard_len_max`, 262,144 octets, and
+    - `server.constants.limits.discard_len_max`, 262,144 bytes, and
       `server.constants.limits.half_close_ns`, 1 s, each pinned by the test of the limits.
   - **The commits.**
     1. `docs`: decision 160 and this entry.
@@ -16102,7 +16102,7 @@ library.
       `Connection: close` for a rest past the bound and for a chunked rest.
     - The `discard` phase reads a fixed rest alone. `discard_left` goes, and `start_discard`
       asserts that a rest that does not fit had its close said at the head. Each h11 connection
-      shrinks by 8 octets.
+      shrinks by 8 bytes.
     - A chunked body answered early now gets the staged close at once. The engine reads none of
       what follows the response, so a malformed chunk there fails nothing, and the test of that
       failure goes.
@@ -16142,7 +16142,7 @@ library.
       `.keep_reading`.
       `start_discard` starts the phase for a chunked rest again, and `discard_left` bounds its
       read, as before v0.17.2. `rest_fits` judges a head, and `rest_may_fit` judges the end of a
-      response. Each h11 connection is 35,056 octets again.
+      response. Each h11 connection is 35,056 bytes again.
     - **The tests:**
       - Six in `h11/connection/connection_discard_test.zig`: a program that reads on, and each
         rest that it can leave.
@@ -16182,7 +16182,7 @@ library.
       read a FIN and no response.
     - **How it showed.** connectrpc's conformance suite v1.0.7 failed one h11 case in about one
       run of three, on connect-zig's server over v0.19.0. A capture showed the server read a
-      whole request and then sent a FIN with no octet of a response. Prints in `colibri.Server`
+      whole request and then sent a FIN with no byte of a response. Prints in `colibri.Server`
       then showed socket 9 shut down descriptor 14, failed, and closed it. Socket 10 accepted a
       connection on descriptor 14, and socket 9's shutdown completed after that. Socket 10's
       first send then failed with a reset.
@@ -16193,7 +16193,7 @@ library.
       place of the test that wrote the close while the shutdown was in flight.
     - **Mutations, 4 of 4 CAUGHT:** the library's close ignores the shutdown in flight;
       `close_due` ignores it; the test server's `arm` submits a receive while the socket ends;
-      and the test server ends before its octets are out.
+      and the test server ends before its bytes are out.
     - **Checked, 2026-11-22,** with Zig 0.16.0 on x86-64 Linux 6.18, in a container with no IPv6:
       - `zig build test-colibri` passed 149 of 150. The one that fails, decision 156 ruling 13's
         test of a UDP socket of each family, fails on main too, for want of IPv6.
@@ -16302,12 +16302,12 @@ library.
   - **A test that read undefined memory, 2026-11-11.** GitHub's `checks` job failed on `98278278`
     in Debug on x86_64 Linux alone, with 4,056 of 4,057 tests passed
     ([run 43031437569](https://github.com/c4milo/colibri/actions/runs/43031437569)). The test of
-    `Kept.wipe` read a ticket's octets after its optional became null. The payload of a null
+    `Kept.wipe` read a ticket's bytes after its optional became null. The payload of a null
     optional is undefined: Zig 0.16's x86_64 backend fills it with 0xaa in Debug, and LLVM leaves
-    the zero octets. So the ticket was wiped on each backend, and only the test was wrong.
+    the zero bytes. So the ticket was wiped on each backend, and only the test was wrong.
     - Each kept ticket is now in plain memory with a flag, `Room`, in place of an optional. Its
-      octets stay defined after a wipe, and the tests read them. A new test checks that a ticket
-      which is taken, or which is past its lifetime, leaves no octet in its room.
+      bytes stay defined after a wipe, and the tests read them. A new test checks that a ticket
+      which is taken, or which is past its lifetime, leaves no byte in its room.
     - `tools/ci.sh` ran on arm64, which compiles Debug with LLVM, so it did not see the failure.
       The Debug tests of `client_tickets.zig`, built for x86_64-linux, pass in an amd64 container.
     - Mutations, 6 of 6 CAUGHT: the wipe not zeroing, a taken ticket left in its room with its
@@ -16346,7 +16346,7 @@ library.
     one, and the new key over the current one. Both stay at the addresses `load` gave to the TLS
     values. Each session reads the keys through those pointers at each open and each seal, so a
     session that started before a change uses the new bytes. A key equal to the current one
-    changes nothing, and a key of zero octets is a program's error, which an assertion refuses.
+    changes nothing, and a key of zero bytes is a program's error, which an assertion refuses.
     `wipe_keys` writes zero over the previous key too.
   - **Checks.**
     - `src/tls/record/record_ticket_test.zig`: a ticket sealed under one key resumes on a server
@@ -16385,12 +16385,12 @@ library.
       u8`, `keep(stream, len: usize)` and `ended(stream) bool`. It holds no header. The plan
       named it `server.RequestStream`, and named a `server.ResponseStream` beside it. The owner
       ruled one response type and this name on 2026-11-14 (decision 163 ruling 6 as amended).
-    - `server.RouterOptions.header_bytes`, the octets of each entry's copy of a header. It has
+    - `server.RouterOptions.header_bytes`, the bytes of each entry's copy of a header. It has
       no default, and a header past it gets 431 (decision 163 ruling 5).
     - `server.Headers` keeps its calls. It holds `lines` and `first`, so that it reads the
       engine's section or the router's copy (sub-step 50e). `lines` points to an
       `http.FieldSection.Slice` that the connection or the router's copy keeps, so
-      `server.Headers` stays at 16 octets in each event that the engine's layers copy.
+      `server.Headers` stays at 16 bytes in each event that the engine's layers copy.
     - `http.FieldSection.Slice`, a section's live lines as two slices, with `len(slice) u32`,
       `get(slice, index: u32) Field`, `find(slice, name: []const u8) ?Field` and
       `iterator(slice) Iterator`; and `http.FieldSection.slice(section) Slice`. A
@@ -16425,8 +16425,8 @@ library.
     8. 50h, `docs`: every example, docs/usage.md and `tools/consumer/`, then the judge's record.
   - **50b, met 2026-11-12.** The test server's `--routes github` route table gives each of its
     29 POST routes a struct route that reads its whole body. The judge gained
-    `h2-routes-post-many`, a body of 128 octets, and `h2-routes-post-late-many`, a body of 8,192
-    octets. [Run 43302515017](https://github.com/c4milo/colibri/actions/runs/43302515017)
+    `h2-routes-post-many`, a body of 128 bytes, and `h2-routes-post-late-many`, a body of 8,192
+    bytes. [Run 43302515017](https://github.com/c4milo/colibri/actions/runs/43302515017)
     compared `04065452` with main `03d56223` on the `ubuntu-24.04-arm` runner, at 5 rounds, in
     two jobs.
     - The five inputs that main has are within the noise in both jobs: h2-many 1.0002 and
@@ -16450,7 +16450,7 @@ library.
       Each of the seven inputs was within the noise. But h2-routes-many gave 1.0016 and 1.0017
       with a spread of 0.02% to 0.06%: 26 instructions a request, from 16,294 to 16,320. The
       judge's route table names no `.Values`, `.path` or `.query`, so that was the fixed cost of
-      a context. The router wrote its 88 octets at each request, and cleared the path and the
+      a context. The router wrote its 88 bytes at each request, and cleared the path and the
       query after each route's first call.
     - **The trim.** The owner ruled on 2026-11-12 that the sub-step lands after a trim. The cost
       was the same in each job, and five sub-steps follow.
@@ -16458,8 +16458,8 @@ library.
         id alone. A comptime assertion beside the entry pins that start.
       - `call_on_request` writes and takes back only what the route names. It asserts that the
         context held none before.
-      - A `Held` keeps the name of its type as one address, so a context is 64 octets. `values`,
-        `path` and `query` compare the two addresses first, and the octets when they differ.
+      - A `Held` keeps the name of its type as one address, so a context is 64 bytes. `values`,
+        `path` and `query` compare the two addresses first, and the bytes when they differ.
     - **The second judge run.**
       [Run 43353525738](https://github.com/c4milo/colibri/actions/runs/43353525738) compared
       `b6bec00c` with main `7a8d33f2` the same way. The commit that landed adds the comptime
@@ -16519,10 +16519,10 @@ library.
       less than on main. The files that pass an event along cost about 50 instructions a request
       more: `engine_state_tcp.zig`, `engine_state.zig`, `engine_state_events.zig`, `engine.zig`,
       `connection.zig` and `connection_owed.zig`. Each copies the event by value, and
-      `server.Headers` had grown from 16 octets to 40.
+      `server.Headers` had grown from 16 bytes to 40.
     - **The fix.** `server.Headers` holds a pointer to a `Slice` that the connection keeps beside
-      its section, and is 16 octets again, which a comptime assertion pins. Each TCP and QUIC
-      connection grows by the 32 octets of that `Slice`. `Headers.init` keeps the pointer, so
+      its section, and is 16 bytes again, which a comptime assertion pins. Each TCP and QUIC
+      connection grows by the 32 bytes of that `Slice`. `Headers.init` keeps the pointer, so
       the lint rule `kept-options-pointer` excludes `src/server/event.zig`, at the owner's ruling
       of 2026-11-13.
       [Run 43388573905](https://github.com/c4milo/colibri/actions/runs/43388573905) compared
@@ -16556,7 +16556,7 @@ library.
       request although it lies in the copied lines.
     - **The fix.** `start`, `start_ended` and `call` are `inline`, so the call at the header
       stays in `start`, as a struct route's does. The copy makes two copies, of the line records
-      and of their octets, and gives each part that lies in them the same offset in the copy.
+      and of their bytes, and gives each part that lies in them the same offset in the copy.
       [Run 43606139265](https://github.com/c4milo/colibri/actions/runs/43606139265) compared
       `4b053ee9` with `f4cd4f48`: each GET input within the noise, and h2-routes-post-many
       1.0088 and 1.0072, 163 and 172 user instructions a request more. The owner first refused
@@ -16578,24 +16578,24 @@ library.
       checks passed. In Debug for x86-64 Linux, in an amd64 container: `server` 685 of 685 and
       `http` 98 of 98.
     - **Mutations.** 8 of 8 of the first draft, 12 of 12 of its fixes, and 14 of 14 of the copy
-      CAUGHT. Among them: the late call reads the engine's request; a bound one octet off; the
-      path matched again from another request; a part read from octets that a later read writes
+      CAUGHT. Among them: the late call reads the engine's request; a bound one byte off; the
+      path matched again from another request; a part read from bytes that a later read writes
       again, over h11 in cleartext and over TLS; the copy of a part skipped at the same size.
   - **50f, met 2026-11-14.** A struct route is a stream (decision 163 ruling 6 as amended on
     2026-11-14). Its callbacks are `on_request`, `on_data`, `next` and `on_finished`, and each
     one writes the request's one `server.Response`. `on_body` and `on_writable` go.
     - **`server.RequestBodyStream`.** `on_data` takes the stream of the request's body. Its
       `next` gives each piece that has arrived, with no copy, or null when no piece waits.
-      `keep(len)` leaves the last `len` octets of a piece unread, and the next `next` gives them
-      joined with later octets. `ended` turns true once `next` returns null at the body's end.
-      Over h11 and h3 that can come in a later `on_data` with no octets.
+      `keep(len)` leaves the last `len` bytes of a piece unread, and the next `next` gives them
+      joined with later bytes. `ended` turns true once `next` returns null at the body's end.
+      Over h11 and h3 that can come in a later `on_data` with no bytes.
     - **The router's rules.** The router copies a kept tail into the entry before the engine's
       event ends, within `body_bytes`, and answers 413 past it. Through a middleware's
-      `wrap_body`, a piece holds at most the wrapper's buffer, and kept octets that fill it get
+      `wrap_body`, a piece holds at most the wrapper's buffer, and kept bytes that fill it get
       413. The router drops the body of a route with no `on_data`, and of a route that ended its
       response. It ends a response that a route with no `next` left open, once the body ended.
     - **Two rulings.** The first build made `server.ResponseStream`, a second type with the same
-      fields and calls. It copied about 1,470 octets between the two around the middleware
+      fields and calls. It copied about 1,470 bytes between the two around the middleware
       chain, and the owner ruled one type. The owner named the stream `RequestBodyStream`,
       because it holds the request's body alone.
     - **The cost, from the source.** A function route and a request with no body run main's
@@ -16603,15 +16603,15 @@ library.
       route's body event does a few loads, stores and branches more around `on_data`.
     - **A review.** A second agent read the change and found three faults.
       - A `wrap_body` that returns null keeps the router's reader, but the stream took it for a
-        wrapper. A kept tail then got 413, and an end with no octets left `ended` false. The
+        wrapper. A kept tail then got 413, and an end with no bytes left `ended` false. The
         router now tells the two apart at run time.
-      - std's flate decompressor rebases fewer octets than its buffer holds, so a longer `keep`
+      - std's flate decompressor rebases fewer bytes than its buffer holds, so a longer `keep`
         trips std's assertion. docs/usage.md bounds `keep` through such a wrapper, and the
         router asserts at the head that a wrapper has a buffer.
       - At the body's end the router drops what `on_data` left unread, and docs/usage.md now
         says so.
-    - **Mutations, 18 of 18 CAUGHT:** `next` gives a piece again; `keep` keeps one octet more,
-      and one less; a kept tail not joined; a tail past `body_bytes` accepted; kept octets that
+    - **Mutations, 18 of 18 CAUGHT:** `next` gives a piece again; `keep` keeps one byte more,
+      and one less; a kept tail not joined; a tail past `body_bytes` accepted; kept bytes that
       fill a wrapper accepted; `ended` true before the end; `on_data` after the response ended;
       `next` with no room; a stream route's response left open at the body's end; `wrap_body`
       skipped, with its assertion and without; `keep(0)` ignored; a struct with `on_body` or
@@ -16632,7 +16632,7 @@ library.
     - `server.constants.limits.router_response_bytes_default` goes, with its assertion and its
       pin, because nothing reads it (the owner's ruling of 2026-11-14).
     - Each router of the tests, the examples, `tools/` and `bench/` names both sizes. Each one
-      keeps the value it had by default: 256 response octets and no body octets. README.md and
+      keeps the value it had by default: 256 response bytes and no body bytes. README.md and
       docs/usage.md say that a program names each size.
     - The test of the options checks that `response_bytes`, `body_bytes` and `header_bytes` have
       no default.
@@ -16648,7 +16648,7 @@ library.
     had. One `server.Engine` with a `server.Router` serves a gRPC-shaped POST over h2 in
     cleartext, over the in-memory link. `examples/server_stream_peer.zig` is its client, one
     `client.ConnectionPool(.{ .quic = false })`.
-    - The route's `on_data` reads messages of a 5-octet prefix with `next` and `keep`. It writes
+    - The route's `on_data` reads messages of a 5-byte prefix with `next` and `keep`. It writes
       and flushes a reply to each whole message, so each reply goes out before the body ends.
       Once `ended` is true, it ends with `grpc-status` in the trailers.
     - The client hands the body in three pieces, and the first one ends inside the second
@@ -16668,28 +16668,28 @@ library.
   - **50i, met 2026-11-15.** connect-zig moved `connect_colibri` to `2e07fe41`, and reported
     what the API left out. The owner ruled two changes to `server.RequestBodyStream` (decision
     163 ruling 6 as amended again).
-    - At the body's end, `next` gives the kept octets once more as a last piece. A unary Connect
+    - At the body's end, `next` gives the kept bytes once more as a last piece. A unary Connect
       call, whose body has no length, keeps it whole until the end and reads it in place, with no
       copy into its State.
-    - Through a wrapper, the router copies kept octets into `body_bytes` and joins later octets
-      there, and asks the wrapper for one octet past what it gave out. The 413 for kept octets
+    - Through a wrapper, the router copies kept bytes into `body_bytes` and joins later bytes
+      there, and asks the wrapper for one byte past what it gave out. The 413 for kept bytes
       that fill a wrapper's buffer goes. A test wrapper that keeps a window, as std's flate
       decompressor does, asserts on a larger `rebase`, so the old code fails the new tests.
     - docs/usage.md says that a test that builds a `server.Request` passes its own reader as
       `body`, such as `std.Io.Reader.fixed(&.{})`. A public reader would need a mutable global,
       which the global-state lint refuses.
-    - `RequestBodyStream` grows from 32 to 48 octets, in each entry of a table with a stream route.
+    - `RequestBodyStream` grows from 32 to 48 bytes, in each entry of a table with a stream route.
     - **A review.** A second agent drove the router with random bodies, cuts, keeps and ends over
       eight routes, 20,000 seeds each, through five window wrappers and a chain of two. It wrote
-      junk over each event's octets and over what each wrapper dropped. It found no fault, and
+      junk over each event's bytes and over what each wrapper dropped. It found no fault, and
       one rule that no test guarded, which a test now guards.
     - **Mutations, 15 of 15 CAUGHT:** no last piece at the end; a `keep` of the last piece that
-      keeps octets; no `body_bytes` bound on the last piece; no 413 at the end; `next` that asks
-      a wrapper for the kept octets and one more; a copy with no `keep`; no 413 when kept octets
+      keeps bytes; no `body_bytes` bound on the last piece; no 413 at the end; `next` that asks
+      a wrapper for the kept bytes and one more; a copy with no `keep`; no 413 when kept bytes
       fill the storage, or pass it through a wrapper; no clear-space check before the append, or
       after `on_data`; no 413 mid-body for an overflow; `let_go` that tosses a stored piece, or
-      that tosses nothing through a wrapper; storage that overlaps the held octets; and a bound
-      one octet short.
+      that tosses nothing through a wrapper; storage that overlaps the held bytes; and a bound
+      one byte short.
     - **The judge**, of 50i, 50j and step 52 together.
       [Run 43721341820](https://github.com/c4milo/colibri/actions/runs/43721341820) compared
       `f3e9bc09` with main `f76136ab`, at 5 rounds, in two jobs, with the h11 inputs. Each of the
@@ -16722,8 +16722,8 @@ library.
       vector stores, as pepegrillo's guide gives a program and Zig after 0.16 has, still writes
       the whole buffer: about 14 µs for 375 KB at the guide's 1.2 µs for 32 KiB on an M1 Pro.
     - Disassembly of a State with a buffer of 64 KiB, on arm64: ReleaseSafe and ReleaseFast each
-      store the two defined fields alone. `.{}` called `memcpy` of 65,552 octets in both, and
-      the reset with safety on called `memset` of 65,536 octets in ReleaseSafe.
+      store the two defined fields alone. `.{}` called `memcpy` of 65,552 bytes in both, and
+      the reset with safety on called `memset` of 65,536 bytes in ReleaseSafe.
     - A test checks that a route's State starts from its defaults at each request on an entry,
       and one checks the reset itself.
     - **Mutations, 4 of 4 CAUGHT:** the reset skips each field after the first; a route's State,
@@ -16823,8 +16823,8 @@ library.
     `finished` frees the slot. The request's `user_data` stays 0, as that of each request with
     no entry, and a count of the slots in use lets such a request scan none.
   - **The bound.** The pool has one slot for each of its `requests`, so the option that bounds
-    the entries bounds the answers that wait too. A slot is 48 octets, so a router of 32
-    requests grows by 1,552 octets. With an answer in each slot, the router cancels one more
+    the entries bounds the answers that wait too. A slot is 48 bytes, so a router of 32
+    requests grows by 1,552 bytes. With an answer in each slot, the router cancels one more
     request, as it cancelled each one before.
   - **No public name changes.** `server.RouterOptions.requests` keeps its name and its default.
   - **The cost of the first build.** The first build named the slot in the request's
@@ -16892,20 +16892,20 @@ library.
 
 - **Step 55 — no byte-loop copy in the library, 2026-11-17.** A cost that connect-zig found with
   its benchmark of a full stack, for v0.18.1. The owner ruled the scope: every copy of the library.
-  - **The cost.** connect-zig's sink reads a gRPC export of 192,397 octets through a stream route
-    that keeps every octet unread until the body's last piece. After each piece, `keep_unread` in
-    `server/router/router_body.zig` copied the held octets onto themselves at offset 0, with
-    `std.mem.copyForwards`. In Zig 0.16 that function is a loop of one octet a step, and its doc
-    comment says to use `@memmove`. callgrind counted about 27 instructions an octet, and 43% of
-    the instructions of 200 calls. The copy of each piece grows with the octets held, so a body's
+  - **The cost.** connect-zig's sink reads a gRPC export of 192,397 bytes through a stream route
+    that keeps every byte unread until the body's last piece. After each piece, `keep_unread` in
+    `server/router/router_body.zig` copied the held bytes onto themselves at offset 0, with
+    `std.mem.copyForwards`. In Zig 0.16 that function is a loop of one byte a step, and its doc
+    comment says to use `@memmove`. callgrind counted about 27 instructions a byte, and 43% of
+    the instructions of 200 calls. The copy of each piece grows with the bytes held, so a body's
     cost grew with its square. `drop_read_plaintext` and `take_output` in the server's
     `connection_internal.zig` cost another 7.8% in the same loop.
   - **The change.**
-    - `keep_unread` copies nothing when the unread octets already start `held`, which they do
+    - `keep_unread` copies nothing when the unread bytes already start `held`, which they do
       when the route read none of them.
     - Each of the library's 21 calls of `std.mem.copyForwards` becomes `@memmove`, with the two
       slices of equal length that it requires. The tests and the simulator keep theirs.
-  - **What no test catches.** The skip of the copy changes no octet, so no test fails without it.
+  - **What no test catches.** The skip of the copy changes no byte, so no test fails without it.
     Its proof is the measurement below.
   - **The measurement, by connect-zig, 2026-11-17.** Its OTLP sink reads each export through a
     stream route on `colibri.Server`, in ReleaseSafe, over h2 with TLS, and h2load sends the
@@ -16913,12 +16913,12 @@ library.
 
     | Export | Build | Calls a second | CPU µs a call |
     | --- | --- | ---: | ---: |
-    | 16 spans, 6,271 octets | v0.17.3 | 35,857 | 28 |
-    | 16 spans, 6,271 octets | `d9f3dd34`, v0.18.0's tree | 36,152 | 27 |
-    | 16 spans, 6,271 octets | `ed40807b`, this step | 62,102 | 16 |
-    | 512 spans, 192,397 octets | v0.17.3 | 817 | 1,222 |
-    | 512 spans, 192,397 octets | `d9f3dd34` | 819 | 1,220 |
-    | 512 spans, 192,397 octets | `ed40807b` | 1,997 | 495 |
+    | 16 spans, 6,271 bytes | v0.17.3 | 35,857 | 28 |
+    | 16 spans, 6,271 bytes | `d9f3dd34`, v0.18.0's tree | 36,152 | 27 |
+    | 16 spans, 6,271 bytes | `ed40807b`, this step | 62,102 | 16 |
+    | 512 spans, 192,397 bytes | v0.17.3 | 817 | 1,222 |
+    | 512 spans, 192,397 bytes | `d9f3dd34` | 819 | 1,220 |
+    | 512 spans, 192,397 bytes | `ed40807b` | 1,997 | 495 |
 
     - The machine: an Apple M1 Pro, in an OrbStack Linux VM, kernel 7.2.12, aarch64. Other
       builds ran on the host, so the builds ran in turns. Decision 32 publishes no number of a
@@ -16943,8 +16943,8 @@ library.
 
     | Export | connect-zig on colibri | The Collector |
     | --- | ---: | ---: |
-    | 16 spans, 6,271 octets | 40,753 calls a second, 24.5 µs a call | 13,042, 76.5 µs |
-    | 512 spans, 192,397 octets | 1,271 calls a second, 782.5 µs a call | 706, 1,412.5 µs |
+    | 16 spans, 6,271 bytes | 40,753 calls a second, 24.5 µs a call | 13,042, 76.5 µs |
+    | 512 spans, 192,397 bytes | 1,271 calls a second, 782.5 µs a call | 706, 1,412.5 µs |
 
     - Run 168 pinned v0.17.3 on an AMD EPYC 9V45, so the two runs' times do not compare. Their
       ratio to the Collector does: from 2.23 to 3.12 times at 16 spans, and from 1.26 to 1.80
@@ -16980,33 +16980,33 @@ library.
     request:
     - 8 calls of the engine's `receive`, of which 6 reported nothing;
     - 4 polls of the connection, of which 3 found nothing;
-    - 4.9 calls of the connection's `receive`, 4 of them with no octets.
+    - 4.9 calls of the connection's `receive`, 4 of them with no bytes.
 
     Each program call, and each read, marks a connection as changed. The next poll then ran the
     connection's whole `receive`, its protocol read included, to learn that no event waited. The
     judge's profile of main
     ([run 44131797472](https://github.com/c4milo/colibri/actions/runs/44131797472)) put 27% to
     29% of h11-many's user samples in the engine and 28% in the connection.
-  - **56a, refused.** h11 read no head from a call with no octets. Laptop callgrind, on epoll,
+  - **56a, refused.** h11 read no head from a call with no bytes. Laptop callgrind, on epoll,
     counted about 160 instructions less a request. The judge found every input within the noise
     ([run 44126759609](https://github.com/c4milo/colibri/actions/runs/44126759609)), so the
     change did not land. The laptop probe ran Rotor on epoll, because the container blocks
     io_uring, and valgrind cannot run io_uring. It may explain a result of the judge, and it does
     not choose one.
-  - **56b.** `connection_owed.reads_with_no_input` names each event that a call with no octets
-    can bring. `Connection.receive` skips `receive_event` when the call brings no octets and the
+  - **56b.** `connection_owed.reads_with_no_input` names each event that a call with no bytes
+    can bring. `Connection.receive` skips `receive_event` when the call brings no bytes and the
     check says no. The deadlines fire and are observed either way (INV-31).
     - h2, a connection with no protocol yet, and TLS read as before. The test comes first, so h2
       pays one compare.
     - An h11 connection in cleartext reads for a 100 owed, a `done` owed, and a body's `end`
-      owed. While octets wait unread, a call with none reads nothing. A head, a body, a
-      discarded body and a tunnel read nothing with no octets: a body's decoder takes only the
-      octets of the call and gives back what it could not decode, which then waits unread.
+      owed. While bytes wait unread, a call with none reads nothing. A head, a body, a
+      discarded body and a tunnel read nothing with no bytes: a body's decoder takes only the
+      bytes of the call and gives back what it could not decode, which then waits unread.
     - Two assertions: only h2 owes a `cancelled` on a deadline, and an h11 connection is open
       or closed.
     - **Mutations, 7 of 8 CAUGHT,** against the tests of `server`, `sim`, `sim-run`,
       `colibri` and `testing`: a 100 owed, a `done` owed, h2 and TLS, TLS alone, h2 alone, an
-      `end` owed, and a skip that ignores the octets. NOT CAUGHT: no deadline observed on a
+      `end` owed, and a skip that ignores the bytes. NOT CAUGHT: no deadline observed on a
       skipped read. Each change of an h11 connection is followed by a read that reports
       `done`, or by a `send`, and both observe. INV-31 keeps the call.
   - **The cost to h2, and its fix.** The judge measured 56b at `b8f8be48` against `a4058b7b`
@@ -17043,9 +17043,9 @@ library.
   owner ruled. The judge refused it, and two of its tests landed.
   - **The cost.** Scratch counters on h11-many after step 56, native, gave 4 polls a request on
     io_uring and on epoll, and 3 of them found nothing. `take_stream` put the slot in the ready
-    ring before each read, and two reads a request with no octets read nothing.
+    ring before each read, and two reads a request with no bytes read nothing.
   - **The change, `50fd659f`.** `take_stream` put the slot in the ring after a read with no
-    octets that the connection did not read only when `fire` changed what a poll reads: a
+    bytes that the connection did not read only when `fire` changed what a poll reads: a
     deadline stopped the connection, its linger passed, or the bound of its staged close passed.
     Otherwise it marked only the deadline heap. The counters gave 3 polls a request, and 2 of
     them found nothing, on io_uring and on epoll.
@@ -17058,25 +17058,25 @@ library.
     `50fd659f`. A run of one tree varies by up to 300. Under valgrind the server falls behind
     wrk, so a poll there costs more than on the judge. The empty poll after a read that found
     nothing costs too little to measure.
-  - **The tests that landed.** A read with no octets, with no `on_instant`, at the instant a
+  - **The tests that landed.** A read with no bytes, with no `on_instant`, at the instant a
     linger passes and at the bound of a staged close, reports `close`. Without the two tests, a
     mutant that ignored the linger or the staged close was NOT CAUGHT. Main passes both, and a
     later change of the ready ring must too.
 
 - **Step 58 — no copies of the server's events, planned 2026-11-17.** [Decision 165](decisions.md),
   for [#133](https://github.com/c4milo/colibri/issues/133).
-  - **The cost.** `server.Event` holds 160 octets, and `server.ReceiveResult` 192. A request on
+  - **The cost.** `server.Event` holds 160 bytes, and `server.ReceiveResult` 192. A request on
     h11-many takes 8 calls of the engine's `receive`, and 6 of them report nothing. Each layer of
     the engine returns the result by value, and a `server.Router` takes the event by value. The
     laptop profile of 2026-11-14 put about 640 of the 1,710 instructions a request of
     `State.receive` in the lines that build and return the result. Steps 56 and 57 did not
     change that cost.
   - **The price, 2026-11-17.** callgrind with `--dump-instr=yes` on `db8817d6` counted each
-    instruction of h11-many. The loads and stores of 16 octets took 537 of 14,402 instructions a
-    request. The copies of 8 octets come on top, so this is a lower bound.
+    instruction of h11-many. The loads and stores of 16 bytes took 537 of 14,402 instructions a
+    request. The copies of 8 bytes come on top, so this is a lower bound.
     - `State.receive`, with what LLVM inlined into it: 189 of 1,903.
     - The connection's `receive`: 138 of 594. Each of its 4.9 calls a request copies its whole
-      result, about 220 octets, also when it reports nothing. Decision 121 took `Connection`
+      result, about 220 bytes, also when it reports nothing. Decision 121 took `Connection`
       out of the root, so this copy is internal.
     - The test server's handler, which copies each event as a program does: 88.
     - `send_first`: 44, and `engine_state_events.pass`: 16.
@@ -17091,11 +17091,11 @@ library.
       the event, and `next_event`, each kind of slot's `poll`, `send_first`, `connection_event`,
       `transport_event`, `engine_state_events.pass` and `writable_of` write `state.event` and
       return a `bool`. `State.receive` copies the event into its result once, or stores null.
-    - `pass` and `note_read` take their argument by `*const`, because each is over 16 octets.
+    - `pass` and `note_read` take their argument by `*const`, because each is over 16 bytes.
     - The connection's `receive` observes the deadlines in a `defer`, and an `errdefer` keeps a
       failed read from being observed, as before. Its result is written in place, not copied there
       from a local.
-    - The same profile as the price above: the loads and stores of 16 octets fell from 537 to 297
+    - The same profile as the price above: the loads and stores of 16 bytes fell from 537 to 297
       a request on h11-many, and from 384 to 290 on h2-many.
     - What 58a leaves: the null result stored whole and the copy into the public result in
       `State.receive`, about 51 a request on h11-many, which 58b removes. The connection's
@@ -17106,7 +17106,7 @@ library.
       - CAUGHT: a passed request keeps the connection's own handle, and an event that
         `take_stream` wrote is not reported. Under the second, the `colibri` tests wait forever,
         and the run was stopped.
-      - NOT CAUGHT: a read that fails is observed too. A failed connection's octets reach its
+      - NOT CAUGHT: a read that fails is observed too. A failed connection's bytes reach its
         output only in `send`, so the observation starts no clock that a deadline reads. The
         `errdefer` stays, so the connection behaves as before.
     - **Checked, 2026-11-17 and 2026-11-18:**
@@ -17123,7 +17123,7 @@ library.
         h2-many won in both, 0.9856 and 0.9854, h2-routes-many 0.9875 and 0.9876,
         h2-k8s-routes-many 0.9882 and 0.9886, h2-routes-post-many 0.9893 and 0.9883, and
         h2-tls-many 0.9907 and 0.9875. No input lost.
-      - Each engine grows by 160 octets, the one `event`, and docs/performance.md's memory table
+      - Each engine grows by 160 bytes, the one `event`, and docs/performance.md's memory table
         says so.
       - The server tests, 757 of 757, passed on x86-64 Debug in an amd64 container.
       - `tools/ci.sh` passed 31 sections on `6b636d09`, with Zig 0.16.0 on an Apple M1 Pro with
@@ -17157,7 +17157,7 @@ library.
       the type of `Handled`'s payload.
     - Mutations, 4, each CAUGHT against `zig build test-server`: an event `take_stream` reported
       not written into the result; null not written when nothing is reported, which leaves the
-      last event; the octets a reported event consumed not written; and `handle` handing back a
+      last event; the bytes a reported event consumed not written; and `handle` handing back a
       copy, which the new test of decision 165 catches by its pointer.
     - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
       failed; `zig build examples`, 10 of 11, the IPv6 example failed; `tools/doc_snippets.sh`;
@@ -17181,7 +17181,7 @@ library.
     the last does now.
     - The bound is the soonest of every deadline and of every running meter's window end. A
       meter's window end counts, not the instant of its verdict (`Meter.check_ns`): a window that
-      brought its quota must roll at its end, before more octets count, or a peer that keeps its
+      brought its quota must roll at its end, before more bytes count, or a peer that keeps its
       rate is cut.
     - A full `fire` that finds nothing computes the bound again. Nothing else raises it.
     - Each place that starts a deadline or a window lowers the bound to that instant with one
@@ -17226,30 +17226,30 @@ library.
   adapter's socket took 197,184 bytes. The owner ruled on 2026-11-18 for a single receive buffer
   and an output of one engine output, in that socket and in the test-only server's, so the judge
   prices the change. No public name changes.
-  - **What the socket held.** Two receive buffers of `socket_input_len` octets each, so that a
+  - **What the socket held.** Two receive buffers of `socket_input_len` bytes each, so that a
     receive is in flight in one while the session reads the other, and an output of two engine
     outputs, so that the engine writes while a send is in flight. No decision chose the two over
     one: the design came with the code, and its comments gave that reason.
-  - **The input.** A receive writes into the octets free after the unread ones. The session
+  - **The input.** A receive writes into the bytes free after the unread ones. The session
     consumes from the front, also while a receive is in flight, and a consume moves the start and
-    the count together, so what arrives follows the unread octets. The unread octets move to the
+    the count together, so what arrives follows the unread bytes. The unread bytes move to the
     front only when the next receive is written, when no receive owns the buffer. Before, the
-    octets that arrived behind unread ones were copied: now only the unread ones move.
+    bytes that arrived behind unread ones were copied: now only the unread ones move.
   - **The output.** `socket_output_len` is `output_len`, one engine output, which the test-only
     server's socket already had (`write_buffer_len`). While a send is in flight, the engine
-    writes after the octets it sends, and it waits for the send once the output is full.
+    writes after the bytes it sends, and it waits for the send once the output is full.
   - **Memory.** `colibri.Server`'s socket goes from 197,184 to 98,616 bytes, and the test-only
     server's from 82,504 to 65,856. A connection of connect-zig's sink goes from about 531,528 to
     432,960 bytes, and its 528 connections take about 52 MB less.
   - **The checks.**
-    - Each socket's tests require a receive to write right after the unread octets, the unread
-      octets to move to the front only when the next receive is written, and an arrival to follow
+    - Each socket's tests require a receive to write right after the unread bytes, the unread
+      bytes to move to the front only when the next receive is written, and an arrival to follow
       the rest when the session consumes while the receive is in flight. The fuzz script of each
       socket gains a consume while a receive is in flight.
-    - 10 mutations, 5 of each socket, each **CAUGHT**: an arrival counted one octet short; no move
-      to the front; a receive over the unread octets; the start set back on a consume that empties
+    - 10 mutations, 5 of each socket, each **CAUGHT**: an arrival counted one byte short; no move
+      to the front; a receive over the unread bytes; the start set back on a consume that empties
       the input; and the receive in flight read from the front. The last was **NOT CAUGHT** until
-      the test compared the octets the receive was given with those it writes.
+      the test compared the bytes the receive was given with those it writes.
     - The tests of `colibri` pass on arm64 Linux in a container, 150 of 150, its loopback servers
       over TCP and TLS included. On x86-64 in Debug under Zig's own backend, each socket test passes
       in both modules; the emulation cannot run the loopback servers (`Unsupported`).
@@ -17262,14 +17262,14 @@ library.
     in the test-only server, so the output's change in `colibri.Server` follows a design it ran.
 - **Step 61 — h2's field blocks where they lie, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137). After step 60, h2's field blocks held
-  98,352 octets of each connection: 65,584 to receive a block and 32,768 to send one. The owner
+  98,352 bytes of each connection: 65,584 to receive a block and 32,768 to send one. The owner
   ruled on 2026-11-18 for two steps, each judged alone. No public name changes.
-  - **61a, a fragment decoded where it lies.** The slot copied each fragment after the octets a
+  - **61a, a fragment decoded where it lies.** The slot copied each fragment after the bytes a
     cut representation left, then decoded the buffer, so it held one representation and one frame
-    (decision 40). Now `decode_fragment` appends the next fragment's first octets to a kept
+    (decision 40). Now `decode_fragment` appends the next fragment's first bytes to a kept
     representation, at most up to `representation_len_max`, and decodes the buffer. It then
     decodes the rest of the fragment where the connection holds it, and `keep` copies only the
-    representation the fragment cuts. `field_block_buffer_len` goes from 48,105 to 31,721 octets,
+    representation the fragment cuts. `field_block_buffer_len` goes from 48,105 to 31,721 bytes,
     and a block that arrives whole is never copied. Decision 40 is amended.
   - **One call of the decoding loop.** A first version called `decode_slice` once for the buffer
     and once for the fragment, and the judge counted h2-many at 1.0019 and 1.0023 of main (run
@@ -17284,29 +17284,29 @@ library.
     gives the block that buffer after the HEADERS frame's header. `frame_block` moves each later
     fragment after the headers before it, the last first, and writes the headers. A block that
     fits one frame does not move, and no block is encoded twice. `send_block` is gone.
-  - **Memory.** `h2.Connection` goes from 164,672 to 115,520 octets, and an engine's TCP slot from
+  - **Memory.** `h2.Connection` goes from 164,672 to 115,520 bytes, and an engine's TCP slot from
     334,344 to 285,192. A connection of connect-zig's sink, which step 60 brought to about
-    432,960 octets, goes to about 383,808, and its 528 connections take about 26 MB less.
+    432,960 bytes, goes to about 383,808, and its 528 connections take about 26 MB less.
   - **The contract of a refusal.** A send or a request that the connection refuses changes nothing
-    of the connection and counts no octet of the caller's buffer as written. A refused block may
-    have been encoded into the buffer, so the octets past what a call returns are scratch, as
+    of the connection and counts no byte of the caller's buffer as written. A refused block may
+    have been encoded into the buffer, so the bytes past what a call returns are scratch, as
     `core.Writer` says. The old path that encoded a block in its frame wrote there too.
   - **The checks.**
     - Two tests of 61a feed one block of five lines: Huffman-coded and raw strings, a value of
-      2,000 octets, and a line that names the dynamic table. They cut it in two at each octet,
-      and in three at each two places 53 octets apart. Each cut must give the section, the line
+      2,000 bytes, and a line that names the dynamic table. They cut it in two at each byte,
+      and in three at each two places 53 bytes apart. Each cut must give the section, the line
       count and the table length of the block fed whole.
     - The test of 61b keeps the old `write_block` as its reference. For three frame sizes, and a
       block about the edges of one and two frames and the longest block, both must write the same
-      frames, or both must refuse the block when the output is one octet short.
+      frames, or both must refuse the block when the output is one byte short.
     - 61a: 10 mutations, each **CAUGHT**: the append past the buffer's room; a cut line that took
-      the whole fragment refused; the rest found without the kept octets; the buffer kept after the
-      line is finished; the decoded octets not counted; the cut line decoded without the appended
-      octets; the rest decoded while a line is still cut; the tail not kept; the counts not carried
+      the whole fragment refused; the rest found without the kept bytes; the buffer kept after the
+      line is finished; the decoded bytes not counted; the cut line decoded without the appended
+      bytes; the rest decoded while a line is still cut; the tail not kept; the counts not carried
       into the buffer's decode; and the rest decoded as if it were the buffer.
     - 61b: 9 mutations. 8 are **CAUGHT**: the frames past the output; a fragment moved one header
       short; END_HEADERS on the first frame too; END_STREAM on a CONTINUATION frame; each frame a
-      HEADERS frame; a frame's length one octet short; a block past the limit; and no room before
+      HEADERS frame; a frame's length one byte short; a block past the limit; and no room before
       the first header. The first fragment moved first is **NOT CAUGHT**, and no test can catch
       it: a block holds at most `send_block_len_max`, two frames of the smallest
       `max_frame_size`, so only one fragment moves.
@@ -17352,7 +17352,7 @@ library.
       ([run 44442319011](https://github.com/c4milo/colibri/actions/runs/44442319011)). Every
       input was within the noise, and none lost.
   - **62c, h11's request head, `69f12c06`.** A server reads a request head of
-    `request_head_len_max`, 24,582 octets: the leading empty line, the longest start line, the
+    `request_head_len_max`, 24,582 bytes: the leading empty line, the longest start line, the
     largest field section colibri accepts, and their CRLFs, so it refuses no request the section
     limit admits. A client reads a response head of `response_head_len_max`, 32,768, as before.
     `message_scan` takes each head's limit from its role. A server's TCP slot holds 8,184 bytes
@@ -17372,7 +17372,7 @@ library.
       convinced by a `Capacity` field that drops them.
     - The response header block of two h2 frames, which sizes `output`, waits for the owner.
       One frame saves 16,384 bytes a connection, but colibri would then send no CONTINUATION,
-      and each `send` would hold a third fewer octets of a large body.
+      and each `send` would hold a third fewer bytes of a large body.
 - **Step 63 — a TLS server session holds no trust anchors, 2026-11-18.**
   [#137](https://github.com/c4milo/colibri/issues/137). After step 62, `tls.record.Server` held
   50,000 bytes, and every TCP slot of an engine holds one, in cleartext too. The owner ruled on
@@ -17407,7 +17407,7 @@ library.
 
 - **Step 64 — a TCP connection holds a TLS session only over TLS, 2026-11-19.**
   [#137](https://github.com/c4milo/colibri/issues/137), decision 167. After step 63 a TCP slot
-  held 234,256 octets, and 83,029 of them were the TLS session and `plain_in`, which a cleartext
+  held 234,256 bytes, and 83,029 of them were the TLS session and `plain_in`, which a cleartext
   connection never uses. The change breaks names, so it goes into v0.19.0.
   - **The public names.** `server.Config` gains the field `tls_buffer` and the call
     `tls_buffer_len`. The server root exports no new name, and `colibri` adds none. A test of
@@ -17420,7 +17420,7 @@ library.
     - `TlsSession`, in `connection/tls_session.zig`, which the root does not export, holds
       `tls.record.Server` and `plain_in`. A TCP connection holds a pointer to one over TLS, and
       null in cleartext. `Connection.init` takes it, and asserts that it is there over TLS alone.
-    - `tls_buffer_len(n)` counts `n` sessions and the octets that align the first, so a buffer
+    - `tls_buffer_len(n)` counts `n` sessions and the bytes that align the first, so a buffer
       that starts anywhere holds `n`. `engine_tls_sessions.zig` cuts the buffer into sessions
       at `init`, at most `tcp_connections` of them, and keeps the free ones in a list.
     - `accept` over TLS takes a free session first, and returns null when none is free. A slot
@@ -17430,8 +17430,8 @@ library.
       least. A test cannot reach an assertion, so no test checks this one.
     - The test-only endpoints of §9, the simulator and the examples pass a buffer. The
       simulator's censuses did not change.
-  - **Memory.** A TCP slot goes from 234,256 to 151,232 octets, and `server.Engine(.{})` from
-    50,804,336 to 49,476,080. `server.Config.tls_buffer_len(1)` is 83,039 octets. connect-zig's
+  - **Memory.** A TCP slot goes from 234,256 to 151,232 bytes, and `server.Engine(.{})` from
+    50,804,336 to 49,476,080. `server.Config.tls_buffer_len(1)` is 83,039 bytes. connect-zig's
     528 cleartext connections hold about 43.8 MB less.
   - **The checks.**
     - Tests of `tls_session.zig`, of `engine_tls_sessions.zig` and of
@@ -17440,7 +17440,7 @@ library.
       cleartext; null from `accept` over TLS while each session is in use; a session that a full
       engine leaves free; a session given back wiped; and cleartext alone with no buffer.
     - 9 mutations, each **CAUGHT**: no session over TLS; a session kept at release; a session
-      kept when no slot is free; a session in cleartext; no octets to align; no cap at
+      kept when no slot is free; a session in cleartext; no bytes to align; no cap at
       `tcp_connections`; the free list in the other order; the wrong number freed; and secrets
       kept at `close_transport`. Two were NOT CAUGHT at first, and the tests of a full engine
       and of the number freed were added for them.
@@ -17453,12 +17453,12 @@ library.
 
 - **Step 65 — an output of one HEADERS and one DATA frame, refused, 2026-11-19.**
   [#137](https://github.com/c4milo/colibri/issues/137), decision 166 as amended. The owner asked
-  to try a server output sized for one frame of header block, which saves 16,375 octets of each
+  to try a server output sized for one frame of header block, which saves 16,375 bytes of each
   TCP slot, and the judge refused it.
-  - **The trial.** `output_len` held two frames of 16,393 octets, 32,786 in place of 49,161. The
+  - **The trial.** `output_len` held two frames of 16,393 bytes, 32,786 in place of 49,161. The
     largest block h2 sends still fit an empty output, in a HEADERS frame and a CONTINUATION frame.
   - **The tiny frames.** h2 cut a DATA frame at the room the output had left. With the smaller
-    output, the deadline trace run's bodies went out in frames of 135 to 4,021 octets, its seed 0
+    output, the deadline trace run's bodies went out in frames of 135 to 4,021 bytes, its seed 0
     ran out of drain rounds, and seed 0x11 held more than 48 frames in the output. The owner chose
     a floor: h2 cut no DATA frame at the room below `data_frame_len_min`, unless the room held the
     rest of the body. The model `ServerDeadlines.tla` took the same floor.
@@ -17473,7 +17473,7 @@ library.
     the noise, at 1.0156 and 1.0173, though its user instructions rose 4.6%. Every other input
     stayed within the noise. The first run, 44527800392, before step 13n, had no input with a
     large body, and found none losing.
-  - **What stays.** The output stays 49,161 octets, and no floor on the room lands. The branch
+  - **What stays.** The output stays 49,161 bytes, and no floor on the room lands. The branch
     `one-frame-65b` keeps the trial.
 
 - **Step 66 — MAX_STREAMS rides in a packet that goes anyway, 2026-11-19.**
@@ -17521,24 +17521,24 @@ library.
   - **The cost.** `take` made the slot's union hold the coding's encoder with
     `slot.encoder = .{ .gzip = undefined }`. Zig writes the whole union to change its field, and
     ReleaseSafe writes 0xAA over an `undefined` payload. So each coded response wrote 299,768
-    octets for deflate and 299,776 for gzip, in a ReleaseSafe aarch64-linux build of `eb26cf67`.
+    bytes for deflate and 299,776 for gzip, in a ReleaseSafe aarch64-linux build of `eb26cf67`.
     The encoder's `init` then wrote the state it reads.
-  - **The change.** A slot holds its encoder as octets of the larger type's size and alignment,
+  - **The change.** A slot holds its encoder as bytes of the larger type's size and alignment,
     and `slot.coding` names the type they hold. `gzip_of` and `zlib_of` give the encoder as its
     type, and each asserts the slot taken and its coding. `take` starts the encoder in place
     through them. Each slot loses the union's hidden tag in a safe build, so
-    `server.EncoderPool(.{})` takes 1,461,304 octets, 32 fewer.
-  - No byte of the slot before `take` reaches the coded octets, because stdx's `init` writes all
+    `server.EncoderPool(.{})` takes 1,461,304 bytes, 32 fewer.
+  - No byte of the slot before `take` reaches the coded bytes, because stdx's `init` writes all
     the state its encoder reads. A test requires it: a slot filled with 0 and then with 255 codes
-    the same octets, at level 1 and at the default level 6, in gzip and in deflate.
-  - h11's decoder pool changes its union the same way, 44,312 octets for each coded message
+    the same bytes, at level 1 and at the default level 6, in gzip and in deflate.
+  - h11's decoder pool changes its union the same way, 44,312 bytes for each coded message
     (`begin_stream` in `src/h11/coding.zig`). This step leaves it, and step 69 removes it.
-  - **Check:** the test above and the two tests of `coding_pool.zig` that read the coded octets
+  - **Check:** the test above and the two tests of `coding_pool.zig` that read the coded bytes
     back. Five mutations, each CAUGHT: `take` starts no gzip encoder; `take` starts no deflate
     encoder; `take` starts a zlib encoder for gzip; a deflate slot encodes with the gzip
-    encoder; and the gzip trailer adds 4 octets of the window's end, which `init` never writes.
+    encoder; and the gzip trailer adds 4 bytes of the window's end, which `init` never writes.
     The last breaks the new test and eight tests of coded h11, h2 and h3 responses, and neither
-    test that reads the coded octets back: those decode a slot that held zeros.
+    test that reads the coded bytes back: those decode a slot that held zeros.
   - A filter on the laptop, never published: the ReleaseSafe server with `--coded` under h2-many's
     load in an ubuntu 24.04 container, seven rounds in turns. A coded response took 26,726 ns of
     the server's CPU at `7b06f5bd` and 7,073 ns with the change, medians. An uncoded response
@@ -17558,7 +17558,7 @@ library.
   - **The change.** colibri pins stdx v0.2.0. Each `platform.Cpu` literal of colibri's tests and
     of `tools/consumer/` names the two fields. A program that writes such a literal names them
     too, and one that calls `platform.probe()` changes nothing. The memory table grows by 16
-    octets for an engine of one TCP connection and by 8 for a client's pool, since a
+    bytes for an engine of one TCP connection and by 8 for a client's pool, since a
     `tls.Cpu` holds the probe.
   - **The N2 rule waits.** chapulin's decision 240 asks a program to leave
     `constant_time_sha3` clear on a Neoverse N2, where Keccak runs 1.8 times slower on the SHA-3
@@ -17578,20 +17578,20 @@ library.
   on 2026-11-19, the last of the four findings that step 67's frame scan left.
   - **The cost.** `begin_stream` made the slot's union hold the coding's decoder with
     `slot.decoder = .{ .gzip = undefined }`, as step 67's encoder did. In a ReleaseSafe
-    aarch64-linux build of `8995a305`, it wrote 44,312 octets of 0xAA for gzip and 44,296 for
+    aarch64-linux build of `8995a305`, it wrote 44,312 bytes of 0xAA for gzip and 44,296 for
     deflate, at each stream and each gzip member.
     - A server pays it for each h11 request body whose transfer coding is gzip or deflate.
     - A client pays it for each response coded in gzip or deflate, in any version.
-  - **The change.** A slot holds its decoder as octets of the larger type's size and alignment.
+  - **The change.** A slot holds its decoder as bytes of the larger type's size and alignment.
     `gzip_decoder` and `zlib_decoder` give the decoder as its type, and each asserts the
     message's coding and its slot. `begin_stream` starts the decoder in place through them.
     `h11.coding.Slot` is a public name, so its field `decoder` changes type. No code outside
     `coding.zig` reads that field, and the client's pool has a `Slot` of its own.
   - A test requires that a slot filled with 0 and then with 255 decodes the same text, in gzip and
-    in deflate, in pieces of 7 octets.
+    in deflate, in pieces of 7 bytes.
   - **Check:** five mutations, each CAUGHT: no gzip decoder start; no deflate decoder start; a
     zlib decoder started for gzip; deflate decoded by the gzip decoder; and the gzip size check
-    adding 4 octets of the window's end, which `init` never writes. Only the new test catches the
+    adding 4 bytes of the window's end, which `init` never writes. Only the new test catches the
     last.
   - **No judge number.** The judge times colibri's servers under loads that send no coded body,
     and it times no client. The owner chose to admit the step on its disassembly: in the
@@ -17601,7 +17601,7 @@ library.
     runs of 16 GETs whose answers came coded in gzip, six blocks in turns in an ubuntu 24.04
     container. A block took 0.9545 s of user time before the step and 0.929 s with it, medians:
     about 16 µs for each answer. The test-only client exports no `memset` of its own, so
-    compiler_rt's serves the fill, one octet at a time.
+    compiler_rt's serves the fill, one byte at a time.
 - **Step 70 — a router starts in place, 2026-11-23.** connect-zig asked for it on 2026-11-23, for
   its OTLP sink ([#148](https://github.com/c4milo/colibri/issues/148)).
   - **The cost.** A program started its router with `.{}`, as README.md showed. The field
@@ -17627,11 +17627,11 @@ library.
     `zig build test-server` catches the first two, and `zig build test-server -Drelease` the next
     two.
   - **Measured** on x86-64 Linux with Zig 0.16.0. The program is a ReleaseSafe build with one
-    function route and 64 entries, each of 4,096 response octets and 263,168 body octets.
+    function route and 64 entries, each of 4,096 response bytes and 263,168 body bytes.
     `Router.memory_bytes` is 17,229,136.
-    - With `.{}`: a `.data.rel.ro` of 17,234,184 octets, an image of 34,942,080 octets, and a
+    - With `.{}`: a `.data.rel.ro` of 17,234,184 bytes, an image of 34,942,080 bytes, and a
       largest resident set of 35,640 KiB.
-    - With `init`: a `.data.rel.ro` of 9,384 octets, an image of 17,721,160 octets, and a
+    - With `init`: a `.data.rel.ro` of 9,384 bytes, an image of 17,721,160 bytes, and a
       largest resident set of 12,976 KiB.
     - The same program with no start of the router: 12,924 KiB.
 
@@ -17642,7 +17642,7 @@ library.
     RFC 9001 §5.7 forbids it to process a 1-RTT packet before its handshake completes. quinn never
     sent the request again, and the case failed.
   - **The change.** [Decision 168](decisions.md): a server keeps such packets, at most 12 and
-    14,720 octets, and opens them once its handshake completes. `connection_early.zig` holds the
+    14,720 bytes, and opens them once its handshake completes. `connection_early.zig` holds the
     store, and `connection_datagram.zig` keeps and opens the packets. `frames.process` takes the
     offset in `scratch.completed` where a packet's completed streams start, so several 1-RTT
     packets of one call keep each other's.
@@ -17663,15 +17663,15 @@ library.
     rebinding checks 13,247 and 13,203 instead of 14,691 and 14,548, and the runner's network
     3,906 instead of 3,905. Under BBRv3 the lossy check takes 12,814 instead of 15,142, and under
     NewReno 11,836 instead of 13,316. The h3 checks run over the same network, so their digests
-    move too, and their qlog grows from 8,025,390 to 8,033,685 octets. Debug and ReleaseSafe agree
+    move too, and their qlog grows from 8,025,390 to 8,033,685 bytes. Debug and ReleaseSafe agree
     on every census, and so do the runs with and without qlog.
-  - **Memory.** `quic.Connection` grows by 14,920 octets, from 208,472 to 223,392, in clients too.
+  - **Memory.** `quic.Connection` grows by 14,920 bytes, from 208,472 to 223,392, in clients too.
   - **Tests.** `connection_early_test.zig` holds a packet kept and then opened, recorded at its
     arrival and with the idle timer at its opening, a full store, a client, a closing server, and
     an Initial packet with no keys that is not kept.
   - **Check:** nine mutations, each CAUGHT by `zig build test-quic`: nothing kept; nothing
     opened; a client that keeps; a kept packet recorded at its opening; a store past its count;
-    a store past its octets; a store not emptied once opened; a packet with no keys kept; a
+    a store past its bytes; a store not emptied once opened; a packet with no keys kept; a
     packet that waits for the handshake named `no_keys`. `zig build test-sim-run-quic` also
     catches the first two.
   - **Not run yet:** `tools/interop.sh quinn handshakeloss`, which needs Docker. The weekly job
@@ -17681,7 +17681,7 @@ library.
   - **The cost.** A program stated its CPU features to each codec pool it placed: three decoder
     pools in a client, an encoder pool and a decoder pool in a server. Each `init(features)` was a
     place to leave `CpuFeatures.target()` by mistake, and no test sees that, since stdx writes the
-    same octets on every path.
+    same bytes on every path.
   - **The change.** [Decision 169](decisions.md): `client.Config`, `server.Config` and h11's
     `Options` hold `cpu_features`, with no default, and a pool's `init` takes no argument. A
     connection gives its configuration's features to a codec as the codec starts:
@@ -17704,11 +17704,11 @@ library.
     configuration. A configuration that was a constant of the program's image is now built as
     the program starts, since `CpuFeatures.detect()` runs then. docs/usage.md and the README show
     the lines.
-  - **Memory.** `zig build bench-memory`: `h11.Connection` grows by 16 octets, to 35,072, since
+  - **Memory.** `zig build bench-memory`: `h11.Connection` grows by 16 bytes, to 35,072, since
     it keeps its options' features. `server.Engine(.{})` grows by 64, to 49,714,864, and
     `client.ConnectionPool(.{})` by 32, to 843,472, each for the field in its configurations.
     `server.EncoderPool(.{})` loses 8, to 1,461,296, since it holds no features.
-  - **Tests.** stdx writes the same octets on every path, so each test reads what a codec keeps
+  - **Tests.** stdx writes the same bytes on every path, so each test reads what a codec keeps
     of the features it started with: gzip's CRC-32 path, deflate's Adler-32 path, zstd's
     checksum path and its choice of assembly, and br's choice of assembly. Each one runs with no
     features and with the build target's, on a codec that held the other set before.
@@ -17800,7 +17800,7 @@ only place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
 1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
-   of the octets `--body` names when it is given (design §8 step 13n),
+   of the bytes `--body` names when it is given (design §8 step 13n),
    and CONNECT with 501, since it opens no tunnel (decision 109), in both cleartext and TLS
    modes, and **a client**, `http-client`, that runs a plan of
    exchanges against another implementation's server and reports how each ended. For h2spec,
@@ -17809,7 +17809,7 @@ only place in the tree permitted to touch a socket
    them h11 as well. Each connection of a client's run is a `client.Channel` with TCP alone, which
    asks for its socket and for another when an exchange moves (step 21c). In cleartext the client
    speaks h2 with prior knowledge, or h11 with `--h11`. The server in cleartext names no version
-   and speaks h2 when a connection's first octets are h2's preface and h11 otherwise (decision
+   and speaks h2 when a connection's first bytes are h2's preface and h11 otherwise (decision
    117, step 21a), or one alone with `--h11` or `--h2`. Over TLS, both offer `h2` and then
    `http/1.1` through ALPN, or one alone with `--h11` and, for the server, `--h2`, and each
    connection speaks what the handshake selected: h2 for `h2`, and h11 for `http/1.1` or for no
@@ -17875,10 +17875,10 @@ Be exact about what the null crypto suite buys, because the obvious claim is wro
 what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key, nonce and
 plaintext, so a real suite replays just as deterministically. What it buys is a harness with no
 crypto dependency and no cipher time. It must therefore be **size-faithful rather than an identity
-function** — appending a 16-octet tag, and masking byte 0 and the packet number from a 16-octet
+function** — appending a 16-byte tag, and masking byte 0 and the packet number from a 16-byte
 sample, exactly as a real suite would — because RFC 9001 §5.3's expansion feeds §5.4.2's sample
 offset, the packet's Length varint, RFC
-9000 §14.1's 1200-octet minimum and the anti-amplification count of
+9000 §14.1's 1200-byte minimum and the anti-amplification count of
 [invariant 18](invariants.md#inv-18--the-anti-amplification-limit-holds). A suite that shortened
 packets would simulate a protocol QUIC does not have.
 
@@ -18035,7 +18035,7 @@ instructions and draws a different CPU from run to run.
   - Mutations, each CAUGHT: without `colibri`'s references, `zig build example-h11_exchange`
     fails to link; without `tls`'s, `zig build router-hidden-check` fails; without the route
     check's, the same step fails.
-  - chapulin's bump makes `tls.quic.Client` and `tls.quic.Server` 1,536 octets smaller, and
+  - chapulin's bump makes `tls.quic.Client` and `tls.quic.Server` 1,536 bytes smaller, and
     docs/performance.md's memory table holds the new sizes.
   - Run on x86-64 Linux: `zig build test`, 4,277 of 4,279, with 1 skipped and the IPv6 test
     failed; `zig build examples`, the IPv6 example failed; `tools/doc_snippets.sh`; and
@@ -18120,15 +18120,15 @@ instructions and draws a different CPU from run to run.
     found on arm64: `tcp_trace_check`'s `wire_crc32`, `endpoint_check`'s two, and
     `h3_deadline_check`'s `census_wire_crc32_expected`. The simulator's contexts now describe a
     CPU with no feature, and read nothing of the host (decision 175), so x86-64, which holds AES,
-    gives the same values. The client trace run's census gained `wire_crc32`, over every octet its
+    gives the same values. The client trace run's census gained `wire_crc32`, over every byte its
     pool sends (`client_trace_world_send.zig`). Both build modes pass on x86-64. Mutations, each
     CAUGHT: the contexts over `CpuFeatures.detect()`, then over `.target()`; the pool's
     datagrams, then its TCP segments, left out of the client trace run's wire checksum.
   - **Memory.** `zig build bench-memory`: `tls.quic.Client` and `tls.quic.Server` grow by 16
-    octets each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
+    bytes each, and `h11.Connection` by 16, since stdx's `CpuFeatures` grew. `server.Engine(.{})`
     grows by 112, and `client.ConnectionPool(.{})` by 136. docs/performance.md holds the table.
     With stdx v0.4.0 (`fdfbb709`), whose `Context` also holds the two descriptions of the CPU
-    and the hash and JWS calls, each context grows by 176 octets more: `tls.quic.Client` and
+    and the hash and JWS calls, each context grows by 176 bytes more: `tls.quic.Client` and
     `tls.quic.Server` by 176, and `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })`
     by 528.
   - **Names.** `qlog.Log`'s field `features` is `cpu_features`, as are the parameters and locals

@@ -24,7 +24,7 @@ const flags_index = h2_support.flags_index;
 /// Where a test decodes what the server sent. Test-only.
 var decoder: h2.hpack.Decoder align(@alignOf(h2.hpack.Decoder)) = undefined;
 
-/// Octets of the error code that ends an RST_STREAM frame (RFC 9113 §6.4).
+/// Bytes of the error code that ends an RST_STREAM frame (RFC 9113 §6.4).
 const error_code_len: usize = 4;
 
 test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, and its fields after" {
@@ -65,7 +65,7 @@ test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a r
     try testing.expectEqual(0, sent[flags_index]);
 }
 
-/// The most octets `request_frame` writes for the paths these tests use.
+/// The most bytes `request_frame` writes for the paths these tests use.
 const request_len_max: usize = 256;
 
 test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty DATA frame with END_STREAM" {
@@ -80,7 +80,7 @@ test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty 
     try testing.expectEqual(constants.protocol.flag_end_stream, sent[flags_index]);
 }
 
-/// Content of `long_body_frames` of the peer's largest frames and one octet more (RFC 9113 §4.2).
+/// Content of `long_body_frames` of the peer's largest frames and one byte more (RFC 9113 §4.2).
 const long_body_frames: usize = 2;
 const long_body: [long_body_frames * constants.protocol.max_frame_size_initial + 1]u8 = @splat('x');
 
@@ -101,7 +101,7 @@ test "one write_body call takes what the room and the windows allow, cut at the 
         try testing.expectEqual(whole_frame_len, frame_len(frame));
         try testing.expectEqual(0, frame[flags_index]);
     }
-    // h2 sets END_STREAM on the frame that carries the last octet (RFC 9113 §8.1).
+    // h2 sets END_STREAM on the frame that carries the last byte (RFC 9113 §8.1).
     try testing.expectEqual(constants.protocol.flag_end_stream, sent[whole_frames_len..][flags_index]);
 }
 
@@ -109,7 +109,7 @@ test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame 
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
     try connection.respond(1, .{ .status = .ok, .headers = &content_type, .end = false });
-    // No octets and no end write nothing, not even an empty frame (RFC 9113 §6.1).
+    // No bytes and no end write nothing, not even an empty frame (RFC 9113 §6.1).
     try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = false }));
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     const sent = support.drain();
@@ -188,7 +188,7 @@ fn client_stream(index: usize) u32 {
     return constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * @as(u32, @intCast(index));
 }
 
-/// Where a frame header holds its stream identifier, and its octets (RFC 9113 §4.1).
+/// Where a frame header holds its stream identifier, and its bytes (RFC 9113 §4.1).
 const stream_id_index: usize = flags_index + 1;
 const stream_id_len: usize = 4;
 
@@ -446,7 +446,7 @@ test "decision 117: the configuration's DATA frame floor is the one h2 holds to"
     try testing.expectEqual(lowered_floor_len, connection.session.h2.data_frame_len_min);
 }
 
-/// A floor one octet under the default, so a connection that kept the default shows.
+/// A floor one byte under the default, so a connection that kept the default shows.
 const lowered_floor_len: u32 = support.server_constants.policy.data_frame_len_min - 1;
 
 /// Opens `limit` streams, each a request whose body is still to come, and requires the next to be
@@ -463,7 +463,7 @@ fn expect_refused_after(limit: u32) !void {
 }
 
 /// Whether the server's SETTINGS frame at the front of `sent` lists SETTINGS_MAX_CONCURRENT_STREAMS
-/// as `limit`: each entry is an identifier of two octets and a value of four (RFC 9113 §6.5.1).
+/// as `limit`: each entry is an identifier of two bytes and a value of four (RFC 9113 §6.5.1).
 fn lists_streams_max(sent: []const u8, limit: u32) bool {
     const length = std.mem.readInt(u24, sent[0..constants.protocol.frame_length_len], .big);
     const entries = sent[constants.protocol.frame_header_len..][0..length];

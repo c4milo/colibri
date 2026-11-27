@@ -40,7 +40,7 @@ test "a retransmitted frame changes nothing, whether it is read or buffered" {
     test_stream.consume(3);
     try testing.expectEqualStrings("def", test_stream.readable());
     try testing.expectEqual(3, test_stream.consumed_len());
-    // RFC 9002 §6.2 retransmits a lost frame's octets, so the same offsets arrive again. The
+    // RFC 9002 §6.2 retransmits a lost frame's bytes, so the same offsets arrive again. The
     // first three are below the window now and the next three are already there.
     try test_stream.receive(0, "abcdef");
     try testing.expectEqualStrings("def", test_stream.readable());
@@ -79,10 +79,10 @@ test "consume slides the window, and what was buffered above it comes with it" {
 
 test "RFC 9000 §7.5: data past the window is CRYPTO_BUFFER_EXCEEDED, and the window itself is not" {
     test_stream.init();
-    // The last octet the window holds is admitted, at the far end of a gap.
+    // The last byte the window holds is admitted, at the far end of a gap.
     const last: u64 = constants.limits.crypto_buffer_len - 1;
     try test_stream.receive(last, "x");
-    // One octet past it is more than §7.5 obliges colibri to buffer.
+    // One byte past it is more than §7.5 obliges colibri to buffer.
     try testing.expectError(
         error.CryptoBufferExceeded,
         test_stream.receive(constants.limits.crypto_buffer_len, "x"),
@@ -104,13 +104,13 @@ test "a frame at the window's far end moves the held octets down, and only those
     try test_stream.receive(0, "abc");
     try test_stream.receive(6, "ghi");
     test_stream.consume(3);
-    // "ghi" is held past a gap, so the window starts 3 octets into `buffer`. A frame at its far
-    // end passes the end of `buffer`, and the held octets move down to make room.
+    // "ghi" is held past a gap, so the window starts 3 bytes into `buffer`. A frame at its far
+    // end passes the end of `buffer`, and the held bytes move down to make room.
     const far: u64 = 3 + constants.limits.crypto_buffer_len - 1;
     try test_stream.receive(far, "z");
     try test_stream.receive(3, "def");
     try testing.expectEqualStrings("defghi", test_stream.readable());
-    // Filling the rest makes the whole window readable, with "z" as its last octet.
+    // Filling the rest makes the whole window readable, with "z" as its last byte.
     test_fill(9, far, 'm');
     const readable = test_stream.readable();
     try testing.expectEqual(constants.limits.crypto_buffer_len, readable.len);
@@ -127,11 +127,11 @@ test "consume that leaves octets held keeps them, and a window read whole starts
     test_stream.consume(4);
     // Nothing is held, so the window starts again at the front of `buffer`.
     try testing.expectEqual(0, test_stream.head);
-    // The octets read before are forgotten: a frame past a gap makes nothing readable.
+    // The bytes read before are forgotten: a frame past a gap makes nothing readable.
     try test_stream.receive(8, "x");
     try testing.expectEqual(0, test_stream.readable().len);
     // The whole window is free from the new base: frames that fill it exactly are admitted,
-    // and the octets are readable at once.
+    // and the bytes are readable at once.
     test_fill(6, 6 + constants.limits.crypto_buffer_len, 'n');
     try testing.expectEqual(constants.limits.crypto_buffer_len, test_stream.readable().len);
     try testing.expectEqual(6, test_stream.consumed_len());
@@ -142,7 +142,7 @@ fn test_fill(from: u64, to: u64, octet: u8) void {
     var chunk: [fill_chunk_len]u8 = undefined;
     @memset(&chunk, octet);
     var at = from;
-    // Bounded by the range, which each frame shortens by at least one octet.
+    // Bounded by the range, which each frame shortens by at least one byte.
     while (at < to) {
         const len: usize = @intCast(@min(to - at, fill_chunk_len));
         test_stream.receive(at, chunk[0..len]) catch unreachable;
@@ -150,7 +150,7 @@ fn test_fill(from: u64, to: u64, octet: u8) void {
     }
 }
 
-/// The octets one frame of `test_fill` carries. Test-only.
+/// The bytes one frame of `test_fill` carries. Test-only.
 const fill_chunk_len: usize = 1000;
 
 test "a frame carrying no octets is neither an error nor a change" {
@@ -176,7 +176,7 @@ test "RFC 9000 §19.6: each encryption level is a separate stream starting at of
     try testing.expectEqualStrings("only handshake", test_levels.at(.handshake).readable());
     try testing.expectEqual(0, test_levels.at(.initial).readable().len);
     try testing.expectEqual(0, test_levels.at(.application).readable().len);
-    // And each numbers its own octets from zero, so the same offset means a different octet.
+    // And each numbers its own bytes from zero, so the same offset means a different byte.
     try test_levels.at(.initial).receive(0, "only initial");
     try testing.expectEqualStrings("only initial", test_levels.at(.initial).readable());
     try testing.expectEqualStrings("only handshake", test_levels.at(.handshake).readable());
@@ -196,7 +196,7 @@ test "a whole window of octets arriving backwards is reassembled" {
         try test_stream.receive(index * chunk_len, &payload);
     }
     try testing.expectEqual(constants.limits.crypto_buffer_len, test_stream.readable().len);
-    // Every octet is the chunk it came from, so nothing was written at the wrong offset.
+    // Every byte is the chunk it came from, so nothing was written at the wrong offset.
     const readable = test_stream.readable();
     for (0..chunks) |chunk| {
         for (readable[chunk * chunk_len ..][0..chunk_len]) |octet| {
@@ -241,7 +241,7 @@ test "RFC 9000 §17.2.5.3: a flight that fits can be sent again from offset 0" {
     try testing.expect(test_stream.can_rewind());
     test_stream.rewind();
     // "A client MUST use the same cryptographic handshake message it included in this packet":
-    // the octets are the ones already produced, and the provider is not asked for them again.
+    // the bytes are the ones already produced, and the provider is not asked for them again.
     try testing.expectEqual(0, test_stream.sent_len);
     try testing.expectEqual(short_len, test_stream.unsent().len);
     try testing.expectEqual(first_octet, test_stream.unsent()[0]);
@@ -268,7 +268,7 @@ test "RFC 9000 §13.3: a flight larger than the window forgets only what the pee
     try testing.expect(test_stream.send_full());
     test_stream.framed(window);
 
-    // A packet in flight from `part_len` keeps its octets: §13.3 may send them again.
+    // A packet in flight from `part_len` keeps its bytes: §13.3 may send them again.
     test_stream.forget_acknowledged(part_len);
     try testing.expectEqual(part_len, test_stream.send_room().len);
     try testing.expect(!test_stream.can_rewind());
@@ -278,7 +278,7 @@ test "RFC 9000 §13.3: a flight larger than the window forgets only what the pee
     test_stream.framed(window - part_len);
     produce(&test_stream, second_octet, part_len);
 
-    // A lost packet moved `sent_len` below a later packet in flight, and its octets stay.
+    // A lost packet moved `sent_len` below a later packet in flight, and its bytes stay.
     try testing.expect(test_stream.on_lost(short_len));
     test_stream.forget_acknowledged(short_len + part_len);
     try testing.expectEqual(short_len - part_len, test_stream.send_room().len);
@@ -286,10 +286,10 @@ test "RFC 9000 §13.3: a flight larger than the window forgets only what the pee
     test_stream.framed(window + part_len - short_len);
     produce(&test_stream, second_octet, short_len - part_len);
 
-    // With no packet in flight, the peer acknowledged every octet framed.
+    // With no packet in flight, the peer acknowledged every byte framed.
     test_stream.forget_acknowledged(test_stream.sent_len);
     try testing.expectEqual(window - (short_len - part_len), test_stream.send_room().len);
-    // The flow carries on at the offset it reached: §19.6 numbers the octets, not the window.
+    // The flow carries on at the offset it reached: §19.6 numbers the bytes, not the window.
     try testing.expectEqual(window + part_len, test_stream.sent_len);
     try testing.expectEqual(short_len - part_len, test_stream.unsent().len);
     try testing.expectEqual(second_octet, test_stream.unsent()[0]);
@@ -314,7 +314,7 @@ const frame_payload_len: usize = 1_100;
 test "decision 64: a 10 KB Handshake flight can be sent again from its first octet" {
     test_stream.init();
     var produced: usize = 0;
-    // Bounded by the flight: each pass produces and frames at least one octet.
+    // Bounded by the flight: each pass produces and frames at least one byte.
     while (produced < runner_flight_len) {
         const room = test_stream.send_room();
         const len = @min(room.len, runner_flight_len - produced, frame_payload_len);
@@ -324,12 +324,12 @@ test "decision 64: a 10 KB Handshake flight can be sent again from its first oct
         produced += len;
     }
     // A PTO declares every packet of the level lost, the first included, and the window still
-    // holds that packet's octets, so nothing is forgotten.
+    // holds that packet's bytes, so nothing is forgotten.
     try testing.expect(test_stream.on_lost(0));
     try testing.expectEqual(runner_flight_len, test_stream.unsent().len);
 }
 
-/// Octets the send-window cases write, distinct so a run that took the wrong one cannot pass.
+/// Bytes the send-window cases write, distinct so a run that took the wrong one cannot pass.
 const first_octet: u8 = 0xa1;
 const second_octet: u8 = 0xb2;
 const short_len: usize = 32;

@@ -151,7 +151,7 @@ pub const Files = struct {
         return hq_file.map_read(opened.descriptor, opened.len);
     }
 
-    /// Answers 200 with `content`, whose octets stay where they are until the request is over.
+    /// Answers 200 with `content`, whose bytes stay where they are until the request is over.
     fn respond(files: *Files, engine: *Engine, entry: *Answer, content: []const u8) void {
         assert(entry.in_use and entry.answered);
         var digits: [content_length_digits_max]u8 = undefined;
@@ -206,7 +206,7 @@ test "design §8 step 29d: a file a request asked for before is answered from th
     const content = "colibri\n";
     try testing.expectEqual(null, mapped.find("/colibri.txt"));
     try testing.expect(mapped.keep("/colibri.txt", content));
-    // The same octets, not a copy: no later request maps the file again.
+    // The same bytes, not a copy: no later request maps the file again.
     try testing.expectEqual(content.ptr, mapped.find("/colibri.txt").?.ptr);
     try testing.expectEqual(null, mapped.find("/colibri"));
     try testing.expectEqual(null, mapped.find("/colibri.txt2"));

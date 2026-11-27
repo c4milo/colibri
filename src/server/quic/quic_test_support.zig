@@ -134,7 +134,7 @@ pub fn start() !void {
     try start_with_pool(server_pool.storage());
 }
 
-/// As `start`, with the client's octets held in `receive_pool` at the server.
+/// As `start`, with the client's bytes held in `receive_pool` at the server.
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     server_receive = receive_pool;
     client_port_now = client_port;
@@ -246,7 +246,7 @@ pub fn request_with_trailers(path: []const u8, trailers: []const Field) !*Fetch 
     return write_request("POST", path, &.{}, "", trailers, true);
 }
 
-/// As `request`, holding back the last octet of the request's head, so the server never has a
+/// As `request`, holding back the last byte of the request's head, so the server never has a
 /// whole head.
 pub fn request_short_of_head(method: []const u8, path: []const u8) !*Fetch {
     const fetch = try stage_request(method, path, &.{}, "", &.{});

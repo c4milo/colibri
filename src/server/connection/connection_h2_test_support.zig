@@ -15,7 +15,7 @@ pub const settings_ack = "\x00\x00\x00\x04\x01\x00\x00\x00\x00";
 /// Where a test builds the frames the client sends. Test-only.
 pub var frames: [support.input_len]u8 = undefined;
 
-/// A frame's header: a length of three octets, big-endian, then its type and its flags (RFC 9113
+/// A frame's header: a length of three bytes, big-endian, then its type and its flags (RFC 9113
 /// §4.1).
 const length_len: usize = 3;
 pub const type_index: usize = length_len;

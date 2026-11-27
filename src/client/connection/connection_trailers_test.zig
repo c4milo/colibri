@@ -35,7 +35,7 @@ fn post(reads: bool) Exchange {
     };
 }
 
-/// The octets of the request head in what the client sent, its end included.
+/// The bytes of the request head in what the client sent, its end included.
 fn head_of(octets: []const u8) []const u8 {
     const end = std.mem.indexOf(u8, octets, head_end).?;
     return octets[0 .. end + head_end.len];
@@ -50,7 +50,7 @@ fn contains(octets: []const u8, part: []const u8) bool {
 fn h11_server_read(octets: []const u8) !usize {
     var ends: usize = 0;
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..octets.len + support.events_max) |_| {
         const received = try support.peer_h11.receive(octets[consumed..], &.{});
         consumed += received.consumed;
@@ -159,7 +159,7 @@ const H2Read = struct {
 /// The h2 server reads every whole frame the client sent.
 fn h2_server_read(read: *H2Read) !void {
     var consumed: usize = 0;
-    // Bounded: each pass consumes an octet or writes what the server owes, and both are finite.
+    // Bounded: each pass consumes a byte or writes what the server owes, and both are finite.
     for (0..support.to_peer_len + support.events_max) |_| {
         const received = try support.peer_h2.receive(support.to_peer[consumed..support.to_peer_len], support.now_ns);
         if (received.consumed == 0) {
@@ -275,7 +275,7 @@ test "decision 152: a streamed request whose only piece is an empty last one end
     try expect_h2_trailers(&read, 0);
 }
 
-/// The value of each line of the largest trailer section: two lines of a one-octet name, each of
+/// The value of each line of the largest trailer section: two lines of a one-byte name, each of
 /// size half of `field_section_size_max` as RFC 9113 §6.5.2 counts it. Test-only.
 const largest_value: [largest_value_len]u8 = @splat('v');
 const largest_value_len: usize = h2.core.constants.limits.field_section_size_max / largest_lines - 1 - h2.core.constants.protocol.field_line_overhead;
@@ -308,7 +308,7 @@ test "RFC 9113 §6.5.2: the largest trailer section goes out whole over h11 and 
     try testing.expectEqual(content.len, read.data_len);
     try testing.expectEqual(1, read.trailer_sections);
     try testing.expectEqual(largest.len, support.peer_h2.field_section().len());
-    // One octet past the size refuses the request before it takes a slot, over any protocol.
+    // One byte past the size refuses the request before it takes a slot, over any protocol.
     const longer_value: [largest_value_len + 1]u8 = @splat('v');
     const longer = [_]Header{ largest[0], .{ .name = "b", .value = &longer_value } };
     exchange = post_with(&longer);

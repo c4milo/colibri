@@ -2,9 +2,9 @@
 //! reference.
 //!
 //! - `respond` and `write_trailers` copied the caller's fields into an array of `h2.hpack.Field`
-//!   and gave h2 the copy, and ReleaseSafe filled the array's 4,096 octets on every call.
+//!   and gave h2 the copy, and ReleaseSafe filled the array's 4,096 bytes on every call.
 //!   `h2.hpack.Field` is `http.Field` now, so h2 reads the caller's fields where they are. Each
-//!   call must return what the copy returns and send the same octets, at every count of lines up
+//!   call must return what the copy returns and send the same bytes, at every count of lines up
 //!   to `field_count_max` and one past it.
 //! - A request's regular field lines were found by reading lines until one did not start with a
 //!   colon (`event.Headers.init`). They are counted from the request's pseudo-header fields now,
@@ -24,7 +24,7 @@ const field_count_max = h2.core.constants.limits.field_count_max;
 const ok: http.Status = .ok;
 
 /// One line more than a section may carry, each with a name and a value no other line has, so
-/// that a line read from the wrong place changes the octets. Test-only.
+/// that a line read from the wrong place changes the bytes. Test-only.
 const lines: [field_count_max + 1]support.Field = made: {
     var all: [field_count_max + 1]support.Field = undefined;
     for (&all, 0..) |*line, index| {
@@ -98,7 +98,7 @@ fn drain_into(octets: *[support.output_len]u8) usize {
 }
 
 /// Fails, printing both outcomes, when the call and the reference differ on `fields`: in what they
-/// return, or in the octets the connection sends afterwards.
+/// return, or in the bytes the connection sends afterwards.
 fn expect_same(call: Call, fields: []const support.Field) !void {
     try start(call);
     const changed = failure_of(switch (call) {

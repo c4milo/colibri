@@ -33,7 +33,7 @@ pub const loss_packet_threshold: u64 = 3;
 
 /// The congestion window of RFC 9002 §7.2, whose Appendix B.1 names each one.
 ///
-/// `kInitialWindow`: ten maximum datagrams, held to the larger of 14,720 octets and two of them.
+/// `kInitialWindow`: ten maximum datagrams, held to the larger of 14,720 bytes and two of them.
 /// §7.2 takes the figure from the analysis it cites, raised for UDP's smaller header.
 pub const congestion_window_initial_datagrams: u64 = 10;
 pub const congestion_window_initial_len_max: u64 = 14_720;

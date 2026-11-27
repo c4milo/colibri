@@ -4,7 +4,7 @@
 //! (decision 153). The pool copies no piece. The program keeps each request piece in place until
 //! the pool reports it taken, and each response piece arrives in the program's own `body`, which
 //! the program gives back before the next one arrives. The call is a chat of gRPC messages: each
-//! message is a frame of one flag octet, a length of four octets and its payload (gRPC's "Length-
+//! message is a frame of one flag byte, a length of four bytes and its payload (gRPC's "Length-
 //! Prefixed-Message").
 //!
 //! The run goes in this order:
@@ -12,7 +12,7 @@
 //! 2. The server answers at the request's head. The pool reports `headers`, and then `body_taken`
 //!    once the connection has written the message.
 //! 3. The server sends back each message as it arrives. Each `body` event says how much of it is
-//!    in the program's `body`, which holds 16 octets. The program copies the piece out and
+//!    in the program's `body`, which holds 16 bytes. The program copies the piece out and
 //!    releases it.
 //! 4. Once a message came back whole, the program hands the next, so its request body goes on
 //!    after the response's head (RFC 9113 §8.1). The last message ends the request's body, and
@@ -23,7 +23,7 @@
 //! The server is in `client_stream_peer.zig`. The link of `link.zig` stands where a program's
 //! socket would be.
 //!
-//! The program checks that each message came back octet for octet, in the order sent, and the
+//! The program checks that each message came back byte for byte, in the order sent, and the
 //! trailer. Anything else exits with an error, which is how `zig build examples` and CI know the
 //! example still works.
 //!
@@ -51,14 +51,14 @@ const server_port = 80;
 const server_host = [_]u8{ 192, 0, 2, 1 };
 const server_addresses = [_]client.Address{.init(&server_host, 0)};
 
-/// The octets of the response body the program holds at a time: fewer than a message, so a
+/// The bytes of the response body the program holds at a time: fewer than a message, so a
 /// message comes back in more than one piece.
 const piece_len = 16;
-/// The octets of the response's headers, and of its trailers, the program holds.
+/// The bytes of the response's headers, and of its trailers, the program holds.
 const section_len = 256;
 
-/// The messages of the chat, each sent as a gRPC frame: a flag octet of 0, for no compression,
-/// the payload's length in four octets, most significant first, and the payload.
+/// The messages of the chat, each sent as a gRPC frame: a flag byte of 0, for no compression,
+/// the payload's length in four bytes, most significant first, and the payload.
 const payloads = [_][]const u8{ "hello from the client", "a second message", "and the last one, which ends the call" };
 const frame_header_len = 1 + @sizeOf(u32);
 /// The frames one after another: what the client sends, and what the server sends back.
@@ -82,8 +82,8 @@ var link: Link align(@alignOf(Link)) = undefined;
 /// What `send_stream` writes, which the link then sends.
 var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 
-/// Calls of `receive` for one read of the socket, at most. Each call takes one octet or more of
-/// the link's queue, or reports an event and takes no octet, or ends the loop.
+/// Calls of `receive` for one read of the socket, at most. Each call takes one byte or more of
+/// the link's queue, or reports an event and takes no byte, or ends the loop.
 const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(.{}) + 1);
 
 /// The call. Both of its bodies go in pieces, so `body` is empty and the response's `body` holds
@@ -109,7 +109,7 @@ var call_id: client.RequestId align(@alignOf(client.RequestId)) = @enumFromInt(0
 /// The connection of the socket, once the pool opened it.
 var socket: ?client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = null;
 
-/// What the client saw: the messages it handed and the pool took, the octets of the response
+/// What the client saw: the messages it handed and the pool took, the bytes of the response
 /// body, and whether the call finished and the shut-down pool is over.
 var handed: u32 = 0;
 var taken: u32 = 0;
@@ -133,7 +133,7 @@ pub fn main() !void {
         try client_turn();
         try peer.turn();
         if (pool_closed and peer.over()) return check();
-        // No octet waits for either side. A program sleeps here until the socket has octets or a
+        // No byte waits for either side. A program sleeps here until the socket has bytes or a
         // deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.client, sleep_ns());
     }
@@ -151,7 +151,7 @@ fn hand_next() !void {
     handed += 1;
 }
 
-/// The octets of the chat before message `index`.
+/// The bytes of the chat before message `index`.
 fn end_of(index: usize) usize {
     var len: usize = 0;
     for (payloads[0..index]) |payload| len += frame_header_len + payload.len;
@@ -211,7 +211,7 @@ fn on_headers(id: client.RequestId) !void {
     if (!std.mem.eql(u8, kind, peer.content_type)) return error.ExchangeWrong;
     var lines: client.Headers.Iterator = response.headers.iterator();
     var content_types: usize = 0;
-    // Bounded: each header takes octets of the buffer, which holds `section_len`.
+    // Bounded: each header takes bytes of the buffer, which holds `section_len`.
     for (0..section_len) |_| {
         const line = lines.next() orelse break;
         if (std.ascii.eqlIgnoreCase(line.name, "content-type")) content_types += 1;

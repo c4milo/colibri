@@ -3,8 +3,8 @@
 //! reads them with `get` and `iterator`. `Headers` and `Trailers` are two types, so that a program
 //! cannot pass one where the other goes, with one layout and the same calls.
 //!
-//! Each field line takes `line_overhead_len` octets in the buffer beside its name and its value:
-//! the name's length and the value's length, each in two octets, in network byte order.
+//! Each field line takes `line_overhead_len` bytes in the buffer beside its name and its value:
+//! the name's length and the value's length, each in two bytes, in network byte order.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -16,13 +16,13 @@ pub const Header = http.Field;
 /// Which section a type holds.
 const Section = enum { header, trailer };
 
-/// The octets each field line takes beside its name and its value: two lengths of two octets.
+/// The bytes each field line takes beside its name and its value: two lengths of two bytes.
 pub const line_overhead_len: usize = length_len + length_len;
 const length_len: usize = @sizeOf(Length);
 const Length = u16;
 
 comptime {
-    // A name and a value as long as colibri reads each fit their two octets.
+    // A name and a value as long as colibri reads each fit their two bytes.
     assert(core.constants.limits.field_name_len_max <= std.math.maxInt(Length));
     assert(core.constants.limits.field_value_len_max <= std.math.maxInt(Length));
 }
@@ -42,7 +42,7 @@ fn FieldLines(comptime section: Section) type {
         /// The program's memory for the section's field lines. Empty: the client drops the
         /// section.
         buffer: []u8 = &.{},
-        /// Octets of `buffer` the field lines filled.
+        /// Bytes of `buffer` the field lines filled.
         len: usize = 0,
 
         /// What `iterator` returns.
@@ -52,7 +52,7 @@ fn FieldLines(comptime section: Section) type {
         /// §5.1), or null when the section has none.
         pub fn get(lines: *const Lines, name: []const u8) ?[]const u8 {
             var each = lines.iterator();
-            // Bounded: `next` returns each stored line once, and each takes octets of `len`.
+            // Bounded: `next` returns each stored line once, and each takes bytes of `len`.
             for (0..lines_max(lines.len)) |_| {
                 const line = each.next() orelse return null;
                 if (std.ascii.eqlIgnoreCase(line.name, name)) return line.value;
@@ -86,7 +86,7 @@ const LineIterator = struct {
     }
 };
 
-/// The most field lines `len` octets can hold, which bounds each walk over them.
+/// The most field lines `len` bytes can hold, which bounds each walk over them.
 fn lines_max(len: usize) usize {
     return len / line_overhead_len;
 }

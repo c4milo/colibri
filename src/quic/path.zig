@@ -56,7 +56,7 @@ const Challenge = struct {
     /// PATH_RESPONSE frame is received", each with "a different payload", and §8.2.3 validates
     /// the path on a response carrying "the data that was sent in a previous PATH_CHALLENGE".
     data: [constants.policy.path_challenge_attempts][constants.protocol.path_challenge_len]u8,
-    /// RFC 9000 §8.2.1: whether the datagram each went out in reached the 1,200 octets the
+    /// RFC 9000 §8.2.1: whether the datagram each went out in reached the 1,200 bytes the
     /// section asks for. §8.2.3 reads it when the response arrives, because a challenge sent in
     /// a smaller datagram validates the address and not the path MTU.
     expanded: [constants.policy.path_challenge_attempts]bool,
@@ -90,7 +90,7 @@ pub const Path = struct {
     /// Whether the last attempt ran out of time (§8.2.4). It is read only while no probe is
     /// outstanding, so a new one needs no clearing: the probe itself is what `state` reports.
     abandoned: bool,
-    /// Octets received on this path, and sent on it, which §8's limit compares.
+    /// Bytes received on this path, and sent on it, which §8's limit compares.
     received: u64,
     sent: u64,
     challenge: ?Challenge,
@@ -110,7 +110,7 @@ pub const Path = struct {
     }
 
     /// RFC 9000 §8.2.2: "On receiving a PATH_CHALLENGE frame, an endpoint MUST respond by echoing
-    /// the data contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame." The octets are
+    /// the data contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame." The bytes are
     /// kept rather than the packet they arrived in, and the send path writes them.
     pub fn take_challenge(path: *Path, data: [constants.protocol.path_challenge_len]u8) void {
         path.response_owed = data;
@@ -148,7 +148,7 @@ pub const Path = struct {
     }
 
     /// Counts a datagram that arrived on this path, which is what §8's limit is measured
-    /// against. RFC 9000 §8: the limit counts octets received from the address, so a datagram
+    /// against. RFC 9000 §8: the limit counts bytes received from the address, so a datagram
     /// this endpoint could not decrypt still counts — it still came from there.
     pub fn on_datagram_received(path: *Path, len: u64) void {
         path.received +|= len;
@@ -160,7 +160,7 @@ pub const Path = struct {
         path.sent +|= len;
     }
 
-    /// Octets this endpoint may still send on the path. RFC 9000 §8: before the address is
+    /// Bytes this endpoint may still send on the path. RFC 9000 §8: before the address is
     /// validated an endpoint MUST limit what it sends to three times what it received, and a
     /// validated path has no such limit.
     pub fn send_allowance(path: *const Path) u64 {
@@ -284,7 +284,7 @@ pub const Path = struct {
 const testing = std.testing;
 
 /// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it: one that reached
-/// "the smallest allowed maximum datagram size of 1200 bytes" and one that fell an octet short.
+/// "the smallest allowed maximum datagram size of 1200 bytes" and one that fell a byte short.
 const expanded_len: usize = constants.protocol.datagram_len_min;
 const small_len: usize = constants.protocol.datagram_len_min - 1;
 

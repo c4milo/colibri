@@ -5,11 +5,11 @@
 //!
 //! `flow.Receiver` decides when new credit is worth a frame, and grows its window (decision 49).
 //! What it measures from is what the application consumed, so `consume` is how the caller says it
-//! read octets, and reading is what lets the peer send more (§4.1). A stream count is given back
+//! read bytes, and reading is what lets the peer send more (§4.1). A stream count is given back
 //! when a stream the peer opened closes (`Streams.close`, §4.6).
 //!
 //! A BLOCKED frame goes out once per limit, and only while this endpoint has something the limit
-//! holds back: octets to send (§4.1), or a stream it tried to open (§4.6).
+//! holds back: bytes to send (§4.1), or a stream it tried to open (§4.6).
 //!
 //! A sender that stays blocked with nothing in flight sends them again one PTO after its last
 //! ack-eliciting packet (`blocked_deadline_ns`), because §4.1 asks for it "periodically" so the
@@ -42,7 +42,7 @@ pub const Error = error{
     NotReadable,
 };
 
-/// Records that the application read `len` more octets of stream `id`, in order. RFC 9000 §4.1:
+/// Records that the application read `len` more bytes of stream `id`, in order. RFC 9000 §4.1:
 /// "a receiver could determine the flow control offset to be advertised based on the current
 /// offset of data consumed on a stream", and both limits, the stream's and the connection's, are
 /// measured from it. `len` never passes what arrived.
@@ -113,7 +113,7 @@ pub fn count_credit_owed(connection: *const Connection) bool {
 
 /// Whether this endpoint owes its peer credit for data: a MAX_DATA or MAX_STREAM_DATA frame, as
 /// `credit_owed` judges one. A request body waits on this credit alone. MAX_STREAMS lets the
-/// peer open streams and sends no octet of an open one, and it is owed as each stream closes
+/// peer open streams and sends no byte of an open one, and it is owed as each stream closes
 /// (decision 130).
 pub fn data_credit_owed(connection: *Connection) bool {
     const credit_floor = connection_module.receive_credit_floor(connection);
@@ -250,7 +250,7 @@ pub fn blocked_deadline_ns(connection: *Connection) ?u64 {
     return since_ns +| constants.policy.blocked_repeat_probe_timeouts *| probe_timeout_ns;
 }
 
-/// Owes again each DATA_BLOCKED and STREAM_DATA_BLOCKED frame whose limit still holds octets back,
+/// Owes again each DATA_BLOCKED and STREAM_DATA_BLOCKED frame whose limit still holds bytes back,
 /// once `blocked_deadline_ns` has come (RFC 9000 §4.1).
 pub fn on_blocked_deadline(connection: *Connection) void {
     if (is_data_blocked(connection)) connection.data_blocked.owed = true;
@@ -270,7 +270,7 @@ fn ack_eliciting_in_flight(connection: *Connection) bool {
     return false;
 }
 
-/// Whether either limit holds back octets this endpoint has to send (RFC 9000 §4.1).
+/// Whether either limit holds back bytes this endpoint has to send (RFC 9000 §4.1).
 fn is_flow_limited(connection: *Connection) bool {
     if (is_data_blocked(connection)) return true;
     var walk = connection.streams.pool.iterator();
@@ -281,17 +281,17 @@ fn is_flow_limited(connection: *Connection) bool {
     return false;
 }
 
-/// RFC 9000 §4.1: the connection's limit holds back octets a stream has to send.
+/// RFC 9000 §4.1: the connection's limit holds back bytes a stream has to send.
 fn is_data_blocked(connection: *Connection) bool {
     return connection.send_flow.is_blocked() and has_unframed_octets(connection);
 }
 
-/// RFC 9000 §4.1: one stream's limit holds back octets it has to send.
+/// RFC 9000 §4.1: one stream's limit holds back bytes it has to send.
 fn is_stream_data_blocked(stream: *const Stream) bool {
     return stream.send_flow.is_blocked() and stream.sending.may_send_data() and stream.outgoing.unframed_len() > 0;
 }
 
-/// RFC 9000 §19.12: the connection's limit holds back octets this endpoint has to send (§4.1: a
+/// RFC 9000 §19.12: the connection's limit holds back bytes this endpoint has to send (§4.1: a
 /// sender "has data to write but is blocked by flow control limits").
 fn write_data_blocked(connection: *Connection, writer: *Writer, number: u64) bool {
     const sender = &connection.send_flow;
@@ -316,7 +316,7 @@ fn write_streams_blocked(connection: *Connection, directionality: Directionality
     return write_blocked_frame(writer, frame, blocked, fresh, &streams.streams_blocked[which], number);
 }
 
-/// RFC 9000 §19.13: one stream's limit holds back octets it has to send.
+/// RFC 9000 §19.13: one stream's limit holds back bytes it has to send.
 fn write_stream_data_blocked(stream: *Stream, writer: *Writer, number: u64) bool {
     const blocked = is_stream_data_blocked(stream);
     const fresh = blocked and stream.send_flow.blocked_frame_limit() != null;
@@ -343,7 +343,7 @@ fn write_blocked_frame(
     return latest.write(writer, frame, number);
 }
 
-/// Whether any stream has octets it could send if the connection's limit let it.
+/// Whether any stream has bytes it could send if the connection's limit let it.
 fn has_unframed_octets(connection: *Connection) bool {
     var walk = connection.streams.pool.iterator();
     // Bounded by the table's capacity, `streams_per_connection_max`.
@@ -371,7 +371,7 @@ fn frame_directionality(directionality: Directionality) frame_module.Directional
 }
 
 /// The largest a receive window starting at `window` grows to (decision 49): the receive
-/// pool's capacity (decision 61), or `window` itself when the connection keeps no octets.
+/// pool's capacity (decision 61), or `window` itself when the connection keeps no bytes.
 pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
     const storage = connection.receive_storage orelse return window;
     // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
@@ -394,13 +394,13 @@ pub fn stream_receive_window_max(connection: *const Connection, window: u64) u64
     return grown;
 }
 
-/// The octets of the receive pool that a stream whose window starts at `window` leaves free
+/// The bytes of the receive pool that a stream whose window starts at `window` leaves free
 /// (decision 49 as amended): `stream_window_reserve_windows` of its starting windows.
 fn stream_reserve(window: u64) u64 {
     return window *| constants.limits.stream_window_reserve_windows;
 }
 
-/// The connection's credit left to the peer below which one consumed octet is worth a MAX_DATA
+/// The connection's credit left to the peer below which one consumed byte is worth a MAX_DATA
 /// frame (decision 49 as amended, `flow.Receiver.credit_due_below`): the part of the pool that
 /// a stream of the largest starting window leaves free at its cap. In a pool of two such windows
 /// or more, that is its reserve, so a held stream cannot keep the other streams from it. A

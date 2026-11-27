@@ -41,7 +41,7 @@ const token_octet: u8 = 0x9d;
 const token: [constants.protocol.stateless_reset_token_len]u8 = @splat(token_octet);
 /// The packet every piece says it last carried its frame in. Test-only.
 const carrying: u64 = 5;
-/// Octets of the stream range the packet carried. Test-only.
+/// Bytes of the stream range the packet carried. Test-only.
 const range_len: u16 = 100;
 const completed_max: usize = 2;
 
@@ -76,7 +76,7 @@ fn open_as(role: connection_module.Role) void {
     }
 }
 
-/// A stream the server opened and framed `range_len` octets and its FIN on, as one packet would.
+/// A stream the server opened and framed `range_len` bytes and its FIN on, as one packet would.
 fn framed_stream() !StreamId {
     const id = try stream_send.open(&server, .bidirectional);
     try stream_send.supply(&server, id, range_len, true);
@@ -250,7 +250,7 @@ test "RFC 9000 §19.3: the ACK Delay is decoded with the peer's exponent, and ig
 
 test "decision 59: an ACK that reveals a loss the connection cannot repair is a connection error" {
     open_server();
-    // CRYPTO octets the level's window already forgot (`connection_crypto.on_packets_lost`).
+    // CRYPTO bytes the level's window already forgot (`connection_crypto.on_packets_lost`).
     connection_module.crypto_at(&server, .initial).send_base = 1;
     for (0..threshold_packets) |_| try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
     try testing.expectError(
@@ -348,7 +348,7 @@ test "decision 64: a Handshake PTO declares its packets lost, and the window sta
     try testing.expectEqual(0, server.recovery.tables[@intFromEnum(Level.handshake)].count());
     try testing.expectEqual(0, server.recovery.in_flight_len());
     try testing.expectEqual(constants.recovery.probe_packets, server.probes_owed[@intFromEnum(Level.handshake)]);
-    // Declared lost to move their octets and not for congestion, so no rate reduction.
+    // Declared lost to move their bytes and not for congestion, so no rate reduction.
     try testing.expectEqual(window, server.recovery.congestion.window);
 }
 
@@ -357,7 +357,7 @@ test "RFC 9002 A.8: a server at the anti-amplification limit sets no probe timer
     connection_module.confirm_handshake(&server);
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     // RFC 9000 §8.1: a server that has received nothing may send nothing, and one that has
-    // received a single octet may send three, which holds no packet.
+    // received a single byte may send three, which holds no packet.
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
     server.path.on_datagram_received(1);
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));

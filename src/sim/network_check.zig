@@ -8,7 +8,7 @@
 //! under reordering, and that one seed replays byte for byte.
 //!
 //! Reordering is what makes it worth running. RFC 9000 §17.1 has a sender encode a packet number
-//! in a field short enough to save octets and long enough that the receiver recovers it "even if
+//! in a field short enough to save bytes and long enough that the receiver recovers it "even if
 //! the packet arrives after packets that are sent afterwards", and Appendix A.2 sizes the field
 //! from the largest number the peer has acknowledged. Both endpoints are in this process, so the
 //! check gives the sender exactly that number, and then requires every recovery to be exact. A
@@ -43,7 +43,7 @@ pub const census_delivered_expected: u64 = 16_398;
 pub const Violation = error{
     /// A datagram the network delivered could not be read as a packet.
     DeliveredPacketNotRead,
-    /// A datagram the network delivered did not open, though nothing corrupts octets here.
+    /// A datagram the network delivered did not open, though nothing corrupts bytes here.
     DeliveredPacketNotOpened,
     /// The packet number recovered is not the one sent (RFC 9000 §17.1, Appendix A.3).
     PacketNumberWrong,
@@ -62,13 +62,13 @@ pub const Violation = error{
 /// a check nothing proves, so each violation above has a fault here that produces it.
 pub const Fault = enum {
     none,
-    /// A node changes an octet of every datagram, which its tag must refuse.
+    /// A node changes a byte of every datagram, which its tag must refuse.
     corrupt_octet,
     /// The sender writes a number in the payload that is not the one its header carries. It
     /// names an earlier packet of its own, which is in range, so only the comparison with what
     /// was recovered can catch it.
     misreport_packet_number,
-    /// The sender fills the payload with octets the peer does not expect.
+    /// The sender fills the payload with bytes the peer does not expect.
     scramble_payload,
     /// The run stops before everything in flight has arrived.
     skip_drain,
@@ -248,7 +248,7 @@ fn open_delivery(storage: *Storage, to: Endpoint, octets: []u8, census: *Census)
     const payload = octets[framed.packet_number_offset + opened.packet_number_len ..][0..opened.payload_len];
     if (payload.len < constants.network_check_number_len) return error.PayloadChanged;
     // The number the sender wrote inside the packet is the one the peer must have rebuilt from
-    // the field's octets and its own history (RFC 9000 §17.1, Appendix A.3).
+    // the field's bytes and its own history (RFC 9000 §17.1, Appendix A.3).
     const sent_number = std.mem.readInt(u64, payload[0..constants.network_check_number_len], .big);
     if (sent_number != opened.packet_number) return error.PacketNumberWrong;
     if (sent_number >= sender.next_packet_number[index]) return error.PacketNumberWrong;

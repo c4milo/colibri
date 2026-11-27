@@ -2,18 +2,18 @@
 //! slice the caller owns, and it never writes past the end of that slice.
 //!
 //! Three rules hold for every write:
-//!   1. A write that needs more octets than remain returns `error.NoSpaceLeft` and writes nothing,
+//!   1. A write that needs more bytes than remain returns `error.NoSpaceLeft` and writes nothing,
 //!      so the caller never finds half a field in its buffer.
-//!   2. A successful write moves the cursor past exactly the octets it wrote, so the caller always
-//!      knows how many octets to send.
-//!   3. Integers are written octet by octet, most significant first, whatever the host's byte
+//!   2. A successful write moves the cursor past exactly the bytes it wrote, so the caller always
+//!      knows how many bytes to send.
+//!   3. Integers are written byte by byte, most significant first, whatever the host's byte
 //!      order. The wire is network byte order in h2 (RFC 9113 §2.2) and in QUIC (RFC 9000 §1.3).
 //!
 //! An encoder that writes a structure in several writes copies the writer, writes through the
-//! copy, and assigns the copy back only when the whole structure fit. Octets past the committed
+//! copy, and assigns the copy back only when the whole structure fit. Bytes past the committed
 //! cursor are scratch: nothing reads them as output.
 //!
-//! A decoder that writes octets one at a time in a loop asks for the free octets once, with
+//! A decoder that writes bytes one at a time in a loop asks for the free bytes once, with
 //! `writable_slice_greedy`, writes into them, and then moves the cursor past what it wrote with
 //! `advance`. These are the names `std.Io.Writer` gives the same two calls.
 const std = @import("std");
@@ -21,11 +21,11 @@ const assert = std.debug.assert;
 
 pub const Writer = struct {
     buffer: []u8,
-    /// Octets written so far. Never exceeds `buffer.len`.
+    /// Bytes written so far. Never exceeds `buffer.len`.
     offset: usize = 0,
 
     pub const Error = error{
-        /// The caller's buffer has fewer octets left than the write needs.
+        /// The caller's buffer has fewer bytes left than the write needs.
         NoSpaceLeft,
     };
 
@@ -33,13 +33,13 @@ pub const Writer = struct {
         return .{ .buffer = buffer };
     }
 
-    /// Octets still free in the caller's buffer.
+    /// Bytes still free in the caller's buffer.
     pub fn remaining_len(self: *const Writer) usize {
         assert(self.offset <= self.buffer.len);
         return self.buffer.len - self.offset;
     }
 
-    /// Every octet written so far, from the start of the buffer.
+    /// Every byte written so far, from the start of the buffer.
     pub fn written(self: *const Writer) []const u8 {
         assert(self.offset <= self.buffer.len);
         return self.buffer[0..self.offset];
@@ -61,9 +61,9 @@ pub const Writer = struct {
         assert(self.offset <= self.buffer.len);
     }
 
-    /// Every free octet past the cursor, when at least `minimum_len` are free. The cursor does not
-    /// move: a caller that writes into the octets calls `advance` with how many it wrote, and the
-    /// octets it does not advance past stay scratch.
+    /// Every free byte past the cursor, when at least `minimum_len` are free. The cursor does not
+    /// move: a caller that writes into the bytes calls `advance` with how many it wrote, and the
+    /// bytes it does not advance past stay scratch.
     pub fn writable_slice_greedy(self: *const Writer, minimum_len: usize) Error![]u8 {
         if (minimum_len > self.remaining_len()) return error.NoSpaceLeft;
         const free = self.buffer[self.offset..];
@@ -71,8 +71,8 @@ pub const Writer = struct {
         return free;
     }
 
-    /// Moves the cursor past `len` octets the caller wrote into the slice `writable_slice_greedy`
-    /// gave. A count past the free octets is a programmer error.
+    /// Moves the cursor past `len` bytes the caller wrote into the slice `writable_slice_greedy`
+    /// gave. A count past the free bytes is a programmer error.
     pub fn advance(self: *Writer, len: usize) void {
         assert(len <= self.remaining_len());
         self.offset += len;
@@ -89,9 +89,9 @@ pub const Writer = struct {
         assert(self.offset <= self.buffer.len);
     }
 
-    /// An unsigned integer as `@sizeOf(T)` octets in network byte order, all of them or none:
-    /// `@sizeOf(u24)` is four octets, the first of them 0, so a three-octet field is written some
-    /// other way. The octets are stored as one array of a size known at compile time, which the
+    /// An unsigned integer as `@sizeOf(T)` bytes in network byte order, all of them or none:
+    /// `@sizeOf(u24)` is four bytes, the first of them 0, so a three-byte field is written some
+    /// other way. The bytes are stored as one array of a size known at compile time, which the
     /// compiler writes with stores where `write_bytes` calls `memcpy` for a length it learns at
     /// run time.
     pub fn write_int_big(self: *Writer, comptime T: type, value: T) Error!void {
@@ -168,7 +168,7 @@ test "writable_slice_greedy gives the free octets, and advance moves the cursor 
     free[2] = 0x04;
     writer.advance(2);
     try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03 }, writer.written());
-    // The octet written past the advance is scratch: the next write takes its place.
+    // The byte written past the advance is scratch: the next write takes its place.
     try writer.write_byte(0x05);
     try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03, 0x05 }, writer.written());
     try testing.expectEqual(2, (try writer.writable_slice_greedy(2)).len);
@@ -186,7 +186,7 @@ test "an empty buffer takes an empty write and refuses a byte" {
     try testing.expectError(error.NoSpaceLeft, writer.write_byte(0));
 }
 
-// The test below holds `write_int_big` to the integer write it replaced, which wrote its octets
+// The test below holds `write_int_big` to the integer write it replaced, which wrote its bytes
 // through `write_bytes`. It stays here as the reference.
 
 /// The reference: the integer write as it was.
@@ -202,14 +202,14 @@ fn write_int_by_bytes(writer: *Writer, comptime T: type, value: T) Writer.Error!
 
 /// What a buffer holds before a write.
 const untouched: u8 = 0xee;
-/// The values each width is written with: its edges, and a pattern in each octet.
+/// The values each width is written with: its edges, and a pattern in each byte.
 const pattern: u64 = 0x0123456789abcdef;
-/// Octets a test buffer holds: room for the widest integer after as many octets before it, and
-/// one octet more.
+/// Bytes a test buffer holds: room for the widest integer after as many bytes before it, and
+/// one byte more.
 const test_buffer_len = @sizeOf(u64) + @sizeOf(u64) + 1;
 
-/// Fails, printing both, when `write_int_big` and the reference differ for `value` in `room` octets,
-/// after `before` octets already written.
+/// Fails, printing both, when `write_int_big` and the reference differ for `value` in `room` bytes,
+/// after `before` bytes already written.
 fn expect_same_int(comptime T: type, value: T, before: usize, room: usize) !void {
     var changed_buffer: [test_buffer_len]u8 = @splat(untouched);
     var reference_buffer: [test_buffer_len]u8 = @splat(untouched);

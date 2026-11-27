@@ -24,10 +24,10 @@ pub const Cubic = struct {
     epoch_ns: ?u64,
     /// The curve of the current stage: W_max and K (§4.2).
     curve: recovery_cubic.Curve,
-    /// §4.3's W_est, the window Reno would have, in octets.
+    /// §4.3's W_est, the window Reno would have, in bytes.
     estimate_len: u64,
-    /// The octets of §4.4's and §4.5's per-acknowledgment increase that have not yet made a whole
-    /// octet of window: the increase is `(target − window) × acknowledged / window`.
+    /// The bytes of §4.4's and §4.5's per-acknowledgment increase that have not yet made a whole
+    /// byte of window: the increase is `(target − window) × acknowledged / window`.
     growth_numerator: u64,
     /// When the acknowledgments started to say the sender was limited, which §4.2 leaves out of
     /// the stage's time, or null while they say it was not.
@@ -50,7 +50,7 @@ pub const Cubic = struct {
     }
 };
 
-/// Takes the acknowledgment of `sent_len` octets, the largest of them sent at `sent_at_ns`
+/// Takes the acknowledgment of `sent_len` bytes, the largest of them sent at `sent_at_ns`
 /// (RFC 9002 Appendix B.5's `OnPacketAcked`), at `now_ns`, with the connection's smoothed
 /// round trip, which RFC 9438 §4.2 reads, and the sample the ACK gave, if any, which RFC 9406
 /// §4.2 reads.

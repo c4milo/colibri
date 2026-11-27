@@ -18,7 +18,7 @@ const legacy_record_version: u16 = 0x0303;
 pub const close_notify = [_]u8{ alert_level_warning, @intFromEnum(tls_provider.Alert.close_notify) };
 const alert_level_warning: u8 = 1;
 
-/// RFC 9846 §4.7.3: a KeyUpdate as a handshake message, type 24 with a body of one octet.
+/// RFC 9846 §4.7.3: a KeyUpdate as a handshake message, type 24 with a body of one byte.
 pub const handshake_key_update: u8 = 24;
 pub const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
 pub const key_update_not_requested = [_]u8{ handshake_key_update, 0, 0, 1, 0 };
@@ -31,7 +31,7 @@ const unexpected_message = [_]u8{ alert_level_fatal, @intFromEnum(tls_provider.A
 const owed_len_max: usize = header_len + unexpected_message.len;
 
 /// KeyUpdates in a row the provider reads, chapulin's `CH_KEY_UPDATE_RUN_MAX`. Only a record of
-/// one octet of data or more ends a run.
+/// one byte of data or more ends a run.
 pub const key_update_run_max: u32 = 16;
 
 pub const PlainProvider = struct {
@@ -91,7 +91,7 @@ pub const PlainProvider = struct {
         // writes nothing.
         if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
         const answer_len: usize = if (plain.answer_owed) header_len + key_update_not_requested.len else 0;
-        // RFC 9846 §5.2: the output holds the answer and a record of one octet, or nothing moves.
+        // RFC 9846 §5.2: the output holds the answer and a record of one byte, or nothing moves.
         if (output.len <= answer_len + header_len) return error.NoSpaceLeft;
         // RFC 9846 §4.7.3: the provider writes the answer first, under the keys it replaces.
         if (plain.answer_owed) _ = seal(content_handshake, &key_update_not_requested, output) catch unreachable;
@@ -137,7 +137,7 @@ pub const PlainProvider = struct {
                 @memcpy(plaintext[0..opened.content.len], opened.content);
                 // A record that carries no data counts against the run h2 bounds, as chapulin's do.
                 if (opened.content.len == 0) return .{ .consumed = consumed, .plaintext_len = 0, .content = .without_data };
-                // A record of one octet of data or more ends a run of KeyUpdates, as in chapulin.
+                // A record of one byte of data or more ends a run of KeyUpdates, as in chapulin.
                 plain.key_updates = 0;
                 return .{ .consumed = consumed, .plaintext_len = opened.content.len, .content = .application_data };
             },

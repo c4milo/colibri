@@ -2,7 +2,7 @@
 //!
 //! On each ACK frame, after the model and the states, BBR sets the three values a sender acts
 //! on: the pacing rate (§5.6.2), the send quantum, which is the largest burst the pacer lets out
-//! (§5.6.3), and the congestion window (§5.6.4). Every rate is in octets a second, and the
+//! (§5.6.3), and the congestion window (§5.6.4). Every rate is in bytes a second, and the
 //! arithmetic is integer throughout (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;

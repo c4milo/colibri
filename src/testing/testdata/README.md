@@ -12,8 +12,8 @@ is for tests alone.
 | `identity.leaf.der` | the leaf's certificate, for `localhost` and 127.0.0.1, signed by the CA, as DER |
 | `identity.name` | the CA's Subject Name, as DER: the name a client's anchor holds |
 | `identity.spki` | the CA's SubjectPublicKeyInfo, as DER: the key a client's anchor holds |
-| `identity.priv` | the leaf's P-256 private scalar, 32 octets |
-| `identity.pub` | the leaf's P-256 public point, X then Y, 64 octets, without the 0x04 prefix |
+| `identity.priv` | the leaf's P-256 private scalar, 32 bytes |
+| `identity.pub` | the leaf's P-256 public point, X then Y, 64 bytes, without the 0x04 prefix |
 | `identity.chain.pem` | the leaf's and then the CA's certificate, as PEM (RFC 7468) |
 | `identity.key.pem` | the leaf's key as a PKCS #8 `PRIVATE KEY` block (RFC 5958) |
 | `identity.key.sec1.pem` | the leaf's key as a SEC 1 `EC PRIVATE KEY` block (RFC 5915) |
@@ -73,14 +73,14 @@ openssl x509 -inform DER -in identity.leaf.der -noout -pubkey |
 The second `openssl req` warns that it does not sign with `-key`. That is intended: it signs with
 `-CAkey`, the CA's key, and `-key` names the leaf's key, which the certificate carries.
 
-The last four commands copy raw octets out of the certificates and the leaf's key:
+The last four commands copy raw bytes out of the certificates and the leaf's key:
 
 - Offset 90 of the CA's certificate is its subject: the fourth SEQUENCE of its TBSCertificate,
   after the signature algorithm, the issuer and the validity. `openssl asn1parse -inform DER -in
   identity.ca.der` lists each field's offset.
 - Offset 5 of `leaf.key` is the OCTET STRING of its private scalar. `openssl asn1parse -in
   leaf.key` lists it.
-- A P-256 SubjectPublicKeyInfo ends with the point, X then Y, so its last 64 octets are the point.
+- A P-256 SubjectPublicKeyInfo ends with the point, X then Y, so its last 64 bytes are the point.
 
 Nothing mints this identity again. `tools/h2_interop/tls_identity.go` mints a new one with the
 same validity for each script under `tools/` that needs an identity, because those scripts also
@@ -136,7 +136,7 @@ openssl req -x509 -new -key identity.mldsa87.key.pem -config /dev/null -subj "/C
 cat leaf.pem ca.pem > identity.mldsa87.chain.pem
 ```
 
-The leaf's DER is 7,498 octets and the CA's 7,466.
+The leaf's DER is 7,498 bytes and the CA's 7,466.
 
 ## The RSA identity
 

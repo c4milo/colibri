@@ -24,7 +24,7 @@ var events_len: usize = 0;
 var bodies: [bodies_count][body_len]u8 = undefined;
 const bodies_count: usize = 2;
 const body_len: usize = 64;
-/// An upload longer than the initial window of 65,535 octets (RFC 9113 §6.9.2). Test-only.
+/// An upload longer than the initial window of 65,535 bytes (RFC 9113 §6.9.2). Test-only.
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 70_000;
 /// The upload's exchange id. Test-only.
@@ -33,14 +33,14 @@ var post_id: pool_module.RequestId align(@alignOf(pool_module.RequestId)) = @enu
 const sends_max: usize = 16;
 
 const https_port: u16 = 443;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.init(&loopback, 0)};
 
 /// Reports every event the pool owes, starts the connection an `open` asks for, and keeps the
-/// events. The peer sends nothing, so each call passes no octets.
+/// events. The peer sends nothing, so each call passes no bytes.
 fn collect() !void {
     // Bounded: each pass reports an event, and they are finite.
     for (0..support.events_max) |_| {
@@ -90,7 +90,7 @@ fn start_blocked(post: *Exchange) !ConnectionHandle {
     const connection = pool_support.connection_of(&pool, .tcp);
     try spend_window(connection);
     try testing.expect(post.response.body_sent < upload.len);
-    // The connection is blocked: a call with no octets reports no `send`.
+    // The connection is blocked: a call with no bytes reports no `send`.
     const sends = count(.send);
     try collect();
     try testing.expectEqual(sends, count(.send));

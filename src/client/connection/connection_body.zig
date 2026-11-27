@@ -4,9 +4,9 @@
 //! any other, while the caller holds a piece: h11 reads its responses in order (RFC 9112 §9.2), and
 //! h2 reads nothing more of the connection.
 //!
-//! A run longer than `Response.body` leaves a tail: the octets after the piece, which the protocol
+//! A run longer than `Response.body` leaves a tail: the bytes after the piece, which the protocol
 //! read and the caller has not had. The connection does not count them as taken, so they wait at
-//! the front of the next call's octets: the caller's input in cleartext, and the opened records
+//! the front of the next call's bytes: the caller's input in cleartext, and the opened records
 //! over TLS. Once the caller releases the piece, the next pieces come from the tail, and the
 //! protocol reads on after it.
 const std = @import("std");
@@ -22,24 +22,24 @@ const Slot = slots_module.Slot;
 
 /// The rest of a run of content that did not fit the caller's `Response.body`.
 pub const Tail = struct {
-    /// The exchange the octets are for.
+    /// The exchange the bytes are for.
     id: event.RequestId = @enumFromInt(0),
-    /// Octets of content left, at the front of the next call's octets.
+    /// Bytes of content left, at the front of the next call's bytes.
     len: usize = 0,
-    /// Octets the protocol read after the content, which carry none: h2's padding (RFC 9113
+    /// Bytes the protocol read after the content, which carry none: h2's padding (RFC 9113
     /// §6.1).
     skip_len: usize = 0,
     /// The content ends with the tail: h2's DATA frame carried END_STREAM (RFC 9113 §8.1).
     ends: bool = false,
 
-    /// Whether octets of the tail wait to be taken.
+    /// Whether bytes of the tail wait to be taken.
     pub fn pending(tail: *const Tail) bool {
         return tail.len > 0 or tail.skip_len > 0;
     }
 };
 
 /// Holds the first piece of `octets`, a run of `slot`'s streamed content that the protocol read,
-/// and keeps what does not fit as the tail. Returns the octets of the tail: the caller does not
+/// and keeps what does not fit as the tail. Returns the bytes of the tail: the caller does not
 /// count them as taken.
 pub fn hold(connection: *Connection, slot: *Slot, octets: []const u8) usize {
     assert(!connection.tail.pending());
@@ -49,8 +49,8 @@ pub fn hold(connection: *Connection, slot: *Slot, octets: []const u8) usize {
     return connection.tail.len;
 }
 
-/// Takes the tail from the front of `plaintext`: the next piece of its exchange, then the octets to
-/// skip. Returns the octets taken. A call with no octets waits for the caller to pass them again.
+/// Takes the tail from the front of `plaintext`: the next piece of its exchange, then the bytes to
+/// skip. Returns the bytes taken. A call with no bytes waits for the caller to pass them again.
 pub fn read_tail(connection: *Connection, plaintext: []const u8) usize {
     const tail = &connection.tail;
     assert(tail.pending());
@@ -73,7 +73,7 @@ pub fn read_tail(connection: *Connection, plaintext: []const u8) usize {
 }
 
 /// Takes `octets` of the tail: the next piece of a streamed response, or, of an exchange the
-/// caller cancelled, octets read and dropped. Returns the octets taken.
+/// caller cancelled, bytes read and dropped. Returns the bytes taken.
 fn take_content(slot: ?*Slot, octets: []const u8) usize {
     const owner = slot orelse return octets.len;
     switch (owner.stage) {
@@ -105,7 +105,7 @@ pub fn release(connection: *Connection, id: event.RequestId) void {
     const len = response_write.release_piece(slot);
     // RFC 9113 §5.4.1: a connection that failed sends nothing more.
     if (connection.stopped or connection.session != .h2) return;
-    // RFC 9113 §6.9.1: the piece's octets of the stream's window, which colibri gave back none of
+    // RFC 9113 §6.9.1: the piece's bytes of the stream's window, which colibri gave back none of
     // at receipt (`hold_credit`).
     connection.session.h2.release_stream(@intCast(slot.stream_id), @intCast(len));
 }

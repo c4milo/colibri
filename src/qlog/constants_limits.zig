@@ -9,12 +9,12 @@ const assert = std.debug.assert;
 pub const tuple_id_len_max: usize = 10;
 
 /// The tokens a record's writer gathers before it hands them to stdx's `write_items` (decision
-/// 102 as amended), and the octets of their names, strings and hex strings it holds copies of.
+/// 102 as amended), and the bytes of their names, strings and hex strings it holds copies of.
 /// Policy: a packet event with a few frames fits, and a longer record is written in several calls.
 pub const batch_items_max: usize = 64;
 pub const batch_octets_len: usize = 1024;
 
-/// Smallest buffer a log may be given, in octets: the header record fits with room for events.
+/// Smallest buffer a log may be given, in bytes: the header record fits with room for events.
 /// Policy.
 pub const log_len_min: usize = 1024;
 

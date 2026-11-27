@@ -193,7 +193,7 @@ test "RFC 9000 §5.1.2: once the peer retires the ID in use, colibri addresses t
     // "Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
     // corresponding connection IDs", so the packet retiring sequence number 0 goes to the next
     // one, which also keeps it off the ID it names (§19.16). RFC 9000 §17.3: a short header's
-    // Destination Connection ID follows its first octet.
+    // Destination Connection ID follows its first byte.
     const retire = (try send_from(&client)).?;
     try testing.expectEqualSlices(u8, &second_id, datagram[1 .. 1 + id_len]);
     try deliver(retire, &server);

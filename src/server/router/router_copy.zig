@@ -6,35 +6,35 @@
 //! next HEADERS frame of any stream writes the connection's one field section again. A function
 //! route gets its call when the body ends. So the router copies the header's live parts into the
 //! request's entry at the request's event. The copy holds the section's live line records and
-//! their octets. A part of the request that lies in those octets, or in the target, takes no more
-//! room. The copy gives it the same offset in its own octets. Over h2 and h3 each part is a
+//! their bytes. A part of the request that lies in those bytes, or in the target, takes no more
+//! room. The copy gives it the same offset in its own bytes. Over h2 and h3 each part is a
 //! pseudo-header field's value, so it takes none. One exception: a `:path` that starts with `?`
-//! has the static "/" as its path, which takes one octet. Over h11 the copy holds the method and
+//! has the static "/" as its path, which takes one byte. Over h11 the copy holds the method and
 //! the target after the lines, and each part that lies in neither, such as the scheme.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("../event.zig");
 
-/// One line record of a section's `Slice`: its octets' offset and the lengths of its name and its
+/// One line record of a section's `Slice`: its bytes' offset and the lengths of its name and its
 /// value. `http` keeps the type private, so the copy names it through the `Slice`.
 const Line = std.meta.Elem(@FieldType(http.FieldSection.Slice, "lines"));
 
 comptime {
-    // The copy writes each line record as octets. A record with padding would copy octets that
+    // The copy writes each line record as bytes. A record with padding would copy bytes that
     // no write set (non-negotiable 5), so its size is the sum of its fields' sizes.
     var fields_size: usize = 0;
     for (@typeInfo(Line).@"struct".fields) |field| fields_size += @sizeOf(field.type);
     assert(@sizeOf(Line) == fields_size);
 }
 
-/// Octets of one line record in a copy.
+/// Bytes of one line record in a copy.
 pub const line_record_len = @sizeOf(Line);
 
 /// What `copy` refuses: the header's live parts do not fit the entry's `header_bytes`.
 pub const Error = error{HeaderTooLarge};
 
-/// The copy an entry holds: its octets, the `Slice` that the copy's `Headers` points to, and the
+/// The copy an entry holds: its bytes, the `Slice` that the copy's `Headers` points to, and the
 /// request, whose slices point into `octets`. With `header_bytes` 0 the router copies no header,
 /// so the copy holds nothing (the owner's ruling of 2026-11-13).
 pub fn Header(comptime header_bytes: usize) type {
@@ -48,7 +48,7 @@ pub fn Header(comptime header_bytes: usize) type {
 
 comptime {
     // A router whose `header_bytes` is 0 calls each function route at the header, so its entries
-    // spend no octet on a copy.
+    // spend no byte on a copy.
     assert(@sizeOf(Header(0)) == 0);
 }
 
@@ -64,7 +64,7 @@ pub fn copy(request: *const event.Request, octets: []u8, lines: *http.FieldSecti
     const names = try append(octets, &used, section.octets);
     lines.* = .{ .octets = names, .lines = std.mem.bytesAsSlice(Line, records) };
     // Over h2 and h3 each part is a pseudo-header field's value, so it lies in the section. Over
-    // h11 the method and the target lie in the octets that the connection read.
+    // h11 the method and the target lie in the bytes that the connection read.
     const target = moved(section.octets, names, request.target) orelse try append(octets, &used, request.target);
     const method = moved(section.octets, names, request.method) orelse try append(octets, &used, request.method);
     const places: Places = .{ .octets = octets, .section = section.octets, .names = names, .target = request.target, .target_copy = target };
@@ -85,8 +85,8 @@ pub fn copy(request: *const event.Request, octets: []u8, lines: *http.FieldSecti
     assert(used <= octets.len);
 }
 
-/// The two runs of octets that `copy` copied whole, the section's and the target's, each with its
-/// copy, and the entry's octets.
+/// The two runs of bytes that `copy` copied whole, the section's and the target's, each with its
+/// copy, and the entry's bytes.
 const Places = struct {
     octets: []u8,
     section: []const u8,
@@ -104,7 +104,7 @@ const Places = struct {
     }
 };
 
-/// Copies `bytes` into `octets` after its first `used` octets. Bytes that do not fit are refused
+/// Copies `bytes` into `octets` after its first `used` bytes. Bytes that do not fit are refused
 /// whole.
 fn append(octets: []u8, used: *usize, bytes: []const u8) Error![]const u8 {
     assert(used.* <= octets.len);
@@ -116,12 +116,12 @@ fn append(octets: []u8, used: *usize, bytes: []const u8) Error![]const u8 {
     return copied;
 }
 
-/// The octets of `to` at the place where `bytes` lies in `from`, or null when `bytes` does not
+/// The bytes of `to` at the place where `bytes` lies in `from`, or null when `bytes` does not
 /// lie in `from`. `to` is the copy of `from`. It reads the two addresses only to subtract them.
-/// A part is a slice of the octets that the engine lent, or a static string. A part that is not
+/// A part is a slice of the bytes that the engine lent, or a static string. A part that is not
 /// empty lies in `from` only when the engine cut it from `from`, because two objects share no
-/// octet. An empty part gives no octets from either answer. So the copy follows from the
-/// request's octets and its protocol, at every address: the owner's reading of non-negotiable 5
+/// byte. An empty part gives no bytes from either answer. So the copy follows from the
+/// request's bytes and its protocol, at every address: the owner's reading of non-negotiable 5
 /// on 2026-11-14 (decision 163).
 inline fn moved(from: []const u8, to: []const u8, bytes: []const u8) ?[]const u8 {
     assert(from.len == to.len);
@@ -162,7 +162,7 @@ fn test_request(target: []u8) !event.Request {
     };
 }
 
-/// Octets the copy of `test_request` takes: the line records and the lines' octets, then the
+/// Bytes the copy of `test_request` takes: the line records and the lines' bytes, then the
 /// target, the method and the scheme. The path and the query lie in the target, so they take no
 /// more.
 fn test_bytes(target: []const u8) usize {
@@ -192,14 +192,14 @@ fn test_write(fields: []const http.Field) !void {
 }
 
 /// Writes each line of `fields` again with another value of the same length, as an engine's next
-/// event does. Each value then holds other octets at the same place.
+/// event does. Each value then holds other bytes at the same place.
 fn test_write_again(comptime fields: []const http.Field) !void {
     test_section.init();
     inline for (fields) |line| try test_section.append(line.name, "x" ** line.value.len);
     test_slice = test_section.slice();
 }
 
-/// Octets of the copy of a section that holds `fields`: a record for each line, then each line's
+/// Bytes of the copy of a section that holds `fields`: a record for each line, then each line's
 /// name and value.
 fn test_section_bytes(fields: []const http.Field) usize {
     var octets = fields.len * line_record_len;
@@ -254,7 +254,7 @@ test "decision 163 ruling 5: a part that lies in the section or in the target ta
     request.path = split.path;
     request.query = split.query;
     request.headers = .init(&test_slice);
-    // The copy holds a record for each line and the section's octets, and no octet more.
+    // The copy holds a record for each line and the section's bytes, and no byte more.
     var octets: [test_section_bytes(&test_h2_fields)]u8 = undefined;
     var lines: http.FieldSection.Slice = undefined;
     var copied: event.Request = undefined;
@@ -268,14 +268,14 @@ test "decision 163 ruling 5: a part that lies in the section or in the target ta
     try testing.expectEqualStrings("c=d", copied.query.?);
     try testing.expectEqualStrings("ada", copied.headers.find("x-name").?.value);
     try testing.expectEqual(1, copied.headers.len());
-    // Each part reads the copy's octets, not the section's.
+    // Each part reads the copy's bytes, not the section's.
     try testing.expect(moved(&octets, &octets, copied.method) != null);
     try testing.expect(moved(&octets, &octets, copied.path.?) != null);
 }
 
 test "decision 163 ruling 5: the copy keeps each part of an h11 request after the next read" {
-    // Over h11 the method and the target lie in the octets that the connection read. The
-    // authority is the Host line's value. The scheme of this request lies in octets of its own.
+    // Over h11 the method and the target lie in the bytes that the connection read. The
+    // authority is the Host line's value. The scheme of this request lies in bytes of its own.
     var read = "POST /a/b?c=d HTTP/1.1".*;
     var scheme = "https".*;
     var request = try test_request(read["POST ".len..][0.."/a/b?c=d".len]);
@@ -284,7 +284,7 @@ test "decision 163 ruling 5: the copy keeps each part of an h11 request after th
     request.scheme = &scheme;
     request.authority = test_section.find("host").?.value;
     request.headers = .init(&test_slice);
-    // The copy holds the section, then the target, the method and the scheme, and no octet more.
+    // The copy holds the section, then the target, the method and the scheme, and no byte more.
     var octets: [test_section_bytes(&test_h11_fields) + "/a/b?c=d".len + "POST".len + "https".len]u8 = undefined;
     var lines: http.FieldSection.Slice = undefined;
     var copied: event.Request = undefined;

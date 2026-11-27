@@ -13,10 +13,10 @@
 //! reason.
 //!
 //! **Two reasons are one rule in h2 and two in h3, which is why `Error` splits them.** RFC 9113
-//! §8.2.1 refuses a field value that holds a forbidden octet and one that starts or ends with SP
+//! §8.2.1 refuses a field value that holds a forbidden byte and one that starts or ends with SP
 //! or HTAB, in two MUSTs, and h2 answers `FieldValueInvalid` to both. RFC 9114 states only the
 //! first: HTAB does not appear in it, and §10.3's "a character not permitted in a field value" is
-//! about which octets appear, not where they sit. So `FieldValueCharacter` and
+//! about which bytes appear, not where they sit. So `FieldValueCharacter` and
 //! `FieldValueWhitespace` are separate here and each protocol folds them as its RFC does.
 //!
 //! **One reason is shared detection and a per-protocol verdict.** A repeated pseudo-header name
@@ -47,10 +47,10 @@ pub const Error = error{
     /// pseudo-header; RFC 9114 §4.3.1 requires exactly one `:method`, `:scheme` and `:path` and
     /// states nothing about `:authority` or `:status`, so the protocol decides (decision 51).
     PseudoHeaderRepeated,
-    /// A regular field name that is empty or holds an uppercase letter, a colon or another octet
+    /// A regular field name that is empty or holds an uppercase letter, a colon or another byte
     /// outside a token (RFC 9113 §8.2.1, RFC 9114 §4.2 and §10.3).
     FieldNameInvalid,
-    /// A field value that holds NUL, LF, CR or another control octet (RFC 9113 §8.2.1,
+    /// A field value that holds NUL, LF, CR or another control byte (RFC 9113 §8.2.1,
     /// RFC 9114 §10.3).
     FieldValueCharacter,
     /// A field value that starts or ends with SP or HTAB. RFC 9113 §8.2.1 states it; RFC 9114
@@ -170,8 +170,8 @@ fn slot_of(seen: *Seen, kind: Kind, name: []const u8) ?*?[]const u8 {
     return null;
 }
 
-/// Whether `name` is `expected`, octet for octet. The octets are read as one integer, in the order
-/// stated for both sides, so a name costs one compare where a loop costs one for each octet.
+/// Whether `name` is `expected`, byte for byte. The bytes are read as one integer, in the order
+/// stated for both sides, so a name costs one compare where a loop costs one for each byte.
 inline fn is_name(name: []const u8, comptime expected: []const u8) bool {
     if (name.len != expected.len) return false;
     const Octets = std.meta.Int(.unsigned, expected.len * @bitSizeOf(u8));
@@ -197,7 +197,7 @@ pub fn check_name(name: []const u8) Error!void {
     if (name.len == 0) return error.FieldNameInvalid;
     for (name) |octet| {
         // RFC 9113 §8.2.1: a field name must not contain 0x41-0x5a, the uppercase letters, nor
-        // 0x00-0x20, 0x7f-0xff or a colon, and any other octet outside a token fails RFC 9110
+        // 0x00-0x20, 0x7f-0xff or a colon, and any other byte outside a token fails RFC 9110
         // §5.1, which §8.2.1 asks a recipient to check. RFC 9114 §4.2 makes uppercase malformed,
         // and §10.3: "Requests or responses containing invalid field names MUST be treated as
         // malformed."
@@ -205,9 +205,9 @@ pub fn check_name(name: []const u8) Error!void {
     }
 }
 
-/// One entry per octet value: whether a field name may hold it in h2 and h3. It is a tchar
+/// One entry per byte value: whether a field name may hold it in h2 and h3. It is a tchar
 /// (RFC 9110 §5.6.2) and not an uppercase letter (RFC 9113 §8.2.1, RFC 9114 §4.2), so one read
-/// an octet checks both rules. h2's `connection_request.zig` builds the same table for what it
+/// a byte checks both rules. h2's `connection_request.zig` builds the same table for what it
 /// sends, since sharing this one would add a public name.
 const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
     var table: [std.math.maxInt(u8) + 1]bool = undefined;
@@ -224,7 +224,7 @@ pub fn check_value(value: []const u8) Error!void {
         // RFC 9114 §10.3: a value holding a character RFC 9110 §5.5 does not permit is malformed.
         error.FieldValueNulCarriageReturnOrLineFeed => return error.FieldValueCharacter,
         // RFC 9113 §8.2.1: a recipient checks a value against RFC 9110 §5.5, which admits no
-        // other control octet. RFC 9114 §10.3 names the same production.
+        // other control byte. RFC 9114 §10.3 names the same production.
         error.FieldValueControl => return error.FieldValueCharacter,
         // RFC 9113 §8.2.1: a field value must not start with SP or HTAB. RFC 9114 states no such
         // rule, so this reason is the one a protocol may answer differently (decision 51).
@@ -267,9 +267,9 @@ fn slot_of_by_loop(seen: *Seen, kind: Kind, name: []const u8) ?*?[]const u8 {
 
 /// The kinds that define pseudo-headers.
 const kinds_with_pseudo = [_]Kind{ .request, .response };
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
-/// The longest name the tests build: the longest defined one and one octet more.
+/// The longest name the tests build: the longest defined one and one byte more.
 const built_len_max = ":authority".len + 1;
 
 /// Fails, printing both answers, when `slot_of` and the reference differ on `name`, in either kind.
@@ -303,7 +303,7 @@ test "slot_of tells each defined name from the same name with any one octet chan
         const len = definition.name.len;
         @memcpy(name[0..len], definition.name);
         try expect_same_slot(name[0..len]);
-        // Every octet value at every place but the colon.
+        // Every byte value at every place but the colon.
         for (1..len) |position| {
             for (0..octet_values) |octet| {
                 name[position] = @intCast(octet);
@@ -311,7 +311,7 @@ test "slot_of tells each defined name from the same name with any one octet chan
             }
             name[position] = definition.name[position];
         }
-        // One octet short, and one octet more.
+        // One byte short, and one byte more.
         try expect_same_slot(name[0 .. len - 1]);
         for (0..octet_values) |octet| {
             name[len] = @intCast(octet);
@@ -351,7 +351,7 @@ fn expect_same_name_verdict(name: []const u8) !void {
     return error.TestUnexpectedResult;
 }
 
-/// The longest name the tests vary one octet of.
+/// The longest name the tests vary one byte of.
 const varied_name_len_max = 40;
 
 test "check_name gives every name of up to two octets the reference's verdict" {

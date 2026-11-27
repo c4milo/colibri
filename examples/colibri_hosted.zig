@@ -4,7 +4,7 @@
 //! completion for each.
 //!
 //! The program here is the host of both objects at once. It joins them over `link.zig`, in
-//! memory: a connect of the client meets the accept of the server, and the octets of each send go
+//! memory: a connect of the client meets the accept of the server, and the bytes of each send go
 //! to the receive of the other object. A real program does the same operations on its own sockets
 //! and its own loop, such as libxev, `std.Io` or Rotor. docs/usage.md shows how.
 //!
@@ -204,7 +204,7 @@ const Host = struct {
     completed: bool = false,
 
     /// One round: a turn of each object that has not stopped, each operation that the turn
-    /// wrote, then the octets on the link. When no completion came, the program waits on the
+    /// wrote, then the bytes on the link. When no completion came, the program waits on the
     /// loop until the earliest instant that a turn named.
     fn round(self: *Host) !void {
         var operations: [operations_len]colibri.Operation = undefined;
@@ -262,7 +262,7 @@ const Host = struct {
         self.complete(.client, .{ .id = id, .result = .connected });
     }
 
-    /// Puts the octets of the send of `side` on the link, as many as the peer's queue takes. A
+    /// Puts the bytes of the send of `side` on the link, as many as the peer's queue takes. A
     /// send that finds no room waits for the next round.
     fn send(self: *Host, side: Side) !void {
         const socket = &self.sockets[@intFromEnum(side)];
@@ -276,7 +276,7 @@ const Host = struct {
         self.complete(side, .{ .id = operation.id, .result = .{ .sent = @intCast(count) } });
     }
 
-    /// Closes the write side of the socket of `side`: its peer reads the end of the octets, and
+    /// Closes the write side of the socket of `side`: its peer reads the end of the bytes, and
     /// its own receive goes on (RFC 9112 §9.6).
     fn shutdown_send(self: *Host, side: Side, id: colibri.OperationId) void {
         self.sockets[@intFromEnum(side.other())].ended = true;
@@ -284,7 +284,7 @@ const Host = struct {
     }
 
     /// Closes the socket of `side`: its receive, and a send that waits for room on the link, end
-    /// first (decision 159, rule 1). Its peer then reads the end of the octets.
+    /// first (decision 159, rule 1). Its peer then reads the end of the bytes.
     fn close(self: *Host, side: Side, id: colibri.OperationId) void {
         const socket = &self.sockets[@intFromEnum(side)];
         if (socket.receive) |receive| {
@@ -307,7 +307,7 @@ const Host = struct {
         self.complete(.server, .{ .id = target, .result = .canceled });
     }
 
-    /// Gives the receive of `side` the octets on the link, or their end, and retries its send.
+    /// Gives the receive of `side` the bytes on the link, or their end, and retries its send.
     fn deliver(self: *Host, side: Side) !void {
         try self.send(side);
         const socket = &self.sockets[@intFromEnum(side)];
@@ -319,7 +319,7 @@ const Host = struct {
         @memcpy(buffer[0..count], input[0..count]);
         link.consume(side, count);
         socket.receive = null;
-        // A read of 0 octets means that the peer closed its side.
+        // A read of 0 bytes means that the peer closed its side.
         self.complete(side, .{ .id = receive.id, .result = .{ .received = @intCast(count) } });
     }
 

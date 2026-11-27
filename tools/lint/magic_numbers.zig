@@ -14,13 +14,13 @@
 //!   `constants_limits.zig`, `constants_policy.zig` and `constants_recovery.zig`.
 //! - `huffman_table.zig` and `static_table.zig`, which `zig build huffman-table` and
 //!   `zig build static-table` generate from RFC 7541 Appendix B and Appendix A.
-//! - `src/golden/corpus_cases.zig`, the octets and values the corpus cases are built from.
-//! - `src/golden/mutations.zig`, the offsets and octets each corpus mutation writes.
+//! - `src/golden/corpus_cases.zig`, the bytes and values the corpus cases are built from.
+//! - `src/golden/mutations.zig`, the offsets and bytes each corpus mutation writes.
 //! - `src/sim/cost_check.zig`, the counted costs of design §8 step 6. They are measurements, not
 //!   limits: naming each one would put the number in two places and make a diff that changes a
 //!   cost look like a diff that changes a constant.
 //!
-//! The width of an octet is `@bitSizeOf(u8)`, never 8, so a shift by a whole octet names what it
+//! The width of a byte is `@bitSizeOf(u8)`, never 8, so a shift by a whole byte names what it
 //! shifts by.
 //!
 //! The rule is pepegrillo's `magic_numbers` (decision 36). This file holds colibri's configuration

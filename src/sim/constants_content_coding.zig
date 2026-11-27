@@ -11,13 +11,13 @@ pub const requests_max: u32 = 4;
 /// holds, so a coded response waits for its ring to empty (the owner's ruling of 2026-09-28).
 pub const content_len_max: u32 = 81_920;
 
-/// The most octets the server's caller hands `write_body` in one call.
+/// The most bytes the server's caller hands `write_body` in one call.
 pub const write_len_max: u32 = 16_384;
 
 /// The longest piece either direction delivers at once.
 pub const piece_len_max: u32 = 24_576;
 
-/// The octets each direction holds: every response of a seed, coded or not, with its framing.
+/// The bytes each direction holds: every response of a seed, coded or not, with its framing.
 pub const stream_len_max: u32 = requests_max * (content_len_max + response_overhead_max);
 /// A response's head and framing, and what coding adds to incompressible content: stored blocks
 /// and the containers' headers and trailers (RFC 1951 §3.2.4, RFC 1952 §2.3).
@@ -26,7 +26,7 @@ const response_overhead_max: u32 = 16_384;
 /// Room for a body the client passes on coded: the content, coded, never passes this.
 pub const coded_len_max: u32 = content_len_max + response_overhead_max;
 
-/// The rounds one run takes at most: each moves octets both ways, and a response of the longest
+/// The rounds one run takes at most: each moves bytes both ways, and a response of the longest
 /// content in the shortest pieces takes the most.
 pub const rounds_max: u32 = 4096;
 
@@ -34,7 +34,7 @@ pub const rounds_max: u32 = 4096;
 pub const check_seeds_default: u64 = 32;
 
 /// The chance, one in this many, that a draw takes its rarer branch: a HEAD, a 204 or 206, a body
-/// one octet short, or the caller's own Accept-Encoding.
+/// one byte short, or the caller's own Accept-Encoding.
 pub const rare_one_in: u32 = 5;
 
 comptime {

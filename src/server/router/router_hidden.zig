@@ -18,8 +18,8 @@
 //! Terms:
 //!   - A segment of a pattern has a kind: a literal, a parameter, or the wildcard. The wildcard
 //!     matches each segment from its position to the end of the path.
-//!   - "other" is a segment of ALPHA and DIGIT octets that equals no literal segment of the
-//!     table. The check uses the shortest such segment: one octet, when one is free.
+//!   - "other" is a segment of ALPHA and DIGIT bytes that equals no literal segment of the
+//!     table. The check uses the shortest such segment: one byte, when one is free.
 //!   - A leaf T of k segments matches paths of n segments: n = k when T has no wildcard, and
 //!     each n of k or more when T ends in the wildcard.
 //!   - x(T, n) holds T's literal at each literal position of T, and "other" at each other
@@ -73,14 +73,14 @@
 //!      each path of T stops at T, by claims 1 and 6. The check then runs no walk for T.
 //!   8. Long paths. `match` gives `not_found` for a path longer than `path_len_max`, so no walk
 //!      runs on it. Each path of n segments that T and L both match holds the literals of
-//!      x(T, L, n), and one octet at least at each other position. So when "other" has one
-//!      octet, x(T, L, n) is the shortest such path. When it is longer than `path_len_max`, each
+//!      x(T, L, n), and one byte at least at each other position. So when "other" has one
+//!      byte, x(T, L, n) is the shortest such path. When it is longer than `path_len_max`, each
 //!      such path gets `not_found` and hides nothing, and the check runs no walk on it. When each
 //!      x(T, n) is longer, no request reaches T, which is `route_unreachable`.
-//!   9. Long other. A table that holds each of the 62 one-octet literals of ALPHA and DIGIT gets
-//!      an "other" of two octets or more. A literal that repeats counts once. A canonical path is
-//!      then up to n octets longer than the shortest path of its kind. For such a table, claim 8
-//!      holds only for patterns more than `depth_max` + 1 octets shorter than `path_len_max`.
+//!   9. Long other. A table that holds each of the 62 one-byte literals of ALPHA and DIGIT gets
+//!      an "other" of two bytes or more. A literal that repeats counts once. A canonical path is
+//!      then up to n bytes longer than the shortest path of its kind. For such a table, claim 8
+//!      holds only for patterns more than `depth_max` + 1 bytes shorter than `path_len_max`.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -94,7 +94,7 @@ const Shape = router_hidden_canonical.Shape;
 const Canonical = router_hidden_canonical.Canonical;
 const text_of = router_hidden_canonical.text_of;
 
-/// The octets of "other": ALPHA and DIGIT, which are unreserved (RFC 3986 §2.3).
+/// The bytes of "other": ALPHA and DIGIT, which are unreserved (RFC 3986 §2.3).
 const other_octets = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 /// The first route of `table`, in table order, that ruling 12 refuses, or null. `layout` is the
@@ -166,7 +166,7 @@ pub fn quota_bound_of(comptime table: anytype) u32 {
     });
 }
 
-/// The octets that one walk of the check reads, at most (`router_trie.zig`): the text, the path
+/// The bytes that one walk of the check reads, at most (`router_trie.zig`): the text, the path
 /// of `lengths` segments at most, and the segment of each pass once for each comparison of the
 /// search and once more.
 fn walk_octets(text_len: usize, lengths: usize, walk_steps: usize, search_passes: usize, segment_len_max: usize) usize {
@@ -176,11 +176,11 @@ fn walk_octets(text_len: usize, lengths: usize, walk_steps: usize, search_passes
 /// A canonical path holds 0 to `depth_max` + 1 segments (claim 3), so `depth_max` + 2 counts.
 const lengths_past_depth = 2;
 
-/// The check reads each octet of the text twice at most: once to copy it, and once in a walk.
+/// The check reads each byte of the text twice at most: once to copy it, and once in a walk.
 const octet_reads = 2;
 
-/// The octets of "other" in a table that does not hold each of the 62 * 62 literals of two
-/// octets.
+/// The bytes of "other" in a table that does not hold each of the 62 * 62 literals of two
+/// bytes.
 const other_len_bound = 2;
 
 /// The checks of each entry of leaf `leaf`: the walk of the entry's method on each canonical path
@@ -290,7 +290,7 @@ fn add_first_pattern(patterns: []const u8, pattern: []const u8) []const u8 {
 }
 
 /// The shortest segment of `other_octets` that equals no literal of `shapes` (claim 2). It reads
-/// each length in turn, from one octet, and returns the first free segment of that length.
+/// each length in turn, from one byte, and returns the first free segment of that length.
 fn other_of(shapes: []const Shape) []const u8 {
     var literals: usize = 0;
     for (shapes) |shape| literals += shape.literals.len;
@@ -318,7 +318,7 @@ fn literals_of_length(shapes: []const Shape, length: usize) usize {
     return count;
 }
 
-/// The first of the segments 0 to `count` of `length` octets that equals no literal, or null.
+/// The first of the segments 0 to `count` of `length` bytes that equals no literal, or null.
 /// Segment i writes i in base 62 over `other_octets`.
 fn free_segment(shapes: []const Shape, comptime length: usize, comptime count: usize) ?[]const u8 {
     var taken: [count + 1]bool = @splat(false);
@@ -339,7 +339,7 @@ fn free_segment(shapes: []const Shape, comptime length: usize, comptime count: u
     return &final;
 }
 
-/// The index of `literal` among the segments of `length` octets, or null when it is not one.
+/// The index of `literal` among the segments of `length` bytes, or null when it is not one.
 fn segment_index(literal: []const u8, length: usize) ?usize {
     if (literal.len != length) return null;
     var index: usize = 0;

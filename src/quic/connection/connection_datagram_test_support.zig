@@ -7,7 +7,7 @@ const build_test = @import("packet_build/packet_build_test.zig");
 
 const Level = core.Level;
 
-/// The octets a `Recorder` keeps of what it is handed: more than any test hands it.
+/// The bytes a `Recorder` keeps of what it is handed: more than any test hands it.
 pub const taken_len_max: usize = 64;
 
 /// A provider that records what it was handed and answers the parameters and completion a test
@@ -17,7 +17,7 @@ pub const Recorder = struct {
     taken_len: usize = 0,
     peer_body: []const u8 = "",
     done: bool = false,
-    /// A level whose keys the octets it is handed produce, which it gives the suite at once, as a
+    /// A level whose keys the bytes it is handed produce, which it gives the suite at once, as a
     /// caller's code moves TLS's secrets to its suite (decision 48).
     makes_available: ?Level = null,
     /// The suite that level's keys go to, which a test that sets `makes_available` names.

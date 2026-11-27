@@ -15,8 +15,8 @@ const test_millisecond_ns: u64 = constants.nanoseconds_per_millisecond;
 const test_datagram_len: u64 = 1_200;
 const test_round_trip_ns: u64 = 50_000_000;
 
-/// A rate sample from a packet sent when `prior_delivered_len` octets were delivered, with
-/// `delivered_len` octets delivered since. Test-only.
+/// A rate sample from a packet sent when `prior_delivered_len` bytes were delivered, with
+/// `delivered_len` bytes delivered since. Test-only.
 fn test_sample(prior_delivered_len: u64, delivered_len: u64, rate: u64, application_limited: bool) Sample {
     return .{
         .rate = rate,
@@ -120,7 +120,7 @@ test "§5.5.9: an ACK frame above the expected rate adds to BBR.extra_acked, up 
     model.init(test_start_ns);
     const bw: u64 = 1_200_000;
     const window_len = 4 * test_datagram_len;
-    // At 1,200,000 octets a second, 10 ms deliver 12,000 octets. Nothing came, so the interval
+    // At 1,200,000 bytes a second, 10 ms deliver 12,000 bytes. Nothing came, so the interval
     // starts again at this frame, and its datagram counts whole.
     const sample = test_sample(0, test_datagram_len, bw, false);
     model.update_ack_aggregation(sample, test_start_ns + 10 * test_millisecond_ns, bw, window_len, true);
@@ -230,7 +230,7 @@ fn expect_min_rtt_line(fields: *Tokens) !void {
     try testing.expectEqual(try field(fields), model.probe_rtt_min_at_ns);
 }
 
-/// One `aggregation` line: the interval and the extra octets after one ACK frame. A filter that
+/// One `aggregation` line: the interval and the extra bytes after one ACK frame. A filter that
 /// holds one value answers with it.
 fn expect_aggregation_line(fields: *Tokens) !void {
     var model: Model = undefined;

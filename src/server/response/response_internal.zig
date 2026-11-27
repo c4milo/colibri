@@ -24,7 +24,7 @@ pub const EndAsked = enum { none, end, trailers };
 pub const length_digits_max = std.fmt.count("{d}", .{std.math.maxInt(u64)});
 
 /// The engine's three calls that write a response, without its type, so one `Response`
-/// serves every `Engine`, and the two the ring of its body reads (design §8 step 46): the octets
+/// serves every `Engine`, and the two the ring of its body reads (design §8 step 46): the bytes
 /// the engine still reads in place, and the wait for their release.
 pub const Sink = struct {
     context: *anyopaque,
@@ -239,7 +239,7 @@ fn make_room(response: *Response, need: usize) Error!void {
     if (!ring.refill(response, need)) return error.NoSpaceLeft;
 }
 
-/// Octets of the names and values of `headers`.
+/// Bytes of the names and values of `headers`.
 fn lines_len(headers: []const http.Field) usize {
     var total: usize = 0;
     for (headers) |line| total += line.name.len + line.value.len;
@@ -482,7 +482,7 @@ test "fuzz: a Content-Length's digits are the ones std.fmt writes" {
         @import("core").fuzz.input("\xff\xff\xff\xff\xff\xff\xff\xff"),
     } });
     try @import("core").fuzz.sweep(fuzz_decimal, null);
-    // The sweep reaches two octets alone, so this pass takes each power of ten, one less and one
+    // The sweep reaches two bytes alone, so this pass takes each power of ten, one less and one
     // more, up to the largest u64.
     var power: u64 = 1;
     for (0..length_digits_max) |_| {

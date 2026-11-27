@@ -78,7 +78,7 @@ test "the owner's ruling of 2026-11-13: a GET that ends in an empty DATA frame g
     // The call came at the head, where the body was still to come.
     try testing.expectEqual(1, context.calls);
     try testing.expectEqual(error.ReadFailed, context.empty_read.?);
-    // RFC 9113 §8.1: a DATA frame with END_STREAM and no octets ends the request.
+    // RFC 9113 §8.1: a DATA frame with END_STREAM and no bytes ends the request.
     try give_end(handle, "");
     try testing.expectEqual(1, context.calls);
     try testing.expectEqual(ok, try status(handle));

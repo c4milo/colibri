@@ -6,20 +6,20 @@
 //! request's body, and its `on_finished` once the request is over. `on_request` and `on_data`
 //! write the request's one `server.Response`, so the route can answer while the client still sends.
 //!
-//! The call is a chat of gRPC messages. Each message is a flag octet, the payload's length in four
-//! octets, most significant first, and the payload (gRPC's "Length-Prefixed-Message"). Each
+//! The call is a chat of gRPC messages. Each message is a flag byte, the payload's length in four
+//! bytes, most significant first, and the payload (gRPC's "Length-Prefixed-Message"). Each
 //! message of the client carries a name. The route answers each one with a message of its own,
 //! which greets the name.
 //!
 //! The run goes in this order:
 //! 1. The client sends the POST's head and the first piece of its body: the first message and the
-//!    first octets of the second.
+//!    first bytes of the second.
 //! 2. `on_request` adds the response's content type. The head goes out with the first reply.
 //! 3. `on_data` gets the piece with `next`, reads the first message, and writes and flushes its
 //!    reply. So the reply goes out before the request's body ends. `keep` leaves the cut second
 //!    message unread.
 //! 4. The client hands its next piece only once each reply it waits for came back. The next `next`
-//!    gives the kept octets joined with the new ones, and the route answers the second message.
+//!    gives the kept bytes joined with the new ones, and the route answers the second message.
 //! 5. The last piece holds the third message and ends the body. Once `ended` is true, the route
 //!    ends its response with `grpc-status` in its trailer section.
 //! 6. `on_finished` counts the call. The client closes its socket, and the connection ends.
@@ -34,7 +34,7 @@
 //! The client is in `server_stream_peer.zig`. The link of `link.zig` stands where a program's
 //! socket would be.
 //!
-//! The program checks what arrived. The client must get each reply octet for octet, each one only
+//! The program checks what arrived. The client must get each reply byte for byte, each one only
 //! after its message was whole, and `grpc-status` 0 in the trailers. The route must read every
 //! message, the response must go whole, and the connection must end. Anything else exits with an
 //! error, which is how `zig build examples` and CI know the example still works.
@@ -54,32 +54,32 @@ const turns_max = 256;
 /// The longest either side sleeps when nothing waits, in nanoseconds: 100 ms.
 const wait_ns_max: u64 = 100_000_000;
 
-/// The octets the server writes before it sends them, at most.
+/// The bytes the server writes before it sends them, at most.
 const output_len = 16384;
 
 /// Events the server takes in one turn, and calls to `send_stream` one `send` event takes, at most.
 const events_per_turn_max = 64;
 const sends_per_event_max = 4;
 
-/// The longest payload the route reads: a name of 64 octets. A message whose prefix names a longer
+/// The longest payload the route reads: a name of 64 bytes. A message whose prefix names a longer
 /// one ends the call with an error.
 const payload_len_max = 64;
-/// The octets of the longest reply: a prefix, `greeting` and the longest name.
+/// The bytes of the longest reply: a prefix, `greeting` and the longest name.
 const reply_len_max = peer.prefix_len + peer.greeting.len + payload_len_max;
 
 /// Pieces one `on_data` takes, at most. With no middleware's wrapper, the first `next` gives every
-/// octet that has arrived in one piece, and the second returns null.
+/// byte that has arrived in one piece, and the second returns null.
 const pieces_per_event_max = 4;
 
 /// Requests the router answers at once: the one call.
 const requests_max = 1;
-/// Octets of the entry's response memory: the copies of the header and of the trailer, and the
+/// Bytes of the entry's response memory: the copies of the header and of the trailer, and the
 /// replies that the connection has not taken.
 const response_bytes = 256;
-/// Octets of the entry's body memory: what `keep` left unread between two body events, joined with
-/// the octets of the next event. Octets past it get 413 (RFC 9110 §15.5.14).
+/// Bytes of the entry's body memory: what `keep` left unread between two body events, joined with
+/// the bytes of the next event. Bytes past it get 413 (RFC 9110 §15.5.14).
 const body_bytes = 256;
-/// Octets of the entry's copy of a request's header. The one route is a stream route, which reads
+/// Bytes of the entry's copy of a request's header. The one route is a stream route, which reads
 /// the header in `on_request` at the head, so the router copies no header.
 const header_bytes = 0;
 
@@ -88,7 +88,7 @@ pub const Error = error{
     ExchangeUnfinished,
     /// What arrived is not what was sent.
     ExchangeWrong,
-    /// The connection still owed octets after `sends_per_event_max` calls to `send_stream`.
+    /// The connection still owed bytes after `sends_per_event_max` calls to `send_stream`.
     SendUnfinished,
 };
 
@@ -134,22 +134,22 @@ const grpc_ok = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
 /// The stream route of the gRPC method. A struct route has `on_request`, and any of `on_data`,
 /// `next` and `on_finished`. Its `State` lives in the request's pool entry.
 const Greeter = struct {
-    /// What the route holds for one call: the messages it answered, and the octets of the cut
+    /// What the route holds for one call: the messages it answered, and the bytes of the cut
     /// message it left unread with `keep`.
     pub const State = struct {
         messages: u32 = 0,
         kept: usize = 0,
     };
 
-    /// Runs at the request's head, before any octet of its body arrives. The head goes out with
+    /// Runs at the request's head, before any byte of its body arrives. The head goes out with
     /// the first bytes of the body.
     pub fn on_request(_: *App, _: *server.RequestContext, _: *State, _: *const server.Request, response: *server.Response) !void {
         try response.header("content-type", peer.content_type);
     }
 
     /// Runs at each event of the request's body. It answers each message that a piece holds
-    /// whole, and keeps the cut message at the end of the piece: the next `next` gives its octets
-    /// again, joined with the octets that arrive later. Once the body ended, it ends the response.
+    /// whole, and keeps the cut message at the end of the piece: the next `next` gives its bytes
+    /// again, joined with the bytes that arrive later. Once the body ended, it ends the response.
     pub fn on_data(_: *App, _: *server.RequestContext, state: *State, body: *server.RequestBodyStream, response: *server.Response) !void {
         // Bounded: each pass takes one piece.
         for (0..pieces_per_event_max) |_| {
@@ -159,7 +159,7 @@ const Greeter = struct {
             body.keep(state.kept);
         }
         if (!body.ended()) return;
-        // A body that ends inside a message cuts it short: the last piece held its octets again.
+        // A body that ends inside a message cuts it short: the last piece held its bytes again.
         if (state.kept > 0) return error.MessageCut;
         // RFC 9113 §8.1: a HEADERS frame after the DATA frames carries the trailer section.
         try response.trailers(&grpc_ok);
@@ -172,11 +172,11 @@ const Greeter = struct {
     }
 };
 
-/// Answers each whole message at the start of `piece`, and returns the octets after them: the
-/// first octets of a cut message, or none.
+/// Answers each whole message at the start of `piece`, and returns the bytes after them: the
+/// first bytes of a cut message, or none.
 fn answer_whole(state: *Greeter.State, piece: []const u8, response: *server.Response) ![]const u8 {
     var rest = piece;
-    // Bounded: each pass takes one message, of `prefix_len` octets at least.
+    // Bounded: each pass takes one message, of `prefix_len` bytes at least.
     for (0..piece.len / peer.prefix_len + 1) |_| {
         if (rest.len < peer.prefix_len) break;
         const len = std.mem.readInt(u32, rest[1..peer.prefix_len], .big);
@@ -196,7 +196,7 @@ fn answer_whole(state: *Greeter.State, piece: []const u8, response: *server.Resp
 fn reply(name: []const u8, response: *server.Response) !void {
     var message: [reply_len_max]u8 = undefined;
     const payload_len = peer.greeting.len + name.len;
-    // The flag octet: the payload is not compressed.
+    // The flag byte: the payload is not compressed.
     message[0] = 0;
     std.mem.writeInt(u32, message[1..peer.prefix_len], @intCast(payload_len), .big);
     @memcpy(message[peer.prefix_len..][0..peer.greeting.len], peer.greeting);
@@ -229,7 +229,7 @@ pub fn main() !void {
         try peer.turn();
         try server_turn();
         if (peer.over() and ended == 1) return check();
-        // No octet waits for either side. A program sleeps here until the socket has octets or a
+        // No byte waits for either side. A program sleeps here until the socket has bytes or a
         // deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.server, sleep_ns());
     }
@@ -258,8 +258,8 @@ fn server_turn() !void {
     }
 }
 
-/// Passes the engine the octets the socket read, until it consumes nothing and reports nothing.
-/// It returns how many octets the engine consumed.
+/// Passes the engine the bytes the socket read, until it consumes nothing and reports nothing.
+/// It returns how many bytes the engine consumed.
 fn read_stream(connection: server.ConnectionHandle, input: []u8, now_ns: u64) !usize {
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {

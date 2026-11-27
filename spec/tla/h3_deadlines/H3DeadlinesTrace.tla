@@ -7,7 +7,7 @@
 (* gives that log as Trace, a sequence of records whose functions over     *)
 (* Requests are sequences, request 0 first.                                *)
 (*                                                                         *)
-(* colibri counts octets where the model counts units and packets, so the  *)
+(* colibri counts bytes where the model counts units and packets, so the  *)
 (* run logs nothing of the client's units, colibri's QUIC, the network or  *)
 (* the credit, and TLC finds values for them that fit. One of the run's    *)
 (* actions can take several of the model's steps, so between two logged    *)

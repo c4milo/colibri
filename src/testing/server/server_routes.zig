@@ -27,10 +27,10 @@ fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, respons
 
 /// The function of each POST line: it reads the request's whole body, then answers as `answer`
 /// does. So the judge counts what a request with a body costs through the router (design §8 step
-/// 50b). The router calls it once the body ended, and `request.body` reads each octet of the body
+/// 50b). The router calls it once the body ended, and `request.body` reads each byte of the body
 /// (decision 163 ruling 4).
 fn read_and_answer(_: *void, _: *server.RequestContext, request: *const server.Request, response: *server.Response) !void {
-    // The reader holds every octet of the body, as the struct route that this replaced read them.
+    // The reader holds every byte of the body, as the struct route that this replaced read them.
     request.body.toss(request.body.buffered().len);
     try response.header("content-type", answer_content_type);
     try response.body().writeAll(answer_body);

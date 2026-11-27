@@ -3,7 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Printable ASCII, the space through the tilde: the octets h3-events §4.2.2 logs a field line's
+/// Printable ASCII, the space through the tilde: the bytes h3-events §4.2.2 logs a field line's
 /// name and value as text in.
 pub const printable_first: u8 = 0x20;
 pub const printable_last: u8 = 0x7e;

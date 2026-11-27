@@ -106,7 +106,7 @@ pub const QueryMemory = struct {
     storage: [query_storage_len]u8 = undefined,
 };
 
-/// Octets of a query's decoded names and values. A query is part of a path that the engine
+/// Bytes of a query's decoded names and values. A query is part of a path that the engine
 /// bounds, and decoding only shortens it.
 const query_storage_len = @import("../constants.zig").limits.path_len_max;
 
@@ -222,7 +222,7 @@ pub fn State(comptime handler: anytype) type {
 /// Whether a struct route declares `name`. Comptime-only.
 /// Writes each field of `value` to its default, as `value.* = .{}` does, for a route's State, a
 /// middleware's state and the request's values. `.{}` copies the whole struct from a constant,
-/// the octets of each `undefined` field too. A field whose default is `undefined` takes no store
+/// the bytes of each `undefined` field too. A field whose default is `undefined` takes no store
 /// here outside Debug, so a State that holds a large buffer costs no copy of it at each request.
 pub inline fn reset_to_defaults(comptime T: type, value: *T) void {
     // A safe build fills each `undefined` field with 0xaa through `memset`, which writes a large
@@ -251,7 +251,7 @@ pub fn has(comptime handler: anytype, comptime name: []const u8) bool {
 /// Calls a route's function, or its `on_request`, with the arguments of decision 163: the context,
 /// the request context, the state of a struct route, the request and the response. The request
 /// context holds the route's path `Path` and query `Query` during the call alone, because the
-/// query's octets live in `query`, which every request shares.
+/// query's bytes live in `query`, which every request shares.
 pub fn call_on_request(
     comptime handler: anytype,
     comptime Path: type,

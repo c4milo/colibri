@@ -1,7 +1,7 @@
 //! The TCP slots of the server's engine (`engine_state.zig`, decision 119): a connection the
-//! program accepted, the octets its socket read, the event a TCP slot owes the program and in what
-//! order, the octets its connection owes the socket, and how it closes and ends. The program owns
-//! each socket: the engine names the slot in a `send` event when its connection owes octets, and
+//! program accepted, the bytes its socket read, the event a TCP slot owes the program and in what
+//! order, the bytes its connection owes the socket, and how it closes and ends. The program owns
+//! each socket: the engine names the slot in a `send` event when its connection owes bytes, and
 //! in a `close` event when the program closes the socket. Split out of `engine_state.zig` for
 //! length; `server.zig` does not export this file.
 const std = @import("std");
@@ -30,7 +30,7 @@ pub const Accepted = struct { tls: bool = true };
 /// Bytes a TCP connection's socket read, which chapulin may open in place.
 pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
 
-/// What `take_stream` took of its octets, and whether it wrote an event into the engine's
+/// What `take_stream` took of its bytes, and whether it wrote an event into the engine's
 /// `event` (design §8 step 58).
 pub const Taken = struct { consumed: usize, reported: bool };
 
@@ -77,9 +77,9 @@ pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     return handle;
 }
 
-/// Hands octets a socket read to the slot's connection, and returns what it consumed and whether
+/// Hands bytes a socket read to the slot's connection, and returns what it consumed and whether
 /// it wrote an event into the engine's `event`. The program's own cancels, then the `send` of
-/// octets the output holds, come first, with nothing consumed. Octets of a handle that names no
+/// bytes the output holds, come first, with nothing consumed. Bytes of a handle that names no
 /// connection, or of a connection that reads no more, are consumed and dropped, as a read that
 /// finished after `close` is.
 pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) Taken {
@@ -96,7 +96,7 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) Taken {
         return .{ .consumed = 0, .reported = true };
     }
     if (send_first(state, slot)) return .{ .consumed = 0, .reported = true };
-    // No octets, and nothing changed the connection since it read nothing at this instant: the
+    // No bytes, and nothing changed the connection since it read nothing at this instant: the
     // call would read nothing again, and the slot's last poll asked it everything else.
     if (input.bytes.len == 0 and reads_nothing(state, slot, now_ns)) return .{ .consumed = 0, .reported = false };
     const connection = &state.tcp[slot];
@@ -115,7 +115,7 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) Taken {
 }
 
 /// Writes the next event TCP slot `slot` owes the program into the engine's `event`, and returns
-/// whether it owes one: the program's own cancels first, then the `send` of octets its output
+/// whether it owes one: the program's own cancels first, then the `send` of bytes its output
 /// holds, then what its connection reports, then a `cancelled` for each request a stopped
 /// connection left open, then a `writable`, then `send` or `close`, and last its `ended`.
 pub fn poll(state: *State, slot: u32, now_ns: u64) bool {
@@ -162,14 +162,14 @@ fn connection_event(state: *State, slot: u32, connection: *Connection, table: *T
     return false;
 }
 
-/// The `send` of octets the output of the connection in `slot` holds, which the engine reports
+/// The `send` of bytes the output of the connection in `slot` holds, which the engine reports
 /// before it reads the connection. A read observes the connection's deadlines, and an h2 stream's
-/// send meter waits while the output holds octets (decision 110 as amended), so octets a write left
+/// send meter waits while the output holds bytes (decision 110 as amended), so bytes a write left
 /// there for the program would pause the meter after each write, which then starts again with a
-/// grace period, and a peer that opens its window an octet at a time would never be cut.
+/// grace period, and a peer that opens its window a byte at a time would never be cut.
 fn send_first(state: *State, slot: u32) bool {
     if (state.transports[slot] != .open or state.send_outstanding[slot]) return false;
-    // Decision 176: octets a lend gave the socket are no debt of a new `send`.
+    // Decision 176: bytes a lend gave the socket are no debt of a new `send`.
     if (connection_output.unlent_len(&state.tcp[slot]) == 0) return false;
     state.send_outstanding[slot] = true;
     state.event = .{ .send = state.slots.handle_of(slot) };
@@ -228,7 +228,7 @@ fn end(state: *State, slot: u32, connection: *Connection) Event {
     return .{ .ended = .{ .connection = handle, .reason = reason, .failed = failed } };
 }
 
-/// Writes into `output` what the connection `handle` names owes its socket, and returns the octets
+/// Writes into `output` what the connection `handle` names owes its socket, and returns the bytes
 /// written: 0 for a handle that names none, or a socket that closed. A call that leaves room in
 /// `output` ends the `send`, and the next poll reports another while the connection owes more.
 pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns: u64) usize {
@@ -236,7 +236,7 @@ pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns
     const slot = state.slots.resolve(handle) orelse return 0;
     if (state.transports[slot] != .open) return 0;
     const written = state.tcp[slot].send(output, now_ns);
-    // A send writes a coded ring's octets out, which frees room for more of the response.
+    // A send writes a coded ring's bytes out, which frees room for more of the response.
     state.room[slot] +%= 1;
     if (written < output.len) state.send_outstanding[slot] = false;
     engine_state.touch(state, slot);
@@ -245,26 +245,26 @@ pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns
 
 /// Lends the program what the connection `handle` names owes its socket, where the connection
 /// holds it (decision 176): empty for a handle that names none, or a socket that closed. The
-/// octets stay in place until `sent_stream`. Every octet owed is lent now, so the next poll
-/// reports a `send` for the octets written after this call, as for a `send_stream` that left room.
+/// bytes stay in place until `sent_stream`. Every byte owed is lent now, so the next poll
+/// reports a `send` for the bytes written after this call, as for a `send_stream` that left room.
 pub fn output_stream(state: *State, handle: ConnectionHandle, now_ns: u64) []const u8 {
     assert(handle.slot < state.slots.tcp_count);
     const slot = state.slots.resolve(handle) orelse return &.{};
     if (state.transports[slot] != .open) return &.{};
     const owed = connection_output.lend(&state.tcp[slot], now_ns);
-    // A lend writes a coded ring's octets out, which frees room for more of the response.
+    // A lend writes a coded ring's bytes out, which frees room for more of the response.
     state.room[slot] +%= 1;
     state.send_outstanding[slot] = false;
     engine_state.touch(state, slot);
     return owed;
 }
 
-/// The send of what `output_stream` lent took its first `sent` octets. The rest stays owed, and
-/// the next poll reports a `send` while the connection owes octets. After the socket closed, the
+/// The send of what `output_stream` lent took its first `sent` bytes. The rest stays owed, and
+/// the next poll reports a `send` while the connection owes bytes. After the socket closed, the
 /// slot frees once this call came (decision 176).
 pub fn sent_stream(state: *State, handle: ConnectionHandle, sent: usize, now_ns: u64) void {
     assert(handle.slot < state.slots.tcp_count);
-    // The slot of a connection that lent octets frees only after this call, so only a call for
+    // The slot of a connection that lent bytes frees only after this call, so only a call for
     // an empty lend can name a connection that has ended.
     const slot = state.slots.resolve(handle) orelse return assert(sent == 0);
     const connection = &state.tcp[slot];
@@ -313,14 +313,14 @@ pub fn refuse(state: *State, slot: u32, number: event.Number) void {
 }
 
 /// Whether the connection in `slot` read nothing at `now_ns`, and no call changed it since: a
-/// `receive` with no octets now would read nothing again. Its deadlines fired and were observed at
+/// `receive` with no bytes now would read nothing again. Its deadlines fired and were observed at
 /// that instant (decision 110), so the call would change none of them.
 fn reads_nothing(state: *const State, slot: u32, now_ns: u64) bool {
     const read_ns = state.empty_read_ns[slot] orelse return false;
     return read_ns == now_ns;
 }
 
-/// Notes whether the `receive` the connection in `slot` just made read nothing: it took no octet,
+/// Notes whether the `receive` the connection in `slot` just made read nothing: it took no byte,
 /// reported no event, and its protocol read none of the plaintext the connection holds. A call
 /// that read something may leave more to read, such as h2 frames past `frames_per_receive_max`.
 fn note_read(state: *State, slot: u32, received: *const event.ConnectionResult, now_ns: u64) void {

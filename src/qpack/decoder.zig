@@ -7,7 +7,7 @@
 //!
 //! **Decision 74 shapes the rest.** A section that needs entries not yet received blocks its
 //! stream (§2.2.1). The decoder records the stream and returns `blocked`, the caller keeps the
-//! octets, and `ready_stream` names the stream once the entries have arrived. The decoder queues
+//! bytes, and `ready_stream` names the stream once the entries have arrived. The decoder queues
 //! the Section Acknowledgments and Stream Cancellations it owes, and a full queue stops the
 //! reading rather than drop one.
 //!
@@ -15,7 +15,7 @@
 //! no dynamic table. Every Required Insert Count but zero is then refused, nothing blocks, and
 //! nothing is owed.
 //!
-//! A literal's decoded octets are written into a buffer the caller owns (decision 35), and the
+//! A literal's decoded bytes are written into a buffer the caller owns (decision 35), and the
 //! field section copies each line into its own storage as it is appended. The dynamic table does
 //! not change while a section is read, so its entries are appended from where they are.
 const std = @import("std");
@@ -78,7 +78,7 @@ pub const Decoder = struct {
 
     /// What `read_section` did.
     pub const Outcome = enum {
-        /// The section is in the caller's field section, and its octets are consumed.
+        /// The section is in the caller's field section, and its bytes are consumed.
         decoded,
         /// RFC 9204 §2.2.1: the section needs entries not yet received. Nothing is consumed, and the
         /// caller asks again once `ready_stream` names the stream.
@@ -246,7 +246,7 @@ pub const Decoder = struct {
     /// zero when no line references the dynamic table.
     fn read_lines(decoder: *const Decoder, cursor: *Reader, strings: *Writer, section: *FieldSection, origin: Origin) Error!u64 {
         var reach: u64 = 0;
-        // Bounded by the octets the caller gave, since every representation consumes at least one.
+        // Bounded by the bytes the caller gave, since every representation consumes at least one.
         while (cursor.remaining_len() > 0) {
             const line = try representation.read(cursor, strings);
             const resolved = try decoder.resolve(line, origin);

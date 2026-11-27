@@ -78,7 +78,7 @@ test "§7.2: a packet not in flight is remembered and counts toward nothing" {
     try testing.expectEqual(test_len, test_table.in_flight_len());
     // RFC 9002 Appendix A.8 arms a probe only where the peer owes an acknowledgment.
     try testing.expectEqual(1, test_table.ack_eliciting_count());
-    // What leaves reports only the octets that were in flight, and only an ack-eliciting packet
+    // What leaves reports only the bytes that were in flight, and only an ack-eliciting packet
     // sets the flag RFC 9002 Appendix A.7 requires before a round trip sample may be taken.
     const removed = test_table.remove_range(1, 1);
     try testing.expectEqual(1, removed.count);
@@ -185,7 +185,7 @@ test "A.11: discarding a space gives up every record at once" {
     try test_table.record(eliciting(2));
     const removed = test_table.discard();
     try testing.expectEqual(3, removed.count);
-    // RFC 9002 Appendix A.11: the octets stop counting toward the bytes in flight, and only the
+    // RFC 9002 Appendix A.11: the bytes stop counting toward the bytes in flight, and only the
     // ones that were in flight are reported.
     try testing.expectEqual(2 * test_len, removed.in_flight_len);
     try testing.expectEqual(2, removed.largest);
@@ -212,11 +212,11 @@ test "RFC 9002 §2: PADDING puts a packet in flight without eliciting an acknowl
 
 test "RFC 9002 Appendix A.1.1: a record stays small, because 256 of them sit in every space" {
     // `sent_packets_max` is 256 and RFC 9000 §12.3 gives a connection three spaces, so every
-    // octet here is paid for 768 times. The number is pinned so a field added without measuring
+    // byte here is paid for 768 times. The number is pinned so a field added without measuring
     // shows up as a failing test rather than as memory nobody looked at.
     // Decision 57's stream range costs one identifier: the offset and length are the ones CRYPTO
     // already used, because a packet carries one or the other. Decision 131's ring position and
-    // count take 5 octets, which round the record up by 8. draft-ietf-ccwg-bbr-06 §4.1.2.1.2's
+    // count take 5 bytes, which round the record up by 8. draft-ietf-ccwg-bbr-06 §4.1.2.1.2's
     // instants and counts take 40, and its flag fits in the padding (the owner's rulings of
     // 2026-10-30, design §8 steps 29a and 29b.1).
     try testing.expectEqual(88, @sizeOf(Record));

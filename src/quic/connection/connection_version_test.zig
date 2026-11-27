@@ -17,7 +17,7 @@ const version = @import("connection_version.zig");
 const Connection = connection_module.Connection;
 const testing = std.testing;
 
-/// A datagram long enough for RFC 9000 §5.2.2, and one octet short of it. Test-only.
+/// A datagram long enough for RFC 9000 §5.2.2, and one byte short of it. Test-only.
 var datagram: [constants.protocol.datagram_len_min]u8 = @splat(0);
 /// Where a Version Negotiation packet is written. Test-only.
 var output: [constants.protocol.datagram_len_min]u8 = @splat(0);
@@ -37,7 +37,7 @@ const header_form_bit: u8 = 0x80;
 const test_max_data: u64 = 1_048_576;
 
 /// The connection IDs the client chose: C1 is its Source and S1 its Destination (§7.3), each one
-/// octet repeated so no array literal is needed. Test-only.
+/// byte repeated so no array literal is needed. Test-only.
 const client_source_octet: u8 = 0xc1;
 const client_destination_octet: u8 = 0x51;
 const client_source_len = 4;
@@ -49,12 +49,12 @@ const stranger_octet: u8 = 0xff;
 const stranger: [client_source_len]u8 = @splat(stranger_octet);
 const retry_source_octet: u8 = 0x52;
 const retry_source: [client_source_len]u8 = @splat(retry_source_octet);
-/// The longest connection ID a length octet carries, and one past version 1's (§17.2). Test-only.
+/// The longest connection ID a length byte carries, and one past version 1's (§17.2). Test-only.
 const invariant_dcid_len = 255;
 const invariant_scid_len = 21;
 
 /// Fills `datagram` with a long header of `version` carrying the client's connection IDs, and
-/// answers how many octets the header occupies. Test-only.
+/// answers how many bytes the header occupies. Test-only.
 fn write_long(packet_version: u32, dcid: []const u8, scid: []const u8) usize {
     var writer = core.Writer.init(&datagram);
     // RFC 8999 §5.1: the Header Form bit is set, then the Version and both connection IDs.
@@ -116,7 +116,7 @@ test "RFC 9000 §5.2.2, §17.2.1: a server answers an unsupported version with t
     try testing.expectEqual(constants.protocol.fixed_bit, output[0] & constants.protocol.fixed_bit);
     // The Version field is 0, which is what identifies the packet at all.
     try testing.expectEqual(0, std.mem.readInt(u32, output[1..5], .big));
-    // Every octet the packet occupies was written and no more, which `version_negotiation_len`
+    // Every byte the packet occupies was written and no more, which `version_negotiation_len`
     // said before the first one went down.
     const received = try invariant.read_long(&datagram);
     try testing.expectEqual(invariant.version_negotiation_len(received, 2), written);
@@ -125,7 +125,7 @@ test "RFC 9000 §5.2.2, §17.2.1: a server answers an unsupported version with t
 test "RFC 9000 §5.2.2: a datagram below the minimum size is dropped rather than answered" {
     const header_len = write_long(other_version, &client_destination, &client_source);
     // "Servers MUST drop smaller packets that specify unsupported versions." §14.1 puts the size
-    // at 1200 octets, so 1199 is dropped and 1200 is answered.
+    // at 1200 bytes, so 1199 is dropped and 1200 is answered.
     const short = datagram[0 .. constants.protocol.datagram_len_min - 1];
     try testing.expectEqual(version.Silence.datagram_too_small, version.answer(.server, short, &output).none);
     try testing.expect(version.answer(.server, &datagram, &output) == .written);
@@ -170,8 +170,8 @@ test "RFC 9000 §6.1, §17.2.1, RFC 8999 §6: the four datagrams a server answer
 
 test "RFC 9000 §17.2.1: no version 1 rule reaches the decision to send one" {
     // "Version-specific rules for the connection ID therefore MUST NOT influence a decision about
-    // whether to send a Version Negotiation packet." Twenty-one octets is one past version 1's
-    // maximum, and 255 is the most a length octet carries.
+    // whether to send a Version Negotiation packet." Twenty-one bytes is one past version 1's
+    // maximum, and 255 is the most a length byte carries.
     const long_scid: [invariant_scid_len]u8 = @splat(client_source_octet);
     const long_dcid: [invariant_dcid_len]u8 = @splat(client_destination_octet);
     _ = write_long(other_version, &long_dcid, &long_scid);
@@ -179,7 +179,7 @@ test "RFC 9000 §17.2.1: no version 1 rule reaches the decision to send one" {
     const read_back = (try header.read(output[0..written], 0)).version_negotiation;
     try testing.expectEqualSlices(u8, &long_scid, read_back.dcid);
     try testing.expectEqualSlices(u8, &long_dcid, read_back.scid);
-    // The same octets read as version 1 are refused for exactly the rule §17.2.1 holds off.
+    // The same bytes read as version 1 are refused for exactly the rule §17.2.1 holds off.
     _ = write_long(constants.protocol.version_1, &long_dcid, &long_scid);
     try testing.expectError(error.ConnectionIdTooLong, header.read(&datagram, 0));
 }
@@ -378,7 +378,7 @@ test "decision 111: a server switches a client that lists version 2, and its par
     const chosen = version.choose(&test_connection, try client_parameters(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 }), own);
     try testing.expectEqual(.v2, chosen);
     try testing.expect(test_connection.versions.negotiated == .v2 and test_connection.versions.original == .v1);
-    // RFC 9368 §3: the octets the session sends name version 2 as the Chosen Version, and are as
+    // RFC 9368 §3: the bytes the session sends name version 2 as the Chosen Version, and are as
     // long as before.
     try testing.expectEqual(own_len, own.len);
     var reader = core.Reader.init(own);

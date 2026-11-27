@@ -5,13 +5,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 const protocol = @import("constants_protocol.zig");
 
-/// Longest field name colibri will emit or accept, in octets. RFC 9110 §5.4 states that HTTP
+/// Longest field name colibri will emit or accept, in bytes. RFC 9110 §5.4 states that HTTP
 /// places no predefined limit on a field line, so this is colibri's policy and not a protocol
 /// constant. RFC 9110 §5.4 also requires a server that cannot accept what it was sent to answer
 /// 4xx rather than truncate, so a local limit is conformant.
 pub const field_name_len_max: u32 = 256;
 
-/// Longest field value colibri will emit or accept, in octets. Policy, for the reason above.
+/// Longest field value colibri will emit or accept, in bytes. Policy, for the reason above.
 pub const field_value_len_max: u32 = 8192;
 
 /// Most field lines in one field section. Policy. A section is a fixed array of this length, so
@@ -22,7 +22,7 @@ pub const field_count_max: u32 = 128;
 /// over field lines of `name_len + value_len + 32`, on the unencoded strings (RFC 9113 §6.5.2,
 /// RFC 9114 §4.2.2). colibri advertises this value to the peer and enforces it locally; RFC 9113
 /// §10.5.1 states there is no hard limit on field block size, so a peer may exceed it and the
-/// decoder must still consume every octet (invariant 10).
+/// decoder must still consume every byte (invariant 10).
 pub const field_section_size_max: u32 = 16384;
 
 /// Most TLS records in a row that may carry no application data, in h2 and in h11. A

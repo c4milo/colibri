@@ -1,9 +1,9 @@
 //! The QUIC variable-length integer of RFC 9000 §16, used by the QUIC and h3 framing layers and
 //! never by a field-section representation (decision 11).
 //!
-//! The two most significant bits of the first octet give the encoding length: 1, 2, 4 or 8
-//! octets, carrying 6, 14, 30 or 62 bits in network byte order. The decoder reports how many
-//! octets it consumed (invariant 9), because RFC 9000 §16 permits a non-minimal encoding
+//! The two most significant bits of the first byte give the encoding length: 1, 2, 4 or 8
+//! bytes, carrying 6, 14, 30 or 62 bits in network byte order. The decoder reports how many
+//! bytes it consumed (invariant 9), because RFC 9000 §16 permits a non-minimal encoding
 //! everywhere except the Frame Type field (§12.4), and only the caller knows which field it is
 //! reading.
 const std = @import("std");
@@ -14,18 +14,18 @@ const constants = @import("constants.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 
-/// The first octet's two most significant bits encode the base-2 logarithm of the length
+/// The first byte's two most significant bits encode the base-2 logarithm of the length
 /// (RFC 9000 §16).
 const length_shift: u3 = @bitSizeOf(u8) - constants.protocol.varint_length_bits;
 const value_mask: u8 = 0x3f;
 
 pub const Decoded = struct {
     value: u64,
-    /// Octets the encoding occupied: 1, 2, 4 or 8.
+    /// Bytes the encoding occupied: 1, 2, 4 or 8.
     encoded_len: u8,
 };
 
-/// Decodes one integer, consuming all of its octets or none.
+/// Decodes one integer, consuming all of its bytes or none.
 pub fn decode(reader: *Reader) core.Reader.Error!Decoded {
     const first = try reader.peek_byte();
     // RFC 9000 §16: the two most significant bits give the length as a power of two.
@@ -45,7 +45,7 @@ const value_maxes = maxes: {
     break :maxes maxes;
 };
 
-/// The fewest octets that carry `value`. The loop unrolls into three compares with constants
+/// The fewest bytes that carry `value`. The loop unrolls into three compares with constants
 /// (design §8 step 29d.18).
 pub fn encoded_len_minimal(value: u64) u8 {
     assert(value <= constants.protocol.varint_value_max);
@@ -55,7 +55,7 @@ pub fn encoded_len_minimal(value: u64) u8 {
     unreachable;
 }
 
-/// The largest value `encoded_len` octets carry: every bit but the length bits (RFC 9000 §16).
+/// The largest value `encoded_len` bytes carry: every bit but the length bits (RFC 9000 §16).
 fn value_max(encoded_len: u8) u64 {
     assert(is_length(encoded_len));
     const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - constants.protocol.varint_length_bits;
@@ -69,21 +69,21 @@ fn is_length(encoded_len: u8) bool {
     return power_of_two and encoded_len <= constants.protocol.varint_len_max;
 }
 
-/// Encodes `value` in the fewest octets.
+/// Encodes `value` in the fewest bytes.
 pub fn encode(writer: *Writer, value: u64) core.Writer.Error!void {
     return encode_with_len(writer, value, encoded_len_minimal(value));
 }
 
-/// Encodes `value` in exactly `encoded_len` octets, all of them or none. RFC 9000 §16 permits a
+/// Encodes `value` in exactly `encoded_len` bytes, all of them or none. RFC 9000 §16 permits a
 /// longer encoding than the minimum outside the Frame Type field.
 pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.Writer.Error!void {
     assert(is_length(encoded_len));
     assert(encoded_len >= encoded_len_minimal(value));
-    // All of the octets or none. Each goes to the writer as it is made, so no octet is copied:
-    // a memcpy of 1 to 8 octets cost a call, and an h3 request wrote about 36 of them.
+    // All of the bytes or none. Each goes to the writer as it is made, so no byte is copied:
+    // a memcpy of 1 to 8 bytes cost a call, and an h3 request wrote about 36 of them.
     if (writer.remaining_len() < encoded_len) return error.NoSpaceLeft;
     const prefix = @as(u8, std.math.log2_int(u8, encoded_len)) << length_shift;
-    // Network byte order (RFC 9000 §16): the most significant octet first, with the length bits.
+    // Network byte order (RFC 9000 §16): the most significant byte first, with the length bits.
     for (0..encoded_len) |index| {
         const shift: u6 = @intCast((encoded_len - 1 - index) * @bitSizeOf(u8));
         const octet: u8 = @truncate(value >> shift);
@@ -94,7 +94,7 @@ pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.Writer
 const testing = std.testing;
 
 test "the lengths are exactly the four RFC 9000 §16 defines" {
-    // Every octet value, so a power of two past `varint_len_max`, such as 16, is refused too.
+    // Every byte value, so a power of two past `varint_len_max`, such as 16, is refused too.
     for (0..std.math.maxInt(u8) + 1) |len| {
         const defined = len == 1 or len == 2 or len == 4 or len == 8;
         try testing.expectEqual(defined, is_length(@intCast(len)));
@@ -162,7 +162,7 @@ test "an encoding that does not fit writes nothing" {
     try testing.expectEqualSlices(u8, &.{ 0xee, 0xee, 0xee }, &buffer);
 }
 
-/// Most octets a fuzz input carries. Test-only: a varint needs at most eight.
+/// Most bytes a fuzz input carries. Test-only: a varint needs at most eight.
 const fuzz_input_len_max = 16;
 
 fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
@@ -174,7 +174,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
         try testing.expectEqual(0, reader.offset);
         return;
     };
-    // Re-encoding at the decoded length reproduces the octets consumed, bit for bit.
+    // Re-encoding at the decoded length reproduces the bytes consumed, bit for bit.
     var output: [constants.protocol.varint_len_max]u8 = @splat(0);
     var writer = Writer.init(&output);
     try encode_with_len(&writer, decoded.value, decoded.encoded_len);
@@ -196,7 +196,7 @@ test "sweep: every input of up to two octets decodes exactly or consumes nothing
     try core.fuzz.sweep(fuzz_decode, null);
 }
 
-/// The octets of one vector line, in hex, at most. Test-only.
+/// The bytes of one vector line, in hex, at most. Test-only.
 const vector_octets_max = constants.protocol.varint_len_max;
 
 /// The base the vector lines write their numbers in. Test-only.
@@ -207,12 +207,12 @@ const vector_encode_lines = 60;
 const vector_decode_lines = 484;
 const vector_minimal_lines = 23;
 
-/// A vector line's octets, decoded from hex. Test-only.
+/// A vector line's bytes, decoded from hex. Test-only.
 fn vector_octets(hex: []const u8, into: *[vector_octets_max]u8) ![]const u8 {
     return std.fmt.hexToBytes(into, hex);
 }
 
-/// `encode value len octets`: `encode_with_len` writes the octets, and `decode` reads them back.
+/// `encode value len octets`: `encode_with_len` writes the bytes, and `decode` reads them back.
 fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     const value = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
     const len = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);

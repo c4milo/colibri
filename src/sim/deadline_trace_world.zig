@@ -1,6 +1,6 @@
 //! The endpoints of the deadline trace run (https://github.com/c4milo/colibri/issues/86): a colibri
 //! server endpoint that holds one h2 connection in cleartext (design §8 step 21b.6), with decision
-//! 110's deadlines, a colibri h2 client, a queue of octets each way, and an application that
+//! 110's deadlines, a colibri h2 client, a queue of bytes each way, and an application that
 //! answers each request. The run keeps what each side wrote and read in the model's terms, which
 //! `deadline_trace_state.zig` reads.
 //!
@@ -30,11 +30,11 @@ const Action = plan_module.Action;
 
 pub const Part = enum { none, head, ended };
 
-/// One direction's octets, written at the back and read from the front.
+/// One direction's bytes, written at the back and read from the front.
 pub const Queue = struct {
     octets: [limits.channel_len_max]u8 = undefined,
     len: usize = 0,
-    /// Octets at the front that are the client's connection preface and its SETTINGS, which the
+    /// Bytes at the front that are the client's connection preface and its SETTINGS, which the
     /// model counts as one frame.
     preface_len: usize = 0,
 
@@ -42,7 +42,7 @@ pub const Queue = struct {
         return queue.octets[0..queue.len];
     }
 
-    /// The room left under `capacity` octets.
+    /// The room left under `capacity` bytes.
     fn room(queue: *Queue, capacity: u32) []u8 {
         const end = @min(capacity, queue.octets.len);
         return queue.octets[queue.len..@max(queue.len, end)];
@@ -55,14 +55,14 @@ pub const Queue = struct {
         queue.preface_len -= @min(queue.preface_len, consumed);
     }
 
-    /// The octets of the oldest frame, the preface counting as one, or 0 when none is whole.
+    /// The bytes of the oldest frame, the preface counting as one, or 0 when none is whole.
     pub fn first_len(queue: *const Queue) usize {
         if (queue.preface_len > 0) return queue.preface_len;
         return frame_len(queue.held());
     }
 };
 
-/// The octets of the whole frame at the front of `octets`, or 0 when it is not whole (RFC 9113
+/// The bytes of the whole frame at the front of `octets`, or 0 when it is not whole (RFC 9113
 /// §4.1).
 pub fn frame_len(octets: []const u8) usize {
     var reader = h2.core.Reader.init(octets);
@@ -76,7 +76,7 @@ pub fn frame_len(octets: []const u8) usize {
 const request: h2.Connection.RequestHead = .{ .method = "POST", .scheme = "http", .path = "/", .authority = "example.test" };
 /// RFC 9110 §15.3.1: 200 (OK).
 const ok_status: u16 = 200;
-/// The octets every body is made of.
+/// The bytes every body is made of.
 const content: [limits.body_len_max]u8 = @splat('x');
 
 /// The server: one connection in cleartext, and no QUIC.
@@ -85,7 +85,7 @@ const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 pub const Connection = std.meta.Elem(@FieldType(Engine, "tcp"));
 
 comptime {
-    // One offer can write a DATA frame of one octet into every part of colibri's output.
+    // One offer can write a DATA frame of one byte into every part of colibri's output.
     assert(limits.writes_per_offer_max * (h2.constants.protocol.frame_header_len + 1) >= server.constants.limits.output_len);
 }
 
@@ -110,10 +110,10 @@ pub const World = struct {
     cli_sent: [limits.streams_max]u32,
     cli_resp: [limits.streams_max]Part,
     opened: u32,
-    /// The payload octets of a request's HEADERS and of a response's, once one is written.
+    /// The payload bytes of a request's HEADERS and of a response's, once one is written.
     request_head_len: ?u32,
     response_head_len: ?u32,
-    /// Octets of the client's preface with its SETTINGS, and payload octets of colibri's SETTINGS.
+    /// Bytes of the client's preface with its SETTINGS, and payload bytes of colibri's SETTINGS.
     preface_len: u32,
     settings_len: u32,
     /// The frames that arrived at colibri, the preface counting as one, and those it handed out:
@@ -329,7 +329,7 @@ pub const World = struct {
                 // Two honest endpoints cancel no request.
                 .cancelled => world.broken = true,
             },
-            // The run hands octets out and offers content in actions of its own.
+            // The run hands bytes out and offers content in actions of its own.
             .send, .writable => {},
             // Two honest endpoints cause none of these, and the run never shuts the endpoint down.
             .trailers, .half_close, .close, .ended, .closed => world.broken = true,
@@ -387,7 +387,7 @@ pub const World = struct {
         return taken > 0;
     }
 
-    /// Notes a HEADERS frame's payload octets, which every request, or every response, repeats.
+    /// Notes a HEADERS frame's payload bytes, which every request, or every response, repeats.
     fn note_head_len(world: *World, head_len: *?u32, written: usize) void {
         const payload_len: u32 = @intCast(written - h2.constants.protocol.frame_header_len);
         if (head_len.*) |known| {

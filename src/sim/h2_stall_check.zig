@@ -1,6 +1,6 @@
 //! The h2 stall check (https://github.com/c4milo/colibri/issues/85): each seed's plan
 //! (`h2_stall_plan.zig`) run between a colibri client and a colibri server over a transport that
-//! holds a few octets (`h2_stall_run.zig`), twice. The two runs must do the same (invariant 5).
+//! holds a few bytes (`h2_stall_run.zig`), twice. The two runs must do the same (invariant 5).
 //!
 //! It answers the issue's question: whether two colibri endpoints, each of which stops reading while
 //! a reply queue is full (decision 39), can stop each other. The census counts, for each shape of
@@ -59,7 +59,7 @@ const order_count = std.meta.fields(Order).len;
 
 pub const Census = struct {
     seeds: u64 = 0,
-    /// Body octets that arrived over every run, both ways.
+    /// Body bytes that arrived over every run, both ways.
     octets: u64 = 0,
     cells: [shape_count][limits.capacities.len]Cell = @splat(@splat(.{})),
     /// The same counts by which endpoints write what they owe first.
@@ -162,5 +162,5 @@ test "https://github.com/c4milo/colibri/issues/85: endpoints that write their ow
     try testing.expect(result.plan.capacity - result.record.to_client_len < window_update_frame_len);
 }
 
-/// Octets of one WINDOW_UPDATE frame: a header and an increment (RFC 9113 §6.9). Test-only.
+/// Bytes of one WINDOW_UPDATE frame: a header and an increment (RFC 9113 §6.9). Test-only.
 const window_update_frame_len: u32 = h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len;

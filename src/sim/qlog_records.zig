@@ -52,13 +52,13 @@ pub const Records = struct {
     events: u64 = 0,
 
     /// Reads each record of `octets`, which a log held. stdx's reader writes a name, a string or a
-    /// number into `storage` only where an escape changed its octets, and `storage` must hold the
+    /// number into `storage` only where an escape changed its bytes, and `storage` must hold the
     /// longest of them.
     pub fn check(records: *Records, octets: []const u8, storage: []u8) Error!void {
         // stdx's scalar paths, as the simulator's writer takes: the items are the same for every
         // value (stdx's invariant 5).
         var reader = TextReader.init(octets, storage, .sequence, qlog.CpuFeatures.none());
-        // Bounded by the octets: each record takes more than one.
+        // Bounded by the bytes: each record takes more than one.
         for (0..octets.len + 1) |_| {
             if (!reader.next_text()) return;
             if (records.header_read) try records.read_event(&reader) else try records.read_header(&reader);
@@ -74,7 +74,7 @@ pub const Records = struct {
     fn read_header(records: *Records, reader: *TextReader) Error!void {
         try expect(reader, .begin_object);
         var found: Members = .initEmpty();
-        // Bounded by the octets: each member takes more than one.
+        // Bounded by the bytes: each member takes more than one.
         for (0..reader.input.len) |_| {
             const member = try next_member(reader) orelse break;
             found.insert(member);
@@ -93,7 +93,7 @@ pub const Records = struct {
         var found: Members = .initEmpty();
         var required: Members = .initEmpty();
         var data: Members = .initEmpty();
-        // Bounded by the octets: each member takes more than one.
+        // Bounded by the bytes: each member takes more than one.
         for (0..reader.input.len) |_| {
             const member = try next_member(reader) orelse break;
             found.insert(member);
@@ -162,7 +162,7 @@ const decimal_base: u8 = 10;
 fn read_data(reader: *TextReader) Error!Members {
     try expect(reader, .begin_object);
     var found: Members = .initEmpty();
-    // Bounded by the octets: each member takes more than one.
+    // Bounded by the bytes: each member takes more than one.
     for (0..reader.input.len) |_| {
         const member = try next_member(reader) orelse return found;
         found.insert(member);
@@ -179,7 +179,7 @@ fn read_data(reader: *TextReader) Error!Members {
 /// A packet's frames (quic-events §5.5), each an object with its `frame_type` (§8.13).
 fn read_frames(reader: *TextReader) Error!void {
     try expect(reader, .begin_array);
-    // Bounded by the octets: each frame takes more than one.
+    // Bounded by the bytes: each frame takes more than one.
     for (0..reader.input.len) |_| {
         const item = try next(reader) orelse return error.QlogRecordMalformed;
         switch (item) {
@@ -200,7 +200,7 @@ fn read_object_with(reader: *TextReader, required: Member) Error!void {
 /// The members of an object already opened, which must include `required`.
 fn read_members_with(reader: *TextReader, required: Member) Error!void {
     var found = false;
-    // Bounded by the octets: each member takes more than one.
+    // Bounded by the bytes: each member takes more than one.
     for (0..reader.input.len) |_| {
         const member = try next_member(reader) orelse break;
         found = found or member == required;
@@ -212,7 +212,7 @@ fn read_members_with(reader: *TextReader, required: Member) Error!void {
 /// Reads past one value, whatever it holds.
 fn skip_value(reader: *TextReader) Error!void {
     var depth: usize = 0;
-    // Bounded by the octets: each item takes one at least.
+    // Bounded by the bytes: each item takes one at least.
     for (0..reader.input.len) |_| {
         const item = try next(reader) orelse return error.QlogRecordMalformed;
         switch (item) {

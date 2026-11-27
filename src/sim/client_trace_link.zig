@@ -1,4 +1,4 @@
-//! One direction of the client trace run's TCP link (decision 105): octets arrive in the order
+//! One direction of the client trace run's TCP link (decision 105): bytes arrive in the order
 //! they were sent, as TCP delivers them (RFC 9113 §2), each write after the link's delay. The
 //! receiver takes what arrived, and what it does not consume stays for its next read.
 const std = @import("std");
@@ -8,7 +8,7 @@ const sim = @import("sim");
 const limits = sim.constants.client_trace;
 
 pub const Error = error{
-    /// The link holds more than `tcp_queue_len_max` octets or `tcp_chunks_max` writes, which a
+    /// The link holds more than `tcp_queue_len_max` bytes or `tcp_chunks_max` writes, which a
     /// run of three exchanges never does.
     LinkFull,
 };
@@ -30,7 +30,7 @@ pub const Direction = struct {
         direction.chunks_len = 0;
     }
 
-    /// Sends `octets`, which arrive at `arrival_ns`, after every octet sent before them.
+    /// Sends `octets`, which arrive at `arrival_ns`, after every byte sent before them.
     pub fn push(direction: *Direction, octets: []const u8, arrival_ns: u64) Error!void {
         if (octets.len == 0) return;
         if (direction.len + octets.len > direction.octets.len) return error.LinkFull;
@@ -43,7 +43,7 @@ pub const Direction = struct {
         direction.chunks_len += 1;
     }
 
-    /// The octets that have arrived by `now_ns` and the receiver has not consumed.
+    /// The bytes that have arrived by `now_ns` and the receiver has not consumed.
     pub fn arrived(direction: *Direction, now_ns: u64) []u8 {
         var end: usize = 0;
         for (direction.chunks[0..direction.chunks_len]) |chunk| {
@@ -53,7 +53,7 @@ pub const Direction = struct {
         return direction.octets[0..end];
     }
 
-    /// Drops the first `len` octets, which the receiver consumed.
+    /// Drops the first `len` bytes, which the receiver consumed.
     pub fn consume(direction: *Direction, len: usize) void {
         if (len == 0) return;
         assert(len <= direction.len);
@@ -68,7 +68,7 @@ pub const Direction = struct {
         direction.chunks_len = kept;
     }
 
-    /// The instant the next octets arrive after `now_ns`, or null.
+    /// The instant the next bytes arrive after `now_ns`, or null.
     pub fn next_arrival_ns(direction: *const Direction, now_ns: u64) ?u64 {
         for (direction.chunks[0..direction.chunks_len]) |chunk| {
             if (chunk.arrival_ns > now_ns) return chunk.arrival_ns;

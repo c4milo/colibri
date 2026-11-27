@@ -30,7 +30,7 @@ const test_token: [constants.protocol.stateless_reset_token_len]u8 = @splat(test
 /// A limit a test measures against, at the floor RFC 9000 §18.2 puts under it. Test-only.
 const test_limit = constants.protocol.active_connection_id_limit_min;
 
-/// Octets of the connection IDs the tests use. Test-only.
+/// Bytes of the connection IDs the tests use. Test-only.
 const test_connection_id_len = 4;
 
 /// The sequence numbers retirements are owed or outstanding for, in order. Test-only.
@@ -40,7 +40,7 @@ fn retiring_numbers(out: *[constants.limits.connection_ids_max]u64) []u64 {
     return out[0..held.len];
 }
 
-/// A connection ID whose octets are `seed` repeated, at sequence `sequence_number`. Test-only.
+/// A connection ID whose bytes are `seed` repeated, at sequence `sequence_number`. Test-only.
 fn entry_of(sequence_number: u64, seed: u8) Entry {
     var entry: Entry = .{
         .sequence_number = sequence_number,

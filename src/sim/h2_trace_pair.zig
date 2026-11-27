@@ -1,5 +1,5 @@
 //! The two endpoints of the h2 trace run (https://github.com/c4milo/colibri/issues/75): a colibri
-//! client and a colibri server, a queue of octets in each direction, and what the run saw each
+//! client and a colibri server, a queue of bytes in each direction, and what the run saw each
 //! connection take, in `spec/tla/h2_connection`'s terms.
 //!
 //! An action makes one write call, or delivers every whole frame one direction holds. After each,
@@ -25,7 +25,7 @@ pub const ResponsePhase = enum { none, interim, final, ended };
 /// The kinds of HEADERS frame the model tells apart.
 pub const HeadKind = enum { head, interim, trailers };
 
-/// One direction's octets, written at the back and read from the front.
+/// One direction's bytes, written at the back and read from the front.
 pub const Queue = struct {
     octets: [limits.queue_len_max]u8 = undefined,
     len: usize = 0,
@@ -33,8 +33,8 @@ pub const Queue = struct {
     /// reader has taken. The ones in flight are the last ones written.
     heads: [limits.headers_max]HeadKind = undefined,
     heads_written: usize = 0,
-    /// Octets of the writer's connection preface still at the queue's front (RFC 9113 §3.4): the
-    /// client's 24 octets and its SETTINGS frame, or the server's SETTINGS frame, which the model
+    /// Bytes of the writer's connection preface still at the queue's front (RFC 9113 §3.4): the
+    /// client's 24 bytes and its SETTINGS frame, or the server's SETTINGS frame, which the model
     /// carries as one frame.
     preface_left: usize = 0,
 
@@ -86,7 +86,7 @@ const trailers = [_]h2.hpack.Field{.{ .name = "grpc-status", .value = "0" }};
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response, and §15.3.1: 200 OK, a final one.
 const interim_status: u16 = 103;
 const final_status: u16 = 200;
-/// One octet of content a DATA frame carries.
+/// One byte of content a DATA frame carries.
 const content_octet = "x";
 
 /// Receive calls one delivery makes at most: every frame a direction holds, and the replies they
@@ -115,7 +115,7 @@ pub const Pair = struct {
     pub fn start(pair: *Pair) void {
         pair.flush(.client);
         pair.flush(.server);
-        // RFC 9113 §3.4: the client's preface is 24 octets that are no frame and its SETTINGS
+        // RFC 9113 §3.4: the client's preface is 24 bytes that are no frame and its SETTINGS
         // frame, and the server's is its SETTINGS frame.
         pair.to_server.preface_left = h2.constants.protocol.client_preface_len + settings_len(pair.to_server.held()[h2.constants.protocol.client_preface_len..]);
         pair.to_client.preface_left = settings_len(pair.to_client.held());
@@ -325,7 +325,7 @@ pub const Pair = struct {
     }
 };
 
-/// The octets of the SETTINGS frame that `octets` starts with (RFC 9113 §4.1, §6.5).
+/// The bytes of the SETTINGS frame that `octets` starts with (RFC 9113 §4.1, §6.5).
 fn settings_len(octets: []const u8) usize {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch unreachable;

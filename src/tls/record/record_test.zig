@@ -84,7 +84,7 @@ test "RFC 9846 §5.2: records carry data each way, and a seal takes only what fi
     try testing.expectEqual(long.len, whole.consumed);
     to_client.len += whole.written;
     try testing.expectEqual(long.len, try support.open_all(sender, to_client, scratch));
-    // An output short of the whole takes what fits, and one that holds no sealed octet takes none.
+    // An output short of the whole takes what fits, and one that holds no sealed byte takes none.
     var small: [64]u8 = undefined;
     const part = try sender.encrypt_record(&long, &small);
     try testing.expect(part.consumed > 0 and part.consumed < long.len and part.written <= small.len);
@@ -216,7 +216,7 @@ test "RFC 9846 §7.5: both sides export the same keying material" {
     try testing.expectEqualSlices(u8, &from_client, &from_server);
     var too_long: [256]u8 = undefined;
     try testing.expectError(error.OutputTooLong, sides[0].export_keying_material("EXPORTER-test", null, &too_long));
-    // chapulin takes a label as a C string of at most `CH_EXPORT_LABEL_MAX` octets, and refuses an
+    // chapulin takes a label as a C string of at most `CH_EXPORT_LABEL_MAX` bytes, and refuses an
     // empty one itself.
     try testing.expectError(error.Unsupported, sides[0].export_keying_material("", null, &from_client));
     try testing.expectError(error.Unsupported, sides[0].export_keying_material("EXPORTER\x00", null, &from_client));
@@ -301,7 +301,7 @@ test "a ClientHello longer than the output goes out over several calls, and noth
         to_server.len += progress.written;
         if (progress.written < piece.len) break;
     }
-    // The server reads the ClientHello whole, which it would refuse had any octet changed.
+    // The server reads the ClientHello whole, which it would refuse had any byte changed.
     try server.start(&support.server_config, support.now_seconds);
     const flight = try server.handshake(to_server.held(), to_client.free());
     try testing.expectEqual(to_server.len, flight.consumed);

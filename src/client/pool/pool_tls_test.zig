@@ -1,6 +1,6 @@
 //! The tests of the pool over TCP and TLS (`pool.zig`, `pool_events.zig`), against the
 //! TLS server of `connection_tls_test_support.zig` in the same process. A connection that is over
-//! may still hold octets it owes the server, and the pool asks for its transport's close only
+//! may still hold bytes it owes the server, and the pool asks for its transport's close only
 //! once `send_stream` wrote them (design §8 step 21c.4). A connection that fails, or takes no new
 //! exchange, in the call that completes its handshake carries nothing, and its transport stays
 //! counted in the attempt that opened it (design §8 step 21c.5).
@@ -28,7 +28,7 @@ const body_len: usize = 1024;
 
 const ok: u16 = 200;
 const https_port: u16 = 443;
-/// Two IPv4 hosts, the four octets of each alike. Test-only.
+/// Two IPv4 hosts, the four bytes of each alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
@@ -37,10 +37,10 @@ const other_host: [ipv4_len]u8 = @splat(other_octet);
 const addresses = [_]pool_module.Address{ pool_module.Address.init(&loopback, 0), pool_module.Address.init(&other_host, 0) };
 
 /// Passes the pool what the server sent, in calls until one takes nothing and reports nothing,
-/// with `.none` once no octet is left. Starts the connection an `open` event asks for, and keeps
+/// with `.none` once no byte is left. Starts the connection an `open` event asks for, and keeps
 /// the events.
 fn collect(pool: anytype) !void {
-    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    // Bounded: each pass consumes a byte or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
@@ -102,7 +102,7 @@ fn peer_h2_read() !void {
     }
 }
 
-/// Puts a record no key sealed after what the server sealed, in the same octets (RFC 9846 §5.2).
+/// Puts a record no key sealed after what the server sealed, in the same bytes (RFC 9846 §5.2).
 fn forge() void {
     const forged = tls_support.forged_record;
     @memcpy(support.to_client[support.to_client_len..][0..forged.len], forged);
@@ -110,7 +110,7 @@ fn forge() void {
 }
 
 /// The ALPN extension of a ClientHello that offers `list`, each name behind its length: the
-/// extension's type, 16, its length and the list's, each in two octets (RFC 7301 §3.1).
+/// extension's type, 16, its length and the list's, each in two bytes (RFC 7301 §3.1).
 fn alpn_extension(comptime list: []const u8) []const u8 {
     const lengths = [_]u8{ 0, alpn_extension_type, 0, @intCast(list.len + alpn_list_len_octets), 0, @intCast(list.len) };
     return &lengths ++ list;
@@ -125,7 +125,7 @@ const h11_request = "GET / HTTP/1.1\r\n";
 const h11_response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
 
 /// A response whose head nears h11's limit, then its content, which the server seals in records
-/// of an odd size. After two records, 24,000 octets of the head wait in the connection, and the
+/// of an odd size. After two records, 24,000 bytes of the head wait in the connection, and the
 /// head ends in the third record. That record opens only while the connection holds the head's
 /// first two records beside room for a whole record (RFC 9112 §2.1, RFC 9846 §5.2). Test-only.
 const long_head_len: usize = 30_000;
@@ -134,7 +134,7 @@ const odd_record_len: usize = 12_000;
 var long_response: [long_head_len + long_content_len]u8 = undefined;
 var long_body: [long_content_len]u8 = undefined;
 
-/// The response of `long_head_len` octets of head and `long_content_len` of content. The
+/// The response of `long_head_len` bytes of head and `long_content_len` of content. The
 /// whitespace before its last field value fills the head: RFC 9112 §5 lets OWS stand there, and
 /// RFC 9110 §5.6.3 lets OWS hold any number of SP.
 fn long_response_octets() []const u8 {
@@ -147,7 +147,7 @@ fn long_response_octets() []const u8 {
     return &long_response;
 }
 
-/// The TLS server seals `plaintext` for the client in records of `record_len` octets of plaintext,
+/// The TLS server seals `plaintext` for the client in records of `record_len` bytes of plaintext,
 /// the last one shorter.
 fn seal_in_records(plaintext: []const u8, record_len: usize) !void {
     // Bounded: each pass seals one record.
@@ -208,7 +208,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
             try testing.expect(pool.tcp[0].failed);
-            // The caller reads the pool once more with no octets, as it does after each send.
+            // The caller reads the pool once more with no bytes, as it does after each send.
             // The connection reported its close and holds the alert, so the pool asks for its
             // `send` (decision 125) and for no close yet.
             const polled = pool.receive(.none, support.now_ns);
@@ -231,7 +231,7 @@ fn Tests(comptime Pool: type) type {
         }
 
         /// The server's flight reaches the client with a record no key sealed after it, in the same
-        /// octets, so the client completes its handshake and fails in one call (RFC 9846 §5.2).
+        /// bytes, so the client completes its handshake and fails in one call (RFC 9846 §5.2).
         fn fail_at_completion(exchange: *Exchange) !void {
             _ = try start("localhost", exchange);
             send();
@@ -311,7 +311,7 @@ fn Tests(comptime Pool: type) type {
         }
 
         test "decision 120: versions gives the ALPN list a pool offers over TCP, h2 before h11" {
-            // RFC 9113 §3.2 and decision 88: h2 goes first, which only the ClientHello's octets
+            // RFC 9113 §3.2 and decision 88: h2 goes first, which only the ClientHello's bytes
             // show, since the server selects in its own order.
             const both = try client_hello(.{});
             try testing.expect(std.mem.indexOf(u8, both, alpn_extension(alpn_h2 ++ alpn_h11)) != null);

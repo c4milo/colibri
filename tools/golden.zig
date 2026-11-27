@@ -8,7 +8,7 @@
 //!
 //! For each format of `corpus_cases.zig` the tool writes one directory under the golden directory,
 //! named for the format, holding one `.bin` file per case and a version 1 `manifest.txt`. The
-//! octets and the manifest come from `corpus.build` and `corpus.render_manifest`, which are in
+//! bytes and the manifest come from `corpus.build` and `corpus.render_manifest`, which are in
 //! `src/golden/` and are pure; this tool is the only part that touches the filesystem, because the
 //! `io` lint rule keeps `std.fs` out of `src/`.
 //!

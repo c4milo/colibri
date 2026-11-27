@@ -1,7 +1,7 @@
 //! The encryption levels of RFC 9001 §4.1.4, which more than one module speaks and no module
 //! owns.
 //!
-//! `crypto.Suite` protects a packet at a level and `tls`'s QUIC mode moves handshake octets at
+//! `crypto.Suite` protects a packet at a level and `tls`'s QUIC mode moves handshake bytes at
 //! one, and design §3 makes `tls` and `crypto` siblings with no edge between them. So the type
 //! the two share lives here, where both already look.
 const std = @import("std");

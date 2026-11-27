@@ -46,14 +46,14 @@ const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
 
-/// Handshake octets a provider owes, which is what gives a packet below the application level
+/// Handshake bytes a provider owes, which is what gives a packet below the application level
 /// something to carry.
 const crypto_octet: u8 = 0x6d;
 pub const crypto_octets: [payload_len]u8 = @splat(crypto_octet);
 
-/// One octet of made-up payload, repeated. Nothing reads its value.
+/// One byte of made-up payload, repeated. Nothing reads its value.
 const payload_octet: u8 = 0x33;
-/// Long enough that the octets after the Packet Number field hold a tag and a payload.
+/// Long enough that the bytes after the Packet Number field hold a tag and a payload.
 const payload_len: usize = 8;
 const protected_len: usize = payload_len + constants.protocol.aead_tag_len;
 const test_payload: [protected_len]u8 = @splat(payload_octet);
@@ -61,7 +61,7 @@ const test_payload: [protected_len]u8 = @splat(payload_octet);
 const datagram_len: usize = 256;
 pub var datagram: [datagram_len]u8 = undefined;
 
-/// Where `ack_payload` builds one packet's octets: an ACK frame and the octets `RoundTrip` reads
+/// Where `ack_payload` builds one packet's bytes: an ACK frame and the bytes `RoundTrip` reads
 /// as a tag.
 const ack_octets_len: usize = 32;
 var ack_octets: [ack_octets_len]u8 = undefined;
@@ -127,7 +127,7 @@ fn walk_short(number: u8) !receive.Outcome {
     return walk_payload(number, &test_payload, test_now_ns);
 }
 
-/// The same, over octets a test chose. `body` ends with the octets `RoundTrip` treats as the
+/// The same, over bytes a test chose. `body` ends with the bytes `RoundTrip` treats as the
 /// tag, so the frames the frame layer reads are everything before them.
 fn walk_payload(number: u8, body: []const u8, now_ns: u64) !receive.Outcome {
     var writer = Writer.init(&datagram);
@@ -144,7 +144,7 @@ fn walk_payload(number: u8, body: []const u8, now_ns: u64) !receive.Outcome {
     return (try receive.next(&walk, &test_connection, suite())).?;
 }
 
-/// One ACK frame naming `largest`, followed by the octets `RoundTrip` strips as a tag
+/// One ACK frame naming `largest`, followed by the bytes `RoundTrip` strips as a tag
 /// (RFC 9000 §19.3).
 fn ack_payload(largest: u64) []const u8 {
     var writer = Writer.init(&ack_octets);

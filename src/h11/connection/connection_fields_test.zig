@@ -1,7 +1,7 @@
 //! The agreement of a connection's head writes with the writes they replaced (design §8 step 17).
 //! Before `message.Checked.add`, `write_response` and `write_request` scanned the field lines for
 //! each rule. `reference` keeps that code, test-only, over the head writers of
-//! `message_write_test.zig`. The tests require the same octets or error from both, and the same
+//! `message_write_test.zig`. The tests require the same bytes or error from both, and the same
 //! state of the connection after each.
 const std = @import("std");
 const core = @import("core");

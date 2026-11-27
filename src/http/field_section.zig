@@ -4,11 +4,11 @@
 //! protocols fill and read.
 //!
 //! The section owns no memory (decision 35, invariant 1). Every line's name and value are copied
-//! into a fixed buffer of `field_section_size_max` octets, and every line record into a fixed
+//! into a fixed buffer of `field_section_size_max` bytes, and every line record into a fixed
 //! array of `field_count_max`. The caller places the struct where it chooses.
 //!
 //! `size` is the size both protocols measure a section by: the sum over its lines of the name
-//! length, the value length and `field_line_overhead`, on the unencoded octets. That is the
+//! length, the value length and `field_line_overhead`, on the unencoded bytes. That is the
 //! measure of `SETTINGS_MAX_HEADER_LIST_SIZE` (RFC 9113 §6.5.2) and of
 //! `SETTINGS_MAX_FIELD_SECTION_SIZE` (RFC 9114 §4.2.2), and the arithmetic is shared while the
 //! setting is not. `size` never exceeds `field_section_size_max`: an append that would take it
@@ -30,7 +30,7 @@ const limits = core.constants;
 /// section and stay valid until its next `append`, `extend_last` or `init`.
 pub const Field = field.Field;
 
-/// Where one line's octets are in `FieldSection.octets`: its name, then its value, at `offset`.
+/// Where one line's bytes are in `FieldSection.octets`: its name, then its value, at `offset`.
 const Line = struct {
     offset: u32,
     name_len: u16,
@@ -55,7 +55,7 @@ pub const FieldSection = struct {
     lines: [limits.limits.field_count_max]Line,
     /// Lines held, at most `field_count_max`.
     count: u32,
-    /// Octets of `octets` in use: the sum over the lines of name length and value length.
+    /// Bytes of `octets` in use: the sum over the lines of name length and value length.
     octets_len: u32,
     /// The sum over the lines of name length, value length and `field_line_overhead`
     /// (RFC 9113 §6.5.2, RFC 9114 §4.2.2), at most `field_section_size_max`.
@@ -98,8 +98,8 @@ pub const FieldSection = struct {
             assert(self.lines.len <= limits.limits.field_count_max);
             for (self.lines) |*line| {
                 // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case
-                // one octet to one octet, so names of two lengths never compare equal: the line
-                // is skipped without reading its octets.
+                // one byte to one byte, so names of two lengths never compare equal: the line
+                // is skipped without reading its bytes.
                 if (line.name_len != name.len) continue;
                 const candidate = self.field_at(line.*);
                 if (field.names_equal(candidate.name, name)) return candidate;
@@ -159,7 +159,7 @@ pub const FieldSection = struct {
     /// `field.validate_value`), or a decoder whose own limits are these refused anything longer,
     /// as h2's field block does before it validates the section whole. The two assertions state
     /// that contract; they check the caller, never the peer (invariant 24). Nothing here checks
-    /// the octets, so a section is read only after its protocol module validated it.
+    /// the bytes, so a section is read only after its protocol module validated it.
     pub fn append(section: *FieldSection, name: []const u8, value: []const u8) AppendError!void {
         assert(name.len <= limits.limits.field_name_len_max);
         assert(value.len <= limits.limits.field_value_len_max);
@@ -171,7 +171,7 @@ pub const FieldSection = struct {
         const value_len: u16 = @intCast(value.len);
         const cost = line_size(name_len, value_len);
         // RFC 9113 §6.5.2 and RFC 9114 §4.2.2: a section's size is the sum over its lines of name
-        // length, value length and the overhead, on the unencoded octets, and the endpoint refuses
+        // length, value length and the overhead, on the unencoded bytes, and the endpoint refuses
         // a section larger than the size it advertises.
         if (section.size + cost > limits.limits.field_section_size_max) return error.SectionTooLarge;
         const name_end = section.octets_len + name_len;
@@ -205,8 +205,8 @@ pub const FieldSection = struct {
         assert(line.offset + line.name_len + line.value_len == section.octets_len);
         assert(line.value_len + octets.len <= limits.limits.field_value_len_max);
         const added: u32 = @intCast(octets.len);
-        // RFC 9113 §6.5.2 and RFC 9114 §4.2.2 measure a section by its unencoded octets, and a
-        // joined value counts every octet it holds, as `append` counts them.
+        // RFC 9113 §6.5.2 and RFC 9114 §4.2.2 measure a section by its unencoded bytes, and a
+        // joined value counts every byte it holds, as `append` counts them.
         if (section.size + added > limits.limits.field_section_size_max) return error.SectionTooLarge;
         const end = section.octets_len + added;
         @memcpy(section.octets[section.octets_len..end], octets);
@@ -241,8 +241,8 @@ pub const FieldSection = struct {
     }
 
     /// The accounting the header states, after the change to the last line: the last line ends
-    /// where the octets in use end, and both sums stay under their limits. Only `init`, `append`
-    /// and `extend_last` change the sums, each by exactly the octets it adds, so each sum holds by
+    /// where the bytes in use end, and both sums stay under their limits. Only `init`, `append`
+    /// and `extend_last` change the sums, each by exactly the bytes it adds, so each sum holds by
     /// induction. Recomputing them from every line would cost a walk of the section per line.
     fn check_accounting(section: *const FieldSection) void {
         assert(section.count > 0 and section.count <= limits.limits.field_count_max);
@@ -456,7 +456,7 @@ fn find_by_scan(section: *const FieldSection, name: []const u8) ?Field {
     return null;
 }
 
-/// Names that share a length, differ in case or length by one octet, or are empty. Test-only.
+/// Names that share a length, differ in case or length by one byte, or are empty. Test-only.
 const compared_names = [_][]const u8{ "content-length", "Content-Length", "content-lengtH", "content-lengths", "content-lengt", "host", "Host", "x", "" };
 
 /// Fails, printing both, when `find` and the scan return different lines of `test_section` for a

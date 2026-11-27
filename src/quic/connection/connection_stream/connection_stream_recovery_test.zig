@@ -1,5 +1,5 @@
 //! The tests of `connection_stream_recovery.zig`: records that loss recovery wrote out, turned into
-//! acknowledged stream octets (RFC 9000 §3.1) and lost ones sent again (§13.3). The connections,
+//! acknowledged stream bytes (RFC 9000 §3.1) and lost ones sent again (§13.3). The connections,
 //! the provider and the send path are `connection_stream_send_test.zig`'s.
 const std = @import("std");
 const constants = @import("../../constants.zig");

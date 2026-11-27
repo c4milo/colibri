@@ -1,7 +1,7 @@
 /-!
 # CUBIC's integer arithmetic (RFC 9438, decision 133)
 
-`src/quic/recovery/recovery_cubic.zig` computes RFC 9438 §4.2's curve in octets and microseconds,
+`src/quic/recovery/recovery_cubic.zig` computes RFC 9438 §4.2's curve in bytes and microseconds,
 with an integer cube root, because colibri reads no floating point on a protocol path. The
 definitions follow the Zig line for line; the theorems are about them:
 
@@ -82,7 +82,7 @@ def kUs (wMax window datagram : Nat) : Nat :=
 /-- `Curve.of`'s W_max: the window when the one given is at or below it. -/
 def curveWMax (wMax window : Nat) : Nat := if wMax ≤ window then window else wMax
 
-/-- `window_at`: W_max + C × (t − K)³ × datagram, in octets, with `t` and K held to `elapsedMax`.
+/-- `window_at`: W_max + C × (t − K)³ × datagram, in bytes, with `t` and K held to `elapsedMax`.
 Zig computes the cube signed and divides it with `@divTrunc`, which truncates toward zero: so
 before K the drop is the floor of the positive cube's, and the window is 0 rather than negative. -/
 def windowAt (wMax kUs datagram t : Nat) : Nat :=

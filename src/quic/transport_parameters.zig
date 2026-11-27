@@ -13,7 +13,7 @@
 //!
 //! **What colibri does not use.** `preferred_address` (0x0d) is read past rather than kept:
 //! [decision 21](../../docs/decisions.md) refuses connection migration in both directions, and
-//! §9.6 makes using a preferred address a MAY. Its octets are skipped by the length every
+//! §9.6 makes using a preferred address a MAY. Its bytes are skipped by the length every
 //! parameter carries, so a server that sends one is not refused for it.
 //!
 //! **What is not checked.** A repeated parameter whose identifier colibri does not know goes
@@ -43,7 +43,7 @@ pub const Error = error{
     ParameterRepeated,
     /// RFC 9000 §18.2: "A client MUST NOT include any server-only transport parameter."
     ParameterServerOnly,
-    /// The octets ended inside a parameter, which is a value that cannot be read (§7.4).
+    /// The bytes ended inside a parameter, which is a value that cannot be read (§7.4).
     ParameterTruncated,
 };
 
@@ -270,7 +270,7 @@ pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.
     if (parameters.version_information) |*info| try write_version_information(writer, info);
 }
 
-/// RFC 9368 §3: the Chosen Version, then each Available Version, four octets each.
+/// RFC 9368 §3: the Chosen Version, then each Available Version, four bytes each.
 fn write_version_information(writer: *Writer, info: *const VersionInformation) core.Writer.Error!void {
     try wire.varint.encode(writer, @intFromEnum(Id.version_information));
     try wire.varint.encode(writer, @sizeOf(u32) * (1 + @as(usize, info.available_len)));
@@ -291,7 +291,7 @@ fn write_connection_ids(writer: *Writer, parameters: *const Parameters) core.Wri
 }
 
 /// The integer parameters. Each is written only when it differs from the default §18.2 gives it,
-/// because a parameter the peer does not send means that default and the octets cost nothing.
+/// because a parameter the peer does not send means that default and the bytes cost nothing.
 fn write_integers(writer: *Writer, parameters: *const Parameters) core.Writer.Error!void {
     const defaults = Parameters.initial();
     const each = [_]struct { id: Id, value: u64, default: u64 }{
@@ -320,7 +320,7 @@ fn write_integer(writer: *Writer, id: Id, value: u64) core.Writer.Error!void {
     try wire.varint.encode(writer, value);
 }
 
-/// One parameter whose value is a run of octets (RFC 9000 §18).
+/// One parameter whose value is a run of bytes (RFC 9000 §18).
 fn write_octets(writer: *Writer, id: Id, octets: []const u8) core.Writer.Error!void {
     try wire.varint.encode(writer, @intFromEnum(id));
     try wire.varint.encode(writer, octets.len);

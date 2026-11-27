@@ -3,8 +3,8 @@
 //! body's wait starts at the first call after its head is read that sees no 100 (Continue) owed
 //! to it, and ends with the body or with its request.
 //!
-//! Only a body's own octets count: in h11 the octets h11 reads while it reads the body, its
-//! framing included, and in h2 the octets of its DATA frames' data, without padding. In h2 the
+//! Only a body's own bytes count: in h11 the bytes h11 reads while it reads the body, its
+//! framing included, and in h2 the bytes of its DATA frames' data, without padding. In h2 the
 //! rate waits while colibri holds a WINDOW_UPDATE the peer has not been handed, owed or in the
 //! output: the peer's upload then waits on its reading, which the send deadline judges, and the
 //! rate starts again with a grace period once the update is out (decision 110 as amended). The
@@ -55,7 +55,7 @@ pub const Bodies = struct {
     /// entry, which is how most calls find the table: `receive` observes the deadlines after every
     /// event it reads, and fires them at the first call at each instant.
     used: u32,
-    /// The bodies whose wait has started, and in h2 the meter of their octets together.
+    /// The bodies whose wait has started, and in h2 the meter of their bytes together.
     waiting: u32,
     together: rate.Meter,
     /// The requests an h2 body deadline ended, oldest first, which `receive` reports before it

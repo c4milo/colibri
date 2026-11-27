@@ -1,9 +1,9 @@
-//! The CRYPTO streams of RFC 9000 §19.6: one ordered flow of handshake octets per encryption
+//! The CRYPTO streams of RFC 9000 §19.6: one ordered flow of handshake bytes per encryption
 //! level, reassembled from the frames that carried them.
 //!
 //! §19.6 makes each encryption level "a separate CRYPTO stream of data", each starting at offset
-//! 0. A frame names an offset and its octets, frames arrive in any order and a lost one is
-//! retransmitted, so the same octets may arrive twice. What the handshake needs is the opposite:
+//! 0. A frame names an offset and its bytes, frames arrive in any order and a lost one is
+//! retransmitted, so the same bytes may arrive twice. What the handshake needs is the opposite:
 //! an in-order run it can read and then forget.
 //!
 //! **A CRYPTO stream is not a STREAM.** `src/quic/stream/` cannot serve here and the differences
@@ -12,15 +12,15 @@
 //! instead is §7.5's buffer limit, which is the only thing bounding what a peer can make colibri
 //! hold, because "there is no flow control of CRYPTO frames".
 //!
-//! **The window is anchored at what the handshake has taken.** `buffer[head]` is the octet at
-//! `base`, every octet below `base` has been read and forgotten, and `contiguous` counts the
-//! octets from `base` that are present with no gap. So `readable` is the run the handshake may
-//! read now, and `consume` moves `head` forward without moving an octet. Data past the window is
+//! **The window is anchored at what the handshake has taken.** `buffer[head]` is the byte at
+//! `base`, every byte below `base` has been read and forgotten, and `contiguous` counts the
+//! bytes from `base` that are present with no gap. So `readable` is the run the handshake may
+//! read now, and `consume` moves `head` forward without moving a byte. Data past the window is
 //! more than §7.5 obliges colibri to buffer and is a connection error of CRYPTO_BUFFER_EXCEEDED.
 //!
-//! **No octet moves on the common path.** When `consume` leaves nothing held, `head` returns to
-//! 0. Octets move down only when a frame would pass the end of `buffer` while octets past a gap
-//! are held, and then only those octets move.
+//! **No byte moves on the common path.** When `consume` leaves nothing held, `head` returns to
+//! 0. Bytes move down only when a frame would pass the end of `buffer` while bytes past a gap
+//! are held, and then only those bytes move.
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
@@ -35,32 +35,32 @@ pub const Error = error{
     CryptoBufferExceeded,
 };
 
-/// One encryption level's flow of handshake octets (RFC 9000 §19.6).
+/// One encryption level's flow of handshake bytes (RFC 9000 §19.6).
 pub const CryptoStream = struct {
-    /// The stream offset of `buffer[0]`: every octet below it has been read and forgotten.
+    /// The stream offset of `buffer[0]`: every byte below it has been read and forgotten.
     base: u64,
-    /// Octets from `base` that are present with no gap, which is what `readable` returns.
+    /// Bytes from `base` that are present with no gap, which is what `readable` returns.
     contiguous: usize,
-    /// The index in `buffer` of the octet at `base`.
+    /// The index in `buffer` of the byte at `base`.
     head: usize,
-    /// The window of octets at and above `base` (RFC 9000 §7.5), from `buffer[head]`.
+    /// The window of bytes at and above `base` (RFC 9000 §7.5), from `buffer[head]`.
     buffer: [constants.limits.crypto_buffer_len]u8,
-    /// Which octets of `buffer` a frame has delivered, by their index in `buffer`. A bit rather
+    /// Which bytes of `buffer` a frame has delivered, by their index in `buffer`. A bit rather
     /// than a byte each, because the byte would cost eight times the window per level and hold
     /// one answer. A bit below `head` is stale, and no scan reads it.
     present: std.StaticBitSet(constants.limits.crypto_buffer_len),
-    /// Octets colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
+    /// Bytes colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
     /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
     /// sending side sits beside the receiving window rather than in a struct of its own.
     sent_len: u64,
-    /// The stream offset of `send_buffer[0]`: the peer acknowledged every octet below it, and the
+    /// The stream offset of `send_buffer[0]`: the peer acknowledged every byte below it, and the
     /// window forgot them (`forget_acknowledged`).
     send_base: u64,
-    /// Octets the provider has produced at this level, as an offset in the same flow.
+    /// Bytes the provider has produced at this level, as an offset in the same flow.
     produced_len: u64,
-    /// What was produced and not yet forgotten. RFC 9000 §13.3 retransmits a lost frame's octets
+    /// What was produced and not yet forgotten. RFC 9000 §13.3 retransmits a lost frame's bytes
     /// under a new packet number, and §17.2.5.3 has a client repeat its first flight after a
-    /// Retry; both read this rather than asking the provider, which has given the octets up.
+    /// Retry; both read this rather than asking the provider, which has given the bytes up.
     send_buffer: [constants.limits.crypto_send_buffer_len]u8,
 
     /// A stream with nothing received. RFC 9000 §19.6: each level starts at an offset of 0.
@@ -76,34 +76,34 @@ pub const CryptoStream = struct {
         assert(stream.unsent().len == 0);
     }
 
-    /// Octets of the peer's flow received in order, whether the handshake has read them or not.
-    /// A packet that leaves it where it was brought no CRYPTO octet the handshake can use.
+    /// Bytes of the peer's flow received in order, whether the handshake has read them or not.
+    /// A packet that leaves it where it was brought no CRYPTO byte the handshake can use.
     pub fn received_len(stream: *const CryptoStream) u64 {
         return stream.base + stream.contiguous;
     }
 
     /// Where the provider may write more of this level's flow. Empty when the window holds only
-    /// octets the peer may still need, which is the window doing its job.
+    /// bytes the peer may still need, which is the window doing its job.
     pub fn send_room(stream: *CryptoStream) []u8 {
         const held: usize = @intCast(stream.produced_len - stream.send_base);
         return stream.send_buffer[held..];
     }
 
-    /// Records that the provider wrote `len` octets into `send_room`.
+    /// Records that the provider wrote `len` bytes into `send_room`.
     pub fn produced(stream: *CryptoStream, len: usize) void {
         assert(stream.produced_len + len - stream.send_base <= stream.send_buffer.len);
         stream.produced_len += len;
         assert(stream.produced_len >= stream.sent_len);
     }
 
-    /// The octets the next CRYPTO frame carries: produced at this level and not yet framed.
+    /// The bytes the next CRYPTO frame carries: produced at this level and not yet framed.
     pub fn unsent(stream: *const CryptoStream) []const u8 {
         const from: usize = @intCast(stream.sent_len - stream.send_base);
         const to: usize = @intCast(stream.produced_len - stream.send_base);
         return stream.send_buffer[from..to];
     }
 
-    /// Records that `len` octets of `unsent` went into a CRYPTO frame, which advances the Offset
+    /// Records that `len` bytes of `unsent` went into a CRYPTO frame, which advances the Offset
     /// the next one carries (RFC 9000 §19.6).
     pub fn framed(stream: *CryptoStream, len: usize) void {
         assert(len <= stream.unsent().len);
@@ -114,21 +114,21 @@ pub const CryptoStream = struct {
     /// Whether this level's flow can be sent again from offset 0, which RFC 9000 §17.2.5.3 asks
     /// of a client after a Retry: "A client MUST use the same cryptographic handshake message it
     /// included in this packet." False when the window no longer reaches 0, which is a flight
-    /// larger than it whose first octets the peer acknowledged.
+    /// larger than it whose first bytes the peer acknowledged.
     pub fn can_rewind(stream: *const CryptoStream) bool {
         return stream.send_base == 0;
     }
 
     /// RFC 9000 §13.3: "Data sent in CRYPTO frames is retransmitted according to the rules in
-    /// [QUIC-RECOVERY], until all data has been acknowledged." A packet that carried octets from
+    /// [QUIC-RECOVERY], until all data has been acknowledged." A packet that carried bytes from
     /// `offset` was declared lost, so the flow is framed again from there.
     ///
     /// Answers false when the window no longer reaches that far. `forget_acknowledged` forgets
-    /// only octets the peer acknowledged, so a packet in flight never carried one, and false is a
+    /// only bytes the peer acknowledged, so a packet in flight never carried one, and false is a
     /// broken window. §13.3 has no answer for that and the caller ends the connection.
     pub fn on_lost(stream: *CryptoStream, offset: u64) bool {
         if (offset < stream.send_base) return false;
-        // Octets already being sent again from a lower offset cover this one. §13.3 permits
+        // Bytes already being sent again from a lower offset cover this one. §13.3 permits
         // sending more than was lost — "a receiver MUST accept packets containing an outdated
         // frame" — so the lowest rewind wins and nothing is tracked per packet.
         if (offset < stream.sent_len) stream.sent_len = offset;
@@ -137,7 +137,7 @@ pub const CryptoStream = struct {
         return true;
     }
 
-    /// Sends this level's flow again from the start (RFC 9000 §17.2.5.3). The octets are the ones
+    /// Sends this level's flow again from the start (RFC 9000 §17.2.5.3). The bytes are the ones
     /// already produced, so the provider is not asked for them twice.
     pub fn rewind(stream: *CryptoStream) void {
         assert(stream.can_rewind());
@@ -146,22 +146,22 @@ pub const CryptoStream = struct {
     }
 
     /// Whether the window holds a whole buffer, so `send_room` is empty until
-    /// `forget_acknowledged` forgets octets.
+    /// `forget_acknowledged` forgets bytes.
     pub fn send_full(stream: *const CryptoStream) bool {
         return stream.produced_len - stream.send_base == stream.send_buffer.len;
     }
 
-    /// Forgets the octets the peer acknowledged, and only when the window has no room left.
+    /// Forgets the bytes the peer acknowledged, and only when the window has no room left.
     /// `in_flight_from` is the lowest Offset of a CRYPTO frame at this level in a packet still in
     /// flight, or `sent_len` when no such packet is. RFC 9000 §13.3 sends CRYPTO data again
-    /// "until all data has been acknowledged", so an octet at or above either mark stays. An
-    /// octet below both went out in a packet the peer acknowledged: a lost packet moved
+    /// "until all data has been acknowledged", so a byte at or above either mark stays. An
+    /// byte below both went out in a packet the peer acknowledged: a lost packet moved
     /// `sent_len` down to its own Offset (`on_lost`). §13.3's retransmission and §17.2.5.3's
     /// repeat read only what the window holds, so a flight that fits is never forgotten.
     pub fn forget_acknowledged(stream: *CryptoStream, in_flight_from: u64) void {
         if (!stream.send_full()) return;
         const keep_from = @min(in_flight_from, stream.sent_len);
-        // INV-34: a packet in flight carries no octet the window forgot, which `on_lost` needs.
+        // INV-34: a packet in flight carries no byte the window forgot, which `on_lost` needs.
         assert(keep_from >= stream.send_base);
         const forget: usize = @intCast(keep_from - stream.send_base);
         if (forget == 0) return;
@@ -172,7 +172,7 @@ pub const CryptoStream = struct {
         assert(stream.sent_len >= stream.send_base);
     }
 
-    /// Takes one CRYPTO frame's octets. Data already read is dropped, data that overlaps what is
+    /// Takes one CRYPTO frame's bytes. Data already read is dropped, data that overlaps what is
     /// buffered is written again with the same value, and a gap is held until it is filled.
     pub fn receive(stream: *CryptoStream, offset: u64, data: []const u8) Error!void {
         // RFC 9000 §19.6: the sum of the offset and the length cannot exceed 2^62-1, which the
@@ -180,10 +180,10 @@ pub const CryptoStream = struct {
         assert(offset <= constants.protocol.stream_offset_max - data.len);
         if (data.len == 0) return;
         const end = offset + data.len;
-        // Wholly below the window: every octet was read already, which a retransmission of an
+        // Wholly below the window: every byte was read already, which a retransmission of an
         // acknowledged frame produces (RFC 9002 §6.2).
         if (end <= stream.base) return;
-        // Past the window: §7.5 obliges colibri to buffer 4096 octets of out-of-order data and
+        // Past the window: §7.5 obliges colibri to buffer 4096 bytes of out-of-order data and
         // this is more, so the connection ends rather than the buffer growing.
         if (end > stream.base + stream.buffer.len) return Error.CryptoBufferExceeded;
         if (stream.head + @as(usize, @intCast(end - stream.base)) > stream.buffer.len) stream.move_down();
@@ -191,8 +191,8 @@ pub const CryptoStream = struct {
         stream.advance();
     }
 
-    /// Moves the octets held from `head` to the start of `buffer`, so that the window's far end
-    /// is the end of `buffer` again. Only the octets up to the last one present move.
+    /// Moves the bytes held from `head` to the start of `buffer`, so that the window's far end
+    /// is the end of `buffer` again. Only the bytes up to the last one present move.
     fn move_down(stream: *CryptoStream) void {
         assert(stream.head > 0);
         const held_end = bit_runs.end_of_set(&stream.present, stream.head);
@@ -214,19 +214,19 @@ pub const CryptoStream = struct {
         stream.present.setRangeValue(.{ .start = start, .end = start + source.len }, true);
     }
 
-    /// Extends the in-order run over every octet now present at its end.
+    /// Extends the in-order run over every byte now present at its end.
     fn advance(stream: *CryptoStream) void {
         const end = bit_runs.first_unset(&stream.present, stream.head + stream.contiguous, stream.buffer.len);
         stream.contiguous = end - stream.head;
     }
 
-    /// The octets the handshake may read now: every one from `base` with no gap before it.
+    /// The bytes the handshake may read now: every one from `base` with no gap before it.
     pub fn readable(stream: *const CryptoStream) []const u8 {
         return stream.buffer[stream.head..][0..stream.contiguous];
     }
 
-    /// Forgets the first `len` octets of `readable`, and moves the window forward by that much.
-    /// No octet moves: `head` does.
+    /// Forgets the first `len` bytes of `readable`, and moves the window forward by that much.
+    /// No byte moves: `head` does.
     pub fn consume(stream: *CryptoStream, len: usize) void {
         assert(len <= stream.contiguous);
         if (len == 0) return;
@@ -234,7 +234,7 @@ pub const CryptoStream = struct {
         stream.base += len;
         stream.contiguous -= len;
         // Nothing is held from `head`, so the window starts again at the front of `buffer`, and
-        // no octet moves.
+        // no byte moves.
         if (stream.contiguous == 0 and bit_runs.end_of_set(&stream.present, stream.head) == stream.head) {
             stream.present.setRangeValue(.{ .start = 0, .end = stream.head }, false);
             stream.head = 0;
@@ -242,7 +242,7 @@ pub const CryptoStream = struct {
         assert(stream.readable().len == stream.contiguous);
     }
 
-    /// How many octets the handshake has read out of the peer's flow at this level. It is the
+    /// How many bytes the handshake has read out of the peer's flow at this level. It is the
     /// receiving side's mark and has nothing to do with the Offset colibri writes, which is
     /// `sent_len`: RFC 9000 §19.6 gives each direction of a level its own flow.
     pub fn consumed_len(stream: *const CryptoStream) u64 {

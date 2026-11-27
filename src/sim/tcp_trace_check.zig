@@ -13,7 +13,7 @@
 //! without TLC, since two colibri endpoints cause none.
 //!
 //! Each seed runs twice. Both runs must go through the same states, and the client must hand the
-//! server the same octets, which is invariant 5.
+//! server the same bytes, which is invariant 5.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -60,7 +60,7 @@ pub const Storage = struct {
 
 /// One seed's counts: the states it went through, the requests the client made, the responses it
 /// read whole, the calls a connection refused, whether the server's caller shut it down, and
-/// whether it ran over TLS. `wire` is the CRC-32 of every octet the client handed the server: h2's
+/// whether it ran over TLS. `wire` is the CRC-32 of every byte the client handed the server: h2's
 /// frames in cleartext, and over TLS the records, the ClientHello among them.
 pub const Result = struct {
     states: u64 = 0,
@@ -80,7 +80,7 @@ pub const Census = struct {
     refused: u64 = 0,
     shut_down: u64 = 0,
     tls: u64 = 0,
-    /// The CRC-32 of each seed's `Result.wire`, least significant octet first, in seed order.
+    /// The CRC-32 of each seed's `Result.wire`, least significant byte first, in seed order.
     wire_crc32: std.hash.Crc32 = .init(),
 
     fn count(census: *Census, result: Result) void {
@@ -187,7 +187,7 @@ var test_storage: Storage align(@alignOf(Storage)) = undefined;
 /// What the written seeds count, the same in Debug and ReleaseSafe (design §8 step 21b.6). TLC
 /// finds a log of a server that answers nothing a behavior of the model, so the counts say what
 /// the runs did: they read responses whole, some shut the server down, and some run over TLS.
-/// `wire_crc32` is the census's, which a change to an octet the client writes changes (design §8
+/// `wire_crc32` is the census's, which a change to a byte the client writes changes (design §8
 /// step 21c.2).
 const expected = struct {
     const states: u64 = 525;
@@ -218,7 +218,7 @@ test "TCP trace run: a client's first flight and every exchange after it, with n
 
 test "TCP trace run: the wire CRC-32 covers the octets the server has not read" {
     // The first seed, after the client's first request and send and before any delivery. Each
-    // written seed ends with all of its client's octets read, so only a run stopped here tells
+    // written seed ends with all of its client's bytes read, so only a run stopped here tells
     // `handed` from `consumed`. The first request starts the client's connection.
     const seed: u64 = 0;
     var random = Random.init(seed);

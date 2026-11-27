@@ -249,7 +249,7 @@ fn parse_row(comptime variant: Variant, line: []const u8) ParseError!?Line {
     return .{ .row = .{ .index = index, .entry = .{ .name = columns[1], .value = columns[2] } } };
 }
 
-/// True when every octet is printable ASCII and none needs escaping in a Zig string literal.
+/// True when every byte is printable ASCII and none needs escaping in a Zig string literal.
 fn is_plain(column: []const u8) bool {
     for (column) |char| {
         if (!std.ascii.isPrint(char) or char == '"' or char == '\\') return false;

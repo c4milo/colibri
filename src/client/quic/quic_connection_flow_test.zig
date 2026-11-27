@@ -41,7 +41,7 @@ test "RFC 9114 §4.1.1: content past the caller's memory ends the exchange, and 
 
 test "issue 106: a content-length past the caller's memory ends the exchange at the head" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
-    // The head names one octet and none follows, so only the head can end the exchange.
+    // The head names one byte and none follows, so only the head can end the exchange.
     support.answer_content = "";
     support.answer_malformed = true;
     support.answer_open = true;
@@ -80,7 +80,7 @@ const long_answer_len: usize = 40_000;
 
 test "decision 153 ruling 13: content that ends too_large keeps the octets that fit in the caller's memory" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
-    // Each octet differs from the one before it, so octets kept from the wrong offset differ.
+    // Each byte differs from the one before it, so bytes kept from the wrong offset differ.
     for (upload[0..long_answer_len], 0..) |*octet, index| octet.* = @truncate(index);
     support.answer_content = upload[0..long_answer_len];
     // Issue 106: a content-length past the caller's memory ends the exchange at the head, so the

@@ -1,4 +1,4 @@
-//! The tests of the order new stream octets go out in (RFC 9000 §2.3), in
+//! The tests of the order new stream bytes go out in (RFC 9000 §2.3), in
 //! `connection_stream_send.zig`: a lower priority value first, and streams of one value taking
 //! turns. The connections and the provider are `connection_stream_send_test.zig`'s.
 const std = @import("std");
@@ -82,13 +82,13 @@ test "RFC 9000 §2.1: a priority is set only on a stream this endpoint may send 
     try testing.expectError(error.NotWritable, stream_send.set_priority(&send_test.client, StreamId.init(.client, .bidirectional, 0), urgent));
 }
 
-/// Octets the provider has for every stream, fewer than an urgent stream supplied. Test-only.
+/// Bytes the provider has for every stream, fewer than an urgent stream supplied. Test-only.
 const provider_len: u64 = 50;
 
 test "RFC 9000 §2.3: a stream first in order with nothing to read gives way to the next" {
     send_test.open_pair(.{});
     var body: Body = .{ .len = provider_len };
-    // The urgent stream said its octets reach further than the provider can read yet.
+    // The urgent stream said its bytes reach further than the provider can read yet.
     const dry = try send_test.open_supplied(send_test.short_body_len, true);
     try stream_send.set_priority(&send_test.client, dry, urgent);
     try testing.expectEqual(dry.value, try next_stream_id(&body));
@@ -101,14 +101,14 @@ test "design §8 step 29d.16: the send walk clears the mark of a stream that sen
     send_test.open_pair(.{});
     var body: Body = .{ .len = send_test.short_body_len };
     const ended = try send_test.open_supplied(send_test.short_body_len, true);
-    // A stream with no octets yet stays in "Ready" and keeps its mark.
+    // A stream with no bytes yet stays in "Ready" and keeps its mark.
     const waiting = try stream_send.open(&send_test.client, .bidirectional);
     const streams = &send_test.client.streams;
     const ended_slot = streams.pool.index_of(send_test.stream_of(ended));
     const waiting_slot = streams.pool.index_of(send_test.stream_of(waiting));
     try testing.expect(streams.may_send_new.isSet(ended_slot));
     try testing.expectEqual(ended.value, try next_stream_id(&body));
-    // RFC 9000 §3.1: the FIN moved the stream to "Data Sent", which sends no new octets.
+    // RFC 9000 §3.1: the FIN moved the stream to "Data Sent", which sends no new bytes.
     try testing.expectEqual(.data_sent, send_test.stream_of(ended).sending.state);
     var output: [send_test.datagram.len]u8 = undefined;
     try testing.expectEqual(0, stream_send.write(&send_test.client, body.provider(), &output).len);

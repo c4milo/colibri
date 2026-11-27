@@ -52,7 +52,7 @@ const test_error_code: u64 = error_code.protocol_violation;
 const test_frame_type: u64 = constants.protocol.frame_ping;
 /// A reason phrase, which RFC 9000 §19.19 makes diagnostic and optional. Test-only.
 const test_reason = "no";
-/// Handshake octets a fake provider owes, so a packet would carry a CRYPTO frame if it could.
+/// Handshake bytes a fake provider owes, so a packet would carry a CRYPTO frame if it could.
 /// Test-only.
 const handshake_flight_octet: u8 = 0x6d;
 const handshake_flight_len: usize = 40;
@@ -272,7 +272,7 @@ test "RFC 9000 §10.2: sending the close enters the closing state and then sends
 
 test "RFC 9000 §10.2.1: a closing endpoint sends the close and nothing else" {
     open_pair();
-    // Give the client handshake octets to send, so a packet would otherwise carry a CRYPTO frame.
+    // Give the client handshake bytes to send, so a packet would otherwise carry a CRYPTO frame.
     provider_holder.owed = &handshake_flight;
     provider_holder.owed_level = .handshake;
     close_module.owe(&client, close_module.Close.transport(test_error_code, null));

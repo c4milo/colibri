@@ -18,7 +18,7 @@ pub const quic_peer_reset_rate_period_ns: u64 = h2.constants.policy.peer_reset_r
 pub const quic_resets_sent_period_ns: u64 = h2.constants.policy.rst_stream_rate_period_ns;
 
 /// The length of every connection ID the engine chooses. RFC 9000 §7.2 has a client's first
-/// Destination Connection ID be at least 8 octets, and the server's are as long.
+/// Destination Connection ID be at least 8 bytes, and the server's are as long.
 pub const quic_id_len: usize = 8;
 
 /// How many entries the engine's table of connection IDs holds for each ID its connections may
@@ -39,13 +39,13 @@ pub const encoder_level_default: u4 = 6;
 /// Decision 110's deadlines for a connection over TCP, each the default `Config.deadlines` carries
 /// and a caller may change: from the instant the connection opens to its first whole request head,
 /// the TLS handshake included; between requests, after at least one response, while none is open;
-/// and from the first octet of a request head to its end.
+/// and from the first byte of a request head to its end.
 pub const first_request_timeout_ns: u64 = 10 * constants.nanoseconds_per_second;
 pub const idle_timeout_ns: u64 = 30 * constants.nanoseconds_per_second;
 pub const head_timeout_ns: u64 = 10 * constants.nanoseconds_per_second;
 
 /// Decision 110's body deadlines. From the end of a request's head, its body must bring
-/// `body_rate_min` octets a second over each window of `rate_window_ns`, the first window taking
+/// `body_rate_min` bytes a second over each window of `rate_window_ns`, the first window taking
 /// `rate_grace_ns` more, and must end within `body_timeout_ns`. In h2 each stream's body does, and
 /// the bodies together do as well.
 pub const body_rate_min: u32 = 1_024;
@@ -53,9 +53,9 @@ pub const rate_grace_ns: u64 = 10 * constants.nanoseconds_per_second;
 pub const rate_window_ns: u64 = 10 * constants.nanoseconds_per_second;
 pub const body_timeout_ns: u64 = 300 * constants.nanoseconds_per_second;
 
-/// Decision 110's send deadline: while the connection holds octets its peer has not taken, the
-/// peer must take `send_rate_min` octets a second over each window, as a body brings them. A
-/// connection a deadline ended, or that has nothing more to say, closes once its last octets are
+/// Decision 110's send deadline: while the connection holds bytes its peer has not taken, the
+/// peer must take `send_rate_min` bytes a second over each window, as a body brings them. A
+/// connection a deadline ended, or that has nothing more to say, closes once its last bytes are
 /// out or `close_linger_ns` after it ended, whichever comes first. Once the peer has sent a
 /// WINDOW_UPDATE smaller than `data_frame_len_min`, h2 sends no DATA frame shorter than it unless
 /// the window holds the whole payload.
@@ -65,7 +65,7 @@ pub const data_frame_len_min: u32 = 1_024;
 
 /// Decision 110 as amended a fifth time: over TLS a request body arrives a record at a time
 /// (RFC 9846 §5.1), and in h2 a DATA frame at a time (RFC 9113 §4.2), each of up to this many
-/// octets. An honest peer sends a body at `honest_rate_factor` times the minimum rate or more, and
+/// bytes. An honest peer sends a body at `honest_rate_factor` times the minimum rate or more, and
 /// a server whose bodies arrive in units refuses a `body_rate_min` under which such a peer can fall
 /// short (spec/lean/Colibri/Server/RateMeter.lean).
 pub const body_unit_len: u64 = tls_provider.constants.protocol.record_plaintext_len_max;

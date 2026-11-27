@@ -32,13 +32,13 @@ const next_calls_max = constants.limits.response_pieces_max;
 pub inline fn start(comptime P: type, pool: *P, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, engine: anytype, request: *const event.Request) void {
     const handler = Parts(P).table.routes[index][router_call.handler_part];
     // A middleware's `wrap_body` that returns null keeps the router's reader, whose buffer holds
-    // the event's octets and no kept octets of its own.
+    // the event's bytes and no kept bytes of its own.
     const wraps = comptime wraps_body(P, index);
     const wrapped = wraps and entry.held.reader != &entry.body.cursor.reader;
     // `next` peeks through a wrapper, which needs a buffer to peek into (std.Io.Reader).
     assert(!wrapped or entry.held.reader.buffer.len > 0);
-    // The router's reader holds kept octets in the entry's `body_bytes` itself. `read` points the
-    // storage of a wrapper's stream at the octets past the held ones.
+    // The router's reader holds kept bytes in the entry's `body_bytes` itself. `read` points the
+    // storage of a wrapper's stream at the bytes past the held ones.
     entry.body_stream = .{ .reader = entry.held.reader, .storage = &entry.body.held, .wrapped = wrapped };
     const options = comptime router_pool.route_options(Parts(P).table.routes[index]);
     const state = router_pool.state_of(P, handler, entry);
@@ -74,7 +74,7 @@ fn wraps_body(comptime P: type, comptime index: usize) bool {
     return router_wrap.wraps_body(chain);
 }
 
-/// Calls `on_data` over the octets that the entry held and `bytes`. Then it keeps the octets that
+/// Calls `on_data` over the bytes that the entry held and `bytes`. Then it keeps the bytes that
 /// the call left unread, which the engine's next event writes over, in the entry's `body_bytes`.
 fn read(comptime P: type, comptime index: usize, entry: *Parts(P).Entry, context: *Parts(P).Context, bytes: []const u8, end: bool) router_body.Error!router_call.Outcome {
     const handler = Parts(P).table.routes[index][router_call.handler_part];
@@ -99,28 +99,28 @@ fn read(comptime P: type, comptime index: usize, entry: *Parts(P).Entry, context
     return outcome;
 }
 
-/// Points the storage of a wrapper's stream at the entry's `body_bytes` past the octets that the
-/// router holds. The kept octets that the stream stored stay at its end.
+/// Points the storage of a wrapper's stream at the entry's `body_bytes` past the bytes that the
+/// router holds. The kept bytes that the stream stored stay at its end.
 fn give_storage(entry: anytype) void {
     const stream = &entry.body_stream;
     if (stream.wrapped) stream.storage = entry.body.held[entry.body.held_len..];
 }
 
-/// Refuses `held_len` octets that the router would hold beside the octets that a wrapper's stream
-/// kept, or a stream whose kept octets did not fit its storage.
+/// Refuses `held_len` bytes that the router would hold beside the bytes that a wrapper's stream
+/// kept, or a stream whose kept bytes did not fit its storage.
 fn hold_clear(entry: anytype, held_len: usize) router_body.Error!void {
     const stream = &entry.body_stream;
-    // RFC 9110 §15.5.14: content larger than the server takes gets 413, kept octets too.
+    // RFC 9110 §15.5.14: content larger than the server takes gets 413, kept bytes too.
     if (stream.too_large) return error.ContentTooLarge;
-    // RFC 9110 §15.5.14: the kept octets and the octets the router holds share `body_bytes`.
+    // RFC 9110 §15.5.14: the kept bytes and the bytes the router holds share `body_bytes`.
     if (held_len + router_body.stored_len(stream) > entry.body.held.len) return error.ContentTooLarge;
 }
 
-/// Ends the read of the body, at its end or once the route ended its response. Kept octets that
+/// Ends the read of the body, at its end or once the route ended its response. Kept bytes that
 /// the last piece could not take get 413 when the response is still open.
 fn read_last(entry: anytype, outcome: router_call.Outcome) router_body.Error!router_call.Outcome {
     entry.body.delivered = true;
-    // RFC 9110 §15.5.14: kept octets past the entry's `body_bytes` get 413, at the body's end too.
+    // RFC 9110 §15.5.14: kept bytes past the entry's `body_bytes` get 413, at the body's end too.
     if (entry.body_stream.too_large and !route_ended(&entry.response)) return error.ContentTooLarge;
     return outcome;
 }

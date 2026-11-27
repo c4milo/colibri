@@ -1,4 +1,4 @@
-//! A message body, read and written, for both roles (RFC 9112 §6, §7.1). Reading takes the octets
+//! A message body, read and written, for both roles (RFC 9112 §6, §7.1). Reading takes the bytes
 //! the caller holds and returns data as slices of them; writing frames the caller's data by the
 //! length the head declared. Nothing here knows which role it serves.
 const std = @import("std");
@@ -15,7 +15,7 @@ const Role = message.Role;
 /// Where the reading of one body stands.
 pub const Reader = struct {
     kind: Kind = .none,
-    /// Octets of a fixed body still to come.
+    /// Bytes of a fixed body still to come.
     remaining: u64 = 0,
     decoder: chunked.Decoder = .{},
 
@@ -67,7 +67,7 @@ pub fn read(reader: *Reader, role: Role, input: []const u8, trailers: *http.Fiel
             if (decoded.done) reader.kind = .none;
             return .{ .consumed = decoded.consumed, .data = decoded.data, .ended = decoded.done };
         },
-        // RFC 9112 §6.3 rules 2 and 8: every octet until the close belongs to the body or tunnel.
+        // RFC 9112 §6.3 rules 2 and 8: every byte until the close belongs to the body or tunnel.
         .close_delimited, .tunnel => return .{ .consumed = input.len, .data = input, .ended = false },
     }
 }
@@ -106,7 +106,7 @@ pub fn read_coded(
 fn give_back(reader: *Reader, octets: usize) void {
     switch (reader.kind) {
         .chunked => reader.decoder.give_back(octets),
-        // Every octet until the close is the body's, so octets not taken are simply not consumed.
+        // Every byte until the close is the body's, so bytes not taken are simply not consumed.
         .close_delimited => {},
         // RFC 9112 §6.1 and §6.3: a compression coding comes with chunked, or runs until the close.
         .none, .fixed, .tunnel => assert(octets == 0),
@@ -116,7 +116,7 @@ fn give_back(reader: *Reader, octets: usize) void {
 /// Where the writing of one body stands.
 pub const Writer = struct {
     kind: Kind = .none,
-    /// Octets of a fixed body still owed, or of the chunk whose head `write_chunk_head` wrote.
+    /// Bytes of a fixed body still owed, or of the chunk whose head `write_chunk_head` wrote.
     remaining: u64 = 0,
     /// The data of the chunk whose head `write_chunk_head` wrote went out, and the CRLF that ends
     /// it goes before the next chunk or the last chunk (RFC 9112 §7.1).
@@ -130,7 +130,7 @@ pub const Writer = struct {
 };
 
 pub const WriteError = chunked.WriteError || error{
-    /// More octets than the Content-Length declared (RFC 9112 §6.2), or than the chunk head
+    /// More bytes than the Content-Length declared (RFC 9112 §6.2), or than the chunk head
     /// declared (RFC 9112 §7.1).
     BodyTooLong,
     /// The body ended before the Content-Length declared it would (RFC 9112 §6.2).
@@ -149,14 +149,14 @@ pub const WriteError = chunked.WriteError || error{
 /// The CRLF that ends a chunk's data (RFC 9112 §7.1).
 const chunk_data_end = "\r\n";
 
-/// Writes `data` framed as the body declared. Returns the octets written into `output`.
+/// Writes `data` framed as the body declared. Returns the bytes written into `output`.
 pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
     assert(writer.open());
     assert(data.len > 0);
     switch (writer.kind) {
         .none => unreachable,
         .fixed => {
-            // RFC 9112 §6.2: the Content-Length is the number of octets that follow.
+            // RFC 9112 §6.2: the Content-Length is the number of bytes that follow.
             if (data.len > writer.remaining) return error.BodyTooLong;
             // RFC 9112 §2.1: a body is written whole or not at all into one buffer.
             if (data.len > output.len) return error.OutputTooSmall;
@@ -174,7 +174,7 @@ pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
     }
 }
 
-/// Counts `len` body octets the caller sends from its own buffer, and writes nothing (decision 95).
+/// Counts `len` body bytes the caller sends from its own buffer, and writes nothing (decision 95).
 /// In a chunked body, they are the data of the chunk whose head `write_chunk_head` wrote.
 pub fn count(writer: *Writer, len: u64) WriteError!void {
     assert(writer.open());
@@ -182,12 +182,12 @@ pub fn count(writer: *Writer, len: u64) WriteError!void {
     switch (writer.kind) {
         .none => unreachable,
         .fixed => {
-            // RFC 9112 §6.2: the Content-Length is the number of octets that follow.
+            // RFC 9112 §6.2: the Content-Length is the number of bytes that follow.
             if (len > writer.remaining) return error.BodyTooLong;
             writer.remaining -= len;
         },
         .chunked => {
-            // RFC 9112 §7.1: the caller's octets are the data of the chunk whose head went out,
+            // RFC 9112 §7.1: the caller's bytes are the data of the chunk whose head went out,
             // and no more.
             if (len > writer.remaining) return error.BodyTooLong;
             writer.remaining -= len;
@@ -197,9 +197,9 @@ pub fn count(writer: *Writer, len: u64) WriteError!void {
     }
 }
 
-/// Writes the head of a chunk of `len` octets, which the caller sends next from its own buffer and
+/// Writes the head of a chunk of `len` bytes, which the caller sends next from its own buffer and
 /// counts with `count` (decision 139). The head starts with the CRLF the chunk before owes. Returns
-/// the octets written into `output`.
+/// the bytes written into `output`.
 pub fn write_chunk_head(writer: *Writer, output: []u8, len: u64) WriteError!usize {
     assert(writer.open());
     // RFC 9112 §6.1: only a body in the chunked coding is written in chunks.
@@ -222,7 +222,7 @@ fn write_chunked(writer: *Writer, output: []u8, data: []const u8) WriteError!usi
         const written = try chunked.write_chunk(try after_owed(writer, output), data);
         return close_chunk(writer, output) + written;
     }
-    // RFC 9112 §7.1: the chunk-data is the octets its chunk-size declared, and no more.
+    // RFC 9112 §7.1: the chunk-data is the bytes its chunk-size declared, and no more.
     if (data.len > writer.remaining) return error.BodyTooLong;
     // RFC 9112 §2.1: a body is written whole or not at all into one buffer.
     if (data.len > output.len) return error.OutputTooSmall;
@@ -251,7 +251,7 @@ fn close_chunk(writer: *Writer, output: []u8) usize {
 }
 
 /// Ends the body: the last chunk and `trailers` for a chunked body, nothing for the others.
-/// Returns the octets written into `output`.
+/// Returns the bytes written into `output`.
 pub fn end(writer: *Writer, output: []u8, trailers: []const http.Field) WriteError!usize {
     assert(writer.open());
     const written: usize = switch (writer.kind) {

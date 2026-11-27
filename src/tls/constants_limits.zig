@@ -4,9 +4,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Octets of a session's receive buffer, chapulin's `cfg.buf`. It holds the largest record, 2^14
-/// plus 256 octets (RFC 9846 §5.2), and it bounds the largest handshake message a session reads:
-/// a server's flight of four certificates of 3,072 octets needs 12,338 (chapulin's
+/// Bytes of a session's receive buffer, chapulin's `cfg.buf`. It holds the largest record, 2^14
+/// plus 256 bytes (RFC 9846 §5.2), and it bounds the largest handshake message a session reads:
+/// a server's flight of four certificates of 3,072 bytes needs 12,338 (chapulin's
 /// `docs/webpki.md`), which design §8 step 5 measured against a Go server. A record-mode session
 /// advertises it, less record overhead, as its record_size_limit.
 pub const receive_len: usize = 20 * 1024;
@@ -23,7 +23,7 @@ pub const anchors_max: usize = 256;
 /// own `Server.check` takes 0. The owner ruled it on 2026-11-18 (design §8 step 63).
 pub const server_anchors_max: usize = 0;
 
-/// Octets of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies
+/// Bytes of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies
 /// no longer name, and a server reports none for one.
 pub const server_name_len_max: usize = 255;
 
@@ -35,17 +35,17 @@ pub const certificate_chain_len_max: usize = 16;
 /// Cipher suites a server may name in its order: the three colibri admits (decision 45).
 pub const cipher_suites_max: usize = 3;
 
-/// Octets of a resumption ticket's identity and PSK colibri keeps, chapulin's `CH_TICKET_ID_MAX`
+/// Bytes of a resumption ticket's identity and PSK colibri keeps, chapulin's `CH_TICKET_ID_MAX`
 /// and SHA-384's length, the longest hash a suite of RFC 9846 §9.1 uses (§4.7.1).
 pub const ticket_identity_len_max: usize = 320;
 pub const ticket_psk_len_max: usize = 48;
 
-/// Octets of the handshake messages a QUIC session holds at one encryption level until colibri
+/// Bytes of the handshake messages a QUIC session holds at one encryption level until colibri
 /// frames them as CRYPTO data (RFC 9001 §4.1.3). A server's Handshake flight is the largest: the
 /// QUIC Interop Runner's amplification case, a leaf under eight intermediates, takes 9,663.
 pub const crypto_out_len: usize = 20 * 1024;
 
-/// Octets of the peer's transport parameters a QUIC session keeps (RFC 9001 §8.2). RFC 9000 §18
+/// Bytes of the peer's transport parameters a QUIC session keeps (RFC 9001 §8.2). RFC 9000 §18
 /// sets no bound, and this holds every parameter §18.2 defines with room for a peer's own.
 pub const transport_parameters_len_max: usize = 1024;
 

@@ -11,9 +11,9 @@ const internal = @import("response_internal.zig");
 
 /// The calls a test reads back. Test-only.
 const calls_max = 32;
-/// Octets of response memory each test gives. Test-only.
+/// Bytes of response memory each test gives. Test-only.
 pub const memory_len = 256;
-/// Octets of the longest body a test writes, which is longer than its memory when the body's writer
+/// Bytes of the longest body a test writes, which is longer than its memory when the body's writer
 /// writes again over the runs the engine released. Test-only.
 const stream_len_max = 512;
 /// The runs a response has slots for. Test-only.
@@ -27,7 +27,7 @@ pub const Call = union(enum) {
 
 /// An engine that records each call. `room` is how many body bytes the next `write_body`
 /// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call. It reads
-/// each run of body bytes in place, as h3 does, so it holds `held` octets until a test releases
+/// each run of body bytes in place, as h3 does, so it holds `held` bytes until a test releases
 /// them (design §8 step 46). With `copies` it holds none, as h11 and h2 do. `stream` is a copy of
 /// each body byte at the call that took it, since the writer writes again over a run the test
 /// released.
@@ -66,7 +66,7 @@ pub const Recorder = struct {
     }
 
     pub fn wait_release(recorder: *Recorder, _: event.RequestId) void {
-        // `State.wait_release` asserts it too: a wait for a release needs octets that are held.
+        // `State.wait_release` asserts it too: a wait for a release needs bytes that are held.
         std.debug.assert(recorder.held > 0);
         recorder.release_waits += 1;
     }

@@ -235,7 +235,7 @@ test "§4.5: a final size cannot change, and data may not reach past it" {
 
 test "§4.5: what already arrived is remembered, whatever order it arrived in" {
     var receiving = Receiving.init();
-    // The later octets arrive first, so a frame that reaches less far must not lower the mark.
+    // The later bytes arrive first, so a frame that reaches less far must not lower the mark.
     try receiving.on_stream_frame(10, 5, false);
     try receiving.on_stream_frame(0, 5, false);
     try testing.expectEqual(15, receiving.highest_offset);
@@ -248,7 +248,7 @@ test "§4.5: what already arrived is remembered, whatever order it arrived in" {
 test "§4.5: a final size below what already arrived is refused, by either frame" {
     var receiving = Receiving.init();
     try receiving.on_stream_frame(0, 20, false);
-    // RFC 9000 §4.5: the final size accounts for every octet sent, so it cannot be below what
+    // RFC 9000 §4.5: the final size accounts for every byte sent, so it cannot be below what
     // this endpoint has already taken.
     try testing.expectError(error.FinalSizeChanged, receiving.on_stream_frame(0, 19, true));
     try testing.expectError(error.FinalSizeChanged, receiving.on_reset(19));
@@ -270,7 +270,7 @@ const stream_lost = @import("stream_lost.zig");
 var test_streams: stream_table.Streams align(@alignOf(stream_table.Streams)) = undefined;
 const test_stream_limit: u64 = 4;
 const test_stream_limits: [constants.protocol.stream_directionalities]u64 = @splat(test_stream_limit);
-/// A stream's octets, sent in two frames of half each. Test-only.
+/// A stream's bytes, sent in two frames of half each. Test-only.
 const test_body_len: u64 = 1_000;
 const test_half_len: u64 = 500;
 

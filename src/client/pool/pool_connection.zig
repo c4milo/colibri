@@ -40,7 +40,7 @@ pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId, now_ns: u64) void
     pool.tcp[slot].cancel(carried_id, now_ns);
 }
 
-/// The next event the connection of `slot` owes, read with no octets.
+/// The next event the connection of `slot` owes, read with no bytes.
 pub fn poll(pool: anytype, slot: u32, now_ns: u64) event.ReceiveResult {
     var none: [0]u8 = .{};
     if (is_quic(pool, slot)) return pool.quic.receive(&none, .not_ect, .{}, now_ns);

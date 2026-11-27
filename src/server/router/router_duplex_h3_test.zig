@@ -1,4 +1,4 @@
-//! The test of a stream route that answers each request octet while its client still sends, over
+//! The test of a stream route that answers each request byte while its client still sends, over
 //! h3 (decision 127 as amended, design §8 step 46): the router runs on the engine that the QUIC
 //! tests drive, with an h3 client in the same process. Each reply is longer than the route's
 //! response memory, so the route writes most of it from `next` once the client acknowledged the
@@ -12,7 +12,7 @@ const duplex = @import("router_duplex_test_support.zig");
 const testing = std.testing;
 const engine = &quic_support.engine_support.engine;
 
-/// The request body, one octet a piece, and the octets of each reply: `memories_per_reply` times
+/// The request body, one byte a piece, and the bytes of each reply: `memories_per_reply` times
 /// the route's response memory. Test-only.
 const pieces = "abc";
 const memories_per_reply = 8;
@@ -30,7 +30,7 @@ fn take(reported: event.Event) void {
     _ = router.handle(&app, engine, &reported);
 }
 
-/// Moves datagrams both ways until the client received `target` octets, or the rounds ran out.
+/// Moves datagrams both ways until the client received `target` bytes, or the rounds ran out.
 fn pump_until(fetch: *const quic_support.Fetch, target: usize) !void {
     // Bounded: each round moves time on and moves datagrams both ways.
     for (0..rounds_max) |_| {

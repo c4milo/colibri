@@ -15,7 +15,7 @@ pub const cancel_one_in: u64 = 5;
 /// The most the caller waits after its last exchange before it shuts the origin down.
 pub const shutdown_after_max_ns: u64 = 1_500_000_000;
 
-/// Octets of a POST's content at most, past the servers' stream windows for some draws, so a
+/// Bytes of a POST's content at most, past the servers' stream windows for some draws, so a
 /// stream can still send content after its response ended. One exchange in `post_one_in` is a
 /// POST.
 pub const content_len_max: u32 = 393_216;
@@ -23,7 +23,7 @@ pub const post_one_in: u64 = 3;
 
 /// Decision 153: one exchange with content in `streamed_one_in` is a PUT that sends its content in
 /// pieces and reads its response in pieces. The caller cuts the content into at most
-/// `request_pieces_max` pieces, and reads each response piece into `response_piece_len` octets of
+/// `request_pieces_max` pieces, and reads each response piece into `response_piece_len` bytes of
 /// its memory, fewer than any response's content. It holds each response piece at most
 /// `release_delay_max_ns` before it releases it.
 pub const streamed_one_in: u64 = 2;
@@ -85,14 +85,14 @@ pub const instants_max: u32 = 20_000;
 pub const settle_rounds_max: u32 = 64;
 /// Datagrams one side sends in one round at most.
 pub const datagrams_per_round_max: u32 = 64;
-/// Octets each direction of the TCP link holds in flight at most.
+/// Bytes each direction of the TCP link holds in flight at most.
 pub const tcp_queue_len_max: u32 = 1_048_576;
 /// Chunks each direction of the TCP link holds in flight at most.
 pub const tcp_chunks_max: u32 = 4096;
 
 /// The model's states one run keeps, each differing from the one before.
 pub const states_max: u32 = 2048;
-/// Octets of the TLA+ module one seed's trace is written as: 2 MiB.
+/// Bytes of the TLA+ module one seed's trace is written as: 2 MiB.
 pub const module_len_max: u32 = 2_097_152;
 /// The seeds `sim --client-trace-write` writes for TLC, and the model's steps TLC may take
 /// between two logged states: an instant can end each exchange, report it, move it and assign

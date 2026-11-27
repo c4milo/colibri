@@ -1,7 +1,7 @@
 //! What one h3 response holds until the peer acknowledges it (decisions 79 and 103): the frames the
-//! connection keeps, and the runs of the caller's octets `write_body` took, which stay the
+//! connection keeps, and the runs of the caller's bytes `write_body` took, which stay the
 //! caller's. QUIC reads the stream back by offset through the stream provider, as often as it
-//! resends a lost run (decision 57), so a run leaves only once every octet of it is acknowledged
+//! resends a lost run (decision 57), so a run leaves only once every byte of it is acknowledged
 //! (RFC 9000 §3.1).
 //!
 //! The kept frames sit in `kept` in stream order, so the runs acknowledged first are at its front,
@@ -10,12 +10,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
-/// One run of the stream's octets: kept frames, or the caller's octets.
+/// One run of the stream's bytes: kept frames, or the caller's bytes.
 pub const Piece = struct {
     /// Where the run starts on the stream, and its length.
     offset: u64,
     len: usize,
-    /// The caller's octets, or null for kept frames, which start at `kept_start` in `kept`.
+    /// The caller's bytes, or null for kept frames, which start at `kept_start` in `kept`.
     caller: ?[*]const u8,
     kept_start: usize,
 
@@ -29,9 +29,9 @@ pub const Pieces = struct {
     kept_len: usize,
     runs: [constants.limits.quic_response_pieces_max]Piece,
     runs_len: usize,
-    /// One past the stream's last octet the runs hold.
+    /// One past the stream's last byte the runs hold.
     end: u64,
-    /// Octets of the caller's runs held, which the caller may not write again until the peer
+    /// Bytes of the caller's runs held, which the caller may not write again until the peer
     /// acknowledges them (design §8 step 46).
     caller_len: usize,
 
@@ -52,7 +52,7 @@ pub const Pieces = struct {
         return pieces.runs_len < pieces.runs.len;
     }
 
-    /// Adds the `len` octets just written at the front of `kept_room` as the stream's next run.
+    /// Adds the `len` bytes just written at the front of `kept_room` as the stream's next run.
     pub fn add_kept(pieces: *Pieces, len: usize) void {
         assert(pieces.has_room());
         assert(len > 0 and len <= pieces.kept.len - pieces.kept_len);
@@ -74,15 +74,15 @@ pub const Pieces = struct {
     }
 
     /// Whether `release_below` can drop a run once the peer has acknowledged `acknowledged_len`
-    /// octets of the stream. The offset under which it acknowledged every octet is no higher, so
+    /// bytes of the stream. The offset under which it acknowledged every byte is no higher, so
     /// no run is dropped unless the first one ends within that count.
     pub fn may_release(pieces: *const Pieces, acknowledged_len: u64) bool {
         return pieces.runs_len > 0 and pieces.runs[0].end() <= acknowledged_len;
     }
 
     /// Drops every run below `acknowledged`, the offset under which the peer has acknowledged
-    /// every octet, and moves the kept frames after them down to the front of `kept`. Returns the
-    /// octets of the caller's runs dropped, which a coded response frees from its ring.
+    /// every byte, and moves the kept frames after them down to the front of `kept`. Returns the
+    /// bytes of the caller's runs dropped, which a coded response frees from its ring.
     pub fn release_below(pieces: *Pieces, acknowledged: u64) usize {
         assert(acknowledged <= pieces.end);
         var dropped: usize = 0;
@@ -107,8 +107,8 @@ pub const Pieces = struct {
         return caller_dropped;
     }
 
-    /// The stream's octets from `offset`, as many as fit `output`. Every call at one offset answers
-    /// the same octets, which RFC 9000 §2.2 asks of a retransmission.
+    /// The stream's bytes from `offset`, as many as fit `output`. Every call at one offset answers
+    /// the same bytes, which RFC 9000 §2.2 asks of a retransmission.
     pub fn read(pieces: *const Pieces, offset: u64, output: []u8) usize {
         var written: usize = 0;
         for (pieces.runs[0..pieces.runs_len]) |run| {
@@ -152,7 +152,7 @@ test "decision 103: a stream reads as its kept frames and the caller's octets in
     try testing.expectEqual(16, pieces.end);
     var output: [32]u8 = undefined;
     try testing.expectEqualStrings("HEADhelloDHworld", output[0..pieces.read(0, &output)]);
-    // RFC 9000 §2.2: a resend at one offset reads the same octets, across runs.
+    // RFC 9000 §2.2: a resend at one offset reads the same bytes, across runs.
     try testing.expectEqualStrings("lloDHw", output[0..pieces.read(6, output[0..6])]);
     try testing.expectEqual(0, pieces.read(16, &output));
 }
@@ -164,7 +164,7 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     pieces.add_caller("hello");
     test_keep(pieces, "DH");
     pieces.add_caller("world");
-    // Design §8 step 46: the caller's octets held, and not the kept frames.
+    // Design §8 step 46: the caller's bytes held, and not the kept frames.
     try testing.expectEqual(10, pieces.caller_len);
     // A run partly acknowledged stays whole.
     try testing.expectEqual(0, pieces.release_below(6));
@@ -175,9 +175,9 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     test_keep(pieces, "TRAILERS");
     var output: [32]u8 = undefined;
     try testing.expectEqualStrings("helloDHworldTRAILERS", output[0..pieces.read(4, &output)]);
-    // The octets below the first run held are acknowledged, and read as none.
+    // The bytes below the first run held are acknowledged, and read as none.
     try testing.expectEqual(0, pieces.read(0, &output));
-    // The caller's octets dropped are "hello" and "world"; the kept frames are not the caller's.
+    // The caller's bytes dropped are "hello" and "world"; the kept frames are not the caller's.
     try testing.expectEqual(10, pieces.release_below(pieces.end));
     try testing.expectEqual(0, pieces.caller_len);
     try testing.expectEqual(0, pieces.runs_len);
@@ -192,7 +192,7 @@ test "a release can drop a run only once its first run is acknowledged in count"
     try testing.expect(!pieces.may_release(0));
     test_keep(pieces, "HEAD");
     pieces.add_caller("hello");
-    // The first run is four octets: a count of three cannot cover it, and a count of four can.
+    // The first run is four bytes: a count of three cannot cover it, and a count of four can.
     try testing.expect(!pieces.may_release(3));
     try testing.expect(pieces.may_release(4));
     try testing.expectEqual(0, pieces.release_below(3));
@@ -227,7 +227,7 @@ fn run_pieces(pieces: *Pieces, record: []u8) usize {
 }
 
 test "pieces read the same whatever their storage held before init" {
-    // `quic_request.zig`'s `make_record` leaves the pieces' octets unfilled, so `init` must write
+    // `quic_request.zig`'s `make_record` leaves the pieces' bytes unfilled, so `init` must write
     // every field a read reaches.
     const fills = [_]u8{ 0x00, 0xff, 0xaa };
     var first: [64]u8 = undefined;

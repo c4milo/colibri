@@ -2,7 +2,7 @@
 //! example runs against.
 //!
 //! The server is one `server.Engine` with four TCP slots in cleartext, which names no version
-//! and reads h11 from the client's first octets (decision 117). Each socket the client connects is
+//! and reads h11 from the client's first bytes (decision 117). Each socket the client connects is
 //! one stream of the link, and the listener accepts it. The server answers each GET of
 //! `/greeting` with a greeting. `docs/usage.md` shows the server's calls with the server example,
 //! so the comments here are short.
@@ -17,7 +17,7 @@ const streams_max = link_module.streams_max;
 
 pub const greeting = "hello from colibri over one of four connections\n";
 
-/// The octets the server writes before it sends them, at most.
+/// The bytes the server writes before it sends them, at most.
 const output_len = 16384;
 
 /// Events the server takes from one stream in one turn, and calls to `send_stream` one `send`
@@ -28,7 +28,7 @@ const sends_per_event_max = 4;
 pub const Error = error{
     /// What arrived is not what was sent.
     ExchangeWrong,
-    /// A connection still owed octets after `sends_per_event_max` calls to `send_stream`.
+    /// A connection still owed bytes after `sends_per_event_max` calls to `send_stream`.
     SendUnfinished,
 };
 
@@ -70,14 +70,14 @@ pub fn closed(stream: usize) void {
     accepted[stream] = null;
 }
 
-/// One turn of the server: fire its deadlines, pass the engine the octets each socket read, and
+/// One turn of the server: fire its deadlines, pass the engine the bytes each socket read, and
 /// act on every event it reports.
 pub fn turn() !void {
     try link.receive(.server);
     const now_ns = link.now_ns(.server);
     engine.on_instant(now_ns);
     for (0..streams_max) |stream| try read(stream, now_ns);
-    // What the engine reports with no octets: the ends of the connections the client closed.
+    // What the engine reports with no bytes: the ends of the connections the client closed.
     for (0..events_per_stream_max) |_| {
         engine.receive(.none, now_ns, &received);
         const event = if (received.event) |*reported| reported else break;

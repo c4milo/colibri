@@ -33,7 +33,7 @@ comptime {
     assert(blocked_counts[blocked_counts.len - 1] == qpack.constants.limits.blocked_streams_max);
 }
 
-/// The octets a drawn value is made of.
+/// The bytes a drawn value is made of.
 const value_alphabet = "abcdefghijklmnopqrstuvwxyz0123456789-";
 
 pub const Line = struct {

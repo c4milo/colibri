@@ -12,7 +12,7 @@
 //! Every decoded section must be the one the plan wrote, line for line. No decoder or encoder
 //! may refuse what the other sent: that would be a blocked stream past the limit, a reference to
 //! an evicted entry, or an acknowledgment for nothing. At the end every section is decoded or
-//! cancelled, nothing is blocked, every octet was read, and the encoder has nothing outstanding.
+//! cancelled, nothing is blocked, every byte was read, and the encoder has nothing outstanding.
 //! Each seed runs twice, and the two runs must write the same trace and draw the same count of
 //! values (invariant 6).
 const std = @import("std");
@@ -38,7 +38,7 @@ pub const census_crc32_expected: u32 = 0xf7bc7677;
 /// Where one planned section is.
 const State = enum { unwritten, written, blocked, decoded, cancelled };
 
-/// One octet stream between the two endpoints: what was written, what reached the other side,
+/// One byte stream between the two endpoints: what was written, what reached the other side,
 /// and what the other side has read.
 const Stream = struct {
     written: u32 = 0,
@@ -72,7 +72,7 @@ pub const Violation = error{
     EncoderFailed,
     /// A section decoded to lines other than the ones written.
     DecodedWrong,
-    /// The steps ran out, or the run ended with a section, an octet or a reference left over.
+    /// The steps ran out, or the run ended with a section, a byte or a reference left over.
     Unfinished,
 };
 
@@ -368,7 +368,7 @@ const Run = struct {
         return null;
     }
 
-    /// Nothing may be left: every section decoded or cancelled, nothing blocked, every octet read,
+    /// Nothing may be left: every section decoded or cancelled, nothing blocked, every byte read,
     /// and nothing outstanding at the encoder.
     fn finish(run: *const Run) Violation!void {
         for (run.storage.states[0..run.storage.plan.len]) |state| {

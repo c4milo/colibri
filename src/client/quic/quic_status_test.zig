@@ -37,9 +37,9 @@ const status_name_reference = "\x5f\x09";
 /// The longest status text a test writes, whose string length takes 7 bits with the Huffman bit
 /// clear (RFC 7541 §5.2, which RFC 9204 §4.1.2 uses).
 const status_text_len_max: usize = 4;
-/// Octets of the HEADERS frame before its payload: its type and its length, each one octet.
+/// Bytes of the HEADERS frame before its payload: its type and its length, each one byte.
 const frame_prefix_len: usize = 2;
-/// Octets of the payload before the status text: the prefix, the name and the string length.
+/// Bytes of the payload before the status text: the prefix, the name and the string length.
 const payload_prefix_len: usize = section_prefix.len + status_name_reference.len + 1;
 
 /// Sends one GET, and has the server answer it with a HEADERS frame of `:status` `text` and the

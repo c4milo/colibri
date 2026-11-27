@@ -11,7 +11,7 @@ var qpack_storage: qpack_check.Storage align(@alignOf(qpack_check.Storage)) = un
 var qpack_input_storage: qpack_input_check.Storage align(@alignOf(qpack_input_check.Storage)) = undefined;
 var h3_storage: h3_check.Storage align(@alignOf(h3_check.Storage)) = undefined;
 
-/// The octets of `text` up to and including its last newline: the whole lines a trace holds.
+/// The bytes of `text` up to and including its last newline: the whole lines a trace holds.
 fn whole_lines_len(text: []const u8) usize {
     const last = std.mem.lastIndexOfScalar(u8, text, '\n') orelse return 0;
     return last + 1;

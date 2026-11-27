@@ -1,6 +1,6 @@
 //! The agreement of the head writers with the writers they replaced (design §8 step 17). Before
 //! `message_write_fields.Checked.add`, each rule scanned the field lines itself. `reference` keeps
-//! that code, test-only, and the tests require the same octets or the same error from both, over
+//! that code, test-only, and the tests require the same bytes or the same error from both, over
 //! every list of up to three lines from `atoms`.
 //!
 //! `connection_fields_test.zig` reads `reference` too, for a connection's rules.
@@ -127,7 +127,7 @@ pub const reference = struct {
 };
 
 /// The lines the lists are made of: one of each fault, each name a rule reads in more than one
-/// case, and names one octet away from those names.
+/// case, and names one byte away from those names.
 pub const atom = struct {
     pub const plain: Field = .{ .name = "Content-Type", .value = "text/plain" };
     pub const content_length: Field = .{ .name = "Content-Length", .value = "8" };
@@ -197,7 +197,7 @@ pub fn list_at(set: []const Field, index: usize, lines: *[list_len_max]Field) []
     unreachable;
 }
 
-/// Requires the same octets from both writers, or the same error.
+/// Requires the same bytes from both writers, or the same error.
 pub fn expect_same(new: anytype, new_output: []const u8, old: @TypeOf(new), old_output: []const u8) !void {
     const old_len = old catch |failure| return testing.expectError(failure, new);
     try testing.expectEqualStrings(old_output[0..old_len], new_output[0..try new]);

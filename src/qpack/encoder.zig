@@ -45,7 +45,7 @@ pub const Encoder = struct {
     plan: encoder_plan.Plan,
 
     /// When a string is Huffman coded (RFC 9204 §4.1.2). `when_shorter` is what §7.2 leaves an
-    /// implementation to decide: coding a string that does not shrink costs octets and cycles.
+    /// implementation to decide: coding a string that does not shrink costs bytes and cycles.
     pub const HuffmanUse = enum { never, always, when_shorter };
 
     /// The two QPACK settings the peer's decoder advertised (RFC 9204 §5), both zero by default.
@@ -141,7 +141,7 @@ pub const Encoder = struct {
     /// Reads every whole instruction on the decoder stream (RFC 9204 §4.4), and leaves a partial
     /// one unread for the caller to present again with more.
     pub fn read_decoder_stream(encoder: *Encoder, reader: *Reader) DecoderStreamError!void {
-        // Bounded by the octets the caller gave, since every instruction consumes at least one.
+        // Bounded by the bytes the caller gave, since every instruction consumes at least one.
         while (reader.remaining_len() > 0) {
             const held = instruction.read_decoder(reader) catch |failure| switch (failure) {
                 error.Truncated => return,
@@ -213,7 +213,7 @@ pub const Encoder = struct {
         return switch (encoder.huffman) {
             .never => .raw,
             .always => .huffman,
-            // RFC 9204 §7.2: coding a string that does not shrink spends octets to save none.
+            // RFC 9204 §7.2: coding a string that does not shrink spends bytes to save none.
             .when_shorter => if (wire.huffman.encoded_len(octets) < octets.len) .huffman else .raw,
         };
     }

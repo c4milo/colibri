@@ -18,7 +18,7 @@
 //!    and the router of a route table.
 //! 2. A thread of its own calls `run`.
 //! 3. A `colibri.Client` sends two GETs over h11, then over h2, then over h3, and the program
-//!    checks each response octet for octet.
+//!    checks each response byte for byte.
 //! 4. A client with no handler hands the pool one request and cancels it, and runs one GET
 //!    through `fetch`. Its `deinit` stops the loop that `fetch` made.
 //! 5. The program calls `shutdown`, and the server's `run` returns once each connection has
@@ -183,7 +183,7 @@ const Fetch = struct {
 var fetched: Fetch align(@alignOf(Fetch)) = .{};
 
 /// Sends the two GETs through a client that speaks `protocols`, over TLS to the server, and checks
-/// that `expected` carried them and that each response arrived octet for octet.
+/// that `expected` carried them and that each response arrived byte for byte.
 fn fetch(crypto: stdx.crypto.Context, protocols: client.Protocols, expected: client.Protocol) !void {
     try http_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = http_server.port() },

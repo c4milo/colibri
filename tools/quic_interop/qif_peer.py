@@ -2,14 +2,14 @@
 """ls-qpack, through pylsqpack, on either side of the QIF interop of design §8 step 11.
 
 pylsqpack is the QPACK of aioquic, and wraps ls-qpack. The files are the "QPACK Offline Interop"
-format's: blocks of a 64-bit stream ID, a 32-bit length and the octets, both in network byte order,
+format's: blocks of a 64-bit stream ID, a 32-bit length and the bytes, both in network byte order,
 where stream 0 is the encoder stream.
 
     qif_peer.py encode <input.qif> <output> <capacity> <blocked-streams> [reorder]
     qif_peer.py decode <input> <output.qif> <capacity> <blocked-streams>
     qif_peer.py compare <input.qif> <decoded.qif>
 
-`reorder` writes each section ahead of the encoder stream octets written with it, so a decoder
+`reorder` writes each section ahead of the encoder stream bytes written with it, so a decoder
 that may block must. `compare` requires the decoded file's sets, each under a `# stream <id>`
 comment, to be the input's in stream order.
 """

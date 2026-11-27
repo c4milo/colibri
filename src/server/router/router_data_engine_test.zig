@@ -2,9 +2,9 @@
 //! step 50f): the router runs on the engines of the TCP and QUIC tests, which report each event
 //! to it. `on_data` reads each piece of a body of two events, and a message that the two cut.
 //! Over h2 the end of the body comes with the last DATA frame, so `ended` is true at the last
-//! piece. Over h11 and h3 the end comes in a later event with no octets. At the end, a route that
+//! piece. Over h11 and h3 the end comes in a later event with no bytes. At the end, a route that
 //! kept the whole body reads it as the last piece (decision 163 ruling 6 as amended). Through a
-//! wrapper, the router copies kept octets into the entry's `body_bytes`, and no other piece.
+//! wrapper, the router copies kept bytes into the entry's `body_bytes`, and no other piece.
 const std = @import("std");
 const h2 = @import("h2");
 const quic = @import("quic");
@@ -23,17 +23,17 @@ var engine_app: data.App align(@alignOf(data.App)) = .{};
 const tcp_engine = &tcp_support.engine;
 const quic_engine = &quic_support.engine_support.engine;
 
-/// The body of each test, in two pieces, and a message of three octets that the two pieces cut.
+/// The body of each test, in two pieces, and a message of three bytes that the two pieces cut.
 const first_piece = "ab";
 const second_piece = "cd";
 const first_part = "\x03ab";
 const second_part = "c";
-/// A body with no length that the route keeps whole, and one octet past `body_bytes` in two parts.
+/// A body with no length that the route keeps whole, and one byte past `body_bytes` in two parts.
 const whole_body = first_piece ++ second_piece;
 const long_first = "01234567";
 const long_second = "89abcdef!";
 /// Messages through a wrapper: one whose window leaves less room than a long message takes, and
-/// one that copies the kept octets alone.
+/// one that copies the kept bytes alone.
 const windowed_first = "\x01a\x07bcd";
 const windowed_second = "efgh";
 const windowed_messages = "abcdefgh";
@@ -46,7 +46,7 @@ const rounds_piece = 4;
 const rounds_max = 64;
 const ok_code: u16 = 200;
 const too_large_code: u16 = 413;
-/// Octets of the payload of a DATA frame a test sends at most, and of a trailer section's block.
+/// Bytes of the payload of a DATA frame a test sends at most, and of a trailer section's block.
 const data_len_max = (long_first ++ long_second).len;
 const trailer_block_len = 16;
 /// The pieces and the copies of the two calls of `on_data` over the wrapped messages. The first
@@ -129,7 +129,7 @@ fn expect_end_later() !void {
 const h11_head = "POST /collect HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n";
 const h11_framed_head = "POST /framed HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\n";
 
-/// The head of an h11 POST of `path` with a body of `length` octets.
+/// The head of an h11 POST of `path` with a body of `length` bytes.
 fn h11_post(comptime path: []const u8, comptime length: []const u8) []const u8 {
     return "POST " ++ path ++ " HTTP/1.1\r\nHost: example.com\r\nContent-Length: " ++ length ++ "\r\n\r\n";
 }
@@ -263,7 +263,7 @@ test "decision 163 ruling 6 as amended: a body kept whole is read as the last pi
     const handle = try start_h2("/whole");
     try give_data(handle, first_piece, false);
     try give_data(handle, second_piece, true);
-    // RFC 9113 §6.1: END_STREAM comes with the last octets, so the last call joins them, and then
+    // RFC 9113 §6.1: END_STREAM comes with the last bytes, so the last call joins them, and then
     // gives them again as the last piece.
     try expect_whole(2);
     try testing.expectEqual(ok_code, written_status());
@@ -280,7 +280,7 @@ test "decision 163 ruling 6 as amended: a body kept whole is read as the last pi
 
 test "RFC 9110 §15.5.14: a last piece kept past body_bytes gets 413, over h2" {
     const handle = try start_h2("/whole");
-    // The end comes with the octets, so the router holds none of them.
+    // The end comes with the bytes, so the router holds none of them.
     try give_data(handle, long_first ++ long_second, true);
     try testing.expectEqual(1, engine_app.pieces[0]);
     try testing.expectEqual(too_large_code, written_status());
@@ -313,7 +313,7 @@ fn start_quic(path: []const u8, content: []const u8) !*quic_support.Fetch {
     return quic_support.stage_request("POST", path, &.{}, content, &.{});
 }
 
-/// Supplies the content of `fetch` up to `len` octets, with a FIN when `fin` is set, and moves
+/// Supplies the content of `fetch` up to `len` bytes, with a FIN when `fin` is set, and moves
 /// datagrams both ways.
 fn supply(fetch: *const quic_support.Fetch, len: usize, fin: bool) !void {
     try quic.Connection.supply(&quic_support.client, .{ .value = fetch.id }, fetch.prefix_len + len, fin);

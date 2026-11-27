@@ -51,7 +51,7 @@ pub const Datagram = engine_state.Datagram;
 pub const StreamBytes = engine_state.StreamBytes;
 
 /// How many connections an engine holds, fixed at build time (decision 35): its TCP and its
-/// QUIC connections, either of which may be 0, and the octets each QUIC connection holds that it
+/// QUIC connections, either of which may be 0, and the bytes each QUIC connection holds that it
 /// has not read (decision 61).
 pub const Capacity = struct {
     tcp_connections: usize = constants.limits.tcp_connections_default,
@@ -182,7 +182,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         }
 
         /// Takes what `input` brings, then reports the next event any connection owes. The
-        /// caller passes the octets each TCP socket read and each datagram the UDP socket read,
+        /// caller passes the bytes each TCP socket read and each datagram the UDP socket read,
         /// and calls with `.none` after every call that changes a connection, until a call reports
         /// nothing: an answer, `cancel`, `send_stream`, `transport_closed`, `shutdown` and
         /// `on_instant`. Each leaves what follows it, a slot's release included, to the next
@@ -193,7 +193,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
         /// `transport_closed` or `shutdown`.
         ///
-        /// The call writes the octets it took and the event into `result`, which the program
+        /// The call writes the bytes it took and the event into `result`, which the program
         /// owns and keeps from call to call, and returns nothing (decision 165). A call that
         /// reports nothing writes null there.
         pub fn receive(engine: *Self, input: Input, now_ns: u64, result: *event.ReceiveResult) void {
@@ -213,8 +213,8 @@ pub fn Engine(comptime capacity: Capacity) type {
             return engine.state.respond(id, response);
         }
 
-        /// Takes content of the response to request `id`, and returns the octets taken. Nothing is
-        /// copied over QUIC: the octets stay the caller's until the request is `done` or
+        /// Takes content of the response to request `id`, and returns the bytes taken. Nothing is
+        /// copied over QUIC: the bytes stay the caller's until the request is `done` or
         /// `cancelled` (decision 103). A take of less than `content`, or `error.Blocked`, says the
         /// response has no room for more: its `writable` comes once it has.
         pub fn write_body(engine: *Self, id: RequestId, content: event.ResponseBody) SendError!usize {
@@ -222,7 +222,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         }
 
         /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
-        /// `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last octets wait, says
+        /// `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last bytes wait, says
         /// the response has no room for it: its `writable` comes once it has.
         pub fn write_trailers(engine: *Self, id: RequestId, fields: []const http.Field) SendError!void {
             return engine.state.write_trailers(id, fields);
@@ -241,8 +241,8 @@ pub fn Engine(comptime capacity: Capacity) type {
         }
 
         /// Writes into `output` what the TCP connection `connection` owes its socket, and returns
-        /// the octets written: 0 for a handle that names no connection. The engine reports a
-        /// `send` when a connection owes octets no call has taken. A program may also call this
+        /// the bytes written: 0 for a handle that names no connection. The engine reports a
+        /// `send` when a connection owes bytes no call has taken. A program may also call this
         /// for an open connection at any time, such as straight after it writes a response, which
         /// sends before the connection is read again. A call that fills `output` leaves more
         /// owed, and the caller calls again. One that leaves room ends the `send`: the engine
@@ -254,20 +254,20 @@ pub fn Engine(comptime capacity: Capacity) type {
 
         /// Returns what the TCP connection `connection` owes its socket, sealed over TLS, where the
         /// engine holds it (decision 176). The program sends from there, and then calls
-        /// `sent_stream` with what the send took, so its send copies no octet. Until that call the
-        /// engine keeps the octets in place, takes no `send_stream` of the connection, and reports
+        /// `sent_stream` with what the send took, so its send copies no byte. Until that call the
+        /// engine keeps the bytes in place, takes no `send_stream` of the connection, and reports
         /// no `ended` of it, whatever ended the connection. A program calls this again before the
-        /// send starts, at each `send`: it returns the same octets from the same front, and those
+        /// send starts, at each `send`: it returns the same bytes from the same front, and those
         /// written since. Empty for a handle that names no connection, and for a connection whose
-        /// socket closed. The engine reports a `send` for octets no call returned yet.
+        /// socket closed. The engine reports a `send` for bytes no call returned yet.
         pub fn output_stream(engine: *Self, connection: ConnectionHandle, now_ns: u64) []const u8 {
             return engine.state.output_stream(connection, now_ns);
         }
 
         /// The send of what `output_stream` returned for `connection` took its first `sent`
-        /// octets: 0 for a send that failed or never went. The rest stays owed, and the engine
+        /// bytes: 0 for a send that failed or never went. The rest stays owed, and the engine
         /// reports another `send`. The program makes this call for each `output_stream` that
-        /// returned octets, also after the socket closed.
+        /// returned bytes, also after the socket closed.
         pub fn sent_stream(engine: *Self, connection: ConnectionHandle, sent: usize, now_ns: u64) void {
             engine.state.sent_stream(connection, sent, now_ns);
         }

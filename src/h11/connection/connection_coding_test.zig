@@ -28,13 +28,13 @@ const test_output_len = 512;
 const test_text_repeats = 12;
 /// The body the tests code.
 const test_text = "a coded body decodes to the octets it was coded from. " ** test_text_repeats;
-/// RFC 1952 §2.3: a member ends with CRC32 and ISIZE, four octets each.
+/// RFC 1952 §2.3: a member ends with CRC32 and ISIZE, four bytes each.
 const crc32_offset_from_end = 8;
-/// Octets of the hex chunk-size of a test chunk, which is under 16^2.
+/// Bytes of the hex chunk-size of a test chunk, which is under 16^2.
 const chunk_size_digits_max = 2;
-/// Octets of coded data each chunk of a test body carries.
+/// Bytes of coded data each chunk of a test body carries.
 const test_chunk_len = 37;
-/// Calls `read_all` makes past one per octet decoded: the heads, the owed end, and the last call.
+/// Calls `read_all` makes past one per byte decoded: the heads, the owed end, and the last call.
 const test_calls_past_len = 4;
 
 const host: []const Field = &.{.{ .name = "Host", .value = "h" }};
@@ -62,7 +62,7 @@ fn chunked_message(head: []const u8, coded: []const u8) ![]const u8 {
     var writer = core.Writer.init(&test_input);
     try writer.write_bytes(head);
     var offset: usize = 0;
-    // Bounded by the coded octets.
+    // Bounded by the coded bytes.
     while (offset < coded.len) {
         const piece = coded[offset..@min(coded.len, offset + test_chunk_len)];
         var size: [chunk_size_digits_max]u8 = undefined;
@@ -76,11 +76,11 @@ fn chunked_message(head: []const u8, coded: []const u8) ![]const u8 {
     return writer.written();
 }
 
-/// What `read_all` saw: the octets consumed, the data the events carried, and whether `end` came.
+/// What `read_all` saw: the bytes consumed, the data the events carried, and whether `end` came.
 const Whole = struct { consumed: usize, body: []const u8, ended: bool };
 
-/// Receives from `input` with `room` octets for decoding, until nothing is consumed, gathering
-/// every data event's octets into `body`.
+/// Receives from `input` with `room` bytes for decoding, until nothing is consumed, gathering
+/// every data event's bytes into `body`.
 fn read_all(target: *Connection, input: []const u8, room: usize, body: []u8) !Whole {
     var decoded: [test_text.len]u8 = undefined;
     var offset: usize = 0;

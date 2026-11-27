@@ -9,17 +9,17 @@
 //!
 //! A field name is checked in this order (invariant 7):
 //!   1. not empty, or `error.FieldNameEmpty` (a token is one or more tchar, RFC 9110 §5.6.2);
-//!   2. at most `field_name_len_max` octets, or `error.FieldNameTooLong`;
-//!   3. every octet a tchar, or `error.FieldNameNotToken` (RFC 9110 §5.1, §5.6.2).
+//!   2. at most `field_name_len_max` bytes, or `error.FieldNameTooLong`;
+//!   3. every byte a tchar, or `error.FieldNameNotToken` (RFC 9110 §5.1, §5.6.2).
 //!
 //! A field value is checked in this order:
-//!   1. at most `field_value_len_max` octets, or `error.FieldValueTooLong`;
+//!   1. at most `field_value_len_max` bytes, or `error.FieldValueTooLong`;
 //!   2. no NUL, CR or LF anywhere, or `error.FieldValueNulCarriageReturnOrLineFeed`;
-//!   3. no other control octet anywhere, or `error.FieldValueControl`;
+//!   3. no other control byte anywhere, or `error.FieldValueControl`;
 //!   4. no leading SP or HTAB, or `error.FieldValueLeadingWhitespace`;
 //!   5. no trailing SP or HTAB, or `error.FieldValueTrailingWhitespace`.
 //! Checks 2 and 3 are distinct because RFC 9110 §5.5 treats them differently: CR, LF and NUL must
-//! be rejected or replaced, while a recipient may retain another control octet in a safe context.
+//! be rejected or replaced, while a recipient may retain another control byte in a safe context.
 //! h3 has no such choice: RFC 9114 §10.3 makes a value holding any character field-content does not
 //! permit malformed, so the h3 module refuses check 3's reason and cites that section.
 //!
@@ -54,10 +54,10 @@ pub const ValueError = error{
 /// The slices point into storage the caller or a `field_section.FieldSection` owns.
 pub const Field = struct { name: []const u8, value: []const u8 };
 
-/// The octets RFC 9110 §5.6.2 lists as tchar: `!#$%&'*+-.^_`|~`, DIGIT and ALPHA.
+/// The bytes RFC 9110 §5.6.2 lists as tchar: `!#$%&'*+-.^_`|~`, DIGIT and ALPHA.
 const tchar_punctuation = "!#$%&'*+-.^_`|~";
 
-/// One entry per octet value.
+/// One entry per byte value.
 const TcharTable = [std.math.maxInt(u8) + 1]bool;
 
 const tchar_table: TcharTable = build_tchar_table();
@@ -71,7 +71,7 @@ fn build_tchar_table() TcharTable {
     return table;
 }
 
-/// True for an octet RFC 9110 §5.6.2 admits in a token.
+/// True for a byte RFC 9110 §5.6.2 admits in a token.
 pub fn is_tchar(octet: u8) bool {
     return tchar_table[octet];
 }
@@ -92,9 +92,9 @@ pub fn validate_name(name: []const u8) NameError!void {
 pub fn validate_value(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
     if (value.len > limits.limits.field_value_len_max) return error.FieldValueTooLong;
-    // A value of `word_len` octets or more in which `field_value.has_control` finds no control
-    // octet holds no class, and the loop is skipped. Otherwise every octet's class is read and no
-    // octet ends the loop, so a pass is a table read and an OR. Which octet held a class does not
+    // A value of `word_len` bytes or more in which `field_value.has_control` finds no control
+    // byte holds no class, and the loop is skipped. Otherwise every byte's class is read and no
+    // byte ends the loop, so a pass is a table read and an OR. Which byte held a class does not
     // matter: NUL, CR or LF anywhere is reported first.
     var classes: u8 = 0;
     const clean = value.len >= field_value.word_len and !field_value.has_control(value);
@@ -141,13 +141,13 @@ fn is_control(octet: u8) bool {
     return std.ascii.isControl(octet) and octet != '\t';
 }
 
-/// One entry per octet value: what RFC 9110 §5.5 says of that octet in a field value. An entry is
+/// One entry per byte value: what RFC 9110 §5.5 says of that byte in a field value. An entry is
 /// `class_nul_cr_lf`, `class_control` or 0, and `validate_value` ORs the entries of a value.
 const ValueClassTable = [std.math.maxInt(u8) + 1]u8;
 
 /// NUL, CR or LF.
 const class_nul_cr_lf: u8 = 1 << 1;
-/// A control octet other than those three and HTAB.
+/// A control byte other than those three and HTAB.
 const class_control: u8 = 1 << 0;
 
 const value_class_table: ValueClassTable = build_value_class_table();
@@ -155,7 +155,7 @@ const value_class_table: ValueClassTable = build_value_class_table();
 fn build_value_class_table() ValueClassTable {
     var table: ValueClassTable = @splat(0);
     for (&table, 0..) |*class, octet| {
-        // RFC 9110 §5.5: CR, LF and NUL are the octets a recipient must reject or replace.
+        // RFC 9110 §5.5: CR, LF and NUL are the bytes a recipient must reject or replace.
         const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
         // RFC 9110 §5.5: field-vchar is VCHAR or obs-text, with SP and HTAB between them.
         class.* = if (forbidden) class_nul_cr_lf else if (is_control(@intCast(octet))) class_control else 0;
@@ -179,7 +179,7 @@ test "every tchar RFC 9110 §5.6.2 lists is a tchar, and nothing else is" {
     for (0..256) |octet| {
         if (is_tchar(@intCast(octet))) count += 1;
     }
-    // Fifteen punctuation octets, ten digits and fifty-two letters.
+    // Fifteen punctuation bytes, ten digits and fifty-two letters.
     try testing.expectEqual(15 + 10 + 52, count);
     for ("\"(),/:;<=>?@[\\]{}") |delimiter| try testing.expect(!is_tchar(delimiter));
     for (" \t\x00\x7f\x80\xff") |octet| try testing.expect(!is_tchar(octet));
@@ -213,7 +213,7 @@ test "a field value is refused in check order" {
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, validate_value("a\x00b"));
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, validate_value("a\rb"));
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, validate_value("a\nb"));
-    // A control octet seen before a NUL still reports the NUL first.
+    // A control byte seen before a NUL still reports the NUL first.
     const control_then_nul = validate_value("\x01\x00");
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, control_then_nul);
     try testing.expectError(error.FieldValueControl, validate_value("a\x01b"));
@@ -277,7 +277,7 @@ test "fuzz: a name or value that validates holds no forbidden octet" {
     } });
 }
 
-/// Most octets `fuzz_trim` reads. Test-only.
+/// Most bytes `fuzz_trim` reads. Test-only.
 const fuzz_trim_input_len_max = 16;
 
 fn fuzz_trim(_: void, smith: *testing.Smith) anyerror!void {
@@ -308,11 +308,11 @@ test "sweep: every name or value of up to two octets that validates holds no for
     try core.fuzz.sweep(fuzz_validate, null);
 }
 
-// The tests below hold `validate_value` to the loop it replaced. That loop tested each octet with
+// The tests below hold `validate_value` to the loop it replaced. That loop tested each byte with
 // compares and returned from inside itself at NUL, CR or LF. It stays here as the reference:
 // `validate_value` must give every value the verdict the reference gives it.
 
-/// The reference: `validate_value` as it was, octet by octet.
+/// The reference: `validate_value` as it was, byte by byte.
 fn validate_value_by_octet(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
     if (value.len > limits.limits.field_value_len_max) return error.FieldValueTooLong;
@@ -358,20 +358,20 @@ fn expect_same(value: []const u8) !void {
     return error.TestUnexpectedResult;
 }
 
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
-/// The longest value the tests vary one octet of.
+/// The longest value the tests vary one byte of.
 const varied_len_max = 40;
-/// The longest value the tests put two octets into.
+/// The longest value the tests put two bytes into.
 const paired_len_max = 20;
-/// The last control octet below SP, and DEL (RFC 5234 Appendix B.1).
+/// The last control byte below SP, and DEL (RFC 5234 Appendix B.1).
 const control_last: u8 = 0x1f;
 const delete: u8 = 0x7f;
-/// The highest obs-text octet (RFC 9110 §5.5).
+/// The highest obs-text byte (RFC 9110 §5.5).
 const obs_text_last: u8 = 0xff;
 /// What the rest of a varied value holds: a field-vchar, whitespace, and obs-text.
 const backgrounds = [_]u8{ 'a', ' ', obs_text_last };
-/// One octet of each kind `validate_value` tells apart, and the first and last control octets.
+/// One byte of each kind `validate_value` tells apart, and the first and last control bytes.
 const kinds = [_]u8{ 0x00, '\r', '\n', 0x01, control_last, delete, '\t', ' ', 'a' };
 
 test "validate_value gives every value of up to two octets the reference's verdict" {
@@ -387,7 +387,7 @@ test "validate_value gives every value of up to two octets the reference's verdi
     }
 }
 
-/// Compares on `value` with each octet value in turn at `position`, then puts `background` back.
+/// Compares on `value` with each byte value in turn at `position`, then puts `background` back.
 fn expect_same_with_each_octet(value: []u8, position: usize, background: u8) !void {
     for (0..octet_values) |octet| {
         value[position] = @intCast(octet);
@@ -434,7 +434,7 @@ test "validate_value gives the reference's verdict at the longest value and one 
     try expect_same(&buffer);
     const longest = buffer[0..limits.limits.field_value_len_max];
     try expect_same(longest);
-    // A control octet at the last place the loop reads, and NUL there.
+    // A control byte at the last place the loop reads, and NUL there.
     longest[longest.len - 1] = 0x7f;
     try expect_same(longest);
     longest[longest.len - 1] = 0x00;

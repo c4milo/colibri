@@ -159,8 +159,10 @@ is added to the root and to the list in its test, which prints the name that dif
 - The `server` and `client` APIs name each HTTP concept once, the same for h11, h2 and h3, with the
   word programmers know (decision 126): **header** and **headers**, **request body** and
   **response body**, **bytes**, **timeouts**. The protocol modules, and every comment that cites
-  an RFC, keep that RFC's terms: **field line** and **field section** (RFC 9110 §5.2), **content**
-  and **octets**.
+  an RFC, keep that RFC's terms: **field line** and **field section** (RFC 9110 §5.2) and
+  **content**. All prose and every comment say **bytes**, never octets. Only a quotation of an
+  RFC, an ABNF rule such as `OCTET` or `dec-octet`, and a name in the code keep the RFC's word
+  (decision 126 as amended on 2026-11-27).
 - Names spell words out. `field_section_size`, not `fss`. No vowel-dropping. Domain vocabulary
   the RFCs use stays as the RFCs spell it (`alpn`, `aead`, `hkdf`, `psk`, `dcid`, `scid`,
   `pto`, `rtt`, `ack`). One-letter names only for loop indices. `_len` always counts bytes.
@@ -283,7 +285,7 @@ tree. Design §11 holds the method and the numbers.
   syscall and a network round trip are orders of magnitude apart. Say which of the four a change
   moves, and by how much.
 - **Cross the caller's boundary in bulk.** One call reads a whole frame; one call writes every
-  reply colibri owes. A per-octet entry point is a per-octet cost.
+  reply colibri owes. A per-byte entry point is a per-byte cost.
 - **The hot path allocates nothing**, which non-negotiable 4 already requires. What is left to
   judge a change on is syscalls, copies, cache misses and branches.
 - **Lay out structs for the cache.** Keep the fields one function touches together, hold hot
@@ -348,7 +350,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   `src/colibri/rotor_host*.zig` import it; decision 159), type-function-suffix (a public type
   function is named for its thing, never `...Of`) and kept-options-pointer (an `init` copies
   what it keeps of a `*const` options parameter; decision 158 ruling 2) and slow-std (no
-  `std.mem.copyForwards` or `std.mem.copyBackwards`, which copy one octet a step in Zig 0.16;
+  `std.mem.copyForwards` or `std.mem.copyBackwards`, which copy one byte a step in Zig 0.16;
   `@memmove` in their place, design §8 step 55). The io rule exempts `src/testing/` and,
   of `src/colibri/`, the Rotor adapter and the tests of `.private` on loopback. Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. A third
@@ -431,7 +433,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   take `--h11`: in cleartext it makes them speak h11, and over TLS it makes them offer
   `http/1.1` alone instead of `h2` and then `http/1.1`. The
   server takes `--h2` for h2 alone the same way. With neither, the server in cleartext names no
-  version and speaks h2 when a connection's first octets are h2's preface and h11 otherwise
+  version and speaks h2 when a connection's first bytes are h2's preface and h11 otherwise
   (decision 117), as the h11 and h2 server scripts run it. The
   server takes `--h3-port <port>`, the UDP port each TLS connection advertises h3 on, and nghttp
   must read one ALTSVC frame naming it over TLS and none in cleartext (design §8 step 17b).
@@ -616,7 +618,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   9846 §9.1's mandatory TLS_AES_128_GCM_SHA256 only under that statement and where the features
   hold AES and the carry-less multiply, and ChaCha20 alone otherwise. On any other target chapulin builds its device
   object, `SUITE=chacha` over its software AES, because chapulin refuses AES-GCM over software AES
-  (chapulin's INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
+  (chapulin's INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from bytes the caller read, so an
   endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
   trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
   `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC
@@ -629,7 +631,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   may add one: a second copy fails the link. chapulin's module defines `ch_assert_fail` (decision
   172). A program that links `tls` makes one `stdx.crypto.Context` at start and puts it in each
   TLS value. Each image of `src/testing/` makes its context in `src/testing/cpu.zig`, of stdx's
-  `CpuFeatures.detect()`, taken once, and of `getentropy`'s octets (`src/testing/entropy.zig`).
+  `CpuFeatures.detect()`, taken once, and of `getentropy`'s bytes (`src/testing/entropy.zig`).
   Each thread that runs TLS sets PSTATE.DIT on arm64 where the core has FEAT_DIT. A virtual
   machine may hide FEAT_DIT. stdx then takes it from the MIDR of a core it lists, such as the
   Neoverse N2 of GitHub's arm64 runners (stdx's decision 40 as amended), and elsewhere the
@@ -696,7 +698,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   own (design §8 step 13i). An address is IPv4
   or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
   runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
-  checks each file arrives octet for octet, that a missing one is refused, that a client with
+  checks each file arrives byte for byte, that a missing one is refused, that a client with
   `chacha20` runs TLS_CHACHA20_POLY1305_SHA256, and that a second connection resumes the first one's
   session. It checks that a client's second connection to a server with `careful-resume` takes
   what its first one saved. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
@@ -771,7 +773,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   release for it (decision 47 as amended).
 - Format: `zig fmt --check build.zig bench build examples src tools`.
 - Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
-  example-<name>` runs one (decision 96). Each checks what arrived octet for octet.
+  example-<name>` runs one (decision 96). Each checks what arrived byte for byte.
   `tools/doc_snippets.sh` requires every Zig block in README.md, docs/usage.md and
   examples/README.md to be a verbatim excerpt of an example, of `tools/consumer/` or of
   `tools/consumer_hosted/`. `tools/consumer_check.sh` builds and runs `tools/consumer/` as a

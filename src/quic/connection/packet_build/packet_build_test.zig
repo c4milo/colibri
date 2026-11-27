@@ -19,7 +19,7 @@ const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvide
 const connection_recovery = @import("../connection_recovery.zig");
 const testing = std.testing;
 
-/// How many bits an octet holds, which reading a multi-octet field shifts by (RFC 9000 §1.3).
+/// How many bits a byte holds, which reading a multi-byte field shifts by (RFC 9000 §1.3).
 const bits_per_octet: u4 = 8;
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -130,8 +130,8 @@ pub const RoundTrip = struct {
         // RFC 9001 §5.5: a packet too short to hold the number and a tag cannot authenticate.
         if (protected < number_len + constants.protocol.aead_tag_len) return error.Discarded;
         var number: u64 = 0;
-        // Bounded by the field, which RFC 9000 §17.1 caps at four octets. The wire is network
-        // byte order (§1.3), so the octets are read most significant first.
+        // Bounded by the field, which RFC 9000 §17.1 caps at four bytes. The wire is network
+        // byte order (§1.3), so the bytes are read most significant first.
         for (opening.packet[opening.packet_number_offset..][0..number_len]) |octet| {
             number = (number << bits_per_octet) | octet;
         }
@@ -224,7 +224,7 @@ fn discard_keys(context: *anyopaque, level: Level) void {
     held.discards[@intFromEnum(level)] += 1;
 }
 
-/// A provider that owes `owed` octets at `owed_level` and nothing anywhere else
+/// A provider that owes `owed` bytes at `owed_level` and nothing anywhere else
 /// (`packet_build_test_support.zig`).
 pub const Fake = @import("packet_build_test_support.zig").Fake;
 
@@ -324,7 +324,7 @@ test "RFC 9369 §4.1: a client that switched builds its packets in the negotiate
 
 test "RFC 9001 §4.9: a level with nothing to send builds nothing" {
     open_connection();
-    // The provider owes octets at Initial alone, so the Handshake level has nothing and the
+    // The provider owes bytes at Initial alone, so the Handshake level has nothing and the
     // space owes no acknowledgment yet.
     fake = .{ .owed = &handshake_octets, .owed_level = .initial };
     try testing.expectEqual(null, try build_at(.handshake));
@@ -353,8 +353,8 @@ test "RFC 9000 §12.3, invariant 17: each packet takes the next number of its sp
 }
 
 test "RFC 9001 §5.4.2, decision 54: a short packet widens its number rather than padding" {
-    // No frame this file writes reaches four octets short, so the rule is checked directly.
-    // A one-octet payload under a one-octet number is two, and the sample needs four.
+    // No frame this file writes reaches four bytes short, so the rule is checked directly.
+    // A one-byte payload under a one-byte number is two, and the sample needs four.
     const narrow: packet_number.Truncated = .{ .value = 7, .len = 1 };
     const widened = packet_build.widen_for_sample(7, narrow, 1);
     try testing.expectEqual(constants.protocol.protected_len_min - 1, widened.len);
@@ -384,8 +384,8 @@ test "decision 35: the scratch is the caller's and its size is a comptime parame
 test "RFC 9000 §17.2: a long flight fills the datagram exactly and never past it" {
     open_connection();
     // More than one packet can hold, so the provider fills whatever room the header leaves. The
-    // packet must come out exactly the size of the buffer: a header counted one octet short
-    // would ask for an octet more than fits and `seal` would refuse it.
+    // packet must come out exactly the size of the buffer: a header counted one byte short
+    // would ask for a byte more than fits and `seal` would refuse it.
     fake = .{ .owed = &long_flight, .owed_level = .initial };
     const built = (try build_at(.initial)).?;
     try testing.expectEqual(datagram.len, built.len);
@@ -432,7 +432,7 @@ test "RFC 9000 §17.3: a 1-RTT packet is built with a short header and read back
 
 test "decision 35: a smaller scratch bounds the packet, not the datagram" {
     open_connection();
-    // The datagram has room for 1,200 octets and the scratch holds sixteen, so the scratch is
+    // The datagram has room for 1,200 bytes and the scratch holds sixteen, so the scratch is
     // what decides how much of a long flight one packet carries.
     fake = .{ .owed = &long_flight, .owed_level = .initial };
     const built = (try packet_build.build(
@@ -465,7 +465,7 @@ test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length
     }
     // §17.3.1: a short header carries no Version, no Source Connection ID and no Length, so its
     // packet runs to the end of the datagram. A builder that counted a Length field, or missed
-    // the Packet Number field, would leave the packet short of the buffer or ask for one octet
+    // the Packet Number field, would leave the packet short of the buffer or ask for one byte
     // past it, and only a payload that fills the room can tell.
     fake = .{ .owed = &long_flight, .owed_level = .application };
     const built = (try build_at(.application)).?;

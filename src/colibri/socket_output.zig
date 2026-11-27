@@ -1,7 +1,7 @@
-//! The octets a client's TCP socket holds to send (design §8 step 79): what its connection wrote
+//! The bytes a client's TCP socket holds to send (design §8 step 79): what its connection wrote
 //! and no send has taken. A server's socket holds none, since it sends what its engine lends
 //! (decision 176). `client.ConnectionPool` has no such calls, so its `send_stream` copies into
-//! this buffer. It writes after the octets a send in flight takes, and waits for the send once the
+//! this buffer. It writes after the bytes a send in flight takes, and waits for the send once the
 //! buffer is full (design §8 step 60).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -9,9 +9,9 @@ const constants = @import("constants.zig");
 
 pub const Output = struct {
     octets: [constants.limits.socket_output_len]u8,
-    /// Octets the connection wrote.
+    /// Bytes the connection wrote.
     len: usize,
-    /// Octets a send took, which are always the first ones.
+    /// Bytes a send took, which are always the first ones.
     sent: usize,
 
     /// Holds nothing.
@@ -30,12 +30,12 @@ pub const Output = struct {
         output.len += written;
     }
 
-    /// The octets no send has taken, which the socket's next send writes.
+    /// The bytes no send has taken, which the socket's next send writes.
     pub fn unsent(output: *const Output) []const u8 {
         return output.octets[output.sent..output.len];
     }
 
-    /// A send took `count` octets from the front of `unsent`. Once every octet is gone and no
+    /// A send took `count` bytes from the front of `unsent`. Once every byte is gone and no
     /// send is in flight, the buffer starts again at its front.
     pub fn took(output: *Output, count: usize) void {
         output.sent += count;

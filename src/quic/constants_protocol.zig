@@ -12,7 +12,7 @@ pub const version_1: u32 = @intFromEnum(crypto.suite.Version.v1);
 /// QUIC version 2 (RFC 9369 §3.1), named in `crypto` for the same reason.
 pub const version_2: u32 = @intFromEnum(crypto.suite.Version.v2);
 
-/// Most octets of a connection ID in version 1 (RFC 9000 §17.2): a long header that carries a
+/// Most bytes of a connection ID in version 1 (RFC 9000 §17.2): a long header that carries a
 /// longer one MUST be dropped. RFC 8999 permits 255, and only the version 1 reader applies this.
 /// Named in `crypto`, because a Retry token carries two (decision 55).
 pub const connection_id_len_max: u8 = crypto.constants.protocol.connection_id_len_max;
@@ -39,7 +39,7 @@ pub const short_reserved_bits: u8 = 0x18;
 /// The Spin Bit and the Key Phase bit of a short header (RFC 9000 §17.3.1).
 pub const spin_bit: u8 = 0x20;
 pub const key_phase_bit: u8 = crypto.constants.protocol.key_phase_bit;
-/// The Packet Number Length, one less than the field's length in octets (RFC 9000 §17.2).
+/// The Packet Number Length, one less than the field's length in bytes (RFC 9000 §17.2).
 pub const packet_number_len_mask: u8 = 0x03;
 /// The four bits of a Retry packet's byte 0 that carry no meaning (RFC 9000 §17.2.5).
 pub const retry_unused_bits: u8 = 0x0f;
@@ -52,7 +52,7 @@ pub const aead_tag_len: usize = crypto.constants.protocol.aead_tag_len;
 pub const protected_len_min: usize = crypto.constants.protocol.protected_len_min;
 
 /// The frame types of RFC 9000 §19, as Table 3 in §12.4 lists them. A type is a variable-length
-/// integer, and every one of these is a single octet (RFC 9000 §12.4).
+/// integer, and every one of these is a single byte (RFC 9000 §12.4).
 pub const frame_padding: u64 = 0x00;
 pub const frame_ping: u64 = 0x01;
 /// ACK without and with the ECN counts of §19.3.2; the low bit says which.
@@ -92,17 +92,17 @@ pub const stream_flag_fin: u64 = 0x01;
 /// MAX_STREAMS or STREAMS_BLOCKED type, which says unidirectional (§19.11, §19.14).
 pub const frame_low_bit: u64 = 0x01;
 
-/// Octets of a PATH_CHALLENGE or PATH_RESPONSE payload (RFC 9000 §19.17, §19.18).
+/// Bytes of a PATH_CHALLENGE or PATH_RESPONSE payload (RFC 9000 §19.17, §19.18).
 pub const path_challenge_len: usize = 8;
 
-/// Octets of the Stateless Reset Token a NEW_CONNECTION_ID carries (RFC 9000 §19.15).
+/// Bytes of the Stateless Reset Token a NEW_CONNECTION_ID carries (RFC 9000 §19.15).
 pub const stateless_reset_token_len: usize = 16;
 
-/// Fewest octets of the Destination Connection ID a client's first Initial carries (RFC 9000
+/// Fewest bytes of the Destination Connection ID a client's first Initial carries (RFC 9000
 /// §7.2): it "MUST be at least 8 bytes in length", and the Initial keys come from it.
 pub const initial_destination_len_min: usize = 8;
 
-/// Fewest octets of a connection ID a NEW_CONNECTION_ID may carry (RFC 9000 §19.15): a length
+/// Fewest bytes of a connection ID a NEW_CONNECTION_ID may carry (RFC 9000 §19.15): a length
 /// below 1 or above `connection_id_len_max` is a FRAME_ENCODING_ERROR.
 pub const connection_id_len_min: u8 = 1;
 
@@ -152,7 +152,7 @@ pub const datagram_len_min: u64 = 1200;
 /// of 65527", which is the largest datagram anything can hand colibri or ask it to write.
 pub const datagram_len_max: u64 = 65527;
 
-/// The smallest Stateless Reset (RFC 9000 §10.3): the 16-octet token, and five octets before it
+/// The smallest Stateless Reset (RFC 9000 §10.3): the 16-byte token, and five bytes before it
 /// so the Unpredictable Bits field carries the 38 bits that make the datagram look like a valid
 /// short-header packet.
 pub const stateless_reset_unpredictable_len_min: usize = 5;
@@ -168,7 +168,7 @@ pub const stateless_reset_amplification_factor: u64 = anti_amplification_factor;
 pub const max_ack_delay_default_ns: u64 = 25 * constants.nanoseconds_per_millisecond;
 pub const max_ack_delay_invalid_at: u64 = 1 << 14;
 
-/// Octets the Length field of a long header may be written in, which are the lengths of a
+/// Bytes the Length field of a long header may be written in, which are the lengths of a
 /// variable-length integer (RFC 9000 §16). A sender that has not built its payload yet reserves
 /// one of these and knows its header's length.
 pub const length_field_lens = wire.constants.protocol.varint_lens;

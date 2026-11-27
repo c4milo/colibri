@@ -11,24 +11,24 @@ const quic = @import("quic");
 const tls_provider = @import("tls_provider");
 const constants = @import("constants.zig");
 
-/// Octets of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
+/// Bytes of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
 /// §4.1, §4.2).
 pub const frame_len_max: usize = h2.constants.protocol.frame_header_len + h2.constants.limits.frame_size_max;
 
-/// Octets of the protocol's stream that records opened and `receive` has not read: the longest
+/// Bytes of the protocol's stream that records opened and `receive` has not read: the longest
 /// unit that is not whole yet, and room to open one more record after it. So the next record always
-/// opens while a unit waits for its last octets, as the owner ruled on 2026-10-17. A provider opens
+/// opens while a unit waits for its last bytes, as the owner ruled on 2026-10-17. A provider opens
 /// a record into room for all that follows its header, and not only for its plaintext. RFC 9846
 /// §5.2 bounds that room by `record_ciphertext_len_max`.
 pub const plaintext_in_len: usize = partial_unit_len_max + tls_provider.constants.protocol.record_ciphertext_len_max;
 
-/// The most octets of a unit that is not whole yet: an h11 request head or an h2 frame, whichever
-/// is longer, one octet short of its limit. h11 reads a head again from its first octet until the
+/// The most bytes of a unit that is not whole yet: an h11 request head or an h2 frame, whichever
+/// is longer, one byte short of its limit. h11 reads a head again from its first byte until the
 /// head ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1). A server reads request
 /// heads, which decision 166 as amended bounds by `request_head_len_max`.
 const partial_unit_len_max: usize = @max(h11.constants.limits.request_head_len_max, frame_len_max) - 1;
 
-/// Octets of DER one certificate of the server's chain may take, for the bound on its flight.
+/// Bytes of DER one certificate of the server's chain may take, for the bound on its flight.
 pub const certificate_len_max: usize = 8 * 1024;
 
 /// Certificates the bound on the flight allows: the end-entity and one intermediate.
@@ -38,11 +38,11 @@ pub const chain_certificates_max: usize = 2;
 /// EncryptedExtensions, CertificateVerify and Finished, and each record's header and tag.
 pub const flight_rest_len: usize = 4 * 1024;
 
-/// The most octets the server's TLS flight takes. chapulin writes a flight whole or fails the
+/// The most bytes the server's TLS flight takes. chapulin writes a flight whole or fails the
 /// handshake, so the handshake runs only while `output` has this much room.
 pub const flight_len_max: usize = chain_certificates_max * certificate_len_max + flight_rest_len;
 
-/// Octets a connection writes before `send` takes them: a response's field block cut into frames
+/// Bytes a connection writes before `send` takes them: a response's field block cut into frames
 /// and a DATA frame after it, or the TLS flight, whichever is larger.
 pub const output_len: usize = @max(h2.constants.limits.send_block_len_max + frame_len_max, flight_len_max);
 
@@ -51,7 +51,7 @@ pub const output_len: usize = @max(h2.constants.limits.send_block_len_max + fram
 pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.protocol.frame_header_len + 1;
 
 /// The most DATA frames one `write_body` call writes over h2. h2 cuts a frame at the peer's
-/// SETTINGS_MAX_FRAME_SIZE, which is 16,384 octets at least (RFC 9113 §4.2), so every frame but
+/// SETTINGS_MAX_FRAME_SIZE, which is 16,384 bytes at least (RFC 9113 §4.2), so every frame but
 /// the last carries that much, and all of them fit the output.
 pub const data_frames_per_write_max: usize = output_len / h2.constants.protocol.max_frame_size_min + 1;
 
@@ -64,7 +64,7 @@ pub const seals_per_send_max: usize = output_len / tls_provider.constants.protoc
 /// request at a time. `receive` reports each before it reads another request.
 pub const done_owed_max: usize = h2.constants.limits.concurrent_streams_max;
 
-/// Octets of the chunked coding around one chunk's data: a size line of at most one hex digit per
+/// Bytes of the chunked coding around one chunk's data: a size line of at most one hex digit per
 /// four bits of a `usize`, and two CRLFs (RFC 9112 §7.1).
 pub const chunk_framing_len_max: usize = @sizeOf(usize) * 2 + 4;
 
@@ -75,12 +75,12 @@ pub const chunk_framing_len_max: usize = @sizeOf(usize) * 2 + 4;
 /// connections (decision 130).
 pub const quic_requests_max: u32 = 100;
 
-/// Octets of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
+/// Bytes of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
 /// heads' HEADERS frames, each DATA frame's header, and its trailer section's HEADERS frame.
 pub const quic_response_kept_len: usize = 8192;
 
-/// The runs of octets one h3 response holds until the peer acknowledges them: each kept frame,
-/// and each run of the caller's octets `write_body` took, which stay the caller's (decision 103).
+/// The runs of bytes one h3 response holds until the peer acknowledges them: each kept frame,
+/// and each run of the caller's bytes `write_body` took, which stay the caller's (decision 103).
 pub const quic_response_pieces_max: usize = 16;
 
 /// The headers and trailers one `Response` holds until it writes them (decision 127, design
@@ -93,10 +93,10 @@ pub const response_headers_max: usize = 32;
 /// §8 step 46).
 pub const response_pieces_max: usize = quic_response_pieces_max;
 
-/// Octets of request content h3 copies out of the receive pool in one event (decision 80).
+/// Bytes of request content h3 copies out of the receive pool in one event (decision 80).
 pub const quic_read_len: usize = 16_384;
 
-/// Octets of the transport parameters the server sends, encoded (RFC 9000 §18): every parameter
+/// Bytes of the transport parameters the server sends, encoded (RFC 9000 §18): every parameter
 /// RFC 9000 §18.2 defines fits.
 pub const quic_transport_parameters_len_max: usize = 1024;
 
@@ -128,7 +128,7 @@ pub const tcp_events_per_poll_max: usize = done_owed_max + bodies_max + frames_p
 /// client sends again.
 pub const quic_replies_max: usize = 8;
 
-/// Events one `receive` of a QUIC connection reads past at most: one for each octet the receive
+/// Events one `receive` of a QUIC connection reads past at most: one for each byte the receive
 /// pool holds, and a few that consume none, such as a stream's end, for each request.
 pub const quic_events_per_read_max: usize = quic.constants.limits.receive_pool_len_default + quic_requests_max * quic_events_per_request_max + 1;
 /// The events of one request stream that consume nothing: its head, its end and its reset.
@@ -138,9 +138,9 @@ const quic_events_per_request_max: usize = 3;
 /// holds at once, as `done_owed_max` counts them.
 pub const coding_requests_max: usize = h2.constants.limits.concurrent_streams_max;
 
-/// Octets of coded content an encoder holds before its response sends them: the ring each slot of
+/// Bytes of coded content an encoder holds before its response sends them: the ring each slot of
 /// the encoder pool carries (decision 101, the owner's ruling of 2026-09-28). h3 sends from it in
-/// place until the peer acknowledges the octets, so it bounds a coded h3 response's octets in
+/// place until the peer acknowledges the bytes, so it bounds a coded h3 response's bytes in
 /// flight.
 pub const encoder_ring_len: usize = 65_536;
 
@@ -161,7 +161,7 @@ pub const timeout_ns_max: u64 = 86_400 * constants.nanoseconds_per_second;
 /// peer may open.
 pub const bodies_max: usize = h2.constants.limits.concurrent_streams_max;
 
-/// The most octets of an h11 request body the server reads and discards after the request's final
+/// The most bytes of an h11 request body the server reads and discards after the request's final
 /// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A body that
 /// does not end within them gets the staged close of RFC 9112 §9.6. The owner ruled 256 KiB on
 /// 2026-11-09.
@@ -182,9 +182,9 @@ pub const path_parameters_max: usize = 8;
 /// build writes the Allow value of each mask, so a table needs 2^10 = 1,024 values at most.
 pub const route_methods_max: usize = 10;
 
-/// The most octets of a path that a route table matches, its query included (decision 122 ruling
+/// The most bytes of a path that a route table matches, its query included (decision 122 ruling
 /// 13). It is the engine's own bound on a path: an h11 request line, or an h2 or h3 `:path`
-/// field value. `match` gives `not_found` for a longer path, so the octets that one match reads
+/// field value. `match` gives `not_found` for a longer path, so the bytes that one match reads
 /// have a named bound (INV-8).
 pub const path_len_max: usize = @max(h11.constants.limits.start_line_len_max, core.constants.limits.field_value_len_max);
 
@@ -196,8 +196,8 @@ comptime {
     assert(quic_connections_default > 0 and quic_replies_max > 0);
     // Each request owes one `done` at most, and the ring that holds them has room for all.
     assert(done_owed_max >= quic_requests_max);
-    // A unit that waits for its last octets never stops the next record from opening: an h11 head
-    // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
+    // A unit that waits for its last bytes never stops the next record from opening: an h11 head
+    // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one byte short of its limit, then room
     // for the most that follows a record's header (RFC 9846 §5.2).
     assert(plaintext_in_len >= h11.constants.limits.request_head_len_max - 1 + tls_provider.constants.protocol.record_ciphertext_len_max);
     // A request's trailer section, which h11 reads whole as it reads a head (RFC 9112 §7.1.2).

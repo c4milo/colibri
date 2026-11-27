@@ -1,11 +1,11 @@
 //! The endpoints of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
 //! `client.ConnectionPool` with TCP alone (design §8 step 21c) and a `server.Engine` that holds one
-//! connection (step 21b.6), over h2, in cleartext or over TLS, every octet each has handed the
+//! connection (step 21b.6), over h2, in cleartext or over TLS, every byte each has handed the
 //! other, and the server's caller, which answers each request as the plan says.
 //!
 //! The h2 trace drives two `h2.Connection` endpoints a frame at a time. Here each side is what a
 //! caller holds: the client takes whole requests, and each side writes into its own output until
-//! its caller hands that output to the socket with `send`. A delivery gives the reader every octet
+//! its caller hands that output to the socket with `send`. A delivery gives the reader every byte
 //! in flight at once, as one read from a socket does, and the reader takes them in as many calls
 //! as it needs.
 //!
@@ -15,7 +15,7 @@
 //! connection writes what it owes into its output at once and hands out nothing. The client's call
 //! also writes the requests that wait, as any `send` of its does.
 //!
-//! Over TLS a send seals the protocol's octets into records, so the run calls `send` twice. The
+//! Over TLS a send seals the protocol's bytes into records, so the run calls `send` twice. The
 //! first, with no room, writes what the connection owes and seals nothing; the run copies the
 //! plaintext the connection then holds, and the second call seals it (`tcp_trace_direction.zig`).
 //!
@@ -63,9 +63,9 @@ pub const Answer = struct {
 const trailers = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
 const interim_status: u16 = 103;
 const final_status: u16 = 200;
-/// The octets of every request's content and of every piece of a response's.
+/// The bytes of every request's content and of every piece of a response's.
 const content: [limits.request_content_len]u8 = @splat('x');
-/// The octets of a response's content the client keeps: every piece a plan writes.
+/// The bytes of a response's content the client keeps: every piece a plan writes.
 const body_len_max: usize = limits.content_max * limits.piece_len;
 
 /// The server: one connection, in cleartext or over TLS, and no QUIC.
@@ -186,7 +186,7 @@ pub const World = struct {
         return direction_module.h2_of(&world.pool.tcp[0].session);
     }
 
-    /// The protocol's octets the client's connection wrote that its caller has not handed out:
+    /// The protocol's bytes the client's connection wrote that its caller has not handed out:
     /// what `output` holds after the records of the handshake. None before it started.
     pub fn client_pending(world: *const World) []const u8 {
         if (!world.started) return "";
@@ -218,7 +218,7 @@ pub const World = struct {
         }
     }
 
-    /// The client's caller hands the socket what the client wrote, the protocol's octets sealed
+    /// The client's caller hands the socket what the client wrote, the protocol's bytes sealed
     /// over TLS.
     fn client_send(world: *World) void {
         // Every plan requests before any other action, and the first request starts the
@@ -381,7 +381,7 @@ pub const World = struct {
         _ = world.endpoint.send_stream(world.accepted, &.{}, world.now_ns);
     }
 
-    /// The server reads every octet the client handed out, and its caller notes each request.
+    /// The server reads every byte the client handed out, and its caller notes each request.
     fn deliver_to_server(world: *World, plan: *const Plan) void {
         for (0..limits.receives_per_delivery_max) |_| {
             var received: server.ReceiveResult = undefined;
@@ -424,7 +424,7 @@ pub const World = struct {
             },
             .trailers => |section| world.request_read[h2_trace_pair.index_of(@intCast(section.id.number))] = .ended,
             .finished => |finished| world.on_finished(finished),
-            // The run hands octets out and writes each response in actions of its own.
+            // The run hands bytes out and writes each response in actions of its own.
             .send, .writable => {},
             // The endpoint closes in one step once its caller shut it down and no request is open.
             .half_close => world.broken = true,
@@ -434,7 +434,7 @@ pub const World = struct {
         }
     }
 
-    /// The client reads every octet the server handed out.
+    /// The client reads every byte the server handed out.
     fn deliver_to_client(world: *World) void {
         world.read_client();
         for (world.responses[0..world.requested]) |*response| {
@@ -453,7 +453,7 @@ pub const World = struct {
     fn read_client(world: *World) void {
         var quiet: u32 = 0;
         for (0..limits.receives_per_delivery_max) |_| {
-            // A closed socket reads nothing more, and the octets in flight stay there.
+            // A closed socket reads nothing more, and the bytes in flight stay there.
             const input: client.Input = if (world.socket_closed) .none else .{ .stream = .{ .connection = world.connection, .bytes = world.to_client.unread() } };
             const received = world.pool.receive(input, world.now_ns);
             world.to_client.consumed += received.consumed;

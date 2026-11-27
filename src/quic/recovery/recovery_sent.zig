@@ -36,7 +36,7 @@ pub const Carries = enum(u8) {
     stream,
     /// A STREAM frame with the FIN bit set (RFC 9000 §19.8). §4.5: "A sender always communicates
     /// the final size of a stream to the receiver reliably", so a lost FIN is sent again, with or
-    /// without octets beside it.
+    /// without bytes beside it.
     stream_fin,
 };
 
@@ -54,34 +54,34 @@ pub const Record = struct {
     /// The instant the caller sent it. RFC 9002's pseudocode calls this `time_sent` and reads it
     /// from `now()`; colibri takes it as a parameter (non-negotiable 3).
     sent_at_ns: u64,
-    /// RFC 9002 Appendix A.1.1: the octets of the packet, QUIC framing included and the UDP and
-    /// IP headers excluded. A UDP payload holds at most 65527 octets, so 16 bits carry it.
+    /// RFC 9002 Appendix A.1.1: the bytes of the packet, QUIC framing included and the UDP and
+    /// IP headers excluded. A UDP payload holds at most 65527 bytes, so 16 bits carry it.
     sent_len: u16,
     /// RFC 9002 §2: whether the packet carries a frame other than ACK, PADDING and
     /// CONNECTION_CLOSE, which is what obliges the peer to acknowledge it.
     ack_eliciting: bool,
     /// RFC 9002 §2: "Packets are considered in flight when they are ack-eliciting or contain a
     /// PADDING frame". Both halves matter to the sender: a packet carrying only ACK is not in
-    /// flight, and one padded to RFC 9000 §14.1's 1,200 octets is, whatever else it holds.
+    /// flight, and one padded to RFC 9000 §14.1's 1,200 bytes is, whatever else it holds.
     in_flight: bool,
     /// The ECN codepoint the datagram carrying it went out with (RFC 9000 §13.4). colibri owns
     /// no socket, so the IP header is the caller's and this is what the caller set; §13.4.2.1
     /// validates the peer's counts against it.
     ecn: Ecn = .not_ect,
-    /// Which flow the packet's octets were in, if any. RFC 9000 §13.3 retransmits CRYPTO data
+    /// Which flow the packet's bytes were in, if any. RFC 9000 §13.3 retransmits CRYPTO data
     /// "until all data has been acknowledged" and STREAM data "in new STREAM frames", so a lost
-    /// packet must say which octets to send again, and an acknowledged one which octets arrived.
+    /// packet must say which bytes to send again, and an acknowledged one which bytes arrived.
     carries: Carries = .none,
-    /// Where those octets sat in their flow: the level's for CRYPTO (RFC 9000 §19.6), the
+    /// Where those bytes sat in their flow: the level's for CRYPTO (RFC 9000 §19.6), the
     /// stream's for STREAM (§19.8).
     ///
     /// The range sits here flat rather than in a struct of its own because a struct of `u64` and
-    /// `u16` pads to sixteen octets, and 256 records in each of three spaces pay for every one.
+    /// `u16` pads to sixteen bytes, and 256 records in each of three spaces pay for every one.
     data_offset: u64 = 0,
-    /// Octets, which one packet bounds, so 16 bits carry it (RFC 9000 §14.1, §18.2). Zero with
+    /// Bytes, which one packet bounds, so 16 bits carry it (RFC 9000 §14.1, §18.2). Zero with
     /// `stream_fin` is a FIN sent on its own.
     data_len: u16 = 0,
-    /// The stream the octets belong to, by its 62-bit identifier (RFC 9000 §2.1), when `carries`
+    /// The stream the bytes belong to, by its 62-bit identifier (RFC 9000 §2.1), when `carries`
     /// is a stream. A table slot would not do: a slot is reused, and a late acknowledgment would
     /// count toward the next stream in it (decision 57).
     stream_id: u64 = 0,
@@ -106,7 +106,7 @@ pub const Record = struct {
 /// "Packets are considered in flight when they are ack-eliciting or contain a PADDING frame".
 ///
 /// It is a function rather than a rule each caller restates, because the two halves come apart:
-/// RFC 9000 §14.1 makes a client pad every datagram carrying an Initial to 1,200 octets, so a
+/// RFC 9000 §14.1 makes a client pad every datagram carrying an Initial to 1,200 bytes, so a
 /// padded acknowledgment is in flight while eliciting nothing, and reading only `ack_eliciting`
 /// would under-count the congestion window by the whole of that datagram.
 pub fn counts_in_flight(ack_eliciting: bool, carries_padding: bool) bool {
@@ -118,7 +118,7 @@ pub fn counts_in_flight(ack_eliciting: bool, carries_padding: bool) bool {
 pub const Removed = struct {
     /// How many records left the table.
     count: usize,
-    /// Their octets, counting the ones in flight alone (RFC 9002 §7.2: `bytes_in_flight`).
+    /// Their bytes, counting the ones in flight alone (RFC 9002 §7.2: `bytes_in_flight`).
     in_flight_len: u64,
     /// The largest number removed, or null when none was.
     largest: ?u64,
@@ -163,7 +163,7 @@ pub const Counts = struct {
     /// span covers dead slots too, so `head + span` is where the next record goes.
     head: usize,
     span: usize,
-    /// How many of those slots are live, and the octets of the live ones that are in flight.
+    /// How many of those slots are live, and the bytes of the live ones that are in flight.
     count: usize,
     in_flight_len: u64,
     /// How many of the live ones are ack-eliciting, which RFC 9002 Appendix A.8 asks of every
@@ -191,7 +191,7 @@ pub fn Sent(comptime capacity: usize) type {
             table.counts = .{ .head = 0, .span = 0, .count = 0, .in_flight_len = 0, .ack_eliciting_count = 0 };
         }
 
-        /// How many packets are outstanding, and their octets counting the ones in flight alone
+        /// How many packets are outstanding, and their bytes counting the ones in flight alone
         /// (RFC 9002 §7.2: `bytes_in_flight`).
         pub fn count(table: *const Table) usize {
             return table.counts.count;
@@ -227,7 +227,7 @@ pub fn Sent(comptime capacity: usize) type {
         /// `remove_range`, and writes each record it takes into `taken`, in packet number order,
         /// as far as the slice holds them. RFC 9000 §13.3 sends information again by what a lost
         /// packet carried, and an acknowledged packet is what ends that for everything it
-        /// carried, so a caller that must learn which octets the peer now holds reads them here.
+        /// carried, so a caller that must learn which bytes the peer now holds reads them here.
         pub fn remove_range_into(table: *Table, smallest: u64, largest: u64, taken: []Record) Removed {
             return take_range(&table.records, &table.live, &table.counts, smallest, largest, taken);
         }

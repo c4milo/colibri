@@ -22,10 +22,10 @@ const datagram_len: u16 = 1_200;
 const octets: u64 = datagram_len;
 const start_ns: u64 = 1_000_000_000;
 const rtt_ns: u64 = 100_000_000;
-/// The initial window: ten datagrams of 1,200 octets (RFC 9002 §7.2).
+/// The initial window: ten datagrams of 1,200 bytes (RFC 9002 §7.2).
 const initial_window = recovery_congestion.initial_window(datagram_len);
 const initial_packets: u64 = initial_window / datagram_len;
-/// A saved window of 400,000 octets, so the jump is 200,000: 166 datagrams of 1,200.
+/// A saved window of 400,000 bytes, so the jump is 200,000: 166 datagrams of 1,200.
 const saved_window_len: u64 = 400_000;
 const jump_len: u64 = saved_window_len / constants.protocol.resume_jump_divisor;
 const jump_packets: u64 = jump_len / datagram_len;

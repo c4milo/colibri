@@ -20,7 +20,7 @@ const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 const Direction = link_module.Direction;
 
-/// Octets of the records the client sent and the server has not opened, of the plaintext they
+/// Bytes of the records the client sent and the server has not opened, of the plaintext they
 /// opened, of what the server writes, and of one sealed write: each holds several records, and a
 /// provider opens a record only into room for all that follows its header (RFC 9846 §5.2).
 const record_len_max: usize = tls_provider.constants.protocol.record_ciphertext_len_max;
@@ -97,7 +97,7 @@ pub const TcpServer = struct {
         server.running = false;
     }
 
-    /// Takes octets the client sent.
+    /// Takes bytes the client sent.
     pub fn take(server: *TcpServer, octets: []const u8) !void {
         if (!server.running) return;
         if (server.input_used + octets.len > server.input.len) return error.ServerInputFull;

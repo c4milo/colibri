@@ -32,7 +32,7 @@ pub fn fail(connection: *QuicConnection) void {
         quic.Connection.owe_close(transport, quic.ConnectionClose.transport(quic.error_code.internal_error, null));
     }
     // RFC 9000 §10.2.1: a connection that closes sends only its CONNECTION_CLOSE from here on,
-    // so no stream reads an exchange's octets again.
+    // so no stream reads an exchange's bytes again.
     for (&connection.slots.slots) |*slot| slot.holds_octets = false;
     quic_h3.note_heads(connection);
     connection.slots.end_all(.refused, .closed);
@@ -58,7 +58,7 @@ pub fn idle_margin_ns(transport: *const quic.Connection, timeout_ns: u64) u64 {
     return @min(margin, timeout_ns / constants.policy.quic_idle_margin_timeout_divisor);
 }
 
-/// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` octets for
+/// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` bytes for
 /// the responses on the streams it opens, and h3's unidirectional streams (RFC 9114 §6.2).
 pub fn parameters(config: *const Config, capacity: u64) Parameters {
     var held = Parameters.initial();

@@ -1,7 +1,7 @@
-//! One UDP datagram received, from its octets to every state they change (decision 60). Part of
+//! One UDP datagram received, from its bytes to every state they change (decision 60). Part of
 //! design §8 step 9e.
 //!
-//! The caller read the octets and owns them. This file runs every step one datagram asks for, in
+//! The caller read the bytes and owns them. This file runs every step one datagram asks for, in
 //! the order the RFCs set, so no caller has to know that order:
 //!
 //! 1. The datagram counts toward RFC 9000 §8.1's anti-amplification limit before anything in it
@@ -87,7 +87,7 @@ pub const Received = struct {
     processed: usize = 0,
     /// The peer's CONNECTION_CLOSE, when a packet carried one (RFC 9000 §19.19).
     close: ?frames.Close = null,
-    /// Streams that entered "Data Recvd" (RFC 9000 §3.1), whose octets the caller may now drop
+    /// Streams that entered "Data Recvd" (RFC 9000 §3.1), whose bytes the caller may now drop
     /// (decision 57). `scratch.recovery.completed` holds them in order.
     completed_streams: usize = 0,
     /// The token of a NEW_TOKEN frame (RFC 9000 §19.7), which points into the datagram.
@@ -196,7 +196,7 @@ fn take_whole(
 }
 
 /// Walks the packets of the datagram and processes each one that opens (RFC 9000 §12.2).
-/// `arrived_ns` is when its octets arrived, which is `datagram.now_ns` except for a kept packet.
+/// `arrived_ns` is when its bytes arrived, which is `datagram.now_ns` except for a kept packet.
 fn walk_packets(
     connection: *Connection,
     suite: crypto.Suite,
@@ -212,7 +212,7 @@ fn walk_packets(
     var walked_len: usize = 0;
     // Bounded by the walk, which separates at most `constants.limits.coalesced_packets_max` packets.
     while (try receive_module.next(&walk, connection, suite)) |outcome| {
-        // The octets `next` stepped over are the packet's.
+        // The bytes `next` stepped over are the packet's.
         const packet = datagram.octets[walked_len..walk.consumed];
         walked_len = walk.consumed;
         if (keep(connection, outcome, packet, datagram)) continue;
@@ -310,7 +310,7 @@ fn process_packet(
     // RFC 9001 §4.9.2: a client confirms the handshake on HANDSHAKE_DONE (§4.1.2), and "An
     // endpoint MUST discard its Handshake keys when the TLS handshake is confirmed".
     if (report.handshake_done) keys_module.on_handshake_confirmed(connection, suite);
-    // Decision 65: an Initial packet can show the client lacks the server's CRYPTO octets.
+    // Decision 65: an Initial packet can show the client lacks the server's CRYPTO bytes.
     if (opened.level == .initial) {
         try connection_recovery.on_initial_processed(connection, report.ack_eliciting, initial_received_len, datagram.now_ns, &scratch.recovery);
     }
@@ -323,7 +323,7 @@ fn advance_handshake(
     provider: tls_provider.QuicProvider,
     received: *Received,
 ) Error!void {
-    // RFC 9001 §4.1.3: the octets CRYPTO frames delivered in order go to TLS.
+    // RFC 9001 §4.1.3: the bytes CRYPTO frames delivered in order go to TLS.
     try connection_crypto.provide_handshake(connection, provider);
     // RFC 9001 §8.2: the peer's transport parameters travel in the handshake, and the connection
     // takes them the moment they have arrived.

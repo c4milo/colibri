@@ -89,9 +89,9 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
     };
     quic_sends.look(connection, record, stream);
     switch (stream.sending.state) {
-        // RFC 9000 §3.1: "Data Recvd" means the peer acknowledged every octet.
+        // RFC 9000 §3.1: "Data Recvd" means the peer acknowledged every byte.
         .data_recvd => if (!record.over) end(connection, record, .done),
-        // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, whose octets are read no more.
+        // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, whose bytes are read no more.
         // RFC 9114 §4.1.1: that is the client cancelling its request, which the limit counts.
         .reset_sent, .reset_recvd => if (!record.over) {
             end(connection, record, .{ .cancelled = .peer_reset });

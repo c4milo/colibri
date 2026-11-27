@@ -2,7 +2,7 @@
 //! constants of `spec/tla/server_deadlines` the seed runs under, and the actions it draws.
 //!
 //! A seed draws the streams the client opens, the DATA each request and each response carries, the
-//! octets the application offers write_body at once, the octets in flight each way, and whether
+//! bytes the application offers write_body at once, the bytes in flight each way, and whether
 //! the client opens a stream before it has read the last response. The model's other constants
 //! are colibri's own: its windows and thresholds, the floor, the frame size and its output.
 const std = @import("std");
@@ -28,7 +28,7 @@ pub const Action = union(enum) {
     hand_out,
     /// The application answers `stream`'s request with its head.
     respond: u32,
-    /// The application offers write_body the next `produce_step` octets of `stream`'s response.
+    /// The application offers write_body the next `produce_step` bytes of `stream`'s response.
     produce: u32,
 };
 

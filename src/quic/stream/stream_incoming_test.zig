@@ -1,4 +1,4 @@
-//! The tests of `stream_incoming.zig`: octets written in any order and read in order, blocks taken
+//! The tests of `stream_incoming.zig`: bytes written in any order and read in order, blocks taken
 //! from the pool and given back, and a pool that runs out.
 const std = @import("std");
 const constants = @import("../constants.zig");
@@ -19,13 +19,13 @@ var output: [output_blocks * block_len]u8 = undefined;
 const stream_a: u64 = 0;
 const stream_b: u64 = 4;
 
-/// The octet at each offset, so an octet read from the wrong place shows. Test-only.
+/// The byte at each offset, so a byte read from the wrong place shows. Test-only.
 const octet_stride: u64 = 7;
 fn octet_at(offset: u64) u8 {
     return @truncate(offset *% octet_stride);
 }
 
-/// Octets `from` to `to` of a stream, as a frame would carry them. Test-only.
+/// Bytes `from` to `to` of a stream, as a frame would carry them. Test-only.
 var frame_buffer: [output_blocks * block_len]u8 = undefined;
 fn frame(from: u64, to: u64) []const u8 {
     const len: usize = @intCast(to - from);
@@ -72,11 +72,11 @@ test "RFC 9000 §2.2: octets out of order wait for the gap, and a repeat changes
     const gap_end: u64 = block_len + 100;
     const end: u64 = 2 * block_len;
     try incoming.write(storage, stream_a, 0, gap_end, frame(gap_end, end));
-    // Nothing is readable while the octets before the gap have not arrived.
+    // Nothing is readable while the bytes before the gap have not arrived.
     try testing.expectEqual(0, incoming.contiguous_end(storage, stream_a, 0));
     try testing.expectEqual(0, incoming.read(storage, stream_a, 0, &output));
     try incoming.write(storage, stream_a, 0, 0, frame(0, gap_end));
-    // The same octets again, overlapping both writes.
+    // The same bytes again, overlapping both writes.
     try incoming.write(storage, stream_a, 0, 50, frame(50, gap_end + 50));
     try testing.expectEqual(end, incoming.contiguous_end(storage, stream_a, 0));
     const read = incoming.read(storage, stream_a, 0, &output);
@@ -94,7 +94,7 @@ test "decision 61: a read stops where the output ends and goes on from there" {
     const rest = incoming.read(storage, stream_a, short, &output);
     try testing.expectEqual(end - short, rest);
     try expect_octets(short, output[0..rest]);
-    // Octets below what was read are not kept again when a retransmission carries them.
+    // Bytes below what was read are not kept again when a retransmission carries them.
     const all = free_blocks(storage);
     try incoming.write(storage, stream_a, end, 0, frame(0, end));
     try testing.expectEqual(all, free_blocks(storage));
@@ -135,7 +135,7 @@ test "decision 61: a pool with no block free refuses the write" {
     const storage = fresh();
     var incoming: Incoming = .{};
     const all = free_blocks(storage);
-    // One octet at the start of every block the pool has.
+    // One byte at the start of every block the pool has.
     for (0..all) |number| {
         const offset = number * block_len;
         try incoming.write(storage, stream_a, 0, offset, frame(offset, offset + 1));

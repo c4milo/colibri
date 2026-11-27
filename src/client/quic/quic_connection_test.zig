@@ -76,7 +76,7 @@ test "decision 143: the client's QUIC connection runs BBRv3 by default, with pro
     try testing.expect(state.bbr.bandwidth_probe_waits != 0);
 }
 
-/// A source that writes the octets 0, 1, 2 and on, so a value drawn from it shows where it came
+/// A source that writes the bytes 0, 1, 2 and on, so a value drawn from it shows where it came
 /// from. Test-only.
 const Counter = struct {
     next: u8 = 0,
@@ -97,7 +97,7 @@ test "decision 175: the client draws its BBR probe waits from the context in its
     support.client_tls.crypto = stdx.crypto.init(.target(), @FieldType(stdx.crypto.Context, "random").init(&counter, Counter.fill));
     try support.init_connection(support.client_pool.storage());
     // The connection's first two draws are the intervals of its skips and then its probe waits,
-    // each eight octets, which `std.Random.int` reads little-endian.
+    // each eight bytes, which `std.Random.int` reads little-endian.
     const probe_waits = connection.transport.recovery.congestion.state.bbr.bandwidth_probe_waits;
     try testing.expectEqual(@as(u64, 0x0f0e_0d0c_0b0a_0908), probe_waits);
 }

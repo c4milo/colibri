@@ -30,7 +30,7 @@ pub const Versions = struct {
     }
 
     /// RFC 9369 §4.1's one switch, which is a client's. `handshake_keys` says the Handshake keys
-    /// exist, which they do once the server's first CRYPTO octets were delivered, and after that
+    /// exist, which they do once the server's first CRYPTO bytes were delivered, and after that
     /// no switch comes.
     pub fn switch_to(versions: *Versions, role: Role, handshake_keys: bool, version: Version) crypto.suite.SwitchError!void {
         if (role != .client or versions.switched or handshake_keys) return error.Refused;

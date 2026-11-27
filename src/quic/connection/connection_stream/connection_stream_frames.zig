@@ -86,12 +86,12 @@ fn take_stream(connection: *Connection, held: frame_stream.Stream) Error!void {
     const id: StreamId = .{ .value = held.stream_id };
     const stream = try receivable_stream(connection, id) orelse return;
     const reached = held.offset + held.data.len;
-    // RFC 9000 §4.1: the connection-level limit counts every octet of every stream, and it is
+    // RFC 9000 §4.1: the connection-level limit counts every byte of every stream, and it is
     // checked before the stream's own so a peer past both is told the connection is the reason.
     try spend_connection_credit(connection, stream, reached);
     // §4.1: the stream's own limit, which this endpoint advertised in MAX_STREAM_DATA.
     stream.receive_flow.use(reached, flow.Error.FlowControlExceeded) catch return Error.FlowControl;
-    // RFC 9000 §4.5: the final size rules, which only make sense once the octets are admitted.
+    // RFC 9000 §4.5: the final size rules, which only make sense once the bytes are admitted.
     stream.receiving.on_stream_frame(held.offset, held.data.len, held.fin) catch
         return Error.FinalSize;
     const event: stream_recv.Event = if (held.fin) .received_fin else .received_data;
@@ -101,13 +101,13 @@ fn take_stream(connection: *Connection, held: frame_stream.Stream) Error!void {
     try keep_octets(connection, stream, held);
 }
 
-/// Decision 61: the octets wait in the connection's pool until the application reads them. A
+/// Decision 61: the bytes wait in the connection's pool until the application reads them. A
 /// connection given no pool keeps none.
 fn keep_octets(connection: *Connection, stream: *Stream, held: frame_stream.Stream) Error!void {
     const storage = connection.receive_storage orelse return;
-    // RFC 9000 §3.2: a stream reset or already received whole wants no more octets.
+    // RFC 9000 §3.2: a stream reset or already received whole wants no more bytes.
     if (!stream.receiving.accepts_data()) return;
-    // Flow control admitted the octets, and it never admits more than the pool holds, so a
+    // Flow control admitted the bytes, and it never admits more than the pool holds, so a
     // pool with no block free is colibri's accounting gone wrong (decision 61).
     stream.incoming.write(storage, stream.id, stream.receive_flow.consumed, held.offset, held.data) catch
         return Error.Internal;
@@ -120,7 +120,7 @@ fn keep_octets(connection: *Connection, stream: *Stream, held: frame_stream.Stre
 }
 
 /// RFC 9000 §4.1: the connection-level flow control counts what is new on this stream alone, so
-/// a retransmission of octets already counted does not spend credit twice.
+/// a retransmission of bytes already counted does not spend credit twice.
 fn spend_connection_credit(connection: *Connection, stream: *Stream, reached: u64) Error!void {
     const already = stream.receive_flow.used;
     if (reached <= already) return;
@@ -129,7 +129,7 @@ fn spend_connection_credit(connection: *Connection, stream: *Stream, reached: u6
     connection.receive_flow.use(total, flow.Error.FlowControlExceeded) catch return Error.FlowControl;
 }
 
-/// A RESET_STREAM frame (RFC 9000 §19.4). §4.5 makes its Final Size the stream's, and the octets
+/// A RESET_STREAM frame (RFC 9000 §19.4). §4.5 makes its Final Size the stream's, and the bytes
 /// it names count against both flow control limits even though they never arrive.
 fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u64, final_size: u64) Error!void {
     const id: StreamId = .{ .value = stream_id };
@@ -144,11 +144,11 @@ fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u
     if (stream.receiving.on(.received_reset) == .taken) {
         stream.peer_reset_error_code = application_error_code;
         // RFC 9000 §4.5: "The final size is the amount of flow control credit that is consumed
-        // by a stream." The octets the application did not read are never delivered, so the
+        // by a stream." The bytes the application did not read are never delivered, so the
         // connection's limit is measured past them, or the other streams lose that credit.
         connection.receive_flow.consume(final_size - stream.receive_flow.consumed);
     }
-    // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
+    // RFC 9000 §3.2: a reset stream's bytes are not delivered, so the pool takes them back.
     if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id, stream.receive_flow.consumed);
 }
 

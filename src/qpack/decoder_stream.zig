@@ -125,7 +125,7 @@ test "§2.2.2.2: a cancellation leaves the count where it was" {
 test "the increment waits behind an acknowledgment that did not fit" {
     try start();
     try insert(3);
-    // Stream 200 takes two octets, so a one-octet buffer holds the increment but not the
+    // Stream 200 takes two bytes, so a one-byte buffer holds the increment but not the
     // acknowledgment ahead of it.
     test_decoder.owed[0] = .{ .section_acknowledgment = .{ .stream_id = 200, .required_insert_count = 2 } };
     test_decoder.owed_len = 1;
@@ -148,7 +148,7 @@ test "an instruction that does not fit waits whole, and the increment waits behi
     write(&test_decoder, &empty);
     try testing.expectEqual(1, test_decoder.owed_len);
     try testing.expectEqual(0, test_decoder.known_received);
-    // One octet is room for the cancellation but not the increment behind it.
+    // One byte is room for the cancellation but not the increment behind it.
     var one = Writer.init(&octets);
     write(&test_decoder, &one);
     try testing.expectEqualSlices(u8, &.{0x48}, one.written());

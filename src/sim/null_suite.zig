@@ -3,9 +3,9 @@
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
 //! What it is for is the shape and the rules, not the secrecy. It is size-faithful: a sealed packet
-//! is its header, its payload and a 16-octet tag, and byte 0 and the Packet Number field are masked
-//! from a 16-octet sample that starts four octets past the field (RFC 9001 §5.3, §5.4.2). So the
-//! Length of a long header, the 1200-octet minimum of RFC 9000 §14.1 and the anti-amplification
+//! is its header, its payload and a 16-byte tag, and byte 0 and the Packet Number field are masked
+//! from a 16-byte sample that starts four bytes past the field (RFC 9001 §5.3, §5.4.2). So the
+//! Length of a long header, the 1200-byte minimum of RFC 9000 §14.1 and the anti-amplification
 //! count all see the sizes a real suite produces. The payload itself is copied, not encrypted, so
 //! a trace stays readable.
 //!
@@ -19,7 +19,7 @@
 //!     alone, which is how the header protection key survives an update (§5.4, §6.1);
 //!   - both AEAD limits of §6.6 exist, at numbers a test sets.
 //! A tag is four CRC-32s over the key's name, the packet number, the header and the payload. It
-//! detects a changed octet and proves nothing else.
+//! detects a changed byte and proves nothing else.
 //!
 //! It reads no clock, draws no random number and allocates nothing, so one seed replays byte for
 //! byte (invariants 4, 5 and 6).

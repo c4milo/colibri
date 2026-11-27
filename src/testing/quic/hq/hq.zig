@@ -2,7 +2,7 @@
 //! Part of design §8 step 9e, piece 11.
 //!
 //! A client opens one bidirectional stream per file, writes one request line and ends its side of
-//! the stream (RFC 9000 §3.1). The server answers on the same stream with the file's octets and
+//! the stream (RFC 9000 §3.1). The server answers on the same stream with the file's bytes and
 //! ends its side. There is no status and no field section: a missing file is a stream the server
 //! resets. The runner sets the ALPN token "hq-interop" (RFC 9001 §8.1).
 //!
@@ -39,7 +39,7 @@ pub fn read_request(request: []const u8) Error![]const u8 {
     return trimmed;
 }
 
-/// Refuses a path with an empty, a "." or a ".." segment, a backslash, or an octet that is not
+/// Refuses a path with an empty, a "." or a ".." segment, a backslash, or a byte that is not
 /// visible ASCII, so joining it to the served directory names a file inside it. The h3 server
 /// holds its paths to the same rule.
 pub fn check_path(path: []const u8) Error!void {
@@ -102,10 +102,10 @@ test "hq-interop: a request past the limit is refused" {
     try testing.expectError(error.RequestTooLong, read_request(&long));
 }
 
-/// Most octets one fuzz input carries: a request line of a few segments.
+/// Most bytes one fuzz input carries: a request line of a few segments.
 const fuzz_input_len_max = 48;
 
-/// Reads the input as a request. An accepted path is the request's own octets after `GET `, with
+/// Reads the input as a request. An accepted path is the request's own bytes after `GET `, with
 /// only CR and LF after it, and it names a file inside the served directory. Written again, it
 /// reads back the same. The rules are read again here, without `check_path`.
 fn fuzz_request(_: void, smith: *std.testing.Smith) anyerror!void {

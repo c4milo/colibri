@@ -47,7 +47,7 @@ pub const Transport = engine_state_tcp.Transport;
 pub const Accepted = engine_state_tcp.Accepted;
 pub const StreamBytes = engine_state_tcp.StreamBytes;
 
-/// What `receive` takes: nothing new, to read what the engine owes, octets a TCP connection's
+/// What `receive` takes: nothing new, to read what the engine owes, bytes a TCP connection's
 /// socket read, or a datagram.
 pub const Input = union(enum) {
     none,
@@ -101,7 +101,7 @@ pub const State = struct {
     transports: []Transport,
     send_outstanding: []bool,
     /// For each TCP slot, the instant of its connection's last `receive` when that call took no
-    /// octet, reported nothing and left the protocol nothing read. A `receive` with no octets at
+    /// byte, reported nothing and left the protocol nothing read. A `receive` with no bytes at
     /// that instant reads nothing again, so the engine does not make it. Null once a call
     /// changed the connection (`touch`).
     empty_read_ns: []?u64,
@@ -162,13 +162,13 @@ pub const State = struct {
         @memset(storage.failed, false);
     }
 
-    /// Takes what `input` brings, then writes into `result` the octets it took and the next
+    /// Takes what `input` brings, then writes into `result` the bytes it took and the next
     /// event any connection owes, or null (decision 165). Each field is written in place, so a
     /// call that reports nothing writes no event.
     pub fn receive(state: *State, input: Input, now_ns: u64, result: *event.ReceiveResult) void {
         result.consumed = switch (input) {
             .none => 0,
-            // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
+            // The event `take_stream` reports comes first: the slot's own, or one its bytes bring.
             .stream => |octets| taken: {
                 const taken = engine_state_tcp.take_stream(state, octets, now_ns);
                 if (taken.reported) {
@@ -202,7 +202,7 @@ pub const State = struct {
         return engine_state_tcp.output_stream(state, connection, now_ns);
     }
 
-    /// The send of what `output_stream` lent took `sent` octets.
+    /// The send of what `output_stream` lent took `sent` bytes.
     pub fn sent_stream(state: *State, connection: ConnectionHandle, sent: usize, now_ns: u64) void {
         engine_state_tcp.sent_stream(state, connection, sent, now_ns);
     }
@@ -275,7 +275,7 @@ pub const State = struct {
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). One with no room
-    /// for its frame, or that waits for a coded response's last octets, waits for `writable`.
+    /// for its frame, or that waits for a coded response's last bytes, waits for `writable`.
     pub fn write_trailers(state: *State, id: RequestId, fields: []const http.Field) SendError!void {
         const slot = try state.request_slot(id);
         defer touch(state, slot);
@@ -288,7 +288,7 @@ pub const State = struct {
         state.unarm(slot, id.number);
     }
 
-    /// Octets of the program's content that the engine still reads in place for request `id`
+    /// Bytes of the program's content that the engine still reads in place for request `id`
     /// (design §8 step 46): none over TCP, whose connections copy them inside `write_body`, and
     /// those of an uncoded h3 response that the peer has not acknowledged (RFC 9000 §3.1). The
     /// router's response reads it, and `Engine` has no call for it.
@@ -298,9 +298,9 @@ pub const State = struct {
         return quic_connection_h3_room.held_len(state.connections.at(slot), id.number);
     }
 
-    /// Request `id` waits until the engine reads fewer of its octets in place: its `writable`
+    /// Request `id` waits until the engine reads fewer of its bytes in place: its `writable`
     /// comes once the peer acknowledges some (design §8 step 46). A wait above `maxInt(u32)`
-    /// octets begins at that count.
+    /// bytes begins at that count.
     pub fn wait_release(state: *State, id: RequestId) void {
         const slot = state.open_slot(id) orelse return;
         // A TCP connection holds none, and a request that ended waits for nothing.
@@ -458,8 +458,8 @@ pub fn touch(state: *State, slot: u32) void {
     if (state.slots.kind_of(slot) == .tcp) state.empty_read_ns[slot] = null;
 }
 
-/// Notes that the connection in `slot` may owe octets, and that its deadline may have moved. A
-/// QUIC slot goes in the ring `send_datagram` asks; a TCP slot's octets bring a `send` event.
+/// Notes that the connection in `slot` may owe bytes, and that its deadline may have moved. A
+/// QUIC slot goes in the ring `send_datagram` asks; a TCP slot's bytes bring a `send` event.
 pub fn changed(state: *State, slot: u32) void {
     state.heap.mark_stale(slot);
     if (state.slots.kind_of(slot) == .quic) state.sendable.touch(slot);

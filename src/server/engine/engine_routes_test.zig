@@ -9,7 +9,7 @@ const constants = @import("../constants.zig");
 const testing = std.testing;
 const engine = &support.engine_support.engine;
 
-/// A short header's first octet, its Destination Connection ID, and the longest packet number
+/// A short header's first byte, its Destination Connection ID, and the longest packet number
 /// after it: as much as the engine reads to route it (RFC 9000 §17.3.1). Test-only.
 const short_len = 1 + constants.policy.quic_id_len + @sizeOf(u32);
 
@@ -76,7 +76,7 @@ test "decision 157: an ID the peer retired frees its entry after its connection'
     try testing.expectEqual(null, engine.state.connections.routes.find(&id));
 }
 
-/// A source that writes consecutive octets, so an ID drawn from it shows where it came from.
+/// A source that writes consecutive bytes, so an ID drawn from it shows where it came from.
 /// Test-only.
 const Consecutive = struct {
     next: u8 = 0,
@@ -90,10 +90,10 @@ const Consecutive = struct {
 };
 threadlocal var consecutive: Consecutive align(@alignOf(Consecutive)) = .{};
 
-/// The octets of an ID whose low bits name its entry (decision 157). Test-only.
+/// The bytes of an ID whose low bits name its entry (decision 157). Test-only.
 const entry_octets = 2;
 
-/// Whether the octets of `id` that its entry's bits leave alone are consecutive, as `Consecutive`
+/// Whether the bytes of `id` that its entry's bits leave alone are consecutive, as `Consecutive`
 /// draws them. Test-only.
 fn drawn_consecutive(id: []const u8) bool {
     for (id[entry_octets .. id.len - 1], id[entry_octets + 1 ..]) |octet, next| {

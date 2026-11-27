@@ -47,7 +47,7 @@ fn written_ack(now_ns: u64, report_ecn: bool) !frame.Ack {
     try testing.expect(try test_space.write_ack(&writer, now_ns, no_exponent, report_ecn));
     var reader = Reader.init(writer.written());
     const read_back = (try frame.read(&reader)).ack;
-    // The frame occupies every octet written and no more.
+    // The frame occupies every byte written and no more.
     try testing.expectEqual(writer.written().len, reader.offset);
     return read_back;
 }

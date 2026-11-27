@@ -21,7 +21,7 @@ pub const Error = error{Invalid};
 
 /// Reads the CERTIFICATE blocks of `file`, the end-entity first (RFC 9846 §4.5.1), into the DER
 /// room `der` and the slices of `room`, and returns the chain `Identity.chain` takes. A
-/// DER room of `file.len / 4 * 3` octets holds any file. Both rooms stay in place while a session
+/// DER room of `file.len / 4 * 3` bytes holds any file. Both rooms stay in place while a session
 /// uses the chain.
 pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []const u8 {
     const fits = room[0..@min(room.len, constants.limits.certificate_chain_len_max)];

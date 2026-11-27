@@ -2,19 +2,19 @@
 # Delivery rate samples (draft-ietf-ccwg-bbr-06 §4.1, design §8 step 29a)
 
 `src/quic/recovery/recovery_delivery.zig` gives one rate sample for each ACK frame, from the
-octets delivered over the longer of two intervals: the one over which the packets went out, and
+bytes delivered over the longer of two intervals: the one over which the packets went out, and
 the one over which their acknowledgments came back (§4.1.1.2.4). The definitions follow the Zig
 line for line; the theorems are about them:
 
 - `sample_le_send` and `sample_le_ack`: a sample is never above the send rate or the ACK rate,
-  each taken over the octets the sample counts.
+  each taken over the bytes the sample counts.
 - `sample_interval`: a sample's interval is never shorter than min_rtt (§4.1.2.3).
 - `mark_pos`: the mark of an application limit is never 0, which the Zig reads as "no mark"
   (§4.1.2.4).
-- `cleared_past` and `held_until`: the mark clears once the octets delivered pass it, and not
+- `cleared_past` and `held_until`: the mark clears once the bytes delivered pass it, and not
   before.
 
-The Zig adds with saturation, at 2^64 octets, which no connection delivers; these definitions
+The Zig adds with saturation, at 2^64 bytes, which no connection delivers; these definitions
 add without it. `spec/lean/Vectors.lean` writes `src/quic/recovery/delivery_vectors.txt` from
 them, and a Zig test requires `recovery_delivery.zig` to give the same answers (decision 77).
 -/
@@ -26,7 +26,7 @@ def nanosecondsPerSecond : Nat := 1000000000
 /-- The largest `u64`, at which `rate_of` saturates. -/
 def rateMax : Nat := 2 ^ 64 - 1
 
-/-- `rate_of`: octets a second, from octets over nanoseconds. -/
+/-- `rate_of`: bytes a second, from bytes over nanoseconds. -/
 def rateOf (delivered interval : Nat) : Nat :=
   min (delivered * nanosecondsPerSecond / interval) rateMax
 
@@ -37,7 +37,7 @@ structure Sample where
   interval : Nat
   deriving Repr, DecidableEq
 
-/-- `Delivery.on_ack`'s sample, from the octets delivered since the newest packet went out, its
+/-- `Delivery.on_ack`'s sample, from the bytes delivered since the newest packet went out, its
 send interval, its ACK interval and min_rtt. -/
 def sample (delivered sendElapsed ackElapsed minRtt : Nat) : Option Sample :=
   if max sendElapsed ackElapsed < minRtt ∨ max sendElapsed ackElapsed = 0 then none
@@ -93,11 +93,11 @@ theorem mark_pos (delivered inFlight : Nat) : 0 < mark delivered inFlight := by
 def cleared (delivered limit : Nat) : Nat :=
   if limit ≠ 0 ∧ delivered > limit then 0 else limit
 
-/-- The mark clears once the octets delivered pass it. -/
+/-- The mark clears once the bytes delivered pass it. -/
 theorem cleared_past {delivered limit : Nat} (h : limit < delivered) : cleared delivered limit = 0 := by
   unfold cleared; split <;> omega
 
-/-- The mark holds while the octets delivered do not pass it. -/
+/-- The mark holds while the bytes delivered do not pass it. -/
 theorem held_until {delivered limit : Nat} (h : delivered ≤ limit) :
     cleared delivered limit = limit := by
   unfold cleared; split <;> omega

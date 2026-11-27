@@ -64,7 +64,7 @@ pub fn write_alt_svc(target: *Connection, output: []u8, stream_id: u32, value: [
     // RFC 9113 §5.1: colibri has not sent END_STREAM on a stream open or half-closed (remote).
     if (state != .open and state != .half_closed_remote) return error.StreamNotSendable;
     var writer = Writer.init(output);
-    // RFC 9113 §4.1: a frame is its 9-octet header and its payload, written whole or not at all.
+    // RFC 9113 §4.1: a frame is its 9-byte header and its payload, written whole or not at all.
     frame.write_altsvc(&writer, stream_id, "", value) catch return error.OutputTooSmall;
     return writer.written().len;
 }

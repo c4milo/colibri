@@ -5,7 +5,7 @@
 //! An endpoint is one loop, one bound datagram socket and one multishot receive into a group of
 //! buffers the loop owns. rotor allocates nothing, so every block of memory it runs on is a field
 //! of `Memory`, which the caller places (decision 35 holds in `src/testing/` too). The QUIC
-//! session stays pure: it takes octets and gives octets, and this file is the thin socket around
+//! session stays pure: it takes bytes and gives bytes, and this file is the thin socket around
 //! it that decision 52 asked for.
 //!
 //! Every wait is rotor's one system call per `tick`, so an endpoint here never blocks anywhere
@@ -159,13 +159,13 @@ pub const Endpoint = struct {
         return endpoint.loop.now_ns();
     }
 
-    /// The peer and the octets of a received datagram.
+    /// The peer and the bytes of a received datagram.
     pub fn delivery(endpoint: *Endpoint, event: Event) rotor.Delivery {
         assert(event.user_data == receive_user_data);
         return endpoint.loop.datagram(endpoint.buffer_group, event);
     }
 
-    /// Returns a received datagram's buffer to the group, once its octets have been read.
+    /// Returns a received datagram's buffer to the group, once its bytes have been read.
     pub fn give_back(endpoint: *Endpoint, event: Event) void {
         assert(event.user_data == receive_user_data and event.flags.buffer);
         endpoint.loop.give_back_buffer(endpoint.buffer_group, event.flags.buffer_id);

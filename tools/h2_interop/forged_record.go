@@ -24,7 +24,7 @@ import (
 )
 
 // A TLSCiphertext (RFC 9846 §5.2): the application_data type, legacy_record_version 0x0303, a
-// two-octet length, and that many octets. Thirty-two octets hold a content type and the 16-octet
+// two-byte length, and that many bytes. Thirty-two bytes hold a content type and the 16-byte
 // tag every TLS 1.3 AEAD appends, so the record is long enough to open. No key sealed it, so it
 // never authenticates.
 var forged = append([]byte{23, 3, 3, 0, 32}, make([]byte, 32)...)

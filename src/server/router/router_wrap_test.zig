@@ -141,7 +141,7 @@ const Echo = struct {
     pub fn on_request(_: *App, _: *RequestContext, _: *void, _: *const event.Request, _: *Response) !void {}
 
     pub fn on_data(app: *App, _: *RequestContext, _: *void, body: *RequestBodyStream, response: *Response) !void {
-        // Bounded: each pass takes one piece, of one octet at least.
+        // Bounded: each pass takes one piece, of one byte at least.
         for (0..read_len_max) |_| {
             const piece = body.next() orelse break;
             @memcpy(app.read[app.read_len..][0..piece.len], piece);
@@ -205,7 +205,7 @@ const routes = .{
     },
 };
 
-/// Octets of each entry's response, body and header memory. Test-only.
+/// Bytes of each entry's response, body and header memory. Test-only.
 const response_bytes = 64;
 const body_bytes = read_len_max;
 const header_bytes = 64;

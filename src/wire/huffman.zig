@@ -9,7 +9,7 @@
 //!
 //! Check 1 happens at a symbol boundary inside the decode loop, never by scanning for a run of
 //! ones (invariant 12). A run of thirty ones is legal without EOS: symbol 204 ends in five ones and
-//! symbol 22 begins with twenty-nine, so the octets 204 and 22 encode to a run of thirty-four.
+//! symbol 22 begins with twenty-nine, so the bytes 204 and 22 encode to a run of thirty-four.
 //!
 //! `decode` reads twelve bits at a time through a table built from the code, in
 //! `huffman_decode.zig`. `decode_by_bits` reads the code bit by bit using the table's canonical
@@ -114,19 +114,19 @@ fn assert_canonical_order() void {
     }
 }
 
-/// The most octets `data_len` octets of Huffman data can decode to. Every symbol costs at least
+/// The most bytes `data_len` bytes of Huffman data can decode to. Every symbol costs at least
 /// `huffman_code_bits_min` bits, so a caller sizes its output from this.
 pub fn decoded_len_max(data_len: usize) usize {
     return data_len * @bitSizeOf(u8) / constants.protocol.huffman_code_bits_min;
 }
 
-/// The most octets `data_len` octets can occupy once encoded, padding included. Every symbol costs
-/// at most `huffman_code_bits_max` bits, so a limit on decoded octets gives a limit on encoded ones.
+/// The most bytes `data_len` bytes can occupy once encoded, padding included. Every symbol costs
+/// at most `huffman_code_bits_max` bits, so a limit on decoded bytes gives a limit on encoded ones.
 pub fn encoded_len_max(data_len: usize) usize {
     return std.math.divCeil(usize, data_len * constants.protocol.huffman_code_bits_max, @bitSizeOf(u8)) catch unreachable;
 }
 
-/// The octets `bytes` occupies once encoded, padding included.
+/// The bytes `bytes` occupies once encoded, padding included.
 pub fn encoded_len(bytes: []const u8) usize {
     var bit_total: usize = 0;
     for (bytes) |byte| bit_total += table.codes[byte].bit_count;
@@ -155,7 +155,7 @@ pub const Partial = struct {
 };
 
 /// Decodes all of `encoded` into `output`. On an error the output cursor does not move: it moves
-/// once, when the whole string has decoded, and octets past it are scratch.
+/// once, when the whole string has decoded, and bytes past it are scratch.
 pub const decode = @import("huffman_decode.zig").decode;
 
 /// What `decode` does, one bit at a time: the reference its tests compare with.
@@ -182,7 +182,7 @@ pub fn decode_by_bits(encoded: []const u8, output: *Writer) DecodeError!void {
 /// What `encode` writes at a time: the oldest thirty-two bits of code, in network byte order.
 const Word = u32;
 const word_bits = @bitSizeOf(Word);
-/// Most octets left once the last word is written: fewer than `word_bits` bits, padded to an octet.
+/// Most bytes left once the last word is written: fewer than `word_bits` bits, padded to a byte.
 const tail_octets_max = word_bits / @bitSizeOf(u8);
 
 comptime {
@@ -192,8 +192,8 @@ comptime {
 }
 
 /// Encodes `bytes` into `output`, padded with the most significant bits of EOS (RFC 7541 §5.2).
-/// When the octets do not fit, the output cursor does not move: it moves once, when the whole
-/// string is written, and octets past it are scratch.
+/// When the bytes do not fit, the output cursor does not move: it moves once, when the whole
+/// string is written, and bytes past it are scratch.
 pub fn encode(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     var cursor = output.*;
     // The low `pending_bits` bits of `pending` are code not yet written. The bits above them are
@@ -203,7 +203,7 @@ pub fn encode(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     for (bytes) |byte| {
         const row = table.codes[byte];
         // The comptime block above holds every row to thirty bits, so the amount needs no check
-        // here, in the loop that runs for every octet.
+        // here, in the loop that runs for every byte.
         pending = (pending << @truncate(row.bit_count)) | row.code;
         pending_bits += row.bit_count;
         if (pending_bits < word_bits) continue;
@@ -211,7 +211,7 @@ pub fn encode(bytes: []const u8, output: *Writer) core.Writer.Error!void {
         try cursor.write_int_big(Word, @truncate(pending >> @intCast(pending_bits)));
     }
     assert(pending_bits < word_bits);
-    // RFC 7541 §5.2: the last octet is padded with the most significant bits of EOS, all ones.
+    // RFC 7541 §5.2: the last byte is padded with the most significant bits of EOS, all ones.
     const padding_bits: u32 = (@bitSizeOf(u8) - pending_bits % @bitSizeOf(u8)) % @bitSizeOf(u8);
     pending = (pending << @intCast(padding_bits)) | ((@as(u64, 1) << @intCast(padding_bits)) - 1);
     pending_bits += padding_bits;
@@ -230,7 +230,7 @@ test {
     _ = @import("huffman_test.zig");
 }
 
-/// Octets of output the test helpers decode or encode into. Test-only.
+/// Bytes of output the test helpers decode or encode into. Test-only.
 const expect_buffer_len = 256;
 
 fn expect_decodes(encoded: []const u8, decoded: []const u8) !void {
@@ -279,7 +279,7 @@ test "no octet encodes past encoded_len_max, and octet 22, at thirty bits, reach
         const octet = [_]u8{@intCast(value)};
         try testing.expect(encoded_len(&octet) <= encoded_len_max(1));
     }
-    // One octet rounds 30 bits up to 4 octets, and eight take exactly 240 bits, 30 octets.
+    // One byte rounds 30 bits up to 4 bytes, and eight take exactly 240 bits, 30 bytes.
     const longest: [8]u8 = @splat(22);
     try testing.expectEqual(4, encoded_len_max(1));
     try testing.expectEqual(encoded_len_max(1), encoded_len(longest[0..1]));
@@ -343,7 +343,7 @@ test "a decode or an encode that does not fit leaves the output cursor where it 
     try testing.expectEqualSlices(u8, &.{0x01}, output.written());
 }
 
-/// Most octets a fuzz input carries. Test-only.
+/// Most bytes a fuzz input carries. Test-only.
 const fuzz_input_len_max = 64;
 
 fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
@@ -357,7 +357,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
         return;
     };
     // The padding rules leave exactly one encoding per string, so a string that decoded
-    // re-encodes to the octets it came from.
+    // re-encodes to the bytes it came from.
     var encoded_buffer: [fuzz_input_len_max]u8 = @splat(0);
     var encoded = Writer.init(&encoded_buffer);
     try encode(decoded.written(), &encoded);
@@ -382,12 +382,12 @@ const vector_radix = 10;
 const vector_code_lines = 257;
 const vector_encode_lines = 271;
 const vector_decode_lines = 1288;
-/// The octet values, 0 to 255: the longest vector string holds each once.
+/// The byte values, 0 to 255: the longest vector string holds each once.
 const vector_octet_values = std.math.maxInt(u8) + 1;
 /// Room for any vector string or its encoding.
 const vector_octets_max = encoded_len_max(vector_octet_values);
 
-/// A vector's octets: hex, or `-` for none.
+/// A vector's bytes: hex, or `-` for none.
 fn vector_octets(text: []const u8, storage: []u8) ![]u8 {
     if (std.mem.eql(u8, text, "-")) return storage[0..0];
     return std.fmt.hexToBytes(storage, text);
@@ -401,7 +401,7 @@ fn expect_code_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     try testing.expectEqual(table.Code{ .code = code, .bit_count = bit_count }, table.codes[symbol]);
 }
 
-/// `encode octets encoded`: `encode` writes those octets, and `encoded_len` counts them.
+/// `encode octets encoded`: `encode` writes those bytes, and `encoded_len` counts them.
 fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     var input_storage: [vector_octets_max]u8 = undefined;
     const octets = try vector_octets(fields.next().?, &input_storage);
@@ -414,7 +414,7 @@ fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     try testing.expectEqual(expected.len, encoded_len(octets));
 }
 
-/// `decode encoded outcome`: `decode` gives those octets, or the error, and writes nothing then.
+/// `decode encoded outcome`: `decode` gives those bytes, or the error, and writes nothing then.
 fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     var encoded_storage: [vector_octets_max]u8 = undefined;
     const encoded = try vector_octets(fields.next().?, &encoded_storage);

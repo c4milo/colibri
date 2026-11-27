@@ -6,7 +6,7 @@
 /// `spec/tla/h3_connection`: the requests one seed opens, the DATA frames each carries, the GOAWAY
 /// frames the server sends, and the server decoder's blocked-stream limit and table capacity. The
 /// client opens, cancels and the server shuts down within `act_steps` steps, and one request in
-/// `cancel_one_in` is cancelled. Each DATA frame carries `data_len` octets.
+/// `cancel_one_in` is cancelled. Each DATA frame carries `data_len` bytes.
 pub const requests_max: u32 = 3;
 pub const content_max: u32 = 2;
 pub const goaways_max: u32 = 2;
@@ -21,7 +21,7 @@ pub const prefix_len_max: u32 = 2048;
 pub const steps_max: u32 = 10_000;
 pub const drop_max: u64 = 50;
 pub const duplicate_max: u64 = 50;
-/// The model's states one trace run keeps, each one differing from the last, and the octets of
+/// The model's states one trace run keeps, each one differing from the last, and the bytes of
 /// the TLA+ module one seed's trace is written as: 1 MiB.
 pub const states_max: u32 = 1024;
 pub const module_len_max: u32 = 1_048_576;

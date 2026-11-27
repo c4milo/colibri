@@ -18,7 +18,7 @@ const limits = sim.constants.client_trace;
 const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 
-/// Octets of the server's connection IDs, and of what it keeps of a request stream: its
+/// Bytes of the server's connection IDs, and of what it keeps of a request stream: its
 /// response's frames before the content.
 const id_len: usize = 8;
 const server_id_octet: u8 = 0x5e;
@@ -185,7 +185,7 @@ pub const QuicServer = struct {
 
     /// Reads every h3 event, noting each request and deciding at its head what to do with it.
     fn read(server: *QuicServer, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {
-        // Bounded: each event reads octets the pool holds or ends a stream.
+        // Bounded: each event reads bytes the pool holds or ends a stream.
         for (0..body_len) |_| {
             const read_event = server.h3.receive(&server.connection, &server.body, now_ns) catch return;
             const got = read_event orelse return;
@@ -302,7 +302,7 @@ fn parameters() quic.transport_parameters.Parameters {
 
 const vtable: quic.StreamProvider.VTable = .{ .read = read_answer };
 
-/// A response stream's octets from `offset`: its kept frames, then its content.
+/// A response stream's bytes from `offset`: its kept frames, then its content.
 fn read_answer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const server: *QuicServer = @ptrCast(@alignCast(context));
     const request = server.request_of(stream_id) orelse return 0;

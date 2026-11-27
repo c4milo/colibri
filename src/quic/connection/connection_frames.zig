@@ -155,8 +155,8 @@ pub fn process(
     if (opened.payload.len == 0) return Error.EmptyPayload;
     var reader = Reader.init(opened.payload);
     var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{}, .completed_from = completed_from };
-    // Bounded by the frames one packet can hold, which is its octets: §19.1 makes PADDING one
-    // octet and no frame is shorter.
+    // Bounded by the frames one packet can hold, which is its bytes: §19.1 makes PADDING one
+    // byte and no frame is shorter.
     while (report.frames < constants.limits.frames_per_packet_max) {
         if (reader.remaining_len() == 0) break;
         const frame = frame_module.read(&reader) catch return Error.FrameEncoding;
@@ -168,7 +168,7 @@ pub fn process(
         if (!frame.is_probing()) report.non_probing = true;
         try apply(connection, opened, frame, now_ns, scratch, &report);
     }
-    // A payload that held only octets no frame could be read from would have failed above, so
+    // A payload that held only bytes no frame could be read from would have failed above, so
     // reaching here with nothing read means the payload was frames of zero length, which §19.1
     // does not define.
     assert(report.frames > 0);

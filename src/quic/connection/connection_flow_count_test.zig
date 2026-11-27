@@ -37,14 +37,14 @@ const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
-/// The octet of every response. Test-only.
+/// The byte of every response. Test-only.
 const body_octet: u8 = 0x42;
 /// The bidirectional streams each side lets its peer open, of which half is 4. Test-only.
 const max_streams: u64 = 8;
-/// The octets of the server's one response. Test-only.
+/// The bytes of the server's one response. Test-only.
 const response_len: u64 = 8;
 
-/// The server's octets, the same at every offset. Test-only.
+/// The server's bytes, the same at every offset. Test-only.
 var body_context: u8 = 0;
 const body_vtable: StreamProvider.VTable = .{ .read = read_body };
 

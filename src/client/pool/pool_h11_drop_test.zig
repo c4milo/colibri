@@ -20,7 +20,7 @@ const body_len: usize = 64;
 
 /// RFC 9110 §4.2.1: the port of an "http" origin whose URI names none.
 const http_port: u16 = 80;
-/// An IPv4 host, its four octets alike. Test-only.
+/// An IPv4 host, its four bytes alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);

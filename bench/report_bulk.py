@@ -5,7 +5,7 @@ discards round 0, the warm-up. <connections>.json holds the downloads of the fil
 <connections>.probe.json the small GETs sent beside them. For each profile, protocol, server and
 count of connections the report gives the median over the counted rounds of:
 - the p50 and p90 time of one download. 30 s holds about 35 downloads, too few for a p99.
-- the goodput: the octets of the downloads answered 200, over the seconds of the load.
+- the goodput: the bytes of the downloads answered 200, over the seconds of the load.
 - the p50 and p99 latency of the small GETs, which wait in the bottleneck's queue.
 - whether every download and every GET was answered 200. A download that the end of the load
   cut is no answer, and oha counts it as an error, so it does not count against this.
@@ -21,7 +21,7 @@ profile and controller the report gives the median time of a download from the s
 and from `<server>-resume`, their ratio, and how many of the counted connections took a set and
 how many retreated (RFC 9959 §3.5).
 
-    python3 bench/report_bulk.py <scratch> <report.md> --file-len <octets> --seconds <seconds>
+    python3 bench/report_bulk.py <scratch> <report.md> --file-len <bytes> --seconds <seconds>
     python3 bench/report_bulk.py --test
 """
 
@@ -34,7 +34,7 @@ import tempfile
 
 # Milliseconds in a second: oha reports seconds.
 MS = 1000.0
-# Bits in an octet, and bits in a megabit.
+# Bits in a byte, and bits in a megabit.
 BITS = 8
 MEGABIT = 1_000_000
 
@@ -127,7 +127,7 @@ def read_resume(scratch):
             if download.stem == "0":
                 continue
             data = json.loads(download.read_text())
-            # The one request's time, from its start on the open connection to its last octet.
+            # The one request's time, from its start on the open connection to its last byte.
             # `total` also holds the idle timeout oha waits out before it ends. oha gives no
             # time for a download it did not complete, which the report does not count.
             slowest = data["summary"]["slowest"]
@@ -217,7 +217,7 @@ def test():
             write_run(scratch, round_, "h3@bottleneck", "a", 1, 9.0 if warm else 1.0, 30, {})
             write_run(scratch, round_, "h3@bottleneck", "a", 4, 4.0, 10 * round_, {})
             write_run(scratch, round_, "h2-tls@bottleneck-lossy", "b", 1, 2.0, 15, {"503": 1})
-        # 30 downloads of 1,000,000 octets in 30 s: 8 Mbit/s.
+        # 30 downloads of 1,000,000 bytes in 30 s: 8 Mbit/s.
         text = report(scratch, 1_000_000, 30)
         assert "| h3 | a | 1 | 1000 | 2000 | 8.00 | 100.0 | 200.0 | yes |" in text, text
         # 10 and then 20 downloads, a median of 15.

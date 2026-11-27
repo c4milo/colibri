@@ -88,7 +88,7 @@ test "refusal 10, wildcard_not_last: decision 122 ruling 6, the wildcard is the 
     try expect_pattern(null, "/files/*");
     try expect_pattern(null, "/*");
     try expect_pattern(null, "/:id/*");
-    // A segment that holds "*" and other octets, or ":" after its first octet, is a literal.
+    // A segment that holds "*" and other bytes, or ":" after its first byte, is a literal.
     try expect_pattern(null, "/a*b");
     try expect_pattern(null, "/**");
     try expect_pattern(null, "/*a/b");
@@ -126,7 +126,7 @@ test "refusal 8, parameter_repeated: each parameter of a pattern has a name of i
     try expect_pattern(null, "/:id/posts/:post");
     // A literal of the same text as a name is not a parameter.
     try expect_pattern(null, "/:id/id");
-    // Names compare octet for octet.
+    // Names compare byte for byte.
     try expect_pattern(null, "/:id/:ID");
 }
 
@@ -418,7 +418,7 @@ test "docs/usage.md: each table of the Router section compiles or is refused as 
     try support.expect_found(added, @as(u8, 0), "GET", "/users/me");
 }
 
-/// A segment of `path_len_max` octets, so a path of it is one octet too long.
+/// A segment of `path_len_max` bytes, so a path of it is one byte too long.
 const long_segment = "a" ** constants.limits.path_len_max;
 
 test "refusal 21, route_unreachable: a pattern whose paths are longer than path_len_max" {
@@ -437,14 +437,14 @@ fn repeated_pattern(comptime count: usize) []const u8 {
     return "/a" ** count;
 }
 
-/// A literal segment that fills a path of `path_len_max` octets beside `rest` octets.
+/// A literal segment that fills a path of `path_len_max` bytes beside `rest` bytes.
 fn filler(comptime rest: usize) []const u8 {
     return "L" ** (constants.limits.path_len_max - rest);
 }
 
 test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at path_len_max" {
     // Claims 8 and 9 of router_hidden.zig: "other" is "b" beside 62 segments "a", so each path
-    // below has `path_len_max` octets and a walk reads it.
+    // below has `path_len_max` bytes and a walk reads it.
     inline for (.{ 61, 62 }) |count| {
         try expect_layout(null, 0, .{ .{ .get, repeated_pattern(count), 0 }, .{ .get, "/" ++ filler(3) ++ "/:x", 1 } });
         try expect_backs_up(1, "GET", "/bbb/" ++ filler(7) ++ "/b", "/bbb/:y/:w", .{
@@ -455,11 +455,11 @@ test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at p
 
 const Entry = struct { http.method.Standard, []const u8, u8 };
 
-/// The two routes after the one-octet routes of `one_octet_table`. The walk on `/<other>/b`
+/// The two routes after the one-byte routes of `one_octet_table`. The walk on `/<other>/b`
 /// stops at `/:x/b`, which names no GET, so `GET /:x/:y` is hidden.
 const one_octet_tail = [_]Entry{ .{ .get, "/:x/:y", 0 }, .{ .put, "/:x/b", 0 } };
 
-/// A table that holds each one-octet segment of `octets` as a GET route, then `one_octet_tail`.
+/// A table that holds each one-byte segment of `octets` as a GET route, then `one_octet_tail`.
 fn one_octet_table(comptime octets: []const u8) [octets.len + one_octet_tail.len]Entry {
     var table: [octets.len]Entry = undefined;
     for (octets, &table) |octet, *entry| entry.* = .{ .get, "/" ++ [_]u8{octet}, 0 };
@@ -468,7 +468,7 @@ fn one_octet_table(comptime octets: []const u8) [octets.len + one_octet_tail.len
 
 test "decision 122 ruling 12: \"other\" has two octets when the table holds each one-octet literal" {
     const alpha_digit = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    // Claim 9: each segment of one octet is a literal of the table, so "other" has two octets.
+    // Claim 9: each segment of one byte is a literal of the table, so "other" has two bytes.
     try expect_backs_up(alpha_digit.len, "GET", "/aa/b", "/:x/b", comptime one_octet_table(alpha_digit));
     try expect_backs_up(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
 }

@@ -55,7 +55,7 @@ const max_streams: u64 = 2;
 const body_len: u64 = 2_000;
 const body_octet: u8 = 0x42;
 
-/// The client's octets, the same at every offset. Test-only.
+/// The client's bytes, the same at every offset. Test-only.
 var body_context: u8 = 0;
 const body_vtable: stream_module.StreamProvider.VTable = .{ .read = read_body };
 
@@ -158,7 +158,7 @@ fn record_of(sent: send.Sent) Record {
     };
 }
 
-/// The client opens a stream whose octets reach `end`, sends a window's worth and is blocked; the
+/// The client opens a stream whose bytes reach `end`, sends a window's worth and is blocked; the
 /// server takes it.
 fn fill_window(end: u64, fin: bool) !StreamId {
     const id = try stream_send.open(&client, .bidirectional);
@@ -372,12 +372,12 @@ test "RFC 9000 §4.1: a sender blocked with nothing more to send says nothing" {
     _ = try fill_window(window, true);
     try testing.expectEqual(null, try send_from(&client));
     try testing.expect(!client.data_blocked.sent);
-    // Nor with every supplied octet out and the stream not yet ended.
+    // Nor with every supplied byte out and the stream not yet ended.
     open_pair();
     const open_id = try fill_window(window, false);
     try testing.expectEqual(.send, client_stream(open_id).sending.state);
     try testing.expectEqual(null, try send_from(&client));
-    // Nor for a stream reset with octets unsent: §3.1 sends none from "Reset Sent".
+    // Nor for a stream reset with bytes unsent: §3.1 sends none from "Reset Sent".
     open_pair();
     const reset_id = try fill_window(body_len, false);
     _ = client_stream(reset_id).sending.on(.sent_reset);
@@ -399,7 +399,7 @@ test "RFC 9000 §13.3: a lost BLOCKED frame is sent again only while still block
     try testing.expectEqual(again.packets[0].packet_number, client_stream(id).stream_data_blocked.sent_in);
 
     // Lost again, but credit arrives first: "only while the endpoint is blocked on the
-    // corresponding limit", so octets go out and no BLOCKED frame with them.
+    // corresponding limit", so bytes go out and no BLOCKED frame with them.
     flow_frames.on_packets_lost(&client, .application, &.{record_of(again)});
     try flow_frames.consume(&server, id, half_window);
     try deliver((try send_from(&server)).?, &client);

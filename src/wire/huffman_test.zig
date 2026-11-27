@@ -1,7 +1,7 @@
 //! The tests that hold `huffman.zig`'s `encode` to the encoder it replaced
 //! (https://github.com/c4milo/colibri/issues/57). That encoder measured the string first and then
-//! wrote one octet at a time. It stays here as the reference: `encode` must return what it returns
-//! and leave the same octets written, for every input and in every room.
+//! wrote one byte at a time. It stays here as the reference: `encode` must return what it returns
+//! and leave the same bytes written, for every input and in every room.
 const std = @import("std");
 const core = @import("core");
 const constants = @import("constants.zig");
@@ -11,12 +11,12 @@ const huffman = @import("huffman.zig");
 const Writer = core.Writer;
 const testing = std.testing;
 
-/// Most whole octets ready to write after one symbol. At most seven bits remain between symbols and
-/// a code is at most thirty, so no more than four octets are ever ready at once.
+/// Most whole bytes ready to write after one symbol. At most seven bits remain between symbols and
+/// a code is at most thirty, so no more than four bytes are ever ready at once.
 const ready_octets_max = (constants.protocol.huffman_padding_bits_max + constants.protocol.huffman_code_bits_max) /
     @bitSizeOf(u8);
 
-/// The reference: the encoder `huffman.encode` replaced. All of the octets are written, or none.
+/// The reference: the encoder `huffman.encode` replaced. All of the bytes are written, or none.
 fn encode_by_octets(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     if (huffman.encoded_len(bytes) > output.remaining_len()) return error.NoSpaceLeft;
     var pending: u64 = 0;
@@ -38,18 +38,18 @@ fn encode_by_octets(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     output.write_byte(@truncate((pending << @intCast(padding_bits)) | padding)) catch unreachable;
 }
 
-/// The longest string the tests vary, and room for its code and one octet more.
+/// The longest string the tests vary, and room for its code and one byte more.
 const varied_len_max = 40;
 const room_max = huffman.encoded_len_max(varied_len_max) + 1;
 /// What a buffer holds before a call.
 const untouched: u8 = 0xee;
 /// The bits `encode` writes at a time.
 const word_bits = @bitSizeOf(u32);
-/// The octet values, 0 to 255.
+/// The byte values, 0 to 255.
 const octet_values = std.math.maxInt(u8) + 1;
 
 /// Fails, printing both outcomes, when `encode` and the reference differ on `bytes` with `room`
-/// octets of output: in what they return, or in the octets they leave written.
+/// bytes of output: in what they return, or in the bytes they leave written.
 fn expect_same(bytes: []const u8, room: usize) !void {
     var changed_buffer: [room_max]u8 = @splat(untouched);
     var reference_buffer: [room_max]u8 = @splat(untouched);
@@ -75,13 +75,13 @@ fn waiting_bits(bytes: []const u8) usize {
 test "encode writes what the reference writes, at every length and in every room" {
     var seen: [word_bits]bool = @splat(false);
     var bytes: [varied_len_max]u8 = undefined;
-    // Octets that step through the table by a stride, so that the strings mix code lengths.
+    // Bytes that step through the table by a stride, so that the strings mix code lengths.
     for ([_]usize{ 1, 7, 29, 131 }) |stride| {
         for (&bytes, 0..) |*byte, index| byte.* = @truncate((index + 1) * stride);
         for (0..bytes.len + 1) |len| {
             const input = bytes[0..len];
             seen[waiting_bits(input)] = true;
-            // No room, each room short of the code, the room that holds it, and one octet more.
+            // No room, each room short of the code, the room that holds it, and one byte more.
             for (0..huffman.encoded_len(input) + 2) |room| try expect_same(input, room);
         }
     }

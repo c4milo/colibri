@@ -3,7 +3,7 @@
 //!
 //! **QUIC takes the record layer's job, so the interface is not the same one.** RFC 9001 §3 says
 //! QUIC "takes over the responsibilities of the TLS record layer", and §4.1 replaces it with two
-//! flows: handshake octets move at an encryption level and application data is protected by
+//! flows: handshake bytes move at an encryption level and application data is protected by
 //! `crypto.Suite` instead. So there is no `encrypt_record`, no `decrypt_record` and no
 //! `send_close_notify` here — a QUIC connection closes with a CONNECTION_CLOSE frame, not an
 //! alert record (§4.8).
@@ -28,7 +28,7 @@ const alert = @import("alert.zig");
 
 const Alert = alert.Alert;
 
-/// The encryption level handshake octets move at (RFC 9001 §4.1.4). It is `core`'s, because
+/// The encryption level handshake bytes move at (RFC 9001 §4.1.4). It is `core`'s, because
 /// `crypto.Suite` speaks it too and design §3 makes `tls` and `crypto` siblings.
 pub const Level = core.Level;
 
@@ -42,20 +42,20 @@ pub const TransportParamsError = error{
     TlsFailed,
 };
 
-/// Why a provider would not take handshake octets colibri read out of CRYPTO frames.
+/// Why a provider would not take handshake bytes colibri read out of CRYPTO frames.
 pub const ProvideError = error{
     /// The handshake failed. RFC 9001 §4.8 makes it a connection error, and `take_alert` names
     /// the description the CONNECTION_CLOSE carries.
     TlsFailed,
-    /// RFC 9001 §4.1.3: each level is its own flow of octets, and the provider is not reading
-    /// this one yet. RFC 9000 §12.5 makes octets at the wrong level a protocol violation.
+    /// RFC 9001 §4.1.3: each level is its own flow of bytes, and the provider is not reading
+    /// this one yet. RFC 9000 §12.5 makes bytes at the wrong level a protocol violation.
     WrongLevel,
     /// One handshake message is larger than the provider's own storage. There is no record layer
     /// to bound a message in QUIC (RFC 9001 §4.1.3), so the provider states its own limit.
     NoSpaceLeft,
 };
 
-/// Why a provider would not write the handshake octets it owes.
+/// Why a provider would not write the handshake bytes it owes.
 pub const WriteError = error{
     TlsFailed,
     /// The output cannot hold what the provider owes at this level, and nothing was written.
@@ -94,16 +94,16 @@ pub const VTable = struct {
 
     /// The peer's `quic_transport_parameters` body, or null before it has arrived. RFC 9001 §8.2
     /// carries it in the ClientHello and in EncryptedExtensions, so a client has it only once it
-    /// has read the server's EncryptedExtensions. The octets are the provider's and stay valid
+    /// has read the server's EncryptedExtensions. The bytes are the provider's and stay valid
     /// for the life of the connection; colibri reads them through `transport_parameters_read`.
     peer_transport_params: *const fn (context: *const anyopaque) ?[]const u8,
 
-    /// Hands the provider handshake octets colibri reassembled from CRYPTO frames at `level`
+    /// Hands the provider handshake bytes colibri reassembled from CRYPTO frames at `level`
     /// (RFC 9001 §4.1.3). They are unframed handshake-message bytes in order, which is what
     /// `quic.crypto_stream` produces, and a message may arrive across several calls.
     provide_handshake: *const fn (context: *anyopaque, level: Level, data: []const u8) ProvideError!void,
 
-    /// Writes the handshake octets the provider owes at `level` and returns how many. 0 means it
+    /// Writes the handshake bytes the provider owes at `level` and returns how many. 0 means it
     /// owes none there. colibri puts them in CRYPTO frames at the packet type RFC 9001 Table 1
     /// pairs with the level.
     write_handshake: *const fn (context: *anyopaque, level: Level, output: []u8) WriteError!usize,
@@ -151,7 +151,7 @@ pub const QuicProvider = struct {
 
     pub fn provide_handshake(held: QuicProvider, level: Level, data: []const u8) ProvideError!void {
         // A call with nothing to hand over is colibri's defect: `crypto_stream.readable` says how
-        // many octets there are and a caller with none has no reason to call.
+        // many bytes there are and a caller with none has no reason to call.
         assert(data.len > 0);
         return held.vtable.provide_handshake(held.context, level, data);
     }

@@ -1,13 +1,13 @@
 //! Example: an h2 client asks for a resource, and an h2 server answers it.
 //!
-//! Each side runs the loop every h2 program runs: hand colibri the octets that arrived, one frame
+//! Each side runs the loop every h2 program runs: hand colibri the bytes that arrived, one frame
 //! per `receive`, then write what colibri owes with `write_pending` and send it. What colibri owes
 //! on its own is the connection preface, its SETTINGS, and the acknowledgment of the peer's
 //! (RFC 9113 §3.4, §6.5.3). What the application sends goes through `write_request`,
 //! `write_response` and `write_data_header`. Every call that needs the instant takes the one the side's
 //! loop read. Both run over `link.zig`, which stands where a program's sockets would be.
 //!
-//! The program checks what arrived: the client must see 200 and the greeting, octet for octet.
+//! The program checks what arrived: the client must see 200 and the greeting, byte for byte.
 //! Anything else exits with an error, which is how `zig build examples` and CI know the example
 //! still works.
 //!
@@ -21,7 +21,7 @@ const Connection = h2.Connection;
 const Link = link_module.Link;
 const Side = link_module.Side;
 
-/// The octets one side writes before it sends them, at most.
+/// The bytes one side writes before it sends them, at most.
 const output_len = 16384;
 
 /// Rounds of both sides reading and writing before the example gives up.
@@ -45,7 +45,7 @@ const State = struct {
     status: u16 = 0,
     body: [greeting.len]u8 = undefined,
     body_len: usize = 0,
-    /// The client received more body octets than the server sent.
+    /// The client received more body bytes than the server sent.
     overflowed: bool = false,
 };
 
@@ -68,7 +68,7 @@ pub fn main() !void {
     client.init(.{ .role = .client });
     server.init(.{ .role = .server });
 
-    // The client's first octets: its preface and SETTINGS, then a request on a new stream. GET
+    // The client's first bytes: its preface and SETTINGS, then a request on a new stream. GET
     // carries no content, so the request ends the stream.
     const preface_len = client.write_pending(&output, link.now_ns(.client));
     const sent = try client.write_request(output[preface_len..], &.{
@@ -89,7 +89,7 @@ pub fn main() !void {
     return error.ExchangeUnfinished;
 }
 
-/// The client saw the status the server sent, and every octet of the body.
+/// The client saw the status the server sent, and every byte of the body.
 fn check(state: *const State) Error!void {
     const body_right = !state.overflowed and std.mem.eql(u8, state.body[0..state.body_len], greeting);
     if (state.status == status_expected and body_right) {
@@ -171,7 +171,7 @@ fn answer(buffer: []u8, stream_id: u32) !usize {
     const frame = buffer[head_len..];
     const data = try server.write_data_header(frame[0..h2.constants.protocol.frame_header_len], frame.len, stream_id, greeting.len, true);
     std.debug.assert(data.consumed == greeting.len);
-    // The frame's data follows its header, before any other octet of the connection.
+    // The frame's data follows its header, before any other byte of the connection.
     @memcpy(frame[data.written..][0..data.consumed], greeting[0..data.consumed]);
     return head_len + data.written + data.consumed;
 }

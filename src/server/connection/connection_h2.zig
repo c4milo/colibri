@@ -24,7 +24,7 @@ const Number = event.Number;
 const version: event.Version = .{ .major = version_major, .minor = 0 };
 const version_major: u8 = 2;
 
-/// Reads frames from `plaintext` until one means something to the caller, h2 needs more octets,
+/// Reads frames from `plaintext` until one means something to the caller, h2 needs more bytes,
 /// or the replies h2 owes must be written first and `output` has no room for them.
 pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ConnectionResult {
     const session = &connection.session.h2;
@@ -167,7 +167,7 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
     }
     // RFC 9113 §6.9: no window, or no room for a frame, and nothing moved.
     if (written == 0) return error.Blocked;
-    // h2 sets END_STREAM on the frame that carries the last octet, and only then.
+    // h2 sets END_STREAM on the frame that carries the last byte, and only then.
     if (end and consumed == octets.len) connection.done_owed.push(id);
     return consumed;
 }

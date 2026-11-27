@@ -2,12 +2,12 @@
 //! slice the caller owns, and it never reads past the end of that slice.
 //!
 //! Three rules hold for every read:
-//!   1. A read that needs more octets than remain returns `error.Truncated` and leaves the cursor
+//!   1. A read that needs more bytes than remain returns `error.Truncated` and leaves the cursor
 //!      where it was, so a declared length is checked against the bytes present before any of
 //!      them are used (invariant 9).
-//!   2. A successful read moves the cursor past exactly the octets it returned, so the caller
-//!      always knows how many octets it consumed.
-//!   3. Integers are assembled octet by octet, most significant first, whatever the host's byte
+//!   2. A successful read moves the cursor past exactly the bytes it returned, so the caller
+//!      always knows how many bytes it consumed.
+//!   3. Integers are assembled byte by byte, most significant first, whatever the host's byte
 //!      order. The wire is network byte order in h2 (RFC 9113 §2.2) and in QUIC (RFC 9000 §1.3).
 //!
 //! A parser that must not consume anything on failure copies the reader, reads through the copy,
@@ -18,7 +18,7 @@ const assert = std.debug.assert;
 
 pub const Reader = struct {
     bytes: []const u8,
-    /// Octets consumed so far. Never exceeds `bytes.len`.
+    /// Bytes consumed so far. Never exceeds `bytes.len`.
     offset: usize = 0,
 
     pub const Error = error{
@@ -30,19 +30,19 @@ pub const Reader = struct {
         return .{ .bytes = bytes };
     }
 
-    /// Octets not yet consumed.
+    /// Bytes not yet consumed.
     pub fn remaining_len(self: *const Reader) usize {
         assert(self.offset <= self.bytes.len);
         return self.bytes.len - self.offset;
     }
 
-    /// The octets consumed so far, from the start of the slice.
+    /// The bytes consumed so far, from the start of the slice.
     pub fn consumed(self: *const Reader) []const u8 {
         assert(self.offset <= self.bytes.len);
         return self.bytes[0..self.offset];
     }
 
-    /// The octets consumed since the cursor stood at `mark`. A parser that must hand back a
+    /// The bytes consumed since the cursor stood at `mark`. A parser that must hand back a
     /// structure whose length it learns only by reading it takes `offset` first and this after,
     /// so the slice still comes from the reader and invariant 3 holds.
     pub fn consumed_since(self: *const Reader, mark: usize) []const u8 {
@@ -50,7 +50,7 @@ pub const Reader = struct {
         return self.bytes[mark..self.offset];
     }
 
-    /// The next octet, without consuming it.
+    /// The next byte, without consuming it.
     pub fn peek_byte(self: *const Reader) Error!u8 {
         if (self.remaining_len() == 0) return error.Truncated;
         return self.bytes[self.offset];
@@ -63,7 +63,7 @@ pub const Reader = struct {
         return byte;
     }
 
-    /// The next `len` octets, all of them or none. A short slice is never returned.
+    /// The next `len` bytes, all of them or none. A short slice is never returned.
     pub fn take(self: *Reader, len: usize) Error![]const u8 {
         if (len > self.remaining_len()) return error.Truncated;
         const start = self.offset;
@@ -72,19 +72,19 @@ pub const Reader = struct {
         return self.bytes[start..self.offset];
     }
 
-    /// Every octet not yet consumed, without consuming them. A parser that must find where a
+    /// Every byte not yet consumed, without consuming them. A parser that must find where a
     /// structure ends before it reads it looks here first.
     pub fn peek_rest(self: *const Reader) []const u8 {
         assert(self.offset <= self.bytes.len);
         return self.bytes[self.offset..];
     }
 
-    /// Every octet not yet consumed. Never fails: an empty remainder is an empty slice.
+    /// Every byte not yet consumed. Never fails: an empty remainder is an empty slice.
     pub fn take_rest(self: *Reader) []const u8 {
         return self.take(self.remaining_len()) catch unreachable;
     }
 
-    /// An unsigned integer of `@sizeOf(T)` octets in network byte order.
+    /// An unsigned integer of `@sizeOf(T)` bytes in network byte order.
     pub fn take_int_big(self: *Reader, comptime T: type) Error!T {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
         comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
@@ -152,7 +152,7 @@ test "the octets consumed since a mark are the ones read after it" {
     const mark = reader.offset;
     _ = try reader.take(3);
     try std.testing.expectEqualStrings("cde", reader.consumed_since(mark));
-    // A mark at the cursor names no octets, and one at the start names everything consumed.
+    // A mark at the cursor names no bytes, and one at the start names everything consumed.
     try std.testing.expectEqual(0, reader.consumed_since(reader.offset).len);
     try std.testing.expectEqualStrings(reader.consumed(), reader.consumed_since(0));
 }

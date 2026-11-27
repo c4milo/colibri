@@ -1,6 +1,6 @@
 //! The test of an h2 stream whose window opens slowly under a `.hosted` `colibri.Server`, on a
 //! fake host (decision 110 as amended, decision 176). A connection's `send` gives its socket the
-//! octets the engine lends at once, before the engine reads the connection again. So the stream's
+//! bytes the engine lends at once, before the engine reads the connection again. So the stream's
 //! send meter never waits on the output, and the engine cuts the stream at the send rate.
 const std = @import("std");
 const server = @import("server");
@@ -18,12 +18,12 @@ const preface_no_window = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" ++ "\x00\x00\x06\x0
 /// A HEADERS frame on stream 1 ending it: `:method: GET` and `:scheme: http` from the static
 /// table, and `:path: /stream` as a literal on the static name 4 (RFC 7541 §6.1, §6.2.1).
 const get_stream = "\x00\x00\x0b\x01\x05\x00\x00\x00\x01" ++ "\x82\x86\x44\x07/stream";
-/// A WINDOW_UPDATE of one octet on stream 1 (RFC 9113 §6.9).
+/// A WINDOW_UPDATE of one byte on stream 1 (RFC 9113 §6.9).
 const window_update = "\x00\x00\x04\x08\x00\x00\x00\x00\x01" ++ "\x00\x00\x00\x01";
 /// A RST_STREAM on stream 1 with CANCEL, 0x8 (RFC 9113 §6.4, §7).
 const reset_cancel = "\x00\x00\x04\x03\x00\x00\x00\x00\x01" ++ "\x00\x00\x00\x08";
 /// The seconds the peer opens its window for at most: past decision 110's default grace period
-/// and window, 10 s each. `/stream` holds more than an octet for each.
+/// and window, 10 s each. `/stream` holds more than a byte for each.
 const seconds_max: u64 = 40;
 
 /// What the server sent, in order. Test-only.

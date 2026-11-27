@@ -2,7 +2,7 @@
 //! part of colibri, and a real program replaces it with its own sockets.
 //!
 //! It runs on the loops of `link.zig`: each side on its own rotor loop, in one process and on one
-//! thread. Where `Link` moves a stream of octets, this one moves datagrams. What one side sends is
+//! thread. Where `Link` moves a stream of bytes, this one moves datagrams. What one side sends is
 //! copied whole into the other side's queue, and each datagram comes out as it went in. No socket
 //! is opened (decision 96).
 //!
@@ -21,7 +21,7 @@ pub const Side = link.Side;
 pub const Error = link.Error;
 pub const Loops = link.Loops;
 
-/// Octets of one datagram, at most: what one Ethernet frame carries.
+/// Bytes of one datagram, at most: what one Ethernet frame carries.
 pub const datagram_len_max = 1500;
 
 /// Datagrams waiting in one side's queue, at most.
@@ -77,7 +77,7 @@ pub const DatagramLink = struct {
     }
 
     /// Ticks `side`'s loop once, and returns the oldest datagram waiting for it, or null. The
-    /// side hands it to colibri, then calls `consume`. The octets are the side's to change: QUIC
+    /// side hands it to colibri, then calls `consume`. The bytes are the side's to change: QUIC
     /// opens each packet in place.
     pub fn receive(self: *DatagramLink, side: Side) Error!?[]u8 {
         try self.loops.tick(side, 0);

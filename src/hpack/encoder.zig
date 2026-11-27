@@ -3,7 +3,7 @@
 //! An `Encoder` is one endpoint's encoding context (§2.2): a dynamic table that mirrors the
 //! peer's decoder, and the limit the peer set on it, which in h2 is the peer's
 //! `SETTINGS_HEADER_TABLE_SIZE`. A block is written as `begin_block`, then one `write_field` per
-//! line, into a `core.Writer` the caller owns. Each call writes all of its octets or none.
+//! line, into a `core.Writer` the caller owns. Each call writes all of its bytes or none.
 //!
 //! The strategy is the one RFC 7541 Appendix C's examples follow, and the tests hold the encoder
 //! to those examples byte for byte:

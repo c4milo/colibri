@@ -1,4 +1,4 @@
-//! The stream the connection check feeds (design §8 step 4): the octets a client sends a server.
+//! The stream the connection check feeds (design §8 step 4): the bytes a client sends a server.
 //!
 //! A seed draws a `Plan`: the client connection preface (RFC 9113 §3.4), one SETTINGS frame, then
 //! 1 to `connection_check_frames_max` frames. `write` encodes the plan into a stream, which
@@ -75,7 +75,7 @@ pub const Frame = struct {
     fragments: u32 = 1,
     /// `request` and `request_continued`: whether the field block carries `:authority`.
     with_authority: bool = false,
-    /// `data`: payload octets.
+    /// `data`: payload bytes.
     data_len: u32 = 0,
     /// The WINDOW_UPDATE increment, the RST_STREAM error code, or the SETTINGS_INITIAL_WINDOW_SIZE.
     value: u32 = 0,
@@ -96,8 +96,8 @@ const request_block = "\x82\x86\x84";
 /// §6.2.2), then the value's length and the value.
 const request_block_authority = request_block ++ "\x01\x0bexample.com";
 
-/// The octets a DATA frame carries. The connection hands the payload to its caller without reading
-/// it (RFC 9113 §6.1), so one repeated octet says as much as any other.
+/// The bytes a DATA frame carries. The connection hands the payload to its caller without reading
+/// it (RFC 9113 §6.1), so one repeated byte says as much as any other.
 const data_payload: [constants.connection_check_data_len_max]u8 = @splat('d');
 
 /// The Opaque Data of the PING frame `frame_inside_field_block` sends (RFC 9113 §6.7).
@@ -115,7 +115,7 @@ const flag_outcomes: u64 = 2;
 /// priority no meaning, so a plan sends neither.
 const no_padding: u8 = 0;
 
-/// The values a plan's SETTINGS_INITIAL_WINDOW_SIZE is drawn from: no space at all, one octet, a
+/// The values a plan's SETTINGS_INITIAL_WINDOW_SIZE is drawn from: no space at all, one byte, a
 /// small window, and the initial value RFC 9113 §6.5.2 gives.
 const initial_window_sizes = [_]u32{
     0,
@@ -159,7 +159,7 @@ pub const Plan = struct {
 
     /// Encodes the preface, every frame and the refusal into `output`.
     pub fn write(plan: *const Plan, output: *Writer) core.Writer.Error!void {
-        // RFC 9113 §3.4: a client starts the connection with 24 octets and a SETTINGS frame.
+        // RFC 9113 §3.4: a client starts the connection with 24 bytes and a SETTINGS frame.
         try output.write_bytes(h2_constants.protocol.client_preface);
         try write_settings(plan.initial_window_size, output);
         for (plan.frames[0..plan.count]) |*drawn| try write_frame(drawn, output);
@@ -373,7 +373,7 @@ fn write_bare_headers(stream_id: u32, end_headers: bool, output: *Writer) core.W
 }
 
 comptime {
-    // The preface: the client's octets and a SETTINGS frame carrying one setting.
+    // The preface: the client's bytes and a SETTINGS frame carrying one setting.
     const preface_len = h2_constants.protocol.client_preface_len +
         h2_constants.protocol.frame_header_len + h2_constants.protocol.setting_len;
     assert(preface_len <= constants.connection_check_preface_len_max);
@@ -469,5 +469,5 @@ fn count_frames(octets: []const u8) usize {
         offset += h2_constants.protocol.frame_header_len + header.length;
         frames += 1;
     }
-    unreachable; // Every frame takes at least a header, so the octets run out first.
+    unreachable; // Every frame takes at least a header, so the bytes run out first.
 }

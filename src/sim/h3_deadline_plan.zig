@@ -18,7 +18,7 @@ const limits = sim.constants.h3_deadline;
 pub const Peer = enum {
     /// Makes its exchanges at once, reads every response, then sends nothing.
     honest,
-    /// Makes its exchanges one at a time, and sends the last octet of each request's head a gap
+    /// Makes its exchanges one at a time, and sends the last byte of each request's head a gap
     /// after the rest, well inside every deadline.
     slow_honest,
     /// Makes its exchanges one at a time with content in each request, which it sends at two to
@@ -36,7 +36,7 @@ pub const Peer = enum {
     pinger,
     /// Makes one exchange, then sends a PING every gap and no request.
     idle_pinger,
-    /// Sends all of its first request's head but the last octet.
+    /// Sends all of its first request's head but the last byte.
     slow_head,
     /// Makes one exchange, then a gap after its response ended sends its next request's head as
     /// `slow_head` does.
@@ -70,18 +70,18 @@ pub const Plan = struct {
     /// The requests the peer makes whole: every one of an honest peer's, and the first one of a
     /// peer that ends slow.
     requests_count: u8,
-    /// The gap between two pieces of content, or two PINGs, or a head and its last octet, or a
-    /// response's end and a slow second head, in milliseconds, and the octets in one piece.
+    /// The gap between two pieces of content, or two PINGs, or a head and its last byte, or a
+    /// response's end and a slow second head, in milliseconds, and the bytes in one piece.
     gap_ms: u64,
     piece_len: u32,
     /// The requests a peer that floods opens and cancels in one batch.
     flood_batch_len: u32,
     /// The content each request of an uploading peer carries.
     upload_len: [limits.honest_requests_max]u32,
-    /// How a peer that reads slowly reads: `read_len` octets every `read_gap_ms`.
+    /// How a peer that reads slowly reads: `read_len` bytes every `read_gap_ms`.
     read_gap_ms: u64,
     read_len: u32,
-    /// Octets a second the link from the server to the peer carries, or 0 for a link with no rate.
+    /// Bytes a second the link from the server to the peer carries, or 0 for a link with no rate.
     link_rate: u32,
     /// How long the application takes to answer each request, from the instant its content ended.
     answer_delay_ms: [limits.honest_requests_max]u64,
@@ -118,7 +118,7 @@ pub const Plan = struct {
         return plan.peer == .holds_connection_credit;
     }
 
-    /// Whether the application leaves its answer open, as a stream of events does. The octets it
+    /// Whether the application leaves its answer open, as a stream of events does. The bytes it
     /// wrote then wait on the connection's credit alone, with no end of the response behind them.
     pub fn answer_stays_open(plan: *const Plan) bool {
         return plan.peer == .holds_connection_credit;
@@ -225,7 +225,7 @@ fn window_ms_min(rate: u32) u64 {
 
 /// The pace of what the peer sends: an upload's pieces at two to four times the minimum body
 /// rate, a long body's at twice it, a slow body's under it, the gap between a pinger's PINGs,
-/// before a late head's last octet or before a slow second head, or the requests in a flooder's
+/// before a late head's last byte or before a slow second head, or the requests in a flooder's
 /// batch.
 fn draw_pace(plan: *Plan, random: *Random) void {
     switch (plan.peer) {
@@ -270,7 +270,7 @@ fn draw_read_pace(plan: *Plan, random: *Random) void {
     }
 }
 
-/// The octets `rate` octets a second bring in `gap_ms`, rounded up, and one at least.
+/// The bytes `rate` bytes a second bring in `gap_ms`, rounded up, and one at least.
 fn piece_of(rate: u64, gap_ms: u64) u32 {
     return @intCast(@max(1, (rate * gap_ms + limits.ms_per_s - 1) / limits.ms_per_s));
 }
@@ -305,7 +305,7 @@ const credit_grows_at: u64 = 2;
 fn expect_pace(plan: *const Plan, first_window_ms: u64) !void {
     const deadlines = &plan.deadlines;
     switch (plan.peer) {
-        // The last octet of a head arrives in under half of each deadline it could pass.
+        // The last byte of a head arrives in under half of each deadline it could pass.
         .slow_honest => {
             const shortest_ns = @min(deadlines.first_request_ns.?, deadlines.idle_ns.?, deadlines.head_ns.?);
             try testing.expect(plan.gap_ms * limits.ns_per_ms * late_head_margin <= shortest_ns);

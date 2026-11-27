@@ -26,7 +26,7 @@ fn expect_request(request: []const u8, id: u64) !support.Request {
     return head;
 }
 
-/// A call with no octets, as the engine makes to poll a slot, reads nothing.
+/// A call with no bytes, as the engine makes to poll a slot, reads nothing.
 fn expect_nothing() !void {
     const polled = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(0, polled.consumed);
@@ -46,7 +46,7 @@ test "RFC 9112 §3.3: a request's head arrives with its target URI's parts and i
 
 test "decision 119 as amended: a call with no octets waits for half a head or chunk-size line" {
     try support.start_cleartext(.h11);
-    // h11 reads half a head again from its first octet, once the caller passes it with the rest.
+    // h11 reads half a head again from its first byte, once the caller passes it with the rest.
     const head = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n";
     const half = try support.receive_copy(head[0.."POST / H".len]);
     try testing.expectEqual(0, half.consumed);
@@ -314,7 +314,7 @@ test "RFC 9112 §7.1: content waits once the output holds no whole chunk, and en
     try support.start_cleartext(.h11);
     _ = try expect_request(get_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false });
-    // Not every octet fits, so the body does not end on this call.
+    // Not every byte fits, so the body does not end on this call.
     const taken = try connection.write_body(1, .{ .bytes = &filling, .end = true });
     try testing.expect(taken > 0 and taken < filling.len);
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = filling[taken..], .end = true }));

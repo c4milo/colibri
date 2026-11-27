@@ -49,11 +49,11 @@ pub const Phase = enum {
 pub const RequestStream = struct {
     id: u64,
     phase: Phase = .head,
-    /// Octets of the current DATA frame's payload not yet handed to the caller.
+    /// Bytes of the current DATA frame's payload not yet handed to the caller.
     data_left: u64 = 0,
-    /// Octets of an unknown frame's payload not yet skipped (§9).
+    /// Bytes of an unknown frame's payload not yet skipped (§9).
     skip_left: u64 = 0,
-    /// The content-length the header section carried, and the DATA octets that arrived, which
+    /// The content-length the header section carried, and the DATA bytes that arrived, which
     /// §4.1.2 requires to be equal.
     content_length: ?u64 = null,
     content_received: u64 = 0,
@@ -71,7 +71,7 @@ pub const RequestStream = struct {
     /// At a client, whether the stream holds its content in `quic` until `release_data`, so the
     /// peer gets no credit for it before then (RFC 9000 §4.1).
     hold_data: bool = false,
-    /// Octets of content a `data_available` event reported and `release_data` has not taken. The
+    /// Bytes of content a `data_available` event reported and `release_data` has not taken. The
     /// stream reads nothing more while it holds some.
     held_len: u64 = 0,
     /// At a server, the instant colibri first saw the stream, from which the server's deadline

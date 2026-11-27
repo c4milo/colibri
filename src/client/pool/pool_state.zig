@@ -47,7 +47,7 @@ pub const Entry = struct {
     piece: []const u8 = "",
     piece_end: bool = false,
     piece_held: bool = false,
-    /// A piece ended the body, a `body_taken` event went out, and the octets of the pieces handed.
+    /// A piece ended the body, a `body_taken` event went out, and the bytes of the pieces handed.
     /// After the first take the pool holds no copy of the request, so it never sends it again
     /// (decision 153 ruling 3).
     body_ended: bool = false,
@@ -74,7 +74,7 @@ pub const Link = struct {
     /// A `send` event went out for the connection, and no `send_stream` ended its debt yet.
     send_outstanding: bool = false,
     /// A `send_stream` wrote nothing: what the connection holds waits for the peer or for room,
-    /// so no `send` goes out until the connection reads octets or the program makes a call.
+    /// so no `send` goes out until the connection reads bytes or the program makes a call.
     send_blocked: bool = false,
     /// Where the current connection goes.
     to: Address = .{},
@@ -103,7 +103,7 @@ pub const Link = struct {
 };
 
 /// What a pool holds, set at run time (decision 125, decision 35 as amended). `memory_bytes`
-/// gives the octets the counts need, and `init` takes them from the caller.
+/// gives the bytes the counts need, and `init` takes them from the caller.
 pub const Counts = struct {
     /// TCP connections the pool holds at most: from 1 to `constants.limits.pool_tcp_connections_max`.
     tcp_connections: u16 = 1,
@@ -143,7 +143,7 @@ pub const Layout = struct {
     }
 };
 
-/// The most `receive` calls in a row that report an event and take no octet, for a pool of
+/// The most `receive` calls in a row that report an event and take no byte, for a pool of
 /// `counts` that holds QUIC or not: `constants.limits.exchange_events_max` for each exchange, one
 /// `closed`, and `constants.limits.transport_events_max` for each transport.
 pub fn events_without_input_max(counts: Counts, holds_quic: bool) usize {
