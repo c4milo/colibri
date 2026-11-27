@@ -427,6 +427,7 @@ The `server` and `client` modules name each concept once, the same for h11, h2 a
 | headers | the header section | "the headers" or the header section | a field block | a HEADERS frame's field section |
 | trailers | the trailer section | the trailer section of `chunked` | a field block that ends the stream | the trailing HEADERS frame |
 | a body | content | the message body | DATA frames | DATA frames |
+| bytes | octets | octets | octets | octets |
 | an exchange | a request/response exchange | | | |
 
 ## Host colibri on your own loop
