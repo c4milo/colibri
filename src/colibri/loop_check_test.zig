@@ -54,8 +54,8 @@ const routes = .{
 };
 
 /// Bytes of each request's response memory, which holds the short answers of these routes.
-const response_bytes = 256;
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const response_buffer_bytes = 256;
+const Router = server.Router(void, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = .{};
 var context: void = {};
 
@@ -67,7 +67,7 @@ const reentrant_routes = .{
         .{ .get, "/", call_inside },
     },
 };
-const ReentrantRouter = server.Router(void, reentrant_routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const ReentrantRouter = server.Router(void, reentrant_routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 var reentrant_router: ReentrantRouter align(@alignOf(ReentrantRouter)) = .{};
 const RouteCall = enum { turn, complete, run };
 var route_call: RouteCall align(@alignOf(RouteCall)) = .turn;
@@ -125,7 +125,7 @@ const context_routes = .{
         .{ .get, "/who/:name", ask_other, .{ .path = Name, .query = Mark } },
     },
 };
-const ContextRouter = server.Router(void, context_routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const ContextRouter = server.Router(void, context_routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 var context_router: ContextRouter align(@alignOf(ContextRouter)) = .{};
 
 /// RFC 9110 §15.6.1: a route's function that fails answers 500 (Internal Server Error).

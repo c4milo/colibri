@@ -91,8 +91,8 @@ const routes = .{
     },
 };
 
-const response_bytes = 64;
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const response_buffer_bytes = 64;
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 const Fixture = struct {
     app: App = .{},

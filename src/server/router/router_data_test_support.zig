@@ -21,7 +21,7 @@ const piece_len_max = 32;
 pub const small_buffer_len = 4;
 const large_buffer_len = 8;
 const window_len = 4;
-/// Bytes of the buffer of a wrapper that passes many bytes a read: more than `body_bytes`.
+/// Bytes of the buffer of a wrapper that passes many bytes a read: more than `request_body_bytes`.
 const batch_buffer_len = 32;
 
 /// A copy of a short text. Test-only.
@@ -298,7 +298,7 @@ pub const routes = .{
 };
 
 /// Bytes of each entry's response memory and body memory. Test-only.
-pub const response_bytes = 128;
-pub const body_bytes = 16;
+pub const response_buffer_bytes = 128;
+pub const request_body_bytes = 16;
 
-pub const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = 0 });
+pub const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = 0 });

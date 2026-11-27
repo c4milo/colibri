@@ -166,7 +166,7 @@ fn read_failing(_: *App, _: *RequestContext, request: *const event.Request, _: *
 fn left_open(_: *App, _: *RequestContext, _: *const event.Request, _: *Response) !void {}
 
 /// Bytes that, with the trailers, fill the response memory, so `Outer`'s "!" finds no room.
-const full_len = response_bytes - "x-sum".len - "1".len;
+const full_len = response_buffer_bytes - "x-sum".len - "1".len;
 
 fn full(_: *App, _: *RequestContext, _: *const event.Request, response: *Response) !void {
     try response.body().splatByteAll('a', full_len);
@@ -206,10 +206,10 @@ const routes = .{
 };
 
 /// Bytes of each entry's response, body and header memory. Test-only.
-const response_bytes = 64;
-const body_bytes = read_len_max;
-const header_bytes = 64;
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes });
+const response_buffer_bytes = 64;
+const request_body_bytes = read_len_max;
+const request_header_bytes = 64;
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes });
 
 const Fixture = struct {
     app: App = .{},
@@ -238,7 +238,7 @@ test "design §8 step 25.6: the route writes through each wrapper, and they fini
     var fixture: Fixture = .{};
     fixture.send("GET", "/written", true);
     // "ok" doubled by Inner, then upper-cased by Outer; Inner's "#" goes through Outer, then "!".
-    try testing.expectEqualStrings("OOKK#!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("OOKK#!", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
     // The head carries the whole body, so its Content-Length counts the bytes the wrappers wrote.
     const head = fixture.recorder.heads[0];
@@ -249,7 +249,7 @@ test "design §8 step 25.6: the route writes through each wrapper, and they fini
 test "design §8 step 25.6: write_kept copies through the wrapper, and the trailers wait for it" {
     var fixture: Fixture = .{};
     fixture.send("GET", "/kept", true);
-    try testing.expectEqualStrings("OK!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("OK!", fixture.recorder.request_body_bytes());
     try testing.expectEqualStrings("x-sum", fixture.recorder.trailer_name);
     try testing.expectEqualStrings("1", fixture.recorder.trailer_value);
 }
@@ -270,13 +270,13 @@ test "design §8 step 25.6: a stream route reads each piece through the wrapper,
     fixture.body("LO", true);
     try testing.expectEqualStrings("hello", fixture.app.read[0..fixture.app.read_len]);
     // Outer wraps the response, so its "!" ends it.
-    try testing.expectEqualStrings("!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("!", fixture.recorder.request_body_bytes());
 }
 
 test "design §8 step 25.6: a response the route left open ends once the wrapper finishes" {
     var fixture: Fixture = .{};
     fixture.send("GET", "/open", true);
-    try testing.expectEqualStrings("!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("!", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
@@ -284,7 +284,7 @@ test "design §8 step 25.6: a response the route left open ends once the wrapper
 test "design §8 step 25.6: a wrapped response that next ends ends once" {
     var fixture: Fixture = .{};
     fixture.send("GET", "/late", true);
-    try testing.expectEqualStrings("AB!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("AB!", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
     try testing.expectEqual(0, fixture.recorder.cancelled);
 }
@@ -313,7 +313,7 @@ test "decision 163 ruling 4: a function route reads its whole body through the w
     fixture.body("C", true);
     try testing.expectEqualStrings("abc", fixture.app.read[0..fixture.app.read_len]);
     // Outer upper-cases the route's answer, and its "!" ends it.
-    try testing.expectEqualStrings("ABC!", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("ABC!", fixture.recorder.request_body_bytes());
 }
 
 test "decision 163 ruling 4: a function route's failed read goes to the error function" {

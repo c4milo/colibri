@@ -72,7 +72,7 @@ const requests_max = 7;
 /// The bytes of the router's copy of a POST's header, which the router keeps until the content
 /// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
 /// fields too.
-const header_bytes = 512;
+const request_header_bytes = 512;
 
 const greeting = peers.greeting;
 const note = peers.note;
@@ -135,7 +135,7 @@ const App = struct {
     done: u32 = 0,
     /// The responses `Counted` wrapped, and the body bytes the routes wrote through it.
     counted: u32 = 0,
-    body_bytes: usize = 0,
+    request_body_bytes: usize = 0,
 };
 var app: App align(@alignOf(App)) = .{};
 
@@ -154,7 +154,7 @@ const routes = .{
 /// The router's pool: an entry for each request at once. Each entry holds room for its response,
 /// for the POST's content and for the copy of the POST's header. The program places it once and
 /// does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_buffer_bytes = 256, .request_body_bytes = note.len, .request_header_bytes = request_header_bytes });
 var router: Router align(@alignOf(Router)) = undefined;
 
 /// Sockets the engine said to close, and to close in stages (decision 160), connections that are
@@ -442,7 +442,7 @@ const Counted = struct {
 
     pub fn finish_response(app_state: *App, _: *server.RequestContext, state: *State) !void {
         app_state.counted += 1;
-        app_state.body_bytes += state.bytes;
+        app_state.request_body_bytes += state.bytes;
     }
 
     fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
@@ -516,7 +516,7 @@ const routed_bytes = 2 * greeting.len + note.len + peers.named_greeting.len;
 /// every connection end, the QUIC one at its idle deadline.
 fn check() Error!void {
     const answered = app.requests == requests_count and app.done == requests_count and
-        app.counted == routed_count and app.body_bytes == routed_bytes;
+        app.counted == routed_count and app.request_body_bytes == routed_bytes;
     const over = closes == 1 and connections_ended == connections_count and idle_ended == 1 and
         resumes.taken == 1 and resumes.put_back == 1;
     if (peers.check() and answered and over) {
@@ -524,7 +524,7 @@ fn check() Error!void {
         return;
     }
     std.debug.print("server_exchange: requests {d}, done {d}, counted {d}, bytes {d}, closes {d}, ended {d}, idle {d}, taken {d}, put {d}\n", .{
-        app.requests, app.done, app.counted, app.body_bytes, closes, connections_ended, idle_ended, resumes.taken, resumes.put_back,
+        app.requests, app.done, app.counted, app.request_body_bytes, closes, connections_ended, idle_ended, resumes.taken, resumes.put_back,
     });
     return error.ExchangeWrong;
 }

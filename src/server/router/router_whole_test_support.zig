@@ -13,8 +13,8 @@ const handle_support = @import("router_handle_test_support.zig");
 
 /// Bytes of each entry's body and response memory, and of the copy of a header over an engine.
 /// Then the longest text that the context keeps a copy of. Test-only.
-pub const body_bytes = 16;
-const response_bytes = 64;
+pub const request_body_bytes = 16;
+const response_buffer_bytes = 64;
 pub const engine_header_bytes = 256;
 const text_len_max = 16;
 
@@ -29,7 +29,7 @@ pub const first_mark = "a";
 pub const second_mark = "b";
 
 /// The h2 streams of the two requests (RFC 9113 §5.1.1), and the id of the fixture's request.
-/// Then the body of `/echo`, and a body as long as `body_bytes`.
+/// Then the body of `/echo`, and a body as long as `request_body_bytes`.
 pub const first_stream: u32 = 1;
 pub const second_stream: u32 = 3;
 pub const first_id: event.RequestId = @bitCast(@as(u128, 1));
@@ -41,7 +41,7 @@ pub const rounds_piece = 4;
 pub const unprocessable: http.Status = .unprocessable_content;
 
 comptime {
-    std.debug.assert(full_body.len == body_bytes);
+    std.debug.assert(full_body.len == request_body_bytes);
 }
 
 /// A copy of a short text. Test-only.
@@ -102,7 +102,7 @@ const Peek = struct {
 /// Answers with the whole body.
 fn echo(app: *App, _: *RequestContext, request: *const event.Request, response: *Response) !void {
     app.calls += 1;
-    var bytes: [body_bytes]u8 = undefined;
+    var bytes: [request_body_bytes]u8 = undefined;
     const len = try request.body.readSliceShort(&bytes);
     try response.body().writeAll(bytes[0..len]);
 }
@@ -115,7 +115,7 @@ const Mark = struct { mark: []const u8 };
 /// Answers with the request's name, its path parameter, its query's mark and its whole body.
 fn item(app: *App, ctx: *RequestContext, request: *const event.Request, response: *Response) !void {
     app.calls += 1;
-    var bytes: [body_bytes]u8 = undefined;
+    var bytes: [request_body_bytes]u8 = undefined;
     const len = try request.body.readSliceShort(&bytes);
     const name = request.headers.find(name_field) orelse return error.TestNoName;
     try response.body().print("{s} {s} {s} {s}", .{ name.value, ctx.path(Id).id, ctx.query(Mark).mark, bytes[0..len] });
@@ -179,9 +179,9 @@ pub const routes = .{
 /// The requests a router answers at once: the two of an h2 test.
 const requests = 2;
 
-/// The options of a router whose copy of a header holds `header_bytes`.
-pub fn options_with(comptime header_bytes: usize) router_pool.Options {
-    return .{ .requests = requests, .response_bytes = response_bytes, .body_bytes = body_bytes, .header_bytes = header_bytes };
+/// The options of a router whose copy of a header holds `request_header_bytes`.
+pub fn options_with(comptime request_header_bytes: usize) router_pool.Options {
+    return .{ .requests = requests, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes };
 }
 
 /// Bytes of the copy of `named_request("/echo", first_name, false)`. The copy holds its line's

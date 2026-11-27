@@ -54,10 +54,10 @@ const routes = .{
 /// The bytes of the router's copy of the POST's header, which the router keeps until the content
 /// ends (decision 163 ruling 5). The copy holds the header's fields, and over h2 its pseudo-header
 /// fields too.
-const header_bytes = 512;
+const request_header_bytes = 512;
 
 /// One request at a time, with room for the POST's header and content.
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = 256, .body_bytes = note.len, .header_bytes = header_bytes });
+const Router = server.Router(void, routes, .{ .requests = 1, .response_buffer_bytes = 256, .request_body_bytes = note.len, .request_header_bytes = request_header_bytes });
 
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });

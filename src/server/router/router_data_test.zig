@@ -2,7 +2,7 @@
 //! engine that records each call. `on_data` reads each piece of the body through the
 //! `server.RequestBodyStream`, `keep` joins the end of a piece with the bytes that arrive later, and
 //! `ended` says when the body ended. At the body's end, `next` gives the kept bytes as the last
-//! piece. Through a wrapper, the router copies kept bytes into the entry's `body_bytes`. A route
+//! piece. Through a wrapper, the router copies kept bytes into the entry's `request_body_bytes`. A route
 //! that answered at the head gets no `on_data`. `router_data_engine_test.zig` runs the same routes
 //! over h11, h2 and h3.
 const std = @import("std");
@@ -137,17 +137,17 @@ test "decision 163 ruling 6: keep(0) keeps nothing" {
     try testing.expectEqualStrings("abcdefg", fixture.app.collected.get());
 }
 
-test "RFC 9110 §15.5.14: a tail kept past body_bytes gets 413, and one of body_bytes does not" {
+test "RFC 9110 §15.5.14: a tail kept past request_body_bytes gets 413, and one of request_body_bytes does not" {
     var fixture: Fixture = .{};
-    fixture.app.keep_len = data.body_bytes;
+    fixture.app.keep_len = data.request_body_bytes;
     fixture.head("/collect", false);
     fixture.body("0123456789abcdef", false);
     try testing.expectEqual(0, fixture.recorder.head_count);
-    // The kept bytes and the next one do not fit `body_bytes` together.
+    // The kept bytes and the next one do not fit `request_body_bytes` together.
     fixture.body("!", false);
     try testing.expectEqual(413, @intFromEnum(fixture.recorder.heads[0].status));
     var past: Fixture = .{};
-    past.app.keep_len = data.body_bytes + 1;
+    past.app.keep_len = data.request_body_bytes + 1;
     past.head("/collect", false);
     past.body("0123456789abcdef!", false);
     try testing.expectEqual(413, @intFromEnum(past.recorder.heads[0].status));
@@ -205,7 +205,7 @@ test "decision 163 ruling 6 as amended: the last piece follows the last DATA fra
     try testing.expect(trailed.app.ended_at[1]);
 }
 
-test "RFC 9110 §15.5.14: a last piece past body_bytes gets 413, and one of body_bytes does not" {
+test "RFC 9110 §15.5.14: a last piece past request_body_bytes gets 413, and one of request_body_bytes does not" {
     var fixture: Fixture = .{};
     fixture.head("/whole", false);
     // The end comes with the bytes, so the router holds none of them.
@@ -277,12 +277,12 @@ test "decision 163 ruling 6 as amended: through a wrapper, the end of a stored p
     try testing.expectEqualStrings("abcd", fixture.app.collected.get());
 }
 
-test "RFC 9110 §15.5.14: through a wrapper, kept octets past body_bytes get 413" {
+test "RFC 9110 §15.5.14: through a wrapper, kept octets past request_body_bytes get 413" {
     var fixture: Fixture = .{};
     fixture.head("/whole-windowed", false);
     fixture.body("01234567", false);
     try testing.expectEqual(0, fixture.recorder.head_count);
-    // Sixteen kept bytes fill `body_bytes`, and the seventeenth joins none.
+    // Sixteen kept bytes fill `request_body_bytes`, and the seventeenth joins none.
     fixture.body("89abcdef!", false);
     try testing.expectEqual(413, fixture.status());
     var fits: Fixture = .{};
@@ -290,18 +290,18 @@ test "RFC 9110 §15.5.14: through a wrapper, kept octets past body_bytes get 413
     fits.body("01234567", false);
     fits.body("89abcdef", true);
     try testing.expectEqualStrings("0123456789abcdef", fits.app.whole.get());
-    // A wrapper that gives more bytes a read than `body_bytes` holds: the route keeps seventeen.
+    // A wrapper that gives more bytes a read than `request_body_bytes` holds: the route keeps seventeen.
     var batched: Fixture = .{};
-    batched.app.keep_len = data.body_bytes + 1;
+    batched.app.keep_len = data.request_body_bytes + 1;
     batched.head("/collect-batched", false);
     batched.body("0123456789abcdefghij", false);
     try testing.expectEqual(413, batched.status());
 }
 
-test "RFC 9110 §15.5.14: through a wrapper, kept octets and the octets the router holds share body_bytes" {
+test "RFC 9110 §15.5.14: through a wrapper, kept octets and the octets the router holds share request_body_bytes" {
     // One piece a call leaves the router's bytes unread: they wait beside the kept ones.
     var fixture: Fixture = .{};
-    fixture.app.keep_len = data.body_bytes;
+    fixture.app.keep_len = data.request_body_bytes;
     fixture.app.pieces_per_call = 1;
     fixture.head("/collect-wrapped", false);
     fixture.body("abcd", false);
@@ -312,7 +312,7 @@ test "RFC 9110 §15.5.14: through a wrapper, kept octets and the octets the rout
     fixture.body("pq", false);
     try testing.expectEqual(413, fixture.status());
     var at_once: Fixture = .{};
-    at_once.app.keep_len = data.body_bytes;
+    at_once.app.keep_len = data.request_body_bytes;
     at_once.app.pieces_per_call = 1;
     at_once.head("/collect-wrapped", false);
     // One kept byte and sixteen unread pass sixteen once `on_data` returns.
@@ -320,7 +320,7 @@ test "RFC 9110 §15.5.14: through a wrapper, kept octets and the octets the rout
     try testing.expectEqual(413, at_once.status());
     // Three pieces a call: the joined piece grows toward the router's bytes, and stops at them.
     var grows: Fixture = .{};
-    grows.app.keep_len = data.body_bytes;
+    grows.app.keep_len = data.request_body_bytes;
     grows.app.pieces_per_call = 3;
     grows.head("/collect-wrapped", false);
     grows.body("abcdefgh", false);
@@ -336,7 +336,7 @@ test "decision 163 ruling 6: a route that ended its response in on_request gets 
     fixture.head("/refused", false);
     try testing.expectEqual(403, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expect(fixture.recorder.ended);
-    // The router drops the body, more than `body_bytes` of it too.
+    // The router drops the body, more than `request_body_bytes` of it too.
     fixture.body("0123456789abcdef!", false);
     fixture.body("x", true);
     try testing.expectEqual(0, fixture.app.calls);
@@ -365,7 +365,7 @@ test "decision 163 ruling 6: a stream route's response sends its status, its hea
     try testing.expectEqualStrings("server", head.headers[0].name);
     try testing.expectEqualStrings("x-kind", head.headers[1].name);
     try testing.expectEqualStrings("stream", head.headers[1].value);
-    try testing.expectEqualStrings("made", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("made", fixture.recorder.request_body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
 

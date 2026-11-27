@@ -153,10 +153,10 @@ const routes = .{
 };
 
 /// One entry, so each request of a test holds the entry that the request before it held.
-const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Pool = Router(App, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 /// Bytes of the entry's response memory, and the status the error function chooses. Test-only.
-const response_bytes = 64;
+const response_buffer_bytes = 64;
 const unprocessable: http.Status = .unprocessable_content;
 
 const Fixture = struct {
@@ -196,7 +196,7 @@ fn id_of(number: u64) event.RequestId {
 test "decision 163 ruling 2: a route reads the bytes that a middleware wrote into the values" {
     var fixture: Fixture = .{};
     fixture.request(1, "GET", "/who/x", true);
-    try testing.expectEqualStrings("ada x same", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("ada x same", fixture.recorder.request_body_bytes());
     // The middleware wrote once and the route once, into the same values.
     try testing.expectEqual(2, fixture.values().writes);
 }
@@ -212,7 +212,7 @@ test "decision 163 ruling 2: a second request on the same entry starts from the 
     fixture.recorder = .{};
     fixture.request(2, "GET", "/who/y", true);
     try testing.expectEqual(Values{}, fixture.app.found.?);
-    try testing.expectEqualStrings(" y same", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings(" y same", fixture.recorder.request_body_bytes());
     try testing.expectEqual(2, fixture.values().writes);
 }
 
@@ -220,13 +220,13 @@ test "decision 163 ruling 3: path and query give what the router read" {
     var fixture: Fixture = .{};
     // RFC 3986 §2.1: the router decodes the path's segment and the query's value.
     fixture.request(1, "GET", "/who/col%69bri?mark=%21", true);
-    try testing.expectEqualStrings("ada colibri! same", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("ada colibri! same", fixture.recorder.request_body_bytes());
 }
 
 test "decision 163 ruling 3: the context lends the path and the query during the first call alone" {
     var fixture: Fixture = .{};
     fixture.request(1, "GET", "/who/x?mark=y", true);
-    try testing.expectEqualStrings("ada xy same", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("ada xy same", fixture.recorder.request_body_bytes());
     // The router holds the path and the query for the route's first call alone. The request has
     // not finished, and its context keeps no pointer to them.
     try testing.expectEqual(null, fixture.context().path_held.pointer);
@@ -239,7 +239,7 @@ test "decision 163 ruling 3: the context lends the path and the query during the
 test "decision 163 ruling 1: id is the request's id, at the head and at the end" {
     var fixture: Fixture = .{};
     fixture.request(7, "GET", "/who/x", true);
-    try testing.expect(std.mem.endsWith(u8, fixture.recorder.body_bytes(), " same"));
+    try testing.expect(std.mem.endsWith(u8, fixture.recorder.request_body_bytes(), " same"));
     fixture.finish(7);
     try testing.expectEqual(id_of(7), fixture.app.finished_id.?);
     // The id is the request's own, and no part of the entry: the next request has another.
@@ -255,7 +255,7 @@ test "decision 163 ruling 1: each callback of a stream route reads the same valu
     const body: event.RequestBody = .{ .id = id_of(1), .user_data = fixture.recorder.user_data, .bytes = "b", .end = true };
     fixture.handle(.{ .body = body });
     // `Identify`, `on_request` and `on_data` each wrote once.
-    try testing.expectEqualStrings("ada x 3", fixture.recorder.body_bytes());
+    try testing.expectEqualStrings("ada x 3", fixture.recorder.request_body_bytes());
     fixture.finish(1);
     try testing.expectEqual(3, fixture.app.later_writes);
     try testing.expectEqual(id_of(1), fixture.app.later_id.?);

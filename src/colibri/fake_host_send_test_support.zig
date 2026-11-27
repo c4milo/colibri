@@ -14,7 +14,7 @@ pub const turns_max = 64;
 pub const operations_len = 16;
 /// The instant of `init`: the identity's Unix seconds and the host's first instant.
 const started: server.Timestamp = .{ .unix_seconds = fixture.now_seconds, .monotonic_ns = 0 };
-const response_bytes = 64;
+const response_buffer_bytes = 64;
 /// The instant of each turn and completion.
 pub var now_ns: u64 = 0;
 
@@ -30,7 +30,7 @@ const routes = .{
 const stream_len = stream_outputs * server.constants.limits.output_len;
 const stream_outputs = 2;
 
-/// Writes `stream_len` bytes through `body()`, a message of `response_bytes` at a time. A message
+/// Writes `stream_len` bytes through `body()`, a message of `response_buffer_bytes` at a time. A message
 /// that does not fit waits for the next `writable`.
 const Stream = struct {
     pub const State = struct { written: usize = 0 };
@@ -39,7 +39,7 @@ const Stream = struct {
 
     pub fn next(_: *void, _: *server.RequestContext, state: *State, response: *server.Response) !void {
         const writer = response.body();
-        const message: [response_bytes]u8 = @splat('s');
+        const message: [response_buffer_bytes]u8 = @splat('s');
         // Bounded: each pass writes one message.
         for (0..stream_len) |_| {
             if (state.written == stream_len) return response.end();
@@ -50,7 +50,7 @@ const Stream = struct {
         }
     }
 };
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Router = server.Router(void, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 fn answer(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.body().writeAll("body");

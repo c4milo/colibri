@@ -1,4 +1,4 @@
-//! The tests of a router whose `header_bytes` is 0 (the owner's ruling of 2026-11-13). The router
+//! The tests of a router whose `request_header_bytes` is 0 (the owner's ruling of 2026-11-13). The router
 //! copies no header, and calls each function route at the head. For a request whose body is still
 //! to come, a read of `request.body` fails, and the router drops the body.
 const std = @import("std");
@@ -19,7 +19,7 @@ const HeadPool = Router(App, whole.routes, whole.options_with(0));
 /// The status of a function route's response that the router ends.
 const ok = 200;
 
-test "the owner's ruling of 2026-11-13: header_bytes 0 calls a function route at the head" {
+test "the owner's ruling of 2026-11-13: request_header_bytes 0 calls a function route at the head" {
     var app: App = .{};
     var recorder: support.Recorder = .{};
     var pool: HeadPool = .{};

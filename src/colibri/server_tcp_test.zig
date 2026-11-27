@@ -17,7 +17,7 @@ const testing = std.testing;
 const greeting = "hello from colibri";
 /// The connections the test server holds, the router's requests at once, and its response room.
 const connections = 2;
-const response_bytes = 256;
+const response_buffer_bytes = 256;
 /// The buffers of the test client's reader and writer, and the room for a response.
 const client_buffer_len = 256;
 const response_len = 1024;
@@ -32,7 +32,7 @@ const routes = .{
         .{ .get, "/greeting", greet },
     },
 };
-const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+const Router = server.Router(void, routes, .{ .requests = connections, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 
 fn greet(_: *void, _: *server.RequestContext, _: *const server.Request, response: *server.Response) !void {
     try response.header("content-type", "text/plain");

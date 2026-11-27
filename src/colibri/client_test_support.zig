@@ -37,11 +37,11 @@ pub fn loopback_ipv6_on(port_number: u16) client.Destination {
 /// `/stream`, `stream_turns` times the router's room for each response (design §8 step 46).
 pub const requests_max = 4;
 const stream_turns = 16;
-pub const stream_len = stream_turns * response_bytes;
+pub const stream_len = stream_turns * response_buffer_bytes;
 const body_len = stream_len;
 /// The connections the test server holds, and the router's room for each response.
 const connections = 4;
-pub const response_bytes = 256;
+pub const response_buffer_bytes = 256;
 /// The bytes of each message of `/stream`, and the prime its bytes count modulo.
 const message_len = 100;
 const pattern_period = 251;
@@ -73,7 +73,7 @@ pub const request_body_bytes = 64;
 /// copy of the client's POST header takes less than 192 bytes, with its pseudo-header fields over
 /// h2 and h3.
 pub const request_header_bytes = 512;
-const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = request_body_bytes, .header_bytes = request_header_bytes });
+const Router = server.Router(void, routes, .{ .requests = connections, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = request_body_bytes, .request_header_bytes = request_header_bytes });
 
 /// Answers a POST of `/echo` with the request's body. The router calls the function once the body
 /// has arrived whole, and `request.body` reads each byte of it (decision 163 ruling 4).

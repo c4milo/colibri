@@ -25,7 +25,7 @@ const tls_sessions = 4;
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
 const internal_server_error: server.Status = .internal_server_error;
 /// The room of the router's one response, which holds a head and no body.
-const response_bytes = 64;
+const response_buffer_bytes = 64;
 
 const routes = .{
     .error_handler = on_error,
@@ -35,7 +35,7 @@ const routes = .{
 };
 
 /// A router that answers a GET of `/` with an empty 200, and its context.
-pub const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0, .header_bytes = 0 });
+pub const Router = server.Router(void, routes, .{ .requests = 1, .response_buffer_bytes = response_buffer_bytes, .request_body_bytes = 0, .request_header_bytes = 0 });
 pub var router: Router align(@alignOf(Router)) = .{};
 pub var context: void = {};
 

@@ -96,6 +96,20 @@ struct with an empty `on_request`.
     reply of 1,520 bytes failed, and neither answer named the pool. No value is right to
     assume for memory that a program sizes (decision 158 ruling 16). `requests` keeps its
     default.
+
+    **Amended by the owner on 2026-11-27: the three sizes are renamed.**
+
+    | Before | Now |
+    | --- | --- |
+    | `response_bytes` | `response_buffer_bytes` |
+    | `body_bytes` | `request_body_bytes` |
+    | `header_bytes` | `request_header_bytes` |
+
+    - `response_bytes` read as the size of a response. It is a buffer that holds the bytes in
+      flight, and a route can send a longer body through it.
+    - `body_bytes` and `header_bytes` size the request, and beside a name of the response they
+      read as the response's.
+    - The text above keeps the names as the owner ruled them.
 10. A test of a program's code makes a context with `server.RequestContext.init(id, T,
     &values)`, which lends those values and no path or query. The owner ruled it on
     2026-11-13, after connect-zig's report. The context's fields stay the router's, and no

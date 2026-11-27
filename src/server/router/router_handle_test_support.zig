@@ -64,7 +64,7 @@ pub const Recorder = struct {
         recorder.cancelled += 1;
     }
 
-    pub fn body_bytes(recorder: *const Recorder) []const u8 {
+    pub fn request_body_bytes(recorder: *const Recorder) []const u8 {
         return recorder.body[0..recorder.body_len];
     }
 };

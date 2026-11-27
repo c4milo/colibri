@@ -50,7 +50,7 @@ const routes = .{
         .{ .get, "/greeting", greet },
     },
 };
-const Router = server.Router(void, routes, .{ .requests = 2, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
+const Router = server.Router(void, routes, .{ .requests = 2, .response_buffer_bytes = 256, .request_body_bytes = 0, .request_header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = undefined;
 var router_context: void = {};
 

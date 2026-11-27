@@ -102,17 +102,17 @@ pub const routes_requests_max: u32 = 1024;
 
 /// Bytes of each request's response memory in the `--routes` mode: the copies of its header and
 /// its answer, `server_routes.answer_body`.
-pub const routes_response_bytes: usize = 128;
+pub const routes_response_buffer_bytes: usize = 128;
 
 /// Bytes of each request's body memory in the `--routes` mode, which a POST route reads whole
 /// (design §8 step 50b). The judge's larger body is this long, so it arrives in more receives than
 /// its header.
-pub const routes_body_bytes: usize = 8192;
+pub const routes_request_body_bytes: usize = 8192;
 
 /// Bytes of each request's copy of its header in the `--routes` mode. A POST route takes the
 /// copy, because its body comes after the header (decision 163 ruling 5). h2load's POST header
 /// holds about 171 bytes of live parts, so this leaves room for a larger header.
-pub const routes_header_bytes: usize = 1024;
+pub const routes_request_header_bytes: usize = 1024;
 
 /// Most steps one session takes between two reads from the socket. A step that neither consumes
 /// nor writes ends the loop, so this only bounds it: one step answers at most one request, and a

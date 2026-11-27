@@ -35,9 +35,9 @@ const router_handler = @import("router_handler.zig");
 ///
 /// - A request with no body gets its call at the head, with a body that ends at once.
 /// - A request with a body gets its call when the body ended. The router copies the header into
-///   the request's entry, and holds every byte of the body. `options.header_bytes` bounds the
-///   copy, with 431 past it, and `options.body_bytes` bounds the body, with 413.
-/// - With `options.header_bytes` 0, a request with a body gets its call at the head too. A read of
+///   the request's entry, and holds every byte of the body. `options.request_header_bytes` bounds the
+///   copy, with 431 past it, and `options.request_body_bytes` bounds the body, with 413.
+/// - With `options.request_header_bytes` 0, a request with a body gets its call at the head too. A read of
 ///   its body fails, and the router drops the body.
 ///
 /// The route never sees a trailer section.
@@ -67,8 +67,8 @@ const router_handler = @import("router_handler.zig");
 ///
 /// The type is the router: a program places one, which does not move, and passes each event of its
 /// engine to its `handle`. `options` sizes it: `options.requests` entries, each with
-/// `options.response_bytes` of response memory, `options.body_bytes` of body memory and
-/// `options.header_bytes` for a copy of a header. `match` stays for a program that dispatches a
+/// `options.response_buffer_bytes` of response memory, `options.request_body_bytes` of body memory and
+/// `options.request_header_bytes` for a copy of a header. `match` stays for a program that dispatches a
 /// request itself. Its `found` gives the route's `Route` tag, named by its method and its pattern,
 /// such as `.@"GET /users/:id"`.
 pub fn Router(comptime Context: type, comptime table: anytype, comptime options: Options) type {
@@ -142,21 +142,21 @@ fn ValueOf(comptime Entry: type, comptime Route: type) type {
 }
 
 test "decision 158: a router's type exports Route, Match, match, memory_bytes, init and handle" {
-    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 });
+    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_buffer_bytes = 0, .request_body_bytes = 0, .request_header_bytes = 0 });
     try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "init", "handle" });
 }
 
 test "decision 163 ruling 9: a router's options default to 32 requests, and a program names each size" {
-    const options: router_pool.Options = .{ .response_bytes = 0, .body_bytes = 0, .header_bytes = 0 };
+    const options: router_pool.Options = .{ .response_buffer_bytes = 0, .request_body_bytes = 0, .request_header_bytes = 0 };
     try std.testing.expectEqual(32, options.requests);
-    inline for (.{ "response_bytes", "body_bytes", "header_bytes" }) |name| {
+    inline for (.{ "response_buffer_bytes", "request_body_bytes", "request_header_bytes" }) |name| {
         const field = @typeInfo(router_pool.Options).@"struct".fields[std.meta.fieldIndex(router_pool.Options, name).?];
         try std.testing.expect(field.default_value_ptr == null);
     }
 }
 
-test "decision 163 ruling 5: header_bytes has no default, so a program names it" {
-    const field = std.meta.fieldIndex(router_pool.Options, "header_bytes").?;
+test "decision 163 ruling 5: request_header_bytes has no default, so a program names it" {
+    const field = std.meta.fieldIndex(router_pool.Options, "request_header_bytes").?;
     try std.testing.expectEqual(null, @typeInfo(router_pool.Options).@"struct".fields[field].default_value_ptr);
 }
 

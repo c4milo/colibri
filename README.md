@@ -115,8 +115,8 @@ A server that needs no middleware leaves out `.Values` and `.middleware`.
 
 ```zig
 /// The router's pool: an entry for each request at once, with room for its response. No route
-/// takes a request with a body, so the router keeps no copy of a header (`header_bytes`).
-const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0, .header_bytes = 0 });
+/// takes a request with a body, so the router keeps no copy of a header (`request_header_bytes`).
+const Router = server.Router(App, routes, .{ .requests = connections, .response_buffer_bytes = 256, .request_body_bytes = 0, .request_header_bytes = 0 });
 var router: Router align(@alignOf(Router)) = undefined;
 ```
 
@@ -125,21 +125,23 @@ at once, sized when your program declares the type, so `@sizeOf(Router)` is all 
 uses. Four options size it:
 
 - `requests`: the requests it answers at once. One more gets 503.
-- `response_bytes`: each response's memory, which holds its headers and the body bytes not yet
-  sent. A write that does not fit fails with `error.WriteFailed`.
-- `body_bytes`: each request body's memory. A larger body gets 413. This server takes no body.
-- `header_bytes`: the copy of a request's headers while its body arrives. A larger header gets
+- `response_buffer_bytes`: each response's memory, which holds its headers and the body bytes not
+  yet sent. A write that does not fit fails with `error.WriteFailed`.
+- `request_body_bytes`: each request body's memory. A larger body gets 413. This server takes no
+  body.
+- `request_header_bytes`: the copy of a request's headers while its body arrives. A larger header
+  gets
   431. With 0, the router copies nothing and calls the route at the head.
 
-To choose `response_bytes`:
+To choose `response_buffer_bytes`:
 
 - It bounds the bytes in flight, not the body. Over h11 and h2 the engine copies each `flush` at
   once, so a route can send a longer body in pieces.
 - Start with your largest headers plus the largest write you make at once.
 - Over h3 the bytes stay until the client acknowledges them, so a response sends about
-  `response_bytes` a round trip. A long download over h3 needs more.
-- The memory it costs is `requests` times `response_bytes`. A write that does not fit fails, so a
-  test of your largest response finds a size that is too small.
+  `response_buffer_bytes` a round trip. A long download over h3 needs more.
+- The memory it costs is `requests` times `response_buffer_bytes`. A write that does not fit fails,
+  so a test of your largest response finds a size that is too small.
 
 [Router](docs/usage.md#router) gives each option in full.
 
@@ -154,8 +156,8 @@ var http_server: Server align(@alignOf(Server)) = undefined;
 var tls_buffer: [server.Config.tls_buffer_len(connections)]u8 = undefined;
 ```
 
-The router and the server state `align(@alignOf(T))`. Zig 0.16's x86-64 backend, which builds Debug on x86-64
-Linux, can place a global at a smaller alignment than its type needs, and the program then
+The router and the server state `align(@alignOf(T))`. Zig 0.16's x86-64 backend, which builds Debug
+on x86-64 Linux, can place a global at a smaller alignment than its type needs, and the program then
 crashes. The `align` makes every backend place it right, and `zig build lint` requires it in
 colibri's own tree.
 
@@ -298,9 +300,10 @@ printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
   outside the test endpoints, an unbounded loop, a function above cognitive complexity 15, and a
   source file above 500 lines.
 
-CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main and every pull request to main: the lints, every module's tests, the
-examples, the simulator, the Lean proofs, line coverage, h2spec, h3spec and the interop scripts.
-The TLA+ models run every night, and the HTTP Garden and the QUIC Interop Runner every Monday.
+CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main and every pull request to main: the
+lints, every module's tests, the examples, the simulator, the Lean proofs, line coverage, h2spec,
+h3spec and the interop scripts. The TLA+ models run every night, and the HTTP Garden and the QUIC
+Interop Runner every Monday.
 
 ## Performance
 
