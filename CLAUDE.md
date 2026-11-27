@@ -67,9 +67,15 @@ The architecture depends on every rule in this section.
    steps 2 and 8 settle it: the simulator is built against what the caller supplies — `io` is
    the caller's, time is a parameter, crypto is a vtable — so it exists before there is a
    protocol to drive.
-8. **Invariants are code.** Give every numbered invariant in `docs/invariants.md` at least one
-   runtime assertion. A violated invariant halts with the seed and the byte offset that produced
-   it.
+8. **Invariants are code.** Give every numbered invariant in `docs/invariants.md` a check that
+   halts or refuses a violation, and name it in the invariant's entry:
+   - An invariant a running program can observe gets at least one runtime assertion or simulator
+     invariant. A violated one halts with the seed and the byte offset that produced it.
+   - An invariant about the source, such as an import, a type or a call no file makes, gets the
+     lint rule, type check, comptime assert or build check that refuses a violation. No running
+     program can observe it.
+   - An invariant about peer input gets its error path and the test, corpus case or fuzz property
+     that proves it, never an assertion (INV-24).
 9. **Every RFC rule cited by section, in the code.** A check that exists because an RFC demands
    it carries the RFC and the section in a comment on the line that does the checking. A reader
    must be able to go from any validation to the sentence that requires it. Cite the RFC that
