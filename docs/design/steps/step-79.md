@@ -206,3 +206,30 @@ The owner ruled "Build it now" on the draft of this entry.
   `zig fmt --check`. The tree of the second commit passed `test-server`, `test-testing` and
   `test-colibri`, the IPv6 test apart.
 - **Not run:** the checks of `tools/ci.sh` that need Docker, a network peer or an arm64 host.
+- **The judge of the fixes:**
+  [46163421175](https://github.com/c4milo/colibri/actions/runs/46163421175) measured 461895d
+  against 210c5e08 with `--h11`, five rounds on each of two Neoverse-N2 runners. The run fails
+  on one input, where 13 failed before. Each figure is the change against the base, job 1 and
+  then job 2.
+  - **Loses:** h11-one by its user instructions, 6.85% and 6.91%: 19,955 a connection against
+    18,675. Its total moves by 6.27% in both jobs, inside noise of 6.79% and 6.55%. It
+    completes 43,391 and 44,343 connections a second, against 46,286 and 47,966.
+  - **Wins:** h2-large-many by 9.2% and 10.5%, with user instructions down 25.8%; h2-one by
+    1.5% and 1.2%; h2-many by 0.61% and 0.64%; h2-routes-many and h2-k8s-routes-many by 1.0% to
+    1.1%; h2-routes-post-late-many by 0.7% and 0.8%; h2-routes-post-many by 0.5% in job 1; and
+    h11-tls-many by 2.3% and 2.1%, with user instructions down 4.7% and 4.6%.
+  - **Within the noise:** h11-many, h11-tls-one, h2-tls-many, h2-tls-one, h2-coded-many and
+    h2-tls-large-many in both jobs, and h2-routes-post-many in job 2.
+- **Why h11-one still loses.** wrk sends `Connection: close` on that input, so the server
+  closes each connection after its response. The counts above had missed it: their paced
+  client closed first. With a paced client whose request asks for the close, callgrind counts
+  21,063 instructions a connection at 210c5e08, 24,484 at 8140451a and 22,819 with the fixes.
+  - The engine reports `close` once the output holds nothing. A copy emptied the output in
+    the turn that wrote the response, so the socket learned of the close before it armed its
+    next receive. Lent bytes leave the output only at `sent_stream`, one turn later. So the
+    socket arms one more receive, and its close then cancels it. On epoll, Rotor's part of
+    that receive is about 1,000 of the 1,756 instructions.
+  - The rest is `sent_stream`, which
+    [#169](https://github.com/c4milo/colibri/issues/169) holds.
+  - By the admission rule, this step does not pass while h11-one loses. The owner's ruling on
+    it is owed.
