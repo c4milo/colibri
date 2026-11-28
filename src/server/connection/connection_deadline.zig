@@ -17,6 +17,7 @@ const connection_module = @import("connection.zig");
 const connection_close = @import("connection_close.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
+const connection_output = @import("connection_output.zig");
 
 const Connection = connection_module.Connection;
 const Timeout = deadline.Timeout;
@@ -119,11 +120,12 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     }
     // Decision 110: the idle deadline runs between requests, after the first one. It starts once
     // the last response's bytes are out, since until then the connection waits on the peer to
-    // read them, and colibri's own frames written later do not stop it.
+    // read them, and colibri's own frames written later do not stop it. Bytes are out once a
+    // lend or a copy gave them to the socket (decision 176 as amended).
     const idle = wait == .idle and clock.first_request_read;
     if (!idle) {
         clock.idle_since_ns = null;
-    } else if (clock.idle_since_ns == null and connection.output_len == 0) {
+    } else if (clock.idle_since_ns == null and !connection_output.owes_socket(connection)) {
         clock.idle_since_ns = now_ns;
     }
     connection_bodies.observe(connection, now_ns);
@@ -132,9 +134,9 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     // Decision 110: the drain runs from the first call that sees the shutdown.
     if (connection.shutting_down and clock.drain_since_ns == null) clock.drain_since_ns = now_ns;
     // Decision 110: every close is bounded, from the instant the connection ended with bytes
-    // still to send. The two reads come first: `ended` reads the protocol, and most calls have
-    // nothing to send.
-    if (clock.linger_since_ns == null and connection.output_len > 0 and ended(connection)) clock.linger_since_ns = now_ns;
+    // that no lend gave the socket. The two reads come first: `ended` reads the protocol, and
+    // most calls have nothing to send.
+    if (clock.linger_since_ns == null and connection_output.owes_socket(connection) and ended(connection)) clock.linger_since_ns = now_ns;
 }
 
 /// Whether the connection has ended: stopped, closed, or finished with what it had to say.

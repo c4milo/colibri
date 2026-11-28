@@ -352,10 +352,13 @@ pub const Event = union(enum) {
     send: ConnectionHandle,
     /// The program closes only the write side of this TCP connection's socket, and passes on what
     /// the socket reads, which colibri discards (RFC 9112 §9.6, decision 160). A `close` follows,
-    /// or the program's `transport_closed` once the peer closes.
+    /// or the program's `transport_closed` once the peer closes. The event may come while the
+    /// send of bytes that `output_stream` lent is in flight: the write side closes after it.
     half_close: ConnectionHandle,
     /// The program closes this TCP connection's socket: colibri reads and writes nothing more on
-    /// it.
+    /// it. The event may come while the send of bytes that `output_stream` lent is in flight
+    /// (decision 176 as amended): the program sends every byte it was lent, calls `sent_stream`,
+    /// and then closes.
     close: ConnectionHandle,
     ended: Ended,
     /// After `shutdown`, every connection has ended.

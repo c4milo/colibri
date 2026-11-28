@@ -129,7 +129,10 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) bool {
     }
     if (send_first(state, slot)) return true;
     const connection = &state.tcp[slot];
-    if (connection_event(state, slot, connection, table, now_ns)) return true;
+    // A connection whose transport closed reads nothing more, and reports only the endings of
+    // the requests its table still holds. With none left, it is asked nothing.
+    const silent = state.transports[slot] != .open and table.len() == 0;
+    if (!silent and connection_event(state, slot, connection, table, now_ns)) return true;
     if (connection_owed.stops_requests(connection)) {
         // INV-30: a request the connection ended without an ending of its own ends here.
         if (table.first()) |entry| {
@@ -251,12 +254,30 @@ pub fn output_stream(state: *State, handle: ConnectionHandle, now_ns: u64) []con
     assert(handle.slot < state.slots.tcp_count);
     const slot = state.slots.resolve(handle) orelse return &.{};
     if (state.transports[slot] != .open) return &.{};
-    const owed = connection_output.lend(&state.tcp[slot], now_ns);
-    // A lend writes a coded ring's bytes out, which frees room for more of the response.
-    state.room[slot] +%= 1;
+    const connection = &state.tcp[slot];
+    const coded = connection.coding.used > 0;
+    const held_len = connection.output_len;
+    const owed = connection_output.lend(connection, now_ns);
     state.send_outstanding[slot] = false;
-    engine_state.touch(state, slot);
+    // The slot's poll reports what the lend brought: the `half_close` or the `close` of a
+    // connection whose last bytes it gave the socket (decision 176 as amended).
+    state.ready.touch(slot);
+    engine_state.changed(state, slot);
+    // A lend that wrote a coded response's bytes out, or sealed the output into records, freed
+    // room. A response that waits may then write, and a `receive` with no bytes reports a coded
+    // response that the lend wrote whole. A lend of the output in place frees no room, and
+    // leaves such a `receive` nothing to read that it had not read at this instant.
+    if (coded or connection.output_len < held_len) {
+        state.room[slot] +%= 1;
+        state.empty_read_ns[slot] = null;
+    }
     return owed;
+}
+
+/// Whether a poll of the connection in `slot` can report an event once a send freed room in its
+/// output: a `receive` with no bytes reads again, as h2 and TLS do, or a response waits to write.
+fn room_brings_event(state: *State, slot: u32, connection: *const Connection) bool {
+    return connection_owed.reads_with_no_input(connection) or table_of(state, slot).waiting > 0;
 }
 
 /// The send of what `output_stream` lent took its first `sent` bytes. The rest stays owed, and
@@ -269,6 +290,17 @@ pub fn sent_stream(state: *State, handle: ConnectionHandle, sent: usize, now_ns:
     const slot = state.slots.resolve(handle) orelse return assert(sent == 0);
     const connection = &state.tcp[slot];
     assert(sent <= connection.lent_len);
+    // Decision 176 as amended: the bytes of a whole lend were out since the lend, so their send
+    // starts no deadline. Bytes written since were reported with a `send` of their own.
+    if (state.transports[slot] == .open and sent > 0 and sent == connection.lent_len) {
+        connection_output.took_whole(connection);
+        // What the send took frees room in the output for a response that waits.
+        state.room[slot] +%= 1;
+        // INV-31: a send that empties the output stops the send meter.
+        engine_state.changed(state, slot);
+        if (room_brings_event(state, slot, connection)) engine_state.touch(state, slot);
+        return;
+    }
     if (state.transports[slot] == .open) {
         connection_output.took(connection, sent, now_ns);
         // What the send took frees room in the output for a response that waits.

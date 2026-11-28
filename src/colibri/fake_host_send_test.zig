@@ -15,6 +15,8 @@ const in_flight = &host_support.in_flight;
 
 /// A request h11 keeps the connection open after (RFC 9112 §9.3).
 const get_kept = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
+/// A request after whose response h11 closes the connection (RFC 9112 §9.6).
+const get_closed = "GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n";
 /// The bytes the first send takes in a test of a partial send.
 const partial_len = 5;
 /// A copy of the bytes of the first send, made before they move: the head and "body".
@@ -45,6 +47,42 @@ test "design §8 step 79: a hosted server sends from the engine, and a partial s
     try testing.expectEqual(@intFromPtr(bytes.ptr), @intFromPtr(rest.ptr));
     try testing.expectEqualStrings(first_sent[partial_len..bytes.len], rest);
     try stop();
+}
+
+test "decision 176 as amended: a closed connection's socket arms no receive, and sends the rest of its lend" {
+    var counter: support.Counter = .{};
+    const written = try serve_request(&counter, get_closed);
+    const send = find(written, .send) orelse return error.OperationMissing;
+    const bytes = send.kind.send.bytes;
+    // The engine lent the response and reported the close with it: the turn writes no receive.
+    try testing.expect(std.mem.endsWith(u8, bytes, "body"));
+    try testing.expectEqual(null, find(written, .receive));
+    // The send takes five bytes. The engine lends a connection it closed nothing more, so the
+    // socket sends the rest from the same bytes, and closes only once they are out.
+    in_flight.complete(send.id, .{ .sent = partial_len });
+    const next = turn(operations_len);
+    try testing.expectEqual(null, find(next, .close));
+    const rest = (find(next, .send) orelse return error.OperationMissing).kind.send.bytes;
+    try testing.expectEqual(@intFromPtr(bytes.ptr) + partial_len, @intFromPtr(rest.ptr));
+    try testing.expectEqual(bytes.len - partial_len, rest.len);
+    in_flight.complete(in_flight.find(.send).?.id, .{ .sent = @intCast(rest.len) });
+    try testing.expect(find(turn(operations_len), .close) != null);
+    try stop();
+}
+
+test "decision 176 as amended: a closed connection's socket whose send fails frees for the next connection" {
+    var counter: support.Counter = .{};
+    const written = try serve_request(&counter, get_closed);
+    const send = find(written, .send) orelse return error.OperationMissing;
+    // The send fails. The socket hands back what it was lent, closes, and frees for another
+    // accept.
+    in_flight.complete(send.id, .canceled);
+    for (0..turns_max) |_| {
+        const written_now = turn(operations_len);
+        if (find(written_now, .accept) != null) return stop();
+        if (find(written_now, .close)) |close| in_flight.complete(close.id, .closed);
+    }
+    return error.TestUnexpectedResult;
 }
 
 test "design §8 step 79: a socket that fails with octets it never sent frees for the next connection" {

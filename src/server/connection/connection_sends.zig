@@ -154,6 +154,12 @@ fn start_or_pause(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const de
     if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
 }
 
+/// Stops the connection's meter when the output holds nothing: a send took the last bytes. The
+/// streams' meters wait on the bytes that no lend gave the socket, which a send does not change.
+pub fn drained(connection: *Connection) void {
+    if (connection.output_len == 0) connection.sends.meter.stop();
+}
+
 /// Counts the bytes `send` handed out, which the connection's meter judges.
 pub fn count(connection: *Connection, written: usize) void {
     connection.sends.meter.count(written);

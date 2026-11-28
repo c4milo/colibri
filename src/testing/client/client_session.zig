@@ -279,10 +279,9 @@ fn test_start_server() !void {
     try testing.expect(test_server.accept(0, false, null, test_server_now_ns));
 }
 
-/// Sends what the server's session lends into the client's input after its first `to_client_len`
+/// Sends what the server's session lent into the client's input after its first `to_client_len`
 /// bytes, as much as fits, and returns the bytes sent (decision 176). Test-only.
-fn test_server_send(to_client_len: usize) usize {
-    const lent = test_server.lend(0);
+fn test_server_send(lent: []const u8, to_client_len: usize) usize {
     if (lent.len == 0) return 0;
     const taken = @min(lent.len, test_to_client.len - to_client_len);
     @memcpy(test_to_client[to_client_len..][0..taken], lent[0..taken]);
@@ -307,9 +306,9 @@ fn test_run() !u32 {
         opens += opened;
         if (asked.close) test_close_written = stepped.written;
         test_server_now_ns += constants.tick_ns;
-        const served = test_server.step(0, test_to_server[0..to_server_len], test_server_now_ns);
+        const served = test_server.step(0, test_to_server[0..to_server_len], true, test_server_now_ns);
         to_server_len = test_drop(&test_to_server, to_server_len, served.consumed);
-        const delivered = test_server_send(to_client_len);
+        const delivered = test_server_send(served.lent, to_client_len);
         to_client_len += delivered;
         const moved = stepped.consumed + stepped.written + served.consumed + delivered + opened;
         // The server has one connection, so the pool asks for one socket alone.

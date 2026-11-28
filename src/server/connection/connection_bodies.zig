@@ -26,6 +26,7 @@ const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_sends = @import("connection_sends.zig");
+const connection_output = @import("connection_output.zig");
 
 const Connection = connection_module.Connection;
 const Number = event.Number;
@@ -169,10 +170,11 @@ fn start_waits(connection: *Connection, now_ns: u64) void {
     assert(bodies.waiting <= bodies.used);
 }
 
-/// Whether colibri holds a WINDOW_UPDATE its h2 peer has not been handed: owed, or in the output.
+/// Whether colibri holds a WINDOW_UPDATE its h2 peer has not been handed: owed, or in the output
+/// among the bytes that no lend gave the socket (decision 176 as amended).
 fn update_held(connection: *const Connection) bool {
     if (connection.session != .h2) return false;
-    return connection.update_held_len > 0 or connection.session.h2.window_update_due();
+    return connection_output.unlent_within(connection, connection.update_held_len) or connection.session.h2.window_update_due();
 }
 
 /// The soonest instant a body deadline passes, or `current` when it is sooner or none does.

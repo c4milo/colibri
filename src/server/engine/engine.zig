@@ -260,6 +260,12 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// send starts, at each `send`: it returns the same bytes from the same front, and those
         /// written since. Empty for a handle that names no connection, and for a connection whose
         /// socket closed. The engine reports a `send` for bytes no call returned yet.
+        ///
+        /// Bytes that a call returned are out, as bytes that `send_stream` copied are (decision
+        /// 176 as amended). So the engine may report the connection's `half_close` or `close`
+        /// while their send is in flight. A program that calls this straight after its writes,
+        /// before its next `receive`, reads that event before it starts the socket's next
+        /// receive.
         pub fn output_stream(engine: *Self, connection: ConnectionHandle, now_ns: u64) []const u8 {
             return engine.state.output_stream(connection, now_ns);
         }
@@ -268,6 +274,11 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// bytes: 0 for a send that failed or never went. The rest stays owed, and the engine
         /// reports another `send`. The program makes this call for each `output_stream` that
         /// returned bytes, also after the socket closed.
+        ///
+        /// The engine lends nothing more for a connection whose `close` it reported (decision 176
+        /// as amended). So after a `close`, the program sends every byte it was lent, in as many
+        /// sends as its socket takes, and makes this call once they are all out or the socket
+        /// failed.
         pub fn sent_stream(engine: *Self, connection: ConnectionHandle, sent: usize, now_ns: u64) void {
             engine.state.sent_stream(connection, sent, now_ns);
         }

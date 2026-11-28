@@ -18,8 +18,10 @@ const Limit = close_reason_module.Limit;
 pub fn should_close(connection: *const Connection) bool {
     // Decision 110: once its linger has passed, a connection closes with bytes still owed.
     if (connection.clock.lingered) return true;
-    // Decision 176: the records a lent output sealed are the connection's until a send takes them.
-    if (connection.output_len > 0 or connection_output.sealed_owed(connection)) return false;
+    // Decision 176 as amended: bytes a lend gave the socket are out, as a copy's were. The
+    // close waits for the bytes that no lend gave, and the program's socket sends the lent ones
+    // before it closes.
+    if (connection_output.owes_socket(connection)) return false;
     return switch (connection.phase) {
         // Nothing is said before a protocol serves the connection, and a deadline closes it.
         .handshake, .choosing => false,
@@ -48,8 +50,8 @@ pub fn staged(connection: *const Connection) bool {
 /// Whether the engine reports `half_close` now: the connection closes in stages, and the response
 /// is out, over TLS with the `close_notify` (RFC 9846 §6.1).
 pub fn should_half_close(connection: *const Connection) bool {
-    if (connection.clock.half_close_since_ns != null or connection.output_len > 0) return false;
-    if (connection_output.sealed_owed(connection)) return false;
+    if (connection.clock.half_close_since_ns != null) return false;
+    if (connection_output.owes_socket(connection)) return false;
     if (!staged(connection) or !finished(connection)) return false;
     return connection.config.tls == null or connection.close_sent;
 }

@@ -222,13 +222,26 @@ fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     assert(socket.live);
     switch (kind) {
         .receive => socket.on_received(event),
-        .send => worker.session.sent(index, socket.on_sent(event), now_ns),
+        .send => end_send(worker, index, event, now_ns),
         .close => socket.closed = true,
         .shutdown => socket.on_shut_down(event),
     }
     // The peer closed first, or the socket failed: the engine ends the connection.
     if (socket.failed) worker.session.peer_closed(index, now_ns);
     worker.session.mark(index);
+}
+
+/// Takes the end of the send of the socket at `index`, and hands the engine what the send took.
+/// The engine lends a connection it closed nothing more (decision 176 as amended). So a socket
+/// whose connection closed sends the rest of what it was lent first, from where the engine holds
+/// it, and the engine hears of the bytes once they are all out or the socket failed.
+fn end_send(worker: *Worker, index: usize, event: rotor.Event, now_ns: u64) void {
+    const socket = &worker.sockets[index];
+    const held = socket.outgoing;
+    const sent = socket.on_sent(event);
+    const closed = worker.session.entries[index].closing;
+    if (closed and sent > 0 and sent < held.len) return socket.give(held[sent..]);
+    worker.session.sent(index, sent, now_ns);
 }
 
 /// Keeps one accept in flight while a socket is free. A worker with every socket taken leaves
@@ -293,31 +306,25 @@ fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     }
     worker.touched.set(index);
     if (socket.stopped()) return;
-    const stepped = worker.session.step(index, socket.unread(), now_ns);
+    // A socket with a send in flight takes no lend: its bytes stay where the send reads them.
+    const stepped = worker.session.step(index, socket.unread(), !socket.sending, now_ns);
     socket.consume(stepped.consumed);
+    // What the engine lent, the socket sends from where the engine holds it (decision 176).
+    if (stepped.lent.len > 0) socket.give(stepped.lent);
     // The engine closed the connection: the socket closes once its bytes are out.
     if (worker.session.entries[index].closing) socket.closing = true;
     // The engine closes in stages: the socket's write side closes once its bytes are out.
     if (worker.session.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Gives the socket at `index` what its connection owes, which the engine lends: the bytes of an
-/// earlier gift and more, while the socket is open and has no send in flight (decision 176).
-pub fn lend(worker: *Worker, index: usize) void {
-    const socket = &worker.sockets[index];
-    if (!socket.live or socket.stopped() or socket.sending) return;
-    const lent = worker.session.lend(index);
-    if (lent.len > 0) socket.give(lent);
-}
-
-/// Submits what each socket this turn changed needs next, once it took what its connection lends.
+/// Submits what each socket this turn changed needs next. Each took what its connection lent in
+/// its step, and knows of a `close` that the lend brought, so one that closes arms no receive
+/// (decision 176 as amended).
 pub fn arm(worker: *Worker) void {
     for (0..constants.connections_per_worker_max) |_| {
         const index = worker.touched.toggleFirstSet() orelse return;
         const socket = &worker.sockets[index];
-        if (!socket.live) continue;
-        lend(worker, index);
-        socket.arm(&worker.loop, index);
+        if (socket.live) socket.arm(&worker.loop, index);
     }
 }
 

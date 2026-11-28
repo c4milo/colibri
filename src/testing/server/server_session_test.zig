@@ -73,21 +73,20 @@ fn step_entry(index: usize, input: []const u8, output: []u8) Stepped {
 /// Steps entry `index` over `input` as a socket whose sends complete at once, each lend into
 /// `output` as far as it holds, until a lend does not go whole (decision 176). Test-only.
 fn step_over(index: usize, input: []u8, output: []u8) Stepped {
-    const first = test_session.step(index, input, test_now_ns);
-    var result: Stepped = .{ .consumed = first.consumed, .written = 0, .done = first.done };
+    var result: Stepped = .{ .consumed = 0, .written = 0, .done = false };
     // Bounded: each pass sends a lend, or ends the loop.
     for (0..test_output_len) |_| {
-        const lent = test_session.lend(index);
-        const room = output[result.written..];
-        const taken = @min(room.len, lent.len);
-        @memcpy(room[0..taken], lent[0..taken]);
-        result.written += taken;
-        if (lent.len == 0) break;
-        test_session.sent(index, taken, test_now_ns);
-        if (taken < lent.len) break;
-        const stepped = test_session.step(index, input[result.consumed..], test_now_ns);
+        const stepped = test_session.step(index, input[result.consumed..], true, test_now_ns);
         result.consumed += stepped.consumed;
         result.done = stepped.done;
+        const room = output[result.written..];
+        const taken = @min(room.len, stepped.lent.len);
+        @memcpy(room[0..taken], stepped.lent[0..taken]);
+        result.written += taken;
+        // A socket whose connection closed sends the rest of its lend before it hands it back.
+        if (stepped.lent.len == 0 or (stepped.done and taken < stepped.lent.len)) break;
+        test_session.sent(index, taken, test_now_ns);
+        if (taken < stepped.lent.len) break;
     }
     return result;
 }
@@ -157,12 +156,9 @@ test "RFC 9110 §9.3.2 and RFC 9112 §9.6: HEAD gets no body, and the close opti
 
 test "decision 92: a refused h11 request gets its error response, and then the session is done" {
     _ = try fresh_session(.h11, null);
-    // No room for the error response: the session is not done until it is written.
-    const first = step("GET / HTTP/1.1\r\n\r\n", test_output[0..1]);
-    try testing.expectEqual(1, first.written);
-    try testing.expect(!first.done);
-    const stepped = step(&.{}, test_output[1..]);
-    try testing.expectEqualStrings("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", test_output[0 .. 1 + stepped.written]);
+    // The session is done once the error response is lent (decision 176 as amended).
+    const stepped = step("GET / HTTP/1.1\r\n\r\n", &test_output);
+    try testing.expectEqualStrings("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", test_output[0..stepped.written]);
     try testing.expect(stepped.done);
 }
 

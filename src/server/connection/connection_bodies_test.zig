@@ -7,6 +7,7 @@ const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const deadline_support = @import("connection_deadline_test_support.zig");
+const connection_output = @import("connection_output.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -261,6 +262,15 @@ test "decision 110 as amended: a body's rate waits while colibri owes a WINDOW_U
     try testing.expectEqual(early_ns + server_constants.policy.body_timeout_ns, connection.deadline_ns().?);
     // Once the WINDOW_UPDATE is out, the rate starts again with a grace period.
     _ = send_at(early_ns + 2);
+    try testing.expectEqual(early_ns + 2 + grace_ns + window_ns, connection.deadline_ns().?);
+}
+
+test "decision 110 as amended a tenth time: a body's rate starts again once its WINDOW_UPDATE is lent" {
+    try upload_until_update();
+    // The lend gives the socket the WINDOW_UPDATE, so it is out, and the rate starts again with a
+    // grace period. The send that takes it starts nothing.
+    try testing.expect(connection_output.lend(connection, early_ns + 2).len > 0);
+    connection_output.took_whole(connection);
     try testing.expectEqual(early_ns + 2 + grace_ns + window_ns, connection.deadline_ns().?);
 }
 

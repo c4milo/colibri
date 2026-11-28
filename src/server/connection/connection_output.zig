@@ -3,6 +3,11 @@
 //! drops what the socket's send took. In cleartext the bytes are the front of `output`. Over TLS
 //! they are the records sealed into the TLS session's `sealed`, and `copy_sealed` hands those to
 //! a program that sends from a copy. Split off `connection.zig`, which stays under 500 lines.
+//!
+//! Lent bytes are out, as copied bytes are (decision 176 as amended, design §8 step 80). The
+//! idle deadline, a body's meter, the linger and the close read `owes_socket`: the bytes that no
+//! lend gave the socket. So a send that takes a whole lend starts no deadline, and `took_whole`
+//! fires and observes none.
 const std = @import("std");
 const assert = std.debug.assert;
 const connection_module = @import("connection.zig");
@@ -59,6 +64,20 @@ pub fn took(connection: *Connection, sent: usize, now_ns: u64) void {
     connection_deadline.observe(connection, now_ns);
 }
 
+/// The socket's send took every byte that `lend` lent. They leave the front, and the bytes written
+/// since move there. The bytes were out since the lend, so no deadline starts and none fires
+/// (decision 176 as amended). The send meter counts them, and stops when the output holds nothing.
+pub fn took_whole(connection: *Connection) void {
+    const sent = connection.lent_len;
+    assert(sent > 0);
+    connection.lent_len = 0;
+    if (connection.config.tls == null) {
+        internal.take_output(connection, sent);
+    } else drop_sealed(connection.tls_session.?, sent);
+    connection_sends.count(connection, sent);
+    connection_sends.drained(connection);
+}
+
 /// Over TLS, writes into `output` the records an earlier `lend` sealed and no send took, then
 /// what `connection_tls.send` writes after them, and returns the bytes written.
 pub fn copy_sealed(connection: *Connection, output: []u8, now_ns: u64) usize {
@@ -80,10 +99,22 @@ pub fn unlent_len(connection: *const Connection) usize {
     return connection.output_len -| connection.lent_len;
 }
 
-/// Whether records that a `lend` sealed wait for the socket.
-pub fn sealed_owed(connection: *const Connection) bool {
-    const session = connection.tls_session orelse return false;
-    return session.sealed_len > 0;
+/// Whether the connection holds bytes that no lend gave the socket. In cleartext those are the
+/// bytes of `output` after the lent ones. Over TLS a lend seals the output, so they are every
+/// byte of `output`, and the sealed records that a send left. Bytes that a lend gave are out,
+/// as a copy's were (decision 176 as amended). The deadlines read this at each call, so it
+/// reads two lengths and no more.
+pub fn owes_socket(connection: *const Connection) bool {
+    const session = connection.tls_session orelse return connection.output_len > connection.lent_len;
+    return connection.output_len > 0 or session.sealed_len > connection.lent_len;
+}
+
+/// Whether the first `len` bytes of `output` hold a byte that no lend gave the socket: the lent
+/// bytes are the output's first ones. Over TLS a lend seals the output, so it holds no lent byte.
+pub fn unlent_within(connection: *const Connection, len: usize) bool {
+    // Most calls ask about no byte.
+    if (len == 0) return false;
+    return len > connection.output_len - unlent_len(connection);
 }
 
 /// Whether sealed records wait that no lend gave the socket: those a send left.

@@ -140,7 +140,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     assert(socket.live);
     switch (kind) {
         .receive => socket.on_received(completion.result),
-        .send => pump.sent(run, index, socket.on_sent(completion.result), now_ns),
+        .send => end_send(run, index, completion.result, now_ns),
         .close => socket.closed = true,
         .shutdown => socket.on_shut_down(completion.result),
         // A server's sockets come from its listener, so it connects none.
@@ -150,6 +150,19 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     // turn routes what it reports.
     if (socket.failed) pump.peer_closed(run, index);
     state.pending.set(index);
+}
+
+/// Takes the end of the send of the socket at `index`, and hands the engine what the send took.
+/// The engine lends a connection it closed nothing more (decision 176 as amended). So a socket
+/// whose connection closed holds the rest of what it was lent, where the engine holds it, and
+/// sends it next. The engine hears of the bytes once they are all out. A socket that failed
+/// hands them back when `arm` finds it stopped.
+fn end_send(run: anytype, index: usize, result: host.Completion.Result, now_ns: u64) void {
+    const socket = &run.sockets[index];
+    const held = socket.outgoing;
+    const sent = socket.on_sent(result);
+    if (run.entries[index].closing and sent < held.len) return socket.give(held[sent..]);
+    pump.sent(run, index, sent, now_ns);
 }
 
 /// Keeps one accept in flight while a socket is free and the server runs, and cancels it once the
@@ -227,10 +240,12 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     if (state.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Writes what each socket this turn changed needs next, at `now_ns`. A socket takes what its
-/// connection lends first, and a stopped one hands back what it was lent and no send took
-/// (decision 176): the completion of its close, which `peer_closed` then reads, lets the engine end
-/// the connection. A socket whose operation found no room stays changed for the next turn.
+/// Writes what each socket this turn changed needs next, at `now_ns`. Each took what its
+/// connection lent in its step, and knows of a `close` that the lend brought, so one that closes
+/// arms no receive (decision 176 as amended). A stopped socket hands back what it was lent and
+/// no send took (decision 176): the completion of its close, which `peer_closed` then reads, lets
+/// the engine end the connection. A socket whose operation found no room stays changed for the
+/// next turn.
 fn arm(run: anytype, out: *operation_table.Outbox, now_ns: u64) void {
     const state = run;
     var left: @TypeOf(state.touched) = .initEmpty();
@@ -238,9 +253,7 @@ fn arm(run: anytype, out: *operation_table.Outbox, now_ns: u64) void {
         const index = state.touched.toggleFirstSet() orelse break;
         const socket = &state.sockets[index];
         if (!socket.live) continue;
-        if (!socket.stopped()) {
-            pump.lend(run, index);
-        } else if (socket.drop_unsent() > 0) pump.sent(run, index, 0, now_ns);
+        if (socket.stopped() and socket.drop_unsent() > 0) pump.sent(run, index, 0, now_ns);
         if (!socket.arm(out, &state.operations, index)) left.set(index);
     }
     state.touched.setUnion(left);

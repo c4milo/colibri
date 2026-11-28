@@ -10,23 +10,38 @@
 //! the slot holds now, every event is routed through it, and an entry keeps its connection's whole
 //! handle, whose generation a later connection in the slot does not share.
 //!
-//! `step` serves one socket. It repeats three things until none of them moves:
+//! `step` serves one socket. It repeats four things until none of them moves:
 //!   1. passes the socket's unread bytes to the engine and routes every event it reports;
 //!   2. writes as much of the owed responses as the connection takes, oldest first;
-//!   3. reads the engine's events until it reports none.
+//!   3. in cleartext, asks the engine for what the connection owes its socket, which the engine
+//!      lends where it holds it (decision 176), when the entry may owe and its socket has no
+//!      send in flight;
+//!   4. reads the engine's events until it reports none.
 //! A socket with no unread bytes passes none, so the engine is not asked to read nothing, and
-//! the third thing reads what its connection reports. That may be a request: over TLS the engine
-//! may hold requests of a record after it consumed the record's bytes. So a pass follows each
-//! pass whose third thing reported an event.
-//! Once a turn, the caller gives each socket with no send in flight what `lend` returns: what
-//! its connection owes, which the engine lends where it holds it (decision 176). An entry's
-//! `send_owed` says that the engine reported a `send` since the entry's last lend, and an entry
-//! that owes nothing asks the engine for nothing. So the responses to the requests one read
-//! carried leave in one send (decision 119 as amended). A read of the turn that finds a response
-//! not lent yet pauses an h2 stream's send meter, and the lend at the same instant takes the
-//! meter's window back (decision 110 as amended on 2026-11-27). `sent` hands back what each send
-//! took. h11 reads a pipelined request only once the response before it is done (decision 92),
-//! which the third thing reports, so the next pass reads it.
+//! the fourth thing reads what its connection reports. That may be a request, so a pass follows
+//! each pass whose fourth thing reported an event. h11 reads a pipelined request only once the
+//! response before it is done (decision 92), which the fourth thing reports, so the next pass
+//! reads it.
+//!
+//! In cleartext the lend comes before the read of the events, as the copy of `send_stream` did
+//! (design §8 step 80). An entry's `send_owed` says that its connection may owe bytes: the
+//! engine took bytes of a response, the router took the event that ends a request or a
+//! `writable`, or the engine reported a `send`. A response that the step wrote is lent before the engine is asked for an event, so
+//! the engine reports no `send` for it, and an entry that owes nothing asks the engine for
+//! nothing. Bytes that a lend gave the socket are out (decision 176 as amended). So the fourth
+//! thing reads the `close` of a connection whose last bytes the third thing lent, and the caller
+//! arms no receive on its socket.
+//!
+//! Over TLS a lend seals what the output holds into a record, and the engine may hold requests
+//! of a record after it consumed the record's bytes, which it reports with its events. So a TLS
+//! entry lends once, after its last pass, and the responses to the requests one read carried
+//! leave in one record and one send (decision 119 as amended). A read of the turn that finds a
+//! response not lent yet pauses an h2 stream's send meter, and the lend at the same instant
+//! takes the meter's window back (decision 110 as amended on 2026-11-27). The `close` that such
+//! a lend brings is read in the entry's next step.
+//!
+//! The step returns the bytes its last lend gave, which hold those of each lend before it, and
+//! the caller's socket sends them. `sent` hands back what each send took.
 //!
 //! An event may name another connection than the one `step` serves: a deadline fired there, or
 //! its turn came in the engine's ring. The event changes that connection's entry, and `pending`
@@ -58,6 +73,9 @@ pub const Step = struct {
     /// Whether the engine has reported the connection's `close`: the socket closes once the
     /// bytes lent so far are out.
     done: bool,
+    /// What the step's last lend gave the socket, or no bytes: the bytes of each earlier lend
+    /// that no send took, from the same front, and more (decision 176).
+    lent: []const u8,
 };
 
 /// What the program holds for one socket: its connection in the engine, and what it owes.
@@ -73,8 +91,12 @@ pub const Entry = struct {
     /// The engine reported the connection's `half_close`: the program closes the socket's write
     /// side once the bytes it holds are out, and reads on (decision 160).
     half_closing: bool = false,
-    /// The engine reported the connection's `send`, and no lend has taken its bytes since.
+    /// The connection may owe its socket bytes that no lend has taken: the engine took bytes of
+    /// a response, the router took an event it may write at, or the engine reported a `send`.
     send_owed: bool,
+    /// Whether the connection runs TLS, where a lend seals a record: its entry lends once a
+    /// step, after the last pass.
+    tls: bool = false,
     answers: server_session_answer.Answers,
 };
 
@@ -147,22 +169,11 @@ pub fn Session(comptime connections_max: usize) type {
             return accept_into(session, index, tls, echo, now_ns);
         }
 
-        /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input`. See
-        /// the header.
-        pub fn step(session: *Self, index: usize, input: []u8, now_ns: u64) Step {
-            return step_entry(session, index, input, now_ns);
-        }
-
-        /// What entry `index`'s connection owes its socket, which the engine lends where it holds
-        /// it: what an earlier lend gave, and more (decision 176). Empty while the engine has
-        /// reported no `send` since the entry's last lend, and the engine is then not asked.
-        /// Empty for a connection that ended, whose handle names nothing. The caller calls it
-        /// while the socket has no send in flight.
-        pub fn lend(session: *Self, index: usize) []const u8 {
-            const entry = &session.entries[index];
-            if (!entry.send_owed) return &.{};
-            entry.send_owed = false;
-            return session.engine.output_stream(entry.handle, session.now_ns);
+        /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input`, and
+        /// lends what its connection owes when `lendable` says the socket has no send in flight.
+        /// See the header.
+        pub fn step(session: *Self, index: usize, input: []u8, lendable: bool, now_ns: u64) Step {
+            return step_entry(session, index, input, lendable, now_ns);
         }
 
         /// The socket of entry `index` sent `sent_len` bytes of what the engine lent, at
@@ -225,28 +236,35 @@ pub fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.E
     entry.closing = false;
     entry.half_closing = false;
     entry.send_owed = false;
+    entry.tls = tls;
     entry.answers.reset(echo);
     return true;
 }
 
 /// `step` of a session of any size. Public for the tests of a step's calls, which pass a session
 /// whose engine counts them.
-pub fn step_entry(session: anytype, index: usize, input: []u8, now_ns: u64) Step {
+pub fn step_entry(session: anytype, index: usize, input: []u8, lendable: bool, now_ns: u64) Step {
     const entry = &session.entries[index];
     session.now_ns = now_ns;
     var consumed: usize = 0;
+    var lent: []const u8 = &.{};
     // Bounded: a pass in which nothing moves ends the loop.
     for (0..session.events_max) |_| {
         const taken = read(session, entry, input[consumed..]);
         consumed += taken.consumed;
         const finished = answer(session, entry);
+        // In cleartext the lend comes before the read of the events. See the header.
+        if (lendable and !entry.tls) lent = lend(session, entry, lent);
         const reported = drain(session);
         if (taken.moved or finished > 0 or reported) continue;
         // See the header for what the drain above may have read for this entry.
         session.pending.unset(index);
         break;
     } else session.pending.set(index);
-    return .{ .consumed = consumed, .done = entry.closing };
+    // A TLS entry lends here, once, and the lend seals one record. A cleartext entry lent what
+    // it owed in its passes.
+    if (lendable) lent = lend(session, entry, lent);
+    return .{ .consumed = consumed, .done = entry.closing, .lent = lent };
 }
 
 /// `peer_closed` of a session of any size.
@@ -284,7 +302,21 @@ fn read(session: anytype, entry: *Entry, input: []u8) Read {
 /// finished. What the engine took, the connection owes its socket. A connection that ended
 /// owes none: each of its requests ended first (INV-30).
 fn answer(session: anytype, entry: *Entry) usize {
-    return entry.answers.write(&session.engine, entry.handle);
+    const written = entry.answers.write(&session.engine, entry.handle);
+    if (written.wrote) entry.send_owed = true;
+    return written.finished;
+}
+
+/// What the socket of `entry` holds to send after a lend: what the engine lends of what the
+/// connection owes, where it holds it (decision 176). That is what an earlier lend gave, and
+/// more. An entry that owes nothing asks the engine for nothing, and the socket holds `held`,
+/// what the step's lends gave before. The engine lends nothing for a connection it closed or
+/// ended, and the socket then holds `held` too.
+fn lend(session: anytype, entry: *Entry, held: []const u8) []const u8 {
+    if (!entry.send_owed) return held;
+    entry.send_owed = false;
+    const given = session.engine.output_stream(entry.handle, session.now_ns);
+    return if (given.len > 0) given else held;
 }
 
 /// Reads the engine's events until it reports none, routing each, and returns whether it
@@ -321,7 +353,7 @@ fn on_event(session: anytype, reported: *const server.Event) void {
             .cancelled => named(session, finished.id.connection).answers.forget(finished.id.number),
         },
         .writable => |writable| _ = named(session, writable.id.connection),
-        // The socket takes the bytes when the caller arms it, with `lend`.
+        // The entry's next lend takes the bytes, in this step or once its socket's send ended.
         .send => |handle| named(session, handle).send_owed = true,
         .half_close => |handle| named(session, handle).half_closing = true,
         .close => |handle| named(session, handle).closing = true,
@@ -346,11 +378,25 @@ fn routed(session: anytype, pool: anytype, reported: *const server.Event) bool {
         .finished => |finished| finished.id.connection,
         .send, .half_close, .close, .ended, .closed => return false,
     };
-    _ = named(session, connection);
+    // What the router writes, the connection owes its socket.
+    const entry = named(session, connection);
+    if (router_writes(reported)) entry.send_owed = true;
     var context: void = {};
     const handled = pool.handle(&context, &session.engine, reported);
     assert(handled == .taken);
     return true;
+}
+
+/// Whether the router may write at `reported`, an event of a request: it answers a request once
+/// it read it whole, and writes more of a response at its `writable`. The engine's `send`
+/// reports the bytes of a route that answers sooner.
+pub fn router_writes(reported: *const server.Event) bool {
+    return switch (reported.*) {
+        .request => |request| request.end,
+        .body => |body| body.end,
+        .trailers, .writable => true,
+        .finished, .send, .half_close, .close, .ended, .closed => false,
+    };
 }
 
 /// The entry of the connection `handle` names, which an event named: its worker steps it.
