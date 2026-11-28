@@ -17,7 +17,9 @@
 //! reads what its connection reports.
 //!
 //! Once a turn, each socket with no send in flight takes what its connection owes, which the
-//! engine lends where it holds it (decision 176): `lend`, when the driver arms the socket. So the
+//! engine lends where it holds it (decision 176): `lend`, when the driver arms the socket. An
+//! entry's `send_owed` says that the engine reported a `send` since the entry's last lend, and an
+//! entry that owes nothing asks the engine for nothing. So the
 //! turn's one send carries every response the turn wrote. A read of the turn that finds a
 //! response not lent yet pauses an h2 stream's send meter, and the lend at the same instant takes
 //! the meter's window back (decision 110 as amended on 2026-11-27). A socket with a send in
@@ -42,6 +44,8 @@ pub const Entry = struct {
     /// The engine reported the connection's `half_close`: the socket's write side closes once its
     /// bytes are out, and its receives go on (decision 160).
     half_closing: bool = false,
+    /// The engine reported the connection's `send`, and no lend has taken its bytes since.
+    send_owed: bool,
 };
 
 /// The handle of an entry no socket has taken yet. Generation 0 names no connection (decision
@@ -59,7 +63,7 @@ pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
     // A slot the engine hands out is one whose last connection it reported `ended`.
     assert(state.entry_of[handle.slot] == null);
     state.entry_of[handle.slot] = @intCast(index);
-    entry.* = .{ .handle = handle, .attached = true, .closing = false };
+    entry.* = .{ .handle = handle, .attached = true, .closing = false, .send_owed = false };
     return true;
 }
 
@@ -81,14 +85,17 @@ pub fn step(run: anytype, index: usize, socket: anytype, now_ns: u64) void {
 }
 
 /// Gives the socket of entry `index` what its connection owes, where the engine holds it
-/// (decision 176): what an earlier lend gave and more. A socket with a send in flight takes
-/// nothing, and one whose connection ended takes nothing, since its handle names none. The socket
-/// sends from there, and `sent` hands back what each send took.
+/// (decision 176): what an earlier lend gave and more. An entry that owes nothing asks the engine
+/// for nothing. A socket with a send in flight takes nothing, and its entry stays owing. One
+/// whose connection ended takes nothing, since its handle names none. The socket sends from
+/// there, and `sent` hands back what each send took.
 pub fn lend(run: anytype, index: usize) void {
     const state = run;
+    const entry = &state.entries[index];
     const socket = &state.sockets[index];
-    if (socket.sending) return;
-    const lent = state.engine.output_stream(state.entries[index].handle, state.now_ns);
+    if (!entry.send_owed or socket.sending) return;
+    entry.send_owed = false;
+    const lent = state.engine.output_stream(entry.handle, state.now_ns);
     if (lent.len > 0) socket.give(lent);
 }
 
@@ -175,8 +182,8 @@ fn request_connection(reported: *const server.Event) ?server.ConnectionHandle {
 
 fn on_connection_event(state: anytype, reported: *const server.Event) void {
     switch (reported.*) {
-        // The socket takes the bytes when the driver arms it.
-        .send => |handle| _ = named(state, handle),
+        // The socket takes the bytes when the driver arms it, with `lend`.
+        .send => |handle| named(state, handle).send_owed = true,
         .half_close => |handle| named(state, handle).half_closing = true,
         .close => |handle| named(state, handle).closing = true,
         // A QUIC connection has no socket of its own, and its slot frees in the engine.

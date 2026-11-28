@@ -67,7 +67,7 @@ pub fn start(state: anytype, now: server.Timestamp) !void {
 /// instant.
 pub fn reset(state: anytype, now_ns: u64) void {
     for (&state.sockets) |*socket| socket.live = false;
-    for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false };
+    for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false };
     state.entry_of = @splat(null);
     state.pending = .initEmpty();
     state.touched = .initEmpty();

@@ -19,12 +19,14 @@
 //! may hold requests of a record after it consumed the record's bytes. So a pass follows each
 //! pass whose third thing reported an event.
 //! Once a turn, the caller gives each socket with no send in flight what `lend` returns: what
-//! its connection owes, which the engine lends where it holds it (decision 176). So the responses
-//! to the requests one read carried leave in one send (decision 119 as amended). A read of the
-//! turn that finds a response not lent yet pauses an h2 stream's send meter, and the lend at the
-//! same instant takes the meter's window back (decision 110 as amended on 2026-11-27). `sent`
-//! hands back what each send took. h11 reads a pipelined request only once the response before it
-//! is done (decision 92), which the third thing reports, so the next pass reads it.
+//! its connection owes, which the engine lends where it holds it (decision 176). An entry's
+//! `send_owed` says that the engine reported a `send` since the entry's last lend, and an entry
+//! that owes nothing asks the engine for nothing. So the responses to the requests one read
+//! carried leave in one send (decision 119 as amended). A read of the turn that finds a response
+//! not lent yet pauses an h2 stream's send meter, and the lend at the same instant takes the
+//! meter's window back (decision 110 as amended on 2026-11-27). `sent` hands back what each send
+//! took. h11 reads a pipelined request only once the response before it is done (decision 92),
+//! which the third thing reports, so the next pass reads it.
 //!
 //! An event may name another connection than the one `step` serves: a deadline fired there, or
 //! its turn came in the engine's ring. The event changes that connection's entry, and `pending`
@@ -71,6 +73,8 @@ pub const Entry = struct {
     /// The engine reported the connection's `half_close`: the program closes the socket's write
     /// side once the bytes it holds are out, and reads on (decision 160).
     half_closing: bool = false,
+    /// The engine reported the connection's `send`, and no lend has taken its bytes since.
+    send_owed: bool,
     answers: server_session_answer.Answers,
 };
 
@@ -124,6 +128,7 @@ pub fn Session(comptime connections_max: usize) type {
                 entry.attached = false;
                 entry.closing = false;
                 entry.half_closing = false;
+                entry.send_owed = false;
                 entry.answers.reset(null);
             }
             session.events_max = events_per_step_max;
@@ -149,11 +154,15 @@ pub fn Session(comptime connections_max: usize) type {
         }
 
         /// What entry `index`'s connection owes its socket, which the engine lends where it holds
-        /// it: what an earlier lend gave, and more (decision 176). Empty for a connection that
-        /// ended, whose handle names nothing. The caller calls it while the socket has no send in
-        /// flight.
+        /// it: what an earlier lend gave, and more (decision 176). Empty while the engine has
+        /// reported no `send` since the entry's last lend, and the engine is then not asked.
+        /// Empty for a connection that ended, whose handle names nothing. The caller calls it
+        /// while the socket has no send in flight.
         pub fn lend(session: *Self, index: usize) []const u8 {
-            return session.engine.output_stream(session.entries[index].handle, session.now_ns);
+            const entry = &session.entries[index];
+            if (!entry.send_owed) return &.{};
+            entry.send_owed = false;
+            return session.engine.output_stream(entry.handle, session.now_ns);
         }
 
         /// The socket of entry `index` sent `sent_len` bytes of what the engine lent, at
@@ -215,6 +224,7 @@ pub fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.E
     entry.attached = true;
     entry.closing = false;
     entry.half_closing = false;
+    entry.send_owed = false;
     entry.answers.reset(echo);
     return true;
 }
@@ -311,8 +321,8 @@ fn on_event(session: anytype, reported: *const server.Event) void {
             .cancelled => named(session, finished.id.connection).answers.forget(finished.id.number),
         },
         .writable => |writable| _ = named(session, writable.id.connection),
-        // The socket takes the bytes when the caller arms it.
-        .send => |handle| _ = named(session, handle),
+        // The socket takes the bytes when the caller arms it, with `lend`.
+        .send => |handle| named(session, handle).send_owed = true,
         .half_close => |handle| named(session, handle).half_closing = true,
         .close => |handle| named(session, handle).closing = true,
         // The slot takes another connection from here on, and the entry stays its socket's.

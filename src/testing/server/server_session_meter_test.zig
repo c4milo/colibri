@@ -1,10 +1,10 @@
 //! The tests of what design §9's server session lends, and of what it asks the engine (decision
 //! 176). An h2 stream whose window opens slowly: each step lends what it wrote before it reads
 //! again, so the stream's send meter never waits on the output, and the engine cuts the stream at
-//! the send rate (decision 110 as amended). Then the call a step does not make: no read for a
-//! socket with no unread bytes. The last tests pass a session whose engine is a stand-in that
-//! counts each call: a step passes its unread bytes once, and answers a request that its read of
-//! the engine's events reports.
+//! the send rate (decision 110 as amended). Then the calls the session does not make: no read
+//! for a socket with no unread bytes, and no lend for an entry that owes nothing. The last tests
+//! pass a session whose engine is a stand-in that counts each call: a step passes its unread
+//! bytes once, and answers a request that its read of the engine's events reports.
 const std = @import("std");
 const server = @import("server");
 const h2 = @import("h2");
@@ -90,14 +90,17 @@ fn asked_ns() ?u64 {
     return test_session.engine.tcp[test_session.entries[0].handle.slot].clock.checked_ns;
 }
 
-test "a step with no unread bytes passes the engine no read" {
+test "an entry that owes nothing asks the engine for no lend, and a step with no bytes for no read" {
     test_config = .{ .cpu_features = .none(), .protocols = .{ .h2 = false } };
     try test_session.init(&test_config, .{ .unix_seconds = 0, .monotonic_ns = 0 });
     try testing.expect(test_session.accept(0, false, null, 0));
     @memcpy(test_input[0..get_h11.len], get_h11);
     try testing.expectEqual(get_h11.len, test_session.step(0, test_input[0..get_h11.len], first_ns).consumed);
+    // The engine reported the response's `send`, so the entry owes, and its lend takes the bytes.
+    try testing.expect(test_session.entries[0].send_owed);
     const lent = test_session.lend(0);
     try testing.expect(std.mem.startsWith(u8, lent, "HTTP/1.1 200 OK\r\n"));
+    try testing.expect(!test_session.entries[0].send_owed);
     test_session.sent(0, lent.len, first_ns);
     // The step after the send reads what the engine reports of it, at the same instant.
     try testing.expectEqual(0, test_session.step(0, test_input[0..0], first_ns).consumed);
@@ -105,10 +108,18 @@ test "a step with no unread bytes passes the engine no read" {
     // At a later instant no deadline is due, and the engine has nothing to report.
     test_session.on_instant(later_ns);
     try testing.expectEqual(@as(?u64, first_ns), asked_ns());
+    // The entry owes nothing, so a lend asks the engine nothing.
+    try testing.expectEqual(0, test_session.lend(0).len);
+    try testing.expectEqual(@as(?u64, first_ns), asked_ns());
     // The socket has no unread bytes, so the step passes the engine none.
     try testing.expectEqual(0, test_session.step(0, test_input[0..0], later_ns).consumed);
     try testing.expectEqual(@as(?u64, first_ns), asked_ns());
     try testing.expectEqual(null, test_session.next_pending());
+    // The connection ends while its entry owes, and the entry's next connection owes nothing.
+    test_session.peer_closed(0, later_ns);
+    test_session.entries[0].send_owed = true;
+    try testing.expect(test_session.accept(0, false, null, later_ns));
+    try testing.expect(!test_session.entries[0].send_owed);
 }
 
 /// The one connection of the stand-in engine, in slot 0. Test-only.
