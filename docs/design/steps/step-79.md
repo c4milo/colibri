@@ -125,3 +125,84 @@ The owner ruled "Build it now" on the draft of this entry.
     44,543 connections a second on the base, and 41,520 and 40,353 on the change.
   - So the lend costs more instructions than the copy it removes, except where a response is
     large. Step 79 does not meet the admission rule of docs/performance.md as it stands.
+- **The cost, found on 2026-11-28** ([#137](https://github.com/c4milo/colibri/issues/137)). The
+  owner ruled to find the cost, cut it, and run the judge again.
+  - **The instrument.** Valgrind 3.22 does not follow io_uring's completions, so a server on
+    io_uring answers nothing under it. A seccomp filter that refuses `io_uring_setup` makes Rotor
+    take epoll (Rotor's decision 20), and callgrind then counts the server's instructions by
+    function. The server is the test-only one, built by `zig build http-server -Drelease
+    -Dcpu=x86_64_v3`, on one core of an x86-64 Linux container: an Intel Xeon at 2.10 GHz, with
+    kernel 6.18. It runs under `valgrind --tool=callgrind --instr-atstart=no`. After a warm-up,
+    `callgrind_control -i on` starts the count, the load runs, and `callgrind_control -i off`
+    ends it. Each count is the instructions in user mode while the load ran.
+  - **The loads.** h2load 1.59.0 sends h2 with `-c 1 -m 10`, and one request on each of 64
+    connections. A paced client sends h11: each request follows the response before it and a
+    pause of 3 ms. So a send's completion and the next request never share a turn, as on
+    io_uring, and two runs of one load differ by less than 0.01%. Over TLS the server holds the
+    test identity. The 256 KiB load is `--body 262144`.
+  - **What the counts showed.** Three costs, and 210c5e08 has the second one too:
+    - The loops called `output_stream` for each socket that a turn touched. A call with nothing
+      owed fires the connection's deadlines, observes them and touches the slot. The next read
+      of the engine's events then polls the connection again.
+    - Each pass of a step, and the step after each send, passed the engine a read of no bytes.
+      The engine ran the connection's `receive` to learn that it read nothing.
+    - `observe` asks `finished` for the linger while the output holds bytes. Lent bytes stay in
+      the output until their send ends, so `finished` ran 5 times for a request, against 3.
+- **The fixes of 2026-11-28**, each a commit of its own:
+  - `finished` returns at once for a connection that nothing stopped, that nothing asked to
+    end, and whose protocol is open.
+  - A step of both loops passes its socket's unread bytes alone, and its read of the engine's
+    events reports what the connection owes. Over TLS the engine may hold a request of a record
+    after it consumed the record's bytes, and reports it with its events. So a step of the
+    test-only server takes one more pass after a read that reported an event, and answers it.
+  - An entry of both loops keeps `send_owed`, which the engine's `send` sets and a lend clears,
+    as `send_stream` had before this step. A lend asks the engine only then.
+  - Two variants lost. A lend inside the step, where `send_stream` was, removes the `send`
+    event. Over TLS it seals the first response of a record apart from the others, and h2 over
+    TLS then lost 1.3% against 210c5e08. A read of no bytes that stays over TLS kept the record
+    whole, and h11 over TLS then gained only 0.7%.
+- **The counts**, in instructions a request, or a connection where each request has its own:
+
+  | Load | 210c5e08 | 8140451a | With the fixes |
+  | --- | ---: | ---: | ---: |
+  | h2, 10 streams | 11,075 | 11,235 (+1.5%) | 10,946 (-1.2%) |
+  | h11 | 17,264 | 18,010 (+4.3%) | 16,484 (-4.5%) |
+  | h2 over TLS, 10 streams | 12,993 | 13,154 (+1.2%) | 12,928 (-0.5%) |
+  | h11 over TLS | 27,663 | 28,603 (+3.4%) | 26,188 (-5.3%) |
+  | h2, a connection | 37,874 | 39,031 (+3.1%) | 35,873 (-5.3%) |
+  | h11, a connection | 25,841 | 26,786 (+3.7%) | 24,786 (-4.1%) |
+  | h2 over TLS, a connection | 1,480,732 | 1,479,634 (-0.1%) | 1,474,803 (-0.4%) |
+  | h2, 256 KiB responses | 105,433 | 86,800 (-17.7%) | 74,651 (-29.2%) |
+
+  These are x86-64 instructions in user mode, on epoll. The judge counts arm64 instructions in
+  user and kernel mode, on io_uring, so the judge's run decides.
+- **What the lend still costs.** 210c5e08 passed the read of no bytes too. A copy of 210c5e08
+  with the first two fixes counts 10,788 for h2, 15,068 for h11, 13,005 for h2 over TLS, 23,928
+  for h11 over TLS, 34,164 and 23,367 for a connection, and 97,234 for 256 KiB responses.
+  Against that copy the lend costs 1.5% over h2, 9.4% over h11 in cleartext and over TLS, and
+  5.0% and 6.1% a connection. It saves 0.6% over h2 over TLS, and 23.2% on 256 KiB responses.
+  The cost is `sent_stream`. When a send ends it counts the bytes, fires and observes the
+  deadlines, starts the idle deadline, and touches the slot for a poll. Before this step the
+  engine had no call then. [#169](https://github.com/c4milo/colibri/issues/169) holds it. The
+  owner ruled on 2026-11-28 to keep this step with its fixes.
+- **The checks of the fixes.**
+  - `server_session_meter_test.zig`: a step with no unread bytes and a lend with nothing owed
+    leave the instant of the connection's last deadline check as it was. A session over a
+    stand-in engine that counts its calls passes its unread bytes once, and answers a request
+    that its read of the engine's events reports.
+  - `src/colibri/server_pump_test.zig` runs `colibri.Server`'s loop over a stand-in engine: no
+    read with no unread bytes, one lend for one `send`, none with a send in flight, and none for
+    a new connection whose entry owed before.
+  - `connection_close.zig`: an h2 connection whose protocol failed has finished once its GOAWAY
+    is out, with nothing else that ended it.
+  - Mutations, each CAUGHT: 9 of `finished` against `zig build test-server`; 4 of the read and
+    4 of the lend in the test-only loop against `zig build test-testing`; and 1 of the read and
+    5 of the lend in `colibri.Server`'s loop against `zig build test-colibri`. Three were NOT
+    CAUGHT until a test was written: a failed h2 protocol that `finished` counted as open, and
+    in each loop a new connection that starts owing.
+- **Run on 2026-11-28, on x86-64 Linux in a container with no IPv6:** `zig build test` on the
+  last of the three commits, 4,309 of 4,311 tests, with 1 skipped and the IPv6 test failed;
+  `zig build examples` but the IPv6 example; `zig build lint`; `zig build lint-commits`; and
+  `zig fmt --check`. The tree of the second commit passed `test-server`, `test-testing` and
+  `test-colibri`, the IPv6 test apart.
+- **Not run:** the checks of `tools/ci.sh` that need Docker, a network peer or an arm64 host.

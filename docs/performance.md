@@ -436,6 +436,14 @@ With chapulin's host objects:
 - **perf's task-clock unit.** Symptom: CPU time a million times too large. Cause: perf 6.17
   writes task-clock in nanoseconds with no unit, where earlier versions wrote milliseconds as
   `msec`. Rule: read the unit perf writes beside each value.
+- **A call that asks the engine for nothing.** Symptom: after design §8 step 79 the judge
+  counted 13 of 15 inputs slower, h11-one by 10% to 12%. Cause: the server's loop called
+  `output_stream` for each socket that a turn touched, and passed each connection a read of no
+  bytes after each send. Such a call fires the connection's deadlines, observes them and touches
+  its slot, so the next read of the engine's events polls the connection again. Rule: a loop
+  passes the engine bytes only when a socket holds unread ones, asks for a lend only after a
+  `send` event, and reads everything else with `receive(.none)`. Design §8 step 79 has the
+  counts.
 
 ## Commands
 
