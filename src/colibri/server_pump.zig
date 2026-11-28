@@ -9,10 +9,12 @@
 //! the connection the slot holds now, and an entry keeps its connection's whole handle.
 //!
 //! `step` serves one socket. It repeats two things until the first one moves nothing:
-//!   1. passes the socket's input to the engine and routes every event it reports;
+//!   1. passes the socket's unread bytes to the engine and routes every event it reports;
 //!   2. reads the engine's events until it reports none.
 //! The router writes each response as it takes the request's events, so the responses to the
-//! requests one read carried leave in one send (decision 119 as amended).
+//! requests one read carried leave in one send (decision 119 as amended). A socket with no
+//! unread bytes passes none, so the engine is not asked to read nothing, and the second thing
+//! reads what its connection reports.
 //!
 //! Once a turn, each socket with no send in flight takes what its connection owes, which the
 //! engine lends where it holds it (decision 176): `lend`, when the driver arms the socket. So the
@@ -111,12 +113,15 @@ pub fn peer_closed(run: anytype, index: usize) void {
 const Read = struct { consumed: usize, moved: bool };
 
 /// Passes `input` to the entry's connection until the engine consumes nothing and reports
-/// nothing, routing each event. A connection the engine closed or ended reads nothing.
+/// nothing, or no byte is left, routing each event. A connection the engine closed or ended reads
+/// nothing. With no byte to pass, the engine is not asked, and `drain` reads what the connection
+/// reports.
 fn read(run: anytype, entry: *Entry, input: []u8) Read {
     const state = run;
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..constants.limits.events_per_step_max) |_| {
         if (entry.closing or !entry.attached) break;
+        if (taken.consumed == input.len) break;
         const bytes: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
         const received = &state.received;
         state.engine.receive(.{ .stream = bytes }, state.now_ns, received);

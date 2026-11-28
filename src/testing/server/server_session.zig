@@ -10,20 +10,21 @@
 //! the slot holds now, every event is routed through it, and an entry keeps its connection's whole
 //! handle, whose generation a later connection in the slot does not share.
 //!
-//! `step` serves one socket. It repeats three things until none of the first two moves:
-//!   1. passes the socket's input to the engine and routes every event it reports;
+//! `step` serves one socket. It repeats three things until none of them moves:
+//!   1. passes the socket's unread bytes to the engine and routes every event it reports;
 //!   2. writes as much of the owed responses as the connection takes, oldest first;
 //!   3. reads the engine's events until it reports none.
-//! An event the last pass's third thing reads for this socket's connection needs no pass of its
-//! own: a `close` or an `ended`, which the caller reads from the entry, or a `send`.
+//! A socket with no unread bytes passes none, so the engine is not asked to read nothing, and
+//! the third thing reads what its connection reports. That may be a request: over TLS the engine
+//! may hold requests of a record after it consumed the record's bytes. So a pass follows each
+//! pass whose third thing reported an event.
 //! Once a turn, the caller gives each socket with no send in flight what `lend` returns: what
 //! its connection owes, which the engine lends where it holds it (decision 176). So the responses
 //! to the requests one read carried leave in one send (decision 119 as amended). A read of the
 //! turn that finds a response not lent yet pauses an h2 stream's send meter, and the lend at the
 //! same instant takes the meter's window back (decision 110 as amended on 2026-11-27). `sent`
-//! hands back what each send took. h11 reads a pipelined request only
-//! once the response before it is done (decision 92), which the third thing reports, so the next
-//! pass reads it.
+//! hands back what each send took. h11 reads a pipelined request only once the response before it
+//! is done (decision 92), which the third thing reports, so the next pass reads it.
 //!
 //! An event may name another connection than the one `step` serves: a deadline fired there, or
 //! its turn came in the engine's ring. The event changes that connection's entry, and `pending`
@@ -179,7 +180,7 @@ pub fn Session(comptime connections_max: usize) type {
         pub fn on_instant(session: *Self, now_ns: u64) void {
             session.now_ns = now_ns;
             session.engine.on_instant(now_ns);
-            drain(session);
+            _ = drain(session);
         }
 
         /// An entry an event named since its last step, which is no longer pending, or null.
@@ -200,8 +201,9 @@ pub fn Session(comptime connections_max: usize) type {
     };
 }
 
-/// `accept` of a session of any size.
-fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo, now_ns: u64) bool {
+/// `accept` of a session of any size. Public for the tests of a step's calls, which pass a
+/// session whose engine counts them.
+pub fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo, now_ns: u64) bool {
     const entry = &session.entries[index];
     assert(!entry.attached);
     session.now_ns = now_ns;
@@ -217,8 +219,9 @@ fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo,
     return true;
 }
 
-/// `step` of a session of any size.
-fn step_entry(session: anytype, index: usize, input: []u8, now_ns: u64) Step {
+/// `step` of a session of any size. Public for the tests of a step's calls, which pass a session
+/// whose engine counts them.
+pub fn step_entry(session: anytype, index: usize, input: []u8, now_ns: u64) Step {
     const entry = &session.entries[index];
     session.now_ns = now_ns;
     var consumed: usize = 0;
@@ -227,8 +230,8 @@ fn step_entry(session: anytype, index: usize, input: []u8, now_ns: u64) Step {
         const taken = read(session, entry, input[consumed..]);
         consumed += taken.consumed;
         const finished = answer(session, entry);
-        drain(session);
-        if (taken.moved or finished > 0) continue;
+        const reported = drain(session);
+        if (taken.moved or finished > 0 or reported) continue;
         // See the header for what the drain above may have read for this entry.
         session.pending.unset(index);
         break;
@@ -242,18 +245,20 @@ fn end_entry(session: anytype, index: usize, now_ns: u64) void {
     // The handle of a connection that ended names nothing, so a socket that fails after its
     // connection ended reaches no later connection in the slot.
     session.engine.transport_closed(session.entries[index].handle);
-    drain(session);
+    _ = drain(session);
 }
 
 const Read = struct { consumed: usize, moved: bool };
 
 /// Passes `input` to the entry's connection until the engine consumes nothing and reports
-/// nothing, routing each event. A connection the engine closed or ended reads nothing: the
-/// engine would consume and drop the bytes.
+/// nothing, or no byte is left, routing each event. A connection the engine closed or ended reads
+/// nothing: the engine would consume and drop the bytes. With no byte to pass, the engine is not
+/// asked, and `drain` reads what the connection reports.
 fn read(session: anytype, entry: *Entry, input: []u8) Read {
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..session.events_max) |_| {
         if (entry.closing or !entry.attached) break;
+        if (taken.consumed == input.len) break;
         const octets: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
         const received = &session.received;
         session.engine.receive(.{ .stream = octets }, session.now_ns, received);
@@ -272,17 +277,19 @@ fn answer(session: anytype, entry: *Entry) usize {
     return entry.answers.write(&session.engine, entry.handle);
 }
 
-/// Reads the engine's events until it reports none, routing each.
-fn drain(session: anytype) void {
-    for (0..session.events_max) |_| {
+/// Reads the engine's events until it reports none, routing each, and returns whether it
+/// reported one.
+fn drain(session: anytype) bool {
+    for (0..session.events_max) |count| {
         session.engine.receive(.none, session.now_ns, &session.received);
         const reported = if (session.received.event) |*event| event else {
             session.undrained = false;
-            return;
+            return count > 0;
         };
         on_event(session, reported);
     }
     session.undrained = true;
+    return true;
 }
 
 /// Notes what one event says in the entry of the connection it names. The event's bytes are
