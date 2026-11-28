@@ -64,19 +64,34 @@ pub fn half_close(connection: *Connection, now_ns: u64) void {
 /// stopped, its protocol closed, or it was asked to end and no request is open.
 pub fn finished(connection: *const Connection) bool {
     if (connection.phase != .open) return connection.phase == .closed;
+    const asked = connection.shutting_down or connection.peer_closed;
+    const closed = protocol_closed(connection);
+    // Most calls find a connection that nothing has ended, and read nothing more of it.
+    if (!connection.stopped and !asked and !closed) return false;
     // What the protocol owes, such as h11's error response or h2's GOAWAY, goes out first.
     if (protocol_pending(connection)) return false;
     if (connection.stopped) return true;
-    const idle = switch (connection.session) {
-        .h2 => connection_h2.idle(connection),
-        .h11 => connection_h11.idle(connection),
+    if (asked and protocol_idle(connection)) return true;
+    return closed;
+}
+
+/// Whether the protocol closed: h2 failed, or h11 reads no more requests. With nothing pending,
+/// the protocol then has nothing more to say.
+fn protocol_closed(connection: *const Connection) bool {
+    return switch (connection.session) {
+        .h2 => |*session| session.has_failed(),
+        .h11 => |*session| session.phase == .closed,
         // An open connection has a protocol.
         .none => unreachable,
     };
-    if (idle and (connection.shutting_down or connection.peer_closed)) return true;
+}
+
+/// Whether no request is open.
+fn protocol_idle(connection: *const Connection) bool {
     return switch (connection.session) {
-        .h2 => connection.session.h2.has_failed() and !connection.session.h2.has_pending(),
-        .h11 => connection.session.h11.should_close(),
+        .h2 => connection_h2.idle(connection),
+        .h11 => connection_h11.idle(connection),
+        // An open connection has a protocol.
         .none => unreachable,
     };
 }
@@ -130,4 +145,21 @@ fn passed_limit(connection: *const Connection) ?Limit {
         },
         .none => return null,
     }
+}
+
+test "RFC 9113 §5.4.1: an h2 connection whose protocol failed has finished once its GOAWAY is out" {
+    const testing = std.testing;
+    const h2 = @import("h2");
+    const support = @import("connection_test_support.zig");
+    const h2_support = @import("connection_h2_test_support.zig");
+    try h2_support.start();
+    const connection = &support.connection;
+    // The protocol fails with no error that a read reports, so nothing stopped the connection
+    // and nothing asked it to end.
+    try testing.expectEqual(error.ConnectionFailed, connection.session.h2.fail(h2.constants.protocol.error_protocol_error));
+    try testing.expect(!connection.stopped and !connection.shutting_down and !connection.peer_closed);
+    // RFC 9113 §6.8: the GOAWAY goes out first.
+    try testing.expect(!finished(connection));
+    try testing.expectEqual(h2.constants.protocol.frame_type_goaway, support.drain()[h2_support.type_index]);
+    try testing.expect(finished(connection));
 }

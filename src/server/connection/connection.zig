@@ -457,4 +457,5 @@ test {
     _ = @import("connection_sends_test.zig");
     _ = @import("connection_output_test.zig");
     _ = @import("connection_discard_test.zig");
+    _ = @import("connection_close.zig");
 }
