@@ -605,6 +605,7 @@ library.
 | <a id="step-77"></a>[77](design/steps/step-77.md) | Step 77 — colibri takes chapulin through stdx, 2026-11-25 |
 | <a id="step-78"></a>[78](design/steps/step-78.md) | Step 78 — colibri takes the program's `stdx.crypto.Context` once, 2026-11-26 |
 | <a id="step-79"></a>[79](design/steps/step-79.md) | Step 79 — a TCP socket sends from its connection's output, 2026-11-26 |
+| <a id="step-80"></a>[80](design/steps/step-80.md) | Step 80 — a lend gives the socket its bytes, as a copy did, 2026-11-28 |
 
 ## 9. Test-only entry points
 

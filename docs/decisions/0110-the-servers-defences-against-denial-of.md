@@ -345,3 +345,23 @@ Amended a ninth time by the owner on 2026-11-27, as "Resume the meter", while de
   - Every meter keeping its window across a pause that lasts no time. A body's meter would
     then judge a peer for the round trip in which it waits for its WINDOW_UPDATE, which the
     fourth amendment refused.
+
+Amended a tenth time by the owner on 2026-11-28, with decision 176's amendment of that day
+(design §8 step 80):
+- **Bytes are out once a lend or a copy gave them to the socket.** Three clocks read the bytes
+  that no lend gave: the output's bytes after the lent ones, and over TLS the output's bytes
+  and the records that a send left.
+- **The idle deadline** starts once the connection holds no such byte. Before, it started at
+  `sent_stream` in cleartext. Over TLS it started at the lend already, which sealed the output.
+- **A request body's meter** starts again once its WINDOW_UPDATE is lent, as it did once a
+  copy took it (the fourth amendment).
+- **The linger** bounds the bytes that no lend gave the socket, as it bounded the bytes that no
+  copy took. Bytes that the socket holds after a `close` are the program's to send.
+- **The connection's send meter keeps its rule.** It runs while the output holds any byte,
+  lent or not, and counts at `sent_stream`. So a peer that reads slowly is still judged, as
+  decision 176 ruled. An h2 stream's meter keeps the ninth amendment.
+- **Why.** After design §8 step 79, each send's end started the idle deadline and stopped the
+  send meter in one call, which fired and observed every deadline. Before that step the engine
+  had no call then. Step 80's entry holds the counts.
+- The alternative refused: the send meter stops at the lend too. A peer that never reads a
+  lent response would then meet no deadline but the idle one.

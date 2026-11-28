@@ -231,5 +231,6 @@ The owner ruled "Build it now" on the draft of this entry.
     that receive is about 1,000 of the 1,756 instructions.
   - The rest is `sent_stream`, which
     [#169](https://github.com/c4milo/colibri/issues/169) holds.
-  - By the admission rule, this step does not pass while h11-one loses. The owner's ruling on
-    it is owed.
+  - By the admission rule, this step does not pass while h11-one loses. The owner ruled on
+    2026-11-28 to do the redesign that [#169](https://github.com/c4milo/colibri/issues/169)
+    holds: [step 80](step-80.md).

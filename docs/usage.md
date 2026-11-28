@@ -784,7 +784,7 @@ rest.
 | `finished` | The request is over, once; `result` is `sent` or `cancelled` with a reason | Free the request's state |
 | `send` | A TCP connection owes its socket bytes | Call `output_stream` or `send_stream` |
 | `half_close` | h11 closes in stages (RFC 9112 §9.6, [decision 160](decisions/0160-the-h11-server-reads-the-rest.md)) | Close the socket's write side; pass on what it reads |
-| `close` | colibri is done with a TCP connection | Close the socket after the send ends; call nothing |
+| `close` | colibri is done with a TCP connection | Send what the socket holds, then close it; call `sent_stream` for bytes lent, and nothing else |
 | `ended` | The connection is over, after its requests' `finished` | Drop the handle; the slot takes a later connection |
 | `closed` | After `shutdown`, every connection ended | Stop |
 
@@ -893,10 +893,20 @@ with no copy.
   failed.
 - Until `sent_stream`, the engine keeps the bytes in place and writes new ones after them.
 - A call before the send starts returns the same front, with the bytes written since.
-- A program whose sends end later calls `output_stream` once a turn for each idle socket.
 - A send that took part of the bytes leaves the rest owed, and the engine reports another `send`.
 - The engine reports `ended` only after `sent_stream`, so no later connection takes the slot
   while a send reads it.
+
+Bytes that `output_stream` returned are out, as bytes that `send_stream` copied are (decision
+176 as amended on 2026-11-28). A program whose sends end later follows three rules:
+
+- In cleartext, call `output_stream` for a socket with no send in flight straight after the
+  writes, before the next `receive`. The engine then reports no `send` for those bytes.
+- Over TLS each call seals a record. So call it once, after the last `receive` of the turn, and
+  the turn's responses leave in one record.
+- A `half_close` or a `close` may come while a lent send is in flight. After a `close` the
+  engine lends the connection nothing more. Send every byte the socket was lent, in as many
+  sends as it takes. Then call `sent_stream` once, and close the socket.
 
 From [`examples/server_stream.zig`](../examples/server_stream.zig), a program that sends from a
 buffer of its own:

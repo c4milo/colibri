@@ -441,8 +441,15 @@ With chapulin's host objects:
   `output_stream` for each socket that a turn touched, and passed each connection a read of no
   bytes after each send. Such a call fires the connection's deadlines, observes them and touches
   its slot, so the next read of the engine's events polls the connection again. Rule: a loop
-  passes the engine bytes only when a socket holds unread ones, asks for a lend only after a
-  `send` event, and reads everything else with `receive(.none)`. Design §8 step 79 has the
+  passes the engine bytes only when a socket holds unread ones, asks for a lend only when its
+  entry may owe bytes, and reads everything else with `receive(.none)`. Design §8 step 79 has
+  the counts.
+- **An event that comes one turn late.** Symptom: with step 79's fixes h11-one still lost 6.9%
+  of its user instructions on the judge, while the counts of the fixes showed a gain. Cause:
+  the engine reported `close` only after `sent_stream`, so a socket armed a receive that its
+  close then cancelled. wrk asks for the close on that input, and the paced client of the
+  counts closed first. Rule: count each input as the judge's client sends it, and give a
+  program what its next call depends on before it makes that call. Design §8 step 80 has the
   counts.
 
 ## Commands

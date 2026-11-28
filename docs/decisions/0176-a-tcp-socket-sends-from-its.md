@@ -37,3 +37,40 @@ Ruled by the owner on 2026-11-26, for [#137](https://github.com/c4milo/colibri/i
     ([c4milo/chapulin#227](https://github.com/c4milo/chapulin/issues/227)), and change both
     directions at once.
   - Keep the copy.
+
+Amended by the owner on 2026-11-28, as "Do the redesign now", after the judge failed design §8
+step 79 on one input ([#169](https://github.com/c4milo/colibri/issues/169), design §8 step 80).
+The owner approved the rule of the proposal there, and chose the exact heap first:
+- **Bytes that `output_stream` returned are out**, as bytes that `send_stream` copied are. The
+  ruling above made "out" mean that the socket's send had ended. So each send's end moved
+  deadlines, and a connection's `close` came one turn after its last bytes left the engine.
+- **`half_close` and `close` come with the lend.** The engine reports them once the connection
+  has finished and holds no byte that no call returned. So they may come while a lent send is
+  in flight. `ended` still waits for `sent_stream`, so the bytes stay in place for that send.
+- **After `close` the engine lends the connection nothing more.** A send that took part of a
+  lend leaves the rest with the program's socket. The socket sends it from the same bytes, in
+  as many sends as it takes, and the program calls `sent_stream` once they are all out or the
+  socket failed. Before a `close`, a count of part of a lend goes back at once, and the engine
+  lends the rest again, as before. The proposal did not name this case. It follows from its
+  rule that the program lets the send end and then closes.
+- **When a program calls `output_stream`.** In cleartext it calls for a socket with no send in
+  flight straight after its writes, before its next `receive`. The engine then reports no
+  `send` for those bytes, and the program reads a `close` that the lend brought before it
+  starts the socket's next receive. Over TLS each call seals a record, so it calls once, after
+  the last `receive` of its turn, and the turn's responses leave in one record (decision 119 as
+  amended).
+- **`sent_stream` of a whole lend, on an open socket,** drops the bytes, counts them for the
+  connection's send meter, and stops that meter when the output holds nothing. It starts and
+  fires no deadline. INV-31 holds as it was: the call marks the slot's deadline for the next
+  `deadline_ns`. The engine polls the connection only when room in the output can bring an
+  event.
+- **The deadlines** read the same rule: decision 110 as amended a tenth time.
+- The alternatives refused:
+  - The ruling as it was, with the `close` after `sent_stream`. A socket then arms a receive
+    that its close cancels, and h11-one lost 6.9% on the judge.
+  - The engine lends the rest of a lend again after its `close`. It would keep a closed
+    connection's output and its TLS records as a second state, and a program would wait for a
+    `send` after a `close`.
+  - Early wake: the heap may hold an instant before a connection's deadline, so `sent_stream`
+    marks nothing. It weakens INV-31 from "equal" to "not later". The owner chose to try the
+    exact heap first.
