@@ -292,7 +292,23 @@ test "design §8 step 42: a socket the system refuses ends the exchange refused"
 /// A pool configuration over TLS that trusts the test identity's root for `localhost`. Test-only.
 const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata.root_spki }};
 
+/// Whether the host opens a UDP socket of `family`. A host with no IPv6 refuses the socket
+/// itself, with EAFNOSUPPORT. Any other failure counts as available, so the test that asked runs
+/// and reports it. Test-only.
+fn family_available(family: rotor.Address.Family) bool {
+    const socket = rotor.sync.open_datagram(family, null, .{}) catch |failure| return failure != error.AddressFamilyUnsupported;
+    rotor.sync.close_now(socket);
+    return true;
+}
+
+test "every host opens an IPv4 socket, so the check of a family finds one" {
+    try testing.expect(family_available(.ipv4));
+}
+
 test "decision 156 ruling 13: a client over TLS opens a UDP socket of each family" {
+    // The destination is IPv6, and the client's first socket has the destination's family. A
+    // host with no IPv6 cannot open it, so the test does not run there.
+    if (!family_available(.ipv6)) return error.SkipZigTest;
     const pool: client.Config = .{
         .cpu_features = .none(),
         .authority = "localhost",
